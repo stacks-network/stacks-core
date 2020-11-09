@@ -9,7 +9,8 @@ use std::{thread, thread::JoinHandle, time};
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::{
@@ -26,12 +27,12 @@ use stacks::net::{
     db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
 };
 
+use stacks::chainstate::stacks::index::TrieHash;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
-
-use stacks::chainstate::stacks::index::TrieHash;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -311,7 +312,7 @@ impl Node {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -325,6 +326,22 @@ impl Node {
             Some(&initial_neighbors),
         )
         .unwrap();
+
+        println!("DENY NEIGHBORS {:?}", &self.config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in self.config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -367,7 +384,7 @@ impl Node {
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
-        burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
+        burnchain_controller.submit_operation(key_reg_op, &mut op_signer, 1);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -534,7 +551,7 @@ impl Node {
             );
 
             let mut op_signer = self.keychain.generate_op_signer();
-            burnchain_controller.submit_operation(op, &mut op_signer);
+            burnchain_controller.submit_operation(op, &mut op_signer, 1);
         }
     }
 
@@ -645,7 +662,7 @@ impl Node {
         };
 
         self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash);
+            .process_chain_tip(&chain_tip, &parent_index_hash, Txid([0; 32]));
 
         self.chain_tip = Some(chain_tip.clone());
 
@@ -706,7 +723,10 @@ impl Node {
             ),
         };
 
+        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash,
             burn_fee,
             input: self.keychain.get_burnchain_signer(),
@@ -718,7 +738,7 @@ impl Node {
             parent_vtxindex,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
-            commit_outs: vec![],
+            commit_outs,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
         })

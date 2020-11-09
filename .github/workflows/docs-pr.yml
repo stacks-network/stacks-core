@@ -43,18 +43,20 @@ jobs:
         id: push
         run: |
           cd docs.blockstack
-          git config user.email "robots@robots.actions"
+          git config user.email "kantai+robot@gmail.com"
           git config user.name "PR Robot"
           git fetch --unshallow
           git checkout -b $ROBOT_BRANCH
           cp ../docs-output/clarity-reference.json ./src/_data/clarity-reference.json
-          if $(git diff --quiet --exit-code); then
-            echo "No clarity-reference.json changes, stopping"
+          cp ../docs-output/boot-contracts-reference.json ./src/_data/boot-contracts-reference.json
+          git add src/_data/clarity-reference.json
+          git add src/_data/boot-contracts-reference.json
+          if $(git diff --staged --quiet --exit-code); then
+            echo "No reference.json changes, stopping"
             echo "::set-output name=open_pr::0"
           else
             git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
-            git add src/_data/clarity-reference.json
-            git commit -m "auto: update clarity-reference.json from stacks-blockchain@${GITHUB_SHA}"
+            git commit -m "auto: update Clarity references JSONs from stacks-blockchain@${GITHUB_SHA}"
             git push robot $ROBOT_BRANCH
             echo "::set-output name=open_pr::1"
           fi

@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
@@ -260,6 +276,7 @@ impl BurnchainDB {
     fn get_blockstack_transactions(
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
+        sunset_end_ht: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {}",
@@ -269,16 +286,18 @@ impl BurnchainDB {
         block
             .txs()
             .iter()
-            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx))
+            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx, sunset_end_ht))
             .collect()
     }
 
     pub fn store_new_burnchain_block(
         &mut self,
         block: &BurnchainBlock,
+        sunset_end_ht: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header);
+        let mut blockstack_ops =
+            BurnchainDB::get_blockstack_transactions(block, &header, sunset_end_ht);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
@@ -356,7 +375,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&canonical_block)
+            .store_new_burnchain_block(&canonical_block, 1000)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -394,7 +413,7 @@ mod tests {
         ));
 
         let ops = burnchain_db
-            .store_new_burnchain_block(&non_canonical_block)
+            .store_new_burnchain_block(&non_canonical_block, 1000)
             .unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {

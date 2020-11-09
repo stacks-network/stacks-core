@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error;
@@ -24,9 +21,10 @@ use chainstate::stacks::StacksBlockHeader;
 
 use address::AddressHashMode;
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::Address;
+use burnchains::{Address, PoxConstants};
 
 use chainstate::burn::db::sortdb::SortitionDB;
+use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 
 use vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
@@ -42,6 +40,7 @@ use vm::representations::ContractName;
 use util::hash::Hash160;
 
 use std::boxed::Box;
+use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
@@ -96,12 +95,12 @@ fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
         .expect("FATAL: no 'hashbytes' field in pox-addr")
         .to_owned();
 
-    let version_u8 = version_value.expect_buff(1)[0];
+    let version_u8 = version_value.expect_buff_padded(1, 0)[0];
     let version: AddressHashMode = version_u8
         .try_into()
         .expect("FATAL: PoX version is not a supported version byte");
 
-    let hashbytes_vec = hashbytes_value.expect_buff(20);
+    let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
 
     let mut hashbytes_20 = [0u8; 20];
     hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
@@ -183,6 +182,74 @@ impl StacksChainState {
         .map(|value| value.expect_bool())
     }
 
+    /// Given a threshold and set of registered addresses, return a reward set where
+    ///   every entry address has stacked more than the threshold, and addresses
+    ///   are repeated floor(stacked_amt / threshold) times.
+    /// If an address appears in `addresses` multiple times, then the address's associated amounts
+    ///   are summed.
+    pub fn make_reward_set(
+        threshold: u128,
+        mut addresses: Vec<(StacksAddress, u128)>,
+    ) -> Vec<StacksAddress> {
+        let mut reward_set = vec![];
+        // the way that we sum addresses relies on sorting.
+        addresses.sort_by_key(|k| k.0.bytes.0);
+        while let Some((address, mut stacked_amt)) = addresses.pop() {
+            // peak at the next address in the set, and see if we need to sum
+            while addresses.last().map(|x| &x.0) == Some(&address) {
+                let (_, additional_amt) = addresses
+                    .pop()
+                    .expect("BUG: first() returned some, but pop() is none.");
+                stacked_amt = stacked_amt
+                    .checked_add(additional_amt)
+                    .expect("CORRUPTION: Stacker stacked > u128 max amount");
+            }
+            let slots_taken = u32::try_from(stacked_amt / threshold)
+                .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+            info!(
+                "Slots taken by {} = {}, on stacked_amt = {}",
+                &address, slots_taken, stacked_amt
+            );
+            for _i in 0..slots_taken {
+                reward_set.push(address.clone());
+            }
+        }
+        reward_set
+    }
+
+    pub fn get_reward_threshold_and_participation(
+        pox_settings: &PoxConstants,
+        addresses: &[(StacksAddress, u128)],
+        liquid_ustx: u128,
+    ) -> (u128, u128) {
+        let participation = addresses
+            .iter()
+            .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
+
+        assert!(
+            participation <= liquid_ustx,
+            "CORRUPTION: More stacking participation than liquid STX"
+        );
+
+        // set the lower limit on reward scaling at 25% of liquid_ustx
+        //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
+        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+
+        let reward_slots = pox_settings.reward_slots() as u128;
+        let threshold_precise = scale_by / reward_slots;
+        // compute the threshold as nearest 10k > threshold_precise
+        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
+            0 => 0,
+            remainder => POX_THRESHOLD_STEPS_USTX - remainder,
+        };
+        let threshold = threshold_precise + ceil_amount;
+        info!(
+            "PoX participation threshold is {}, from {}",
+            threshold, threshold_precise
+        );
+        (threshold, participation)
+    }
+
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses(
         &mut self,
@@ -255,8 +322,6 @@ impl StacksChainState {
             ret.push((StacksAddress::new(version, hash), total_ustx));
         }
 
-        ret.sort_by_key(|k| k.0.bytes.0);
-
         Ok(ret)
     }
 }
@@ -285,6 +350,7 @@ pub mod test {
 
     use util::*;
 
+    use core::*;
     use vm::contracts::Contract;
     use vm::types::*;
 
@@ -292,6 +358,123 @@ pub mod test {
     use std::fs;
 
     use util::hash::to_hex;
+
+    #[test]
+    fn make_reward_set_units() {
+        let threshold = 1_000;
+        let addresses = vec![
+            (
+                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                1500,
+            ),
+            (
+                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                500,
+            ),
+            (
+                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                1500,
+            ),
+            (
+                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                400,
+            ),
+        ];
+        assert_eq!(
+            StacksChainState::make_reward_set(threshold, addresses).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn get_reward_threshold_units() {
+        let test_pox_constants = PoxConstants::new(500, 1, 1, 1, 5, 5000, 10000);
+        // when the liquid amount = the threshold step,
+        //   the threshold should always be the step size.
+        let liquid = POX_THRESHOLD_STEPS_USTX;
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[],
+                liquid
+            )
+            .0,
+            POX_THRESHOLD_STEPS_USTX
+        );
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[(rand_addr(), liquid)],
+                liquid
+            )
+            .0,
+            POX_THRESHOLD_STEPS_USTX
+        );
+
+        let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
+        // with zero participation, should scale to 25% of liquid
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[],
+                liquid
+            )
+            .0,
+            50_000 * MICROSTACKS_PER_STACKS as u128
+        );
+        // should be the same at 25% participation
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[(rand_addr(), liquid / 4)],
+                liquid
+            )
+            .0,
+            50_000 * MICROSTACKS_PER_STACKS as u128
+        );
+        // but not at 30% participation
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[
+                    (rand_addr(), liquid / 4),
+                    (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
+                ],
+                liquid
+            )
+            .0,
+            60_000 * MICROSTACKS_PER_STACKS as u128
+        );
+
+        // bump by just a little bit, should go to the next threshold step
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[
+                    (rand_addr(), liquid / 4),
+                    (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
+                ],
+                liquid
+            )
+            .0,
+            60_000 * MICROSTACKS_PER_STACKS as u128
+        );
+
+        // bump by just a little bit, should go to the next threshold step
+        assert_eq!(
+            StacksChainState::get_reward_threshold_and_participation(
+                &test_pox_constants,
+                &[(rand_addr(), liquid)],
+                liquid
+            )
+            .0,
+            200_000 * MICROSTACKS_PER_STACKS as u128
+        );
+    }
+
+    fn rand_addr() -> StacksAddress {
+        key_to_stacks_addr(&StacksPrivateKey::new())
+    }
 
     fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
         StacksAddress::from_public_keys(
@@ -512,6 +695,7 @@ pub mod test {
         addr_version: AddressHashMode,
         addr_bytes: Hash160,
         lock_period: u128,
+        burn_ht: u64,
     ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
@@ -523,6 +707,7 @@ pub mod test {
             vec![
                 Value::UInt(amount),
                 make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
             ],
         )
@@ -664,7 +849,7 @@ pub mod test {
 
                 ;; this contract stacks the stx given to it
                 (as-contract
-                    (contract-call? '{}.pox stack-stx amount-ustx pox-addr lock-period))
+                    (contract-call? '{}.pox stack-stx amount-ustx pox-addr burn-block-height lock-period))
             ))
         )
 
@@ -739,7 +924,12 @@ pub mod test {
         block_id: &StacksBlockId,
     ) -> Result<Vec<(StacksAddress, u128)>, Error> {
         let burn_block_height = get_par_burn_block_height(state, block_id);
-        state.get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
+        state
+            .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
+            .and_then(|mut addrs| {
+                addrs.sort_by_key(|k| k.0.bytes.0);
+                Ok(addrs)
+            })
     }
 
     fn get_parent_tip(
@@ -785,7 +975,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -850,7 +1040,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -864,13 +1054,13 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1, tip.block_height);
                     block_txs.push(alice_lockup_1);
                 }
                 if tenure_id == 2 {
                     let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
                         "(define-public (nested-stack-stx)
-                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(alice_test_tx);
                 }
@@ -962,7 +1152,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1057,7 +1247,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1083,6 +1273,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
                     }
@@ -1254,7 +1445,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1507,7 +1698,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1533,6 +1724,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
 
@@ -1544,6 +1736,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             12,
+                            tip.block_height,
                         );
                         block_txs.push(bob_lockup);
                     }
@@ -1711,7 +1904,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1727,11 +1920,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup_1);
 
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup_2);
 
                     // let's make some allowances for contract-calls through smart contracts
@@ -1755,7 +1948,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12)))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -1769,7 +1962,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12)))
+                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -1783,7 +1976,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12)))
+                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -1923,7 +2116,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -1949,6 +2142,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
                     }
@@ -2157,7 +2351,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -2183,6 +2377,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
 
@@ -2210,6 +2405,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
 
@@ -2626,7 +2822,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -2652,6 +2848,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
 
@@ -2662,6 +2859,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(bob_lockup);
 
@@ -2672,6 +2870,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&charlie).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(charlie_lockup);
 
@@ -2682,6 +2881,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&danielle).bytes,
                             1,
+                            tip.block_height,
                         );
                         block_txs.push(danielle_lockup);
 
@@ -3063,7 +3263,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash =
-                Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -3078,7 +3278,7 @@ pub mod test {
 
                 if tenure_id == 1 {
                     // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
-                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup);
 
                     // Bob rejects with exactly 25% of the liquid STX supply (shouldn't affect
@@ -3104,7 +3304,7 @@ pub mod test {
                     //      Note: this behavior is a bug in the miner and block processor: see issue #?
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} u1)) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);

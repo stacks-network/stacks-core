@@ -1,21 +1,19 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
 
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -395,6 +393,20 @@ impl VRFProof {
 
     pub fn to_hex(&self) -> String {
         to_hex(&self.to_bytes())
+    }
+}
+
+impl serde::Serialize for VRFProof {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = self.to_hex();
+        s.serialize_str(&inst)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VRFProof {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<VRFProof, D::Error> {
+        let inst_str = String::deserialize(d)?;
+        VRFProof::from_hex(&inst_str).ok_or(serde::de::Error::custom(Error::InvalidDataError))
     }
 }
 

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
 use std::collections::{HashMap, HashSet};
@@ -925,7 +922,7 @@ impl StacksChainState {
     /// Returns Ok(Some(microblocks)) if the data was found
     /// Returns Ok(None) if the microblocks stream was previously processed and is known to be invalid
     /// Returns Err(...) for not found, I/O error, etc.
-    fn load_microblock_stream(
+    pub fn load_microblock_stream(
         blocks_path: &String,
         consensus_hash: &ConsensusHash,
         microblock_head_hash: &BlockHeaderHash,
@@ -1693,7 +1690,7 @@ impl StacksChainState {
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
     /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(
-        &mut self,
+        &self,
         header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) -> Result<BlocksInvData, Error> {
         let mut block_bits = vec![];
@@ -2243,7 +2240,7 @@ impl StacksChainState {
 
     /// Is a particular microblock in staging, given its _indexed anchored block hash_?
     pub fn has_staging_microblock_indexed(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
         seq: u16,
     ) -> Result<bool, Error> {
@@ -2263,7 +2260,7 @@ impl StacksChainState {
 
     /// Do we have a particular microblock stream given it _indexed head microblock hash_?
     pub fn has_confirmed_microblocks_indexed(
-        &mut self,
+        &self,
         index_microblock_hash: &StacksBlockId,
     ) -> Result<bool, Error> {
         StacksChainState::has_block_indexed(&self.blocks_path, index_microblock_hash)
@@ -2282,7 +2279,7 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
         let sql = "SELECT microblock_hash,consensus_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
@@ -3177,11 +3174,12 @@ impl StacksChainState {
         };
 
         let mut dup = microblock.clone();
-        if dup.verify(&pubkey_hash).is_err() {
+        if let Err(e) = dup.verify(&pubkey_hash) {
             let msg = format!(
-                "Invalid microblock {}: failed to verify signature with {}",
+                "Invalid microblock {}: failed to verify signature with {}: {:?}",
                 microblock.block_hash(),
-                pubkey_hash
+                pubkey_hash,
+                &e
             );
             warn!("{}", &msg);
             return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
@@ -4871,7 +4869,7 @@ pub mod test {
         };
 
         let mblock_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(mblock_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key));
         let mut block = StacksBlock::from_parent(
             &parent_header,
             &parent_microblock_header,

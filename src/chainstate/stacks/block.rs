@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io;
 use std::io::prelude::*;
@@ -145,12 +142,7 @@ impl StacksMessageCodec for StacksBlockHeader {
 
 impl StacksBlockHeader {
     pub fn pubkey_hash(pubk: &StacksPublicKey) -> Hash160 {
-        let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
-        let mut bytes = vec![];
-        pubkey_buf
-            .consensus_serialize(&mut bytes)
-            .expect("BUG: failed to serialize public key to a vec");
-        Hash160::from_data(&bytes[..])
+        Hash160::from_node_public_key(pubk)
     }
 
     pub fn genesis_block_header() -> StacksBlockHeader {
@@ -720,6 +712,11 @@ impl StacksMicroblockHeader {
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
+                test_debug!(
+                    "Failed to verify signature: failed to recover public key from {:?}: {:?}",
+                    &self.signature,
+                    &_ve
+                );
                 net_error::VerifyingError(
                     "Failed to verify signature: failed to recover public key".to_string(),
                 )
@@ -733,8 +730,12 @@ impl StacksMicroblockHeader {
         let pubkh = self.check_recover_pubkey()?;
 
         if pubkh != *pubk_hash {
+            test_debug!(
+                "Failed to verify signature: public key did not recover to hash {}",
+                &pubkh.to_hex()
+            );
             return Err(net_error::VerifyingError(format!(
-                "Failed to verify signature: public key {} did not recover to expected hash",
+                "Failed to verify signature: public key did not recover to expected hash {}",
                 pubkh.to_hex()
             )));
         }
@@ -1284,7 +1285,7 @@ mod test {
         };
 
         let pubk = StacksPublicKey::from_private(&privk);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         mblock_header.sign(&privk).unwrap();
         mblock_header.verify(&pubkh).unwrap();
@@ -1369,6 +1370,7 @@ mod test {
         };
 
         let mut block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: header.block_hash(),
             new_seed: VRFSeed::from_proof(&header.proof),
             parent_block_ptr: 0,

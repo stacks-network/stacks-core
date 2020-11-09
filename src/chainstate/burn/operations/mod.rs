@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
@@ -155,6 +152,8 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<StacksAddress>,
+    /// how much sunset burn this block performed
+    pub sunset_burn: u64,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -192,15 +191,6 @@ pub struct UserBurnSupportOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of burnchain block with this tx
-}
-
-pub trait BlockstackOperation {
-    fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod accounts;
 pub mod blocks;
@@ -537,6 +534,25 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u64,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+}
+
+impl ChainStateBootData {
+
+    pub fn preprend_post_flight_callback(&mut self, new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>) {
+        match self.post_flight_callback.take() {
+            Some(initial_callback) => {
+                self.post_flight_callback = Some(Box::new(|clarity_tx| {
+                    new_callback(clarity_tx);
+                    initial_callback(clarity_tx);
+                }));
+            },
+            None => {
+                self.post_flight_callback = Some(Box::new(|clarity_tx| {
+                    new_callback(clarity_tx);
+                }));
+            }
+        }
+    }
 }
 
 impl StacksChainState {

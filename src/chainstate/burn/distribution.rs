@@ -1,27 +1,23 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
 
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use burnchains::Address;
@@ -314,8 +310,7 @@ mod tests {
     use burnchains::PublicKey;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -641,6 +636,7 @@ mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -682,6 +678,7 @@ mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
                     .unwrap(),
@@ -723,6 +720,7 @@ mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
                     .unwrap(),

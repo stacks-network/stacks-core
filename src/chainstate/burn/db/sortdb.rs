@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rusqlite::types::ToSql;
 use rusqlite::Row;
@@ -52,8 +49,7 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -231,6 +227,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let memo_hex: String = row.get("memo");
         let burn_fee_str: String = row.get("burn_fee");
         let input_json: String = row.get("input");
+        let sunset_burn_str: String = row.get("sunset_burn");
 
         let commit_outs = serde_json::from_value(row.get("commit_outs"))
             .expect("Unparseable value stored to database");
@@ -244,7 +241,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
-            .map_err(|_e| db_error::ParseError)?;
+            .expect("DB Corruption: Sunset burn is not parseable as u64");
+
+        let sunset_burn = sunset_burn_str
+            .parse::<u64>()
+            .expect("DB Corruption: Sunset burn is not parseable as u64");
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
@@ -258,6 +259,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             burn_fee,
             input,
             commit_outs,
+            sunset_burn,
             txid,
             vtxindex,
             block_height,
@@ -414,6 +416,7 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         memo TEXT,
         commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
+        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
         PRIMARY KEY(txid,sortition_id),
@@ -975,7 +978,7 @@ impl<'a> SortitionHandleTx<'a> {
     ///   * The reward cycle had an anchor block, but it isn't known by this node.
     ///   * The reward cycle did not have anchor block
     ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
-    fn pick_recipient(
+    fn pick_recipients(
         &mut self,
         reward_set_vrf_seed: &SortitionHash,
         next_pox_info: Option<&RewardCycleInfo>,
@@ -988,20 +991,26 @@ impl<'a> SortitionHandleTx<'a> {
                     return Ok(None);
                 }
 
-                let chosen_recipient = reward_set_vrf_seed.choose(
+                if OUTPUTS_PER_COMMIT != 2 {
+                    unreachable!("BUG: PoX reward address selection only implemented for OUTPUTS_PER_COMMIT = 2");
+                }
+
+                let chosen_recipients = reward_set_vrf_seed.choose_two(
                     reward_set
                         .len()
                         .try_into()
                         .expect("BUG: u32 overflow in PoX outputs per commit"),
                 );
 
-                let recipient = (
-                    reward_set[chosen_recipient as usize],
-                    u16::try_from(chosen_recipient).unwrap(),
-                );
                 Ok(Some(RewardSetInfo {
                     anchor_block: anchor_block.clone(),
-                    recipient,
+                    recipients: chosen_recipients
+                        .into_iter()
+                        .map(|ix| {
+                            let recipient = reward_set[ix as usize].clone();
+                            (recipient, u16::try_from(ix).unwrap())
+                        })
+                        .collect(),
                 }))
             } else {
                 Ok(None)
@@ -1015,12 +1024,16 @@ impl<'a> SortitionHandleTx<'a> {
                 if reward_set_size == 0 {
                     Ok(None)
                 } else {
-                    let chosen_recipient = reward_set_vrf_seed.choose(reward_set_size as u32);
-                    let ix = u16::try_from(chosen_recipient).unwrap();
-                    let recipient = (self.get_reward_set_entry(ix)?, ix);
+                    let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
+                    let mut recipients = vec![];
+                    for ix in chosen_recipients.into_iter() {
+                        let ix = u16::try_from(ix).unwrap();
+                        let recipient = self.get_reward_set_entry(ix)?;
+                        recipients.push((recipient, ix));
+                    }
                     Ok(Some(RewardSetInfo {
                         anchor_block,
-                        recipient,
+                        recipients,
                     }))
                 }
             } else {
@@ -2337,8 +2350,11 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info =
-            sortition_db_handle.pick_recipient(&reward_set_vrf_hash, next_pox_info.as_ref())?;
+        let reward_set_info = if burn_header.block_height >= burnchain.pox_constants.sunset_end {
+            None
+        } else {
+            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
+        };
 
         let new_snapshot = sortition_db_handle.process_block_txs(
             &parent_snapshot,
@@ -2361,15 +2377,17 @@ impl SortitionDB {
     pub fn test_get_next_block_recipients(
         &mut self,
         next_pox_info: Option<&RewardCycleInfo>,
+        sunset_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
-        self.get_next_block_recipients(&parent_snapshot, next_pox_info)
+        self.get_next_block_recipients(&parent_snapshot, next_pox_info, sunset_ht)
     }
 
     pub fn get_next_block_recipients(
         &mut self,
         parent_snapshot: &BlockSnapshot,
         next_pox_info: Option<&RewardCycleInfo>,
+        sunset_end_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
@@ -2377,7 +2395,11 @@ impl SortitionDB {
 
         let mut sortition_db_handle =
             SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
-        sortition_db_handle.pick_recipient(&reward_set_vrf_hash, next_pox_info)
+        if parent_snapshot.block_height + 1 >= sunset_end_ht {
+            Ok(None)
+        } else {
+            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
+        }
     }
 
     pub fn is_stacks_block_in_sortition_set(
@@ -2801,7 +2823,6 @@ impl SortitionDB {
     }
 
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
-    #[cfg(test)]
     pub fn get_block_snapshot_for_winning_stacks_block(
         ic: &SortitionDBConn,
         tip: &SortitionId,
@@ -3030,9 +3051,6 @@ impl<'a> SortitionHandleTx<'a> {
         let tx_input_str = serde_json::to_string(&block_commit.input)
             .map_err(|e| db_error::SerializationError(e))?;
 
-        // represent burn fee as TEXT
-        let burn_fee_str = format!("{}", block_commit.burn_fee);
-
         let args: &[&dyn ToSql] = &[
             &block_commit.txid,
             &block_commit.vtxindex,
@@ -3045,14 +3063,15 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.key_block_ptr,
             &block_commit.key_vtxindex,
             &to_hex(&block_commit.memo[..]),
-            &burn_fee_str,
+            &block_commit.burn_fee.to_string(),
             &tx_input_str,
             sort_id,
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
+            &block_commit.sunset_burn.to_string(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", args)?;
 
         Ok(())
     }
@@ -3232,9 +3251,18 @@ impl<'a> SortitionHandleTx<'a> {
                     if reward_set.len() > 0 {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
-                        let (addr, ix) = recipient_info.unwrap().recipient.clone();
-                        assert_eq!(&reward_set.remove(ix as usize), &addr,
-                            "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                        let mut recipients_to_remove: Vec<_> = recipient_info
+                            .unwrap()
+                            .recipients
+                            .iter()
+                            .map(|(addr, ix)| (addr.clone(), *ix))
+                            .collect();
+                        recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
+                        // remove from the reward set any consumed addresses in this first reward block
+                        for (addr, ix) in recipients_to_remove.iter() {
+                            assert_eq!(&reward_set.remove(*ix as usize), addr,
+                                       "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                        }
                     }
 
                     keys.push(db_keys::pox_reward_set_size().to_string());
@@ -3257,22 +3285,43 @@ impl<'a> SortitionHandleTx<'a> {
                 //   update the reward set
                 if let Some(reward_info) = recipient_info {
                     let mut current_len = self.get_reward_set_size()?;
-                    let (_, recipient_index) = reward_info.recipient;
+                    let mut recipient_indexes: Vec<_> =
+                        reward_info.recipients.iter().map(|(_, x)| *x).collect();
+                    let mut remapped_entries = HashMap::new();
+                    // sort in decrementing order
+                    recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
+                    for index in recipient_indexes.into_iter() {
+                        // sanity check
+                        if index >= current_len {
+                            unreachable!(
+                                "Supplied index should never be greater than recipient set size"
+                            );
+                        } else if index + 1 == current_len {
+                            // selected index is the last element: no need to swap, just decrement len
+                            current_len -= 1;
+                        } else {
+                            let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
+                            let replace_with = if let Some((_prior_ix, replace_with)) =
+                                remapped_entries.remove_entry(&replacement)
+                            {
+                                // the entry to swap in was itself swapped, so let's use the new value instead
+                                replace_with
+                            } else {
+                                self.get_reward_set_entry(replacement)?
+                            };
 
-                    if recipient_index >= current_len {
-                        unreachable!(
-                            "Supplied index should never be greater than recipient set size"
-                        );
+                            // swap and decrement to remove from set
+                            remapped_entries.insert(index, replace_with);
+                            current_len -= 1;
+                        }
                     }
-
-                    current_len -= 1;
-                    let recipient = self.get_reward_set_entry(current_len)?;
-
                     // store the changes in the new trie
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(current_len as usize));
-                    keys.push(db_keys::pox_reward_set_entry(recipient_index));
-                    values.push(recipient.to_string())
+                    for (recipient_index, replace_with) in remapped_entries.into_iter() {
+                        keys.push(db_keys::pox_reward_set_entry(recipient_index));
+                        values.push(replace_with.to_string())
+                    }
                 }
             }
         } else {
@@ -3420,8 +3469,7 @@ mod tests {
     use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -3611,6 +3659,7 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -4396,6 +4445,7 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),

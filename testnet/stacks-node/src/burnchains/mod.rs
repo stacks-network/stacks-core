@@ -37,6 +37,7 @@ pub trait BurnchainController {
         &mut self,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
+        attempt: u64,
     ) -> bool;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;

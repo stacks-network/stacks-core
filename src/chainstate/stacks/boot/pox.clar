@@ -18,6 +18,7 @@
 (define-constant ERR_DELEGATION_EXPIRES_DURING_LOCK 21)
 (define-constant ERR_DELEGATION_TOO_MUCH_LOCKED 22)
 (define-constant ERR_DELEGATION_POX_ADDR_REQUIRED 23)
+(define-constant ERR_INVALID_START_BURN_HEIGHT 24)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -34,7 +35,7 @@
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint) (prepare-cycle-length uint) (reward-cycle-length uint) (rejection-fraction uint))
     (begin
-        (asserts! (and is-in-regtest (not (var-get configured))) (err ERR_NOT_ALLOWED))
+        (asserts! (not (var-get configured)) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-prepare-cycle-length prepare-cycle-length)
         (var-set pox-reward-cycle-length reward-cycle-length)
@@ -425,13 +426,22 @@
 ;; at the time this method is called.
 ;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
 ;; may increase between reward cycles.
+;; * The Stacker will receive rewards in the reward cycle following `start-burn-ht`.
+;; Importantly, `start-burn-ht` may not be further into the future than the next reward cycle,
+;; and in most cases should be set to the current burn block height.
 ;;
 ;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
 (define-public (stack-stx (amount-ustx uint)
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                          (start-burn-ht uint)
                           (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
-    (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle))))
+    (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
+          (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
+      ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+      ;;  to "post-date" their `stack-stx` transaction
+      (asserts! (is-eq first-reward-cycle specified-reward-cycle)
+                (err ERR_INVALID_START_BURN_HEIGHT))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -547,10 +557,16 @@
 (define-public (delegate-stack-stx (stacker principal)
                                    (amount-ustx uint)
                                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                                   (start-burn-ht uint)
                                    (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
+          (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
           (unlock-burn-height (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 lock-period))))
+      ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+      ;;  to "post-date" their `stack-stx` transaction
+      (asserts! (is-eq first-reward-cycle specified-reward-cycle)
+                (err ERR_INVALID_START_BURN_HEIGHT))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)

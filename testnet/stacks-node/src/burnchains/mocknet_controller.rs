@@ -116,6 +116,7 @@ impl BurnchainController for MocknetController {
         &mut self,
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
+        _attempt: u64,
     ) -> bool {
         self.queued_operations.push_back(operation);
         true
@@ -154,6 +155,7 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                        sunset_burn: 0,
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,
                         parent_block_ptr: payload.parent_block_ptr,

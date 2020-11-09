@@ -10,6 +10,7 @@ use stacks::burnchains::{BurnchainHeaderHash, MagicBytes, BLOCKSTACK_MAGIC_MAINN
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -52,7 +53,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("038dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aa@neon.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -336,6 +337,7 @@ impl Config {
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                     p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
                     bootstrap_node: None,
+                    deny_nodes: vec![],
                     data_url: match node.data_url {
                         Some(data_url) => data_url,
                         None => format!("http://{}", rpc_bind),
@@ -354,8 +356,14 @@ impl Config {
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
                     prometheus_bind: node.prometheus_bind,
+                    pox_sync_sample_secs: node
+                        .pox_sync_sample_secs
+                        .unwrap_or(default_node_config.pox_sync_sample_secs),
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
+                if let Some(deny_nodes) = node.deny_nodes {
+                    node_config.set_deny_nodes(deny_nodes);
+                }
                 node_config
             }
             None => default_node_config,
@@ -408,6 +416,9 @@ impl Config {
                         .burnchain_op_tx_fee
                         .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
+                    poll_time_secs: burnchain
+                        .poll_time_secs
+                        .unwrap_or(default_burnchain_config.poll_time_secs),
                     first_block_hash: burnchain
                         .first_block_hash
                         .unwrap_or(default_burnchain_config.first_block_hash),
@@ -488,7 +499,7 @@ impl Config {
                 let ip_addr = match opts.public_ip_address {
                     Some(public_ip_address) => {
                         let addr = public_ip_address.parse::<SocketAddr>().unwrap();
-                        println!("addr.parse {:?}", addr);
+                        debug!("addr.parse {:?}", addr);
                         Some((PeerAddress::from_socketaddr(&addr), addr.port()))
                     }
                     None => None,
@@ -601,6 +612,9 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()
                     }),
                     public_ip_address: ip_addr,
+                    disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
+                    disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
+                    force_disconnect_interval: opts.force_disconnect_interval,
                     ..ConnectionOptions::default()
                 }
             }
@@ -729,6 +743,7 @@ pub struct BurnchainConfig {
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
+    pub poll_time_secs: u64,
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_height: u32,
     pub first_block_timestamp: u64,
@@ -739,7 +754,7 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
-            burn_fee_cap: 10000,
+            burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
@@ -753,6 +768,7 @@ impl BurnchainConfig {
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
+            poll_time_secs: 10, // TODO: this is a testnet specific value.
             first_block_hash: BurnchainHeaderHash::zero(),
             first_block_height: 0,
             first_block_timestamp: 0,
@@ -805,6 +821,7 @@ pub struct BurnchainConfigFile {
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
+    pub poll_time_secs: Option<u64>,
     pub first_block_hash: Option<BurnchainHeaderHash>,
     pub first_block_height: Option<u32>,
     pub first_block_timestamp: Option<u64>,
@@ -821,10 +838,12 @@ pub struct NodeConfig {
     pub p2p_address: String,
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
+    pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
+    pub pox_sync_sample_secs: u64,
 }
 
 impl NodeConfig {
@@ -853,11 +872,13 @@ impl NodeConfig {
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
+            deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 15000,
+            wait_time_for_microblocks: 5000,
             prometheus_bind: None,
+            pox_sync_sample_secs: 30,
         }
     }
 
@@ -869,33 +890,58 @@ impl NodeConfig {
         format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 
+    fn default_neighbor(addr: SocketAddr, pubk: Secp256k1PublicKey) -> Neighbor {
+        Neighbor {
+            addr: NeighborKey {
+                peer_version: TESTNET_PEER_VERSION,
+                network_id: TESTNET_CHAIN_ID,
+                addrbytes: PeerAddress::from_socketaddr(&addr),
+                port: addr.port(),
+            },
+            public_key: pubk,
+            expire_block: 99999,
+            last_contact_time: 0,
+            allowed: 0,
+            denied: 0,
+            asn: 0,
+            org: 0,
+            in_degree: 0,
+            out_degree: 0,
+        }
+    }
+
     pub fn set_bootstrap_node(&mut self, bootstrap_node: Option<String>) {
         if let Some(bootstrap_node) = bootstrap_node {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
                 [public_key, peer_addr] => {
+                    let mut pubk = Secp256k1PublicKey::from_hex(public_key).unwrap();
+                    pubk.set_compressed(true);
+
                     let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
                     let sock_addr = addrs_iter.next().unwrap();
-                    let neighbor = Neighbor {
-                        addr: NeighborKey {
-                            peer_version: TESTNET_PEER_VERSION,
-                            network_id: TESTNET_CHAIN_ID,
-                            addrbytes: PeerAddress::from_socketaddr(&sock_addr),
-                            port: sock_addr.port(),
-                        },
-                        public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
-                        expire_block: 99999,
-                        last_contact_time: 0,
-                        allowed: 0,
-                        denied: 0,
-                        asn: 0,
-                        org: 0,
-                        in_degree: 0,
-                        out_degree: 0,
-                    };
+                    let neighbor = NodeConfig::default_neighbor(sock_addr, pubk);
                     self.bootstrap_node = Some(neighbor);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    pub fn add_deny_node(&mut self, deny_node: &str) {
+        let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
+        let neighbor = NodeConfig::default_neighbor(
+            sockaddr,
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+        );
+        self.deny_nodes.push(neighbor);
+    }
+
+    pub fn set_deny_nodes(&mut self, deny_nodes: String) {
+        let parts: Vec<&str> = deny_nodes.split(",").collect();
+        for part in parts.into_iter() {
+            if part.len() > 0 {
+                self.add_deny_node(&part);
             }
         }
     }
@@ -930,6 +976,9 @@ pub struct ConnectionOptionsFile {
     pub download_interval: Option<u64>,
     pub inv_sync_interval: Option<u64>,
     pub public_ip_address: Option<String>,
+    pub disable_inbound_walks: Option<bool>,
+    pub disable_inbound_handshakes: Option<bool>,
+    pub force_disconnect_interval: Option<u64>,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -945,6 +994,7 @@ pub struct BlockLimitFile {
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
+    pub deny_nodes: Option<String>,
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
@@ -956,6 +1006,7 @@ pub struct NodeConfigFile {
     pub mine_microblocks: Option<bool>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
+    pub pox_sync_sample_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod asn;
 pub mod chat;
@@ -214,6 +211,10 @@ pub enum Error {
     CoordinatorClosed,
     /// view of state is stale (e.g. from the sortition db)
     StaleView,
+    /// Tried to connect to myself
+    ConnectionCycle,
+    /// Requested data not found
+    NotFoundError,
 }
 
 /// Enum for passing data for ClientErrors
@@ -294,6 +295,8 @@ impl fmt::Display for Error {
             Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
+            Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
+            Error::NotFoundError => write!(f, "Requested data not found"),
         }
     }
 }
@@ -350,6 +353,8 @@ impl error::Error for Error {
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
+            Error::ConnectionCycle => None,
+            Error::NotFoundError => None,
         }
     }
 }
@@ -1606,10 +1611,12 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub num_state_machine_passes: u64,
+    pub num_inv_sync_passes: u64,
 }
 
 impl NetworkResult {
-    pub fn new() -> NetworkResult {
+    pub fn new(num_state_machine_passes: u64, num_inv_sync_passes: u64) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
@@ -1620,6 +1627,8 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
+            num_state_machine_passes: num_state_machine_passes,
+            num_inv_sync_passes: num_inv_sync_passes,
         }
     }
 
@@ -1651,10 +1660,10 @@ impl NetworkResult {
 
     pub fn consume_unsolicited(
         &mut self,
-        mut unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+        unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     ) -> () {
-        for (neighbor_key, mut messages) in unhandled_messages.drain() {
-            for message in messages.drain(..) {
+        for (neighbor_key, messages) in unhandled_messages.into_iter() {
+            for message in messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
                         if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
@@ -2015,7 +2024,8 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+            burnchain.pox_constants =
+                PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
 
             let spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
@@ -2153,7 +2163,7 @@ pub mod test {
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
 
-            let mut burnchain = get_burnchain(&test_path);
+            let mut burnchain = get_burnchain(&test_path, None);
             burnchain.first_block_height = config.burnchain.first_block_height;
             burnchain.first_block_hash = config.burnchain.first_block_hash;
 
@@ -2970,7 +2980,7 @@ pub mod test {
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
-                        Some(info) => vec![info.recipient.0],
+                        Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
                         None => vec![],
                     };
                 }
