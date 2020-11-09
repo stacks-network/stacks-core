@@ -48,6 +48,7 @@ jobs:
   # Run net-tests
   nettest:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v2
       - name: Run network relay tests

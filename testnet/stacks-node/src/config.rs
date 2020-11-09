@@ -1011,6 +1011,7 @@ pub enum EventKeyType {
     STXEvent,
     MemPoolTransactions,
     AnyEvent,
+    BurnchainBlocks,
 }
 
 impl EventKeyType {
@@ -1025,6 +1026,10 @@ impl EventKeyType {
 
         if raw_key == "memtx" {
             return Some(EventKeyType::MemPoolTransactions);
+        }
+
+        if raw_key == "burn_blocks" {
+            return Some(EventKeyType::BurnchainBlocks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
