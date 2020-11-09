@@ -3621,7 +3621,12 @@ def run_blockstackd():
         subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
         subdomain_csv_path = os.path.join(output_dir, 'subdomains.csv')
         subdomain_csv_hash_path = subdomain_csv_path + '.sha256'
-        subdomain_query_str = 'SELECT zonefile_hash, fully_qualified_subdomain, owner from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
+        subdomain_query_str = """
+            SELECT zonefile_hash, parent_zonefile_hash, fully_qualified_subdomain, owner, block_height, parent_zonefile_index, zonefile_offset, resolver
+            FROM subdomain_records
+            WHERE accepted = 1 AND missing = ''
+            GROUP BY fully_qualified_subdomain
+            ORDER BY block_height DESC, zonefile_hash;"""
         cmd = 'sqlite3 {} -cmd ".headers on" -cmd ".mode csv" -cmd ".output {}" "{}"'.format(
             pipes.quote(subdomain_db_path), 
             pipes.quote(subdomain_csv_path), 
