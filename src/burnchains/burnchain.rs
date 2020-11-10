@@ -329,7 +329,6 @@ impl Burnchain {
         chain_name: &str,
         network_name: &str,
     ) -> Result<Burnchain, burnchain_error> {
-        
         let (params, pox_constants) = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => (
                 BurnchainParameters::bitcoin_mainnet(),
@@ -420,23 +419,24 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(
-            working_dir,
-            &"bitcoin".to_string(),
-            &"regtest".to_string(),
-        )
-        .unwrap();
+        let ret =
+            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
         ret
     }
 
     #[cfg(test)]
-    pub fn default_unittest() -> Burnchain {
-        let ret = Burnchain::new(
+    pub fn default_unittest(
+        first_block_height: u64,
+        first_block_hash: &BurnchainHeaderHash,
+    ) -> Burnchain {
+        let mut ret = Burnchain::new(
             &"/unit-tests".to_string(),
             &"bitcoin".to_string(),
             &"mainnet".to_string(),
         )
         .unwrap();
+        ret.first_block_height = first_block_height;
+        ret.first_block_hash = first_block_hash.clone();
         ret
     }
 
@@ -2336,6 +2336,8 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash,
             first_block_height: first_block_height,
         };
 

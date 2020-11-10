@@ -24,11 +24,11 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
+use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
@@ -165,12 +165,8 @@ impl BitcoinRegtestController {
             Some(burnchain) => (burnchain.clone(), network_type),
             None => {
                 let working_dir = self.config.get_burn_db_path();
-                match Burnchain::new(
-                    &working_dir,
-                    &self.config.burnchain.chain,
-                    &network_name)
-                {
-	                Ok(burnchain) => (burnchain, network_type),
+                match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+                    Ok(burnchain) => (burnchain, network_type),
                     Err(e) => {
                         error!("Failed to instantiate burnchain: {}", e);
                         panic!()
@@ -863,11 +859,7 @@ impl BurnchainController for BitcoinRegtestController {
     fn sortdb_mut(&mut self) -> &mut SortitionDB {
         let working_dir = self.config.get_burn_db_path();
         let (network, _) = self.config.burnchain.get_bitcoin_network();
-        let burnchain = match Burnchain::new(
-            &working_dir,
-            &self.config.burnchain.chain,
-            &network)
-        {
+        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network) {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);

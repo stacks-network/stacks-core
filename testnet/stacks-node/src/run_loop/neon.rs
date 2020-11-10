@@ -8,9 +8,9 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::stacks::db::ChainStateBootData;
 use std::cmp;
 use std::thread;
-use stacks::chainstate::stacks::db::ChainStateBootData;
 
 use super::RunLoopCallbacks;
 
@@ -154,7 +154,7 @@ impl RunLoop {
         let burnchain_config = match Burnchain::new(
             &self.config.get_burn_db_path(),
             &self.config.burnchain.chain,
-            &network
+            &network,
         ) {
             Ok(burnchain) => burnchain,
             Err(e) => {

@@ -537,15 +537,17 @@ pub struct ChainStateBootData {
 }
 
 impl ChainStateBootData {
-
-    pub fn preprend_post_flight_callback(&mut self, new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>) {
+    pub fn preprend_post_flight_callback(
+        &mut self,
+        new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) {
         match self.post_flight_callback.take() {
             Some(initial_callback) => {
                 self.post_flight_callback = Some(Box::new(|clarity_tx| {
                     new_callback(clarity_tx);
                     initial_callback(clarity_tx);
                 }));
-            },
+            }
             None => {
                 self.post_flight_callback = Some(Box::new(|clarity_tx| {
                     new_callback(clarity_tx);

@@ -105,7 +105,6 @@ pub struct BurnchainParameters {
 }
 
 impl BurnchainParameters {
-
     pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
         match (chain, network) {
             ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
@@ -113,7 +112,7 @@ impl BurnchainParameters {
             ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
             _ => None,
         }
-    } 
+    }
 
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
@@ -136,7 +135,10 @@ impl BurnchainParameters {
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: 1891063,
-            first_block_hash: BurnchainHeaderHash::from_hex("000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637").unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(
+                "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637",
+            )
+            .unwrap(),
             first_block_timestamp: 1604967939,
         }
     }

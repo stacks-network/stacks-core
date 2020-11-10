@@ -76,18 +76,14 @@ pub fn sync_burnchain_bitcoin(
     use burnchains::bitcoin::indexer::BitcoinIndexer;
     let channels = CoordinatorCommunication::instantiate();
 
-    let mut burnchain = Burnchain::new(
-        working_dir,
-        &"bitcoin".to_string(),
-        network_name,
-    )
-    .map_err(|e| {
-        error!(
-            "Failed to instantiate burn chain driver for {}: {:?}",
-            network_name, e
-        );
-        e
-    })?;
+    let mut burnchain =
+        Burnchain::new(working_dir, &"bitcoin".to_string(), network_name).map_err(|e| {
+            error!(
+                "Failed to instantiate burn chain driver for {}: {:?}",
+                network_name, e
+            );
+            e
+        })?;
 
     let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1, None, None);
     let new_height = new_height_res.map_err(|e| {

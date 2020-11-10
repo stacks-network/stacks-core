@@ -241,7 +241,7 @@ impl<'a, T: BlockEventDispatcher>
         let pox_prepare_length = burnchain.pox_constants.prepare_length as u128;
         let pox_reward_cycle_length = burnchain.pox_constants.reward_cycle_length as u128;
         let pox_rejection_fraction = burnchain.pox_constants.pox_rejection_fraction as u128;
-        
+
         let boot_block = move |clarity_tx: &mut ClarityTx| {
             let contract = QualifiedContractIdentifier::parse(&format!(
                 "{}.pox",
@@ -255,7 +255,7 @@ impl<'a, T: BlockEventDispatcher>
                 Value::UInt(pox_reward_cycle_length),
                 Value::UInt(pox_rejection_fraction),
             ];
-            
+
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,

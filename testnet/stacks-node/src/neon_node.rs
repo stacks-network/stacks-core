@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, BurnchainParameters};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -982,8 +982,9 @@ impl InitializedNeonNode {
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
             let (network, _) = config.burnchain.get_bitcoin_network();
-            let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
-                .expect("Bitcoin network unsupported");    
+            let burnchain_params =
+                BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                    .expect("Bitcoin network unsupported");
 
             let chain_tip = ChainTip::genesis(
                 config.get_initial_liquid_ustx(),

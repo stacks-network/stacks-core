@@ -1284,6 +1284,7 @@ mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
+            first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
         };
 
