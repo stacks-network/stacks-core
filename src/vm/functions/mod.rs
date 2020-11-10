@@ -27,7 +27,9 @@ pub mod tuples;
 
 use util::hash;
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer, runtime_cost};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -42,9 +44,9 @@ use vm::{eval, Environment, LocalContext};
 
 use address::AddressHashMode;
 use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
 pub use vm::functions::special::handle_contract_call_special_cases;
-use vm::costs::cost_functions::ClarityCostFunction;
 
 define_named_enum!(NativeFunctions {
     Add("+"),

@@ -30,7 +30,10 @@ use vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use vm::errors::{CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType, InterpreterResult};
+use vm::errors::{
+    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
+    InterpreterResult, RuntimeErrorType,
+};
 use vm::types::QualifiedContractIdentifier;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
@@ -614,11 +617,11 @@ impl ClarityBackingStore for NullBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    fn get(&mut self, _key: &str) -> Option<String> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+    fn get_with_proof(&mut self, _key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -646,7 +649,7 @@ impl ClarityBackingStore for NullBackingStore {
         0
     }
 
-    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+    fn put_all(&mut self, mut _items: Vec<(String, String)>) {
         panic!("NullBackingStore cannot put")
     }
 }

@@ -45,7 +45,10 @@ pub mod tests;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
-use vm::costs::{cost_functions, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost};
+use vm::costs::{
+    cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
+    MemoryConsumer,
+};
 use vm::database::MemoryBackingStore;
 use vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -58,10 +61,10 @@ pub use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
 
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
-pub use vm::functions::{get_stx_balance_snapshot, stx_transfer_consolidated};
 use vm::costs::cost_functions::ClarityCostFunction;
+pub use vm::functions::{get_stx_balance_snapshot, stx_transfer_consolidated};
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -76,7 +79,11 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
         } else {
-            runtime_cost(ClarityCostFunction::LookupVariableDepth, env, context.depth())?;
+            runtime_cost(
+                ClarityCostFunction::LookupVariableDepth,
+                env,
+                context.depth(),
+            )?;
             if let Some(value) = context
                 .lookup_variable(name)
                 .or_else(|| env.contract_context.lookup_variable(name))
@@ -343,7 +350,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)
@@ -398,7 +405,7 @@ mod test {
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
-            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
+            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .variables

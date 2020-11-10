@@ -18,8 +18,8 @@ use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 
 use std::convert::TryFrom;
-use vm::costs::{cost_functions, CostTracker, runtime_cost};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -307,7 +307,11 @@ pub fn special_mint_asset(
         .database
         .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
-    runtime_cost(ClarityCostFunction::NftMint, env, expected_asset_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::NftMint,
+        env,
+        expected_asset_type.size(),
+    )?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
@@ -367,7 +371,7 @@ pub fn special_transfer_asset(
     runtime_cost(
         ClarityCostFunction::NftTransfer,
         env,
-        expected_asset_type.size()
+        expected_asset_type.size(),
     )?;
 
     if !expected_asset_type.admits(&asset) {
@@ -562,7 +566,11 @@ pub fn special_get_owner(
         .database
         .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
-    runtime_cost(ClarityCostFunction::NftOwner, env, expected_asset_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::NftOwner,
+        env,
+        expected_asset_type.size(),
+    )?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());

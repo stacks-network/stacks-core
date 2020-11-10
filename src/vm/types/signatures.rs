@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 
 use address::c32;
 use util::hash;
-use vm::costs::{cost_functions, CostOverflowingMath, runtime_cost};
+use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
 use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -1215,8 +1215,8 @@ impl TupleTypeSignature {
     }
 }
 
-use vm::costs::CostTracker;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::CostTracker;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
     name_type_pairs: &[SymbolicExpression],

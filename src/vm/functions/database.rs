@@ -22,7 +22,9 @@ use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 
 use chainstate::stacks::StacksBlockId;
 use vm::callables::DefineType;
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer, runtime_cost};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
@@ -34,8 +36,8 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext};
 
-use vm::functions::special::handle_contract_call_special_cases;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::functions::special::handle_contract_call_special_cases;
 
 pub fn special_contract_call(
     args: &[SymbolicExpression],
@@ -198,7 +200,11 @@ pub fn special_fetch_variable(
         .global_context
         .database
         .load_variable(contract, var_name)?;
-    runtime_cost(ClarityCostFunction::FetchVar, env, data_types.value_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::FetchVar,
+        env,
+        data_types.value_type.size(),
+    )?;
 
     env.global_context
         .database
@@ -229,7 +235,11 @@ pub fn special_set_variable(
         .global_context
         .database
         .load_variable(contract, var_name)?;
-    runtime_cost(ClarityCostFunction::SetVar, env, data_types.value_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::SetVar,
+        env,
+        data_types.value_type.size(),
+    )?;
 
     env.add_memory(value.get_memory_use())?;
 
@@ -261,7 +271,7 @@ pub fn special_fetch_entry(
     runtime_cost(
         ClarityCostFunction::FetchEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.global_context
@@ -328,7 +338,7 @@ pub fn special_set_entry(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.add_memory(key.get_memory_use())?;
@@ -371,7 +381,7 @@ pub fn special_insert_entry(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.add_memory(key.get_memory_use())?;
@@ -406,7 +416,11 @@ pub fn special_delete_entry(
     //   in the contract object, so that it gets loaded in when the contract
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
-    runtime_cost(ClarityCostFunction::SetEntry, env, data_types.key_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::SetEntry,
+        env,
+        data_types.key_type.size(),
+    )?;
 
     env.add_memory(key.get_memory_use())?;
 

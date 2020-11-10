@@ -16,10 +16,10 @@
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
 use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
 use vm::representations::SymbolicExpression;
 use vm::types::{BlockInfoProperty, TupleTypeSignature, TypeSignature, MAX_VALUE_SIZE};
-use vm::costs::cost_functions::ClarityCostFunction;
 
 pub fn check_special_get_owner(
     checker: &mut TypeChecker,
@@ -39,7 +39,7 @@ pub fn check_special_get_owner(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -87,7 +87,7 @@ pub fn check_special_mint_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -145,7 +145,7 @@ pub fn check_special_transfer_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;

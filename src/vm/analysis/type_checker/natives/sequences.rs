@@ -28,8 +28,8 @@ use vm::analysis::type_checker::{
     check_argument_count, no_type, CheckErrors, CheckResult, TypeChecker, TypeResult, TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 fn get_simple_native_or_user_define(
     function_name: &str,
@@ -269,7 +269,7 @@ pub fn check_special_as_max_len(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeAnnotate,
         checker,
-        TypeSignature::UIntType.type_size()?
+        TypeSignature::UIntType.type_size()?,
     )?;
     checker
         .type_map

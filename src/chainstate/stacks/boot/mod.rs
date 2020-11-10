@@ -31,10 +31,14 @@ use vm::types::{
     Value,
 };
 
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::StacksBlockId;
 
 use burnchains::Burnchain;
 
+use vm::clarity::ClarityConnection;
+use vm::contexts::ContractContext;
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::representations::ContractName;
 
 use util::hash::Hash160;
@@ -50,7 +54,7 @@ const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
-const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 
 lazy_static! {
     static ref BOOT_CODE_POX_MAINNET: String =
@@ -67,6 +71,7 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS)
     ];
+    pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
 }
 
 pub fn boot_code_addr() -> StacksAddress {
@@ -121,12 +126,15 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_conn();
-        self.clarity_eval_read_only_checked(
-            &iconn,
-            &stacks_block_id,
-            &boot_code_id(boot_contract_name),
-            code,
-        )
+        self.clarity_state
+            .eval_read_only(
+                &stacks_block_id,
+                self.headers_state_index.sqlite_conn(),
+                &iconn,
+                &boot_code_id(boot_contract_name),
+                code,
+            )
+            .map_err(Error::ClarityError)
     }
 
     /// Determine which reward cycle this particular block lives in.
@@ -251,6 +259,30 @@ impl StacksChainState {
             threshold, threshold_precise
         );
         (threshold, participation)
+    }
+
+    pub fn get_cost_contract_identifier(
+        &mut self,
+        _block_id: &StacksBlockId,
+    ) -> Result<QualifiedContractIdentifier, Error> {
+        Ok(STACKS_BOOT_COST_CONTRACT.clone())
+    }
+
+    pub fn get_contract_context(
+        &mut self,
+        at_block: &StacksBlockId,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<ContractContext, Error> {
+        let mut conn =
+            self.clarity_state
+                .read_only_connection(at_block, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let result =
+            conn.with_clarity_db_readonly(|clarity_db| match clarity_db.get_contract(contract) {
+                Ok(contract) => Ok(contract.contract_context),
+                Err(e) => Err(Error::ClarityError(e.into())),
+            });
+        conn.done();
+        result
     }
 
     /// Each address will have at least (get-stacking-minimum) tokens.

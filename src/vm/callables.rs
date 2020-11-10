@@ -21,18 +21,18 @@ use std::iter::FromIterator;
 
 use chainstate::stacks::events::StacksTransactionEvent;
 
-use vm::costs::{cost_functions, SimpleCostSpecification, runtime_cost};
+use vm::costs::{cost_functions, runtime_cost, SimpleCostSpecification};
 
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::ContractContext;
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::errors::{check_argument_count, Error, InterpreterResult as Result};
 use vm::representations::{ClarityName, SymbolicExpression};
+use vm::types::Value::UInt;
 use vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
 };
 use vm::{eval, Environment, LocalContext, Value};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::types::Value::UInt;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
@@ -119,10 +119,15 @@ impl DefinedFunction {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
             env,
-            self.arguments.len())?;
+            self.arguments.len(),
+        )?;
 
         for arg_type in self.arg_types.iter() {
-            runtime_cost(ClarityCostFunction::InnerTypeCheckCost, env, arg_type.size())?;
+            runtime_cost(
+                ClarityCostFunction::InnerTypeCheckCost,
+                env,
+                arg_type.size(),
+            )?;
         }
 
         let mut context = LocalContext::new();

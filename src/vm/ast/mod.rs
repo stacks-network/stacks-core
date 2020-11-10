@@ -23,7 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use vm::costs::{cost_functions, CostTracker, runtime_cost, LimitedCostTracker};
+use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use vm::errors::{Error, RuntimeErrorType};
 
 use vm::representations::SymbolicExpression;
@@ -56,7 +56,7 @@ pub fn build_ast<T: CostTracker>(
     runtime_cost(
         ClarityCostFunction::AstParse,
         cost_track,
-        source_code.len() as u64
+        source_code.len() as u64,
     )?;
     let pre_expressions = parser::parse(source_code)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
@@ -101,7 +101,7 @@ mod tests {
             progn.push_str("))");
         }
 
-        let mut cost_track = LimitedCostTracker::new_max_limit();
+        let mut cost_track = LimitedCostTracker::new_free();
         build_ast(
             &QualifiedContractIdentifier::transient(),
             &progn,
@@ -128,7 +128,7 @@ mod tests {
                        b: 1,
                        c: 3 }";
 
-        let mut cost_track = LimitedCostTracker::new_max_limit();
+        let mut cost_track = LimitedCostTracker::new_free();
         let ast = build_ast(
             &QualifiedContractIdentifier::transient(),
             &progn,
