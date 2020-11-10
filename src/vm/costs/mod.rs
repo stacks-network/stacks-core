@@ -43,11 +43,8 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     tracker: &mut C,
     input: T) -> Result<()> {
 
-    // let start = Instant::now();
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
     let cost = tracker.compute_cost(cost_function, size)?;
-    // let duration = start.elapsed();
-    // dbg!(cost_function, duration);
 
     tracker.add_cost(cost)
 }
