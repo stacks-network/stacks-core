@@ -3738,6 +3738,7 @@ def run_blockstackd():
             namespace['coeff'] = namespace_info['coeff']
             namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
             namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
+            namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
             namespaces.append(namespace)
 
         print_status("Querying names...")
