@@ -3,7 +3,7 @@ use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
 use stacks::chainstate::stacks::db::ClarityTx;
-
+use stacks::burnchains::BurnchainHeaderHash;
 use super::RunLoopCallbacks;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
@@ -67,9 +67,9 @@ impl RunLoop {
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
         let mut chain_tip = ChainTip::genesis(
             self.config.get_initial_liquid_ustx(),
-            &self.config.burnchain.first_block_hash,
-            self.config.burnchain.first_block_height.into(),
-            self.config.burnchain.first_block_timestamp,
+            &BurnchainHeaderHash::zero(),
+            0,
+            0,
         );
 
         self.node.spawn_peer_server();

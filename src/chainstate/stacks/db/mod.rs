@@ -531,7 +531,7 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
-    pub first_burnchain_block_timestamp: u64,
+    pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
 }
@@ -793,7 +793,7 @@ impl StacksChainState {
                 initial_liquid_ustx,
                 &boot_data.first_burnchain_block_hash,
                 boot_data.first_burnchain_block_height,
-                boot_data.first_burnchain_block_timestamp,
+                boot_data.first_burnchain_block_timestamp as u64,
             );
 
             StacksChainState::insert_stacks_block_header(

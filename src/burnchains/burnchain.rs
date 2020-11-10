@@ -328,9 +328,8 @@ impl Burnchain {
         working_dir: &str,
         chain_name: &str,
         network_name: &str,
-        first_block_hash: &BurnchainHeaderHash,
-        first_block_height: u32,
     ) -> Result<Burnchain, burnchain_error> {
+        
         let (params, pox_constants) = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => (
                 BurnchainParameters::bitcoin_mainnet(),
@@ -357,8 +356,9 @@ impl Burnchain {
             working_dir: working_dir.into(),
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
-            first_block_height: first_block_height as u64,
-            first_block_hash: first_block_hash.clone(),
+            first_block_height: params.first_block_height,
+            first_block_hash: params.first_block_hash,
+            first_block_timestamp: params.first_block_timestamp,
             pox_constants,
         })
     }
@@ -424,24 +424,17 @@ impl Burnchain {
             working_dir,
             &"bitcoin".to_string(),
             &"regtest".to_string(),
-            &BurnchainHeaderHash::zero(),
-            0,
         )
         .unwrap();
         ret
     }
 
     #[cfg(test)]
-    pub fn default_unittest(
-        first_block_height: u64,
-        first_block_hash: &BurnchainHeaderHash,
-    ) -> Burnchain {
+    pub fn default_unittest() -> Burnchain {
         let ret = Burnchain::new(
             &"/unit-tests".to_string(),
             &"bitcoin".to_string(),
             &"mainnet".to_string(),
-            &first_block_hash,
-            first_block_height as u32,
         )
         .unwrap();
         ret
@@ -1366,7 +1359,8 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000123",
@@ -2343,7 +2337,6 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
         };
 
         let mut leader_private_keys = vec![];

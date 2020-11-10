@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -637,8 +637,6 @@ impl InitializedNeonNode {
             &config.get_burn_db_path(),
             &config.burnchain.chain,
             &network_name,
-            &config.burnchain.first_block_hash,
-            config.burnchain.first_block_height,
         )
         .expect("Error while instantiating burnchain");
 
@@ -983,11 +981,15 @@ impl InitializedNeonNode {
             )
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
+            let (network, _) = config.burnchain.get_bitcoin_network();
+            let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                .expect("Bitcoin network unsupported");    
+
             let chain_tip = ChainTip::genesis(
                 config.get_initial_liquid_ustx(),
-                &config.burnchain.first_block_hash,
-                config.burnchain.first_block_height.into(),
-                config.burnchain.first_block_timestamp,
+                &burnchain_params.first_block_hash,
+                burnchain_params.first_block_height.into(),
+                burnchain_params.first_block_timestamp.into(),
             );
 
             (
@@ -1234,9 +1236,9 @@ impl NeonGenesisNode {
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            first_burnchain_block_hash: config.burnchain.first_block_hash,
-            first_burnchain_block_height: config.burnchain.first_block_height,
-            first_burnchain_block_timestamp: config.burnchain.first_block_timestamp,
+            first_burnchain_block_hash: burnchain.first_block_hash.clone(),
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             post_flight_callback: Some(boot_block_exec),
         };
 

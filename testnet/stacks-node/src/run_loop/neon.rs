@@ -154,9 +154,7 @@ impl RunLoop {
         let burnchain_config = match Burnchain::new(
             &self.config.get_burn_db_path(),
             &self.config.burnchain.chain,
-            &network,
-            &self.config.burnchain.first_block_hash,
-            self.config.burnchain.first_block_height,
+            &network
         ) {
             Ok(burnchain) => burnchain,
             Err(e) => {
@@ -165,9 +163,9 @@ impl RunLoop {
             }
         };
         let chainstate_path = self.config.get_chainstate_path();
-        let first_burnchain_block_hash = self.config.burnchain.first_block_hash.clone();
-        let first_burnchain_block_height = self.config.burnchain.first_block_height;
-        let first_burnchain_block_timestamp = self.config.burnchain.first_block_timestamp;
+        let first_burnchain_block_hash = burnchain_config.first_block_hash.clone();
+        let first_burnchain_block_height = burnchain_config.first_block_height as u32;
+        let first_burnchain_block_timestamp = burnchain_config.first_block_timestamp;
         let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {

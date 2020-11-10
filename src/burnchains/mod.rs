@@ -72,7 +72,7 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
@@ -99,9 +99,22 @@ pub struct BurnchainParameters {
     network_id: u32,
     stable_confirmations: u32,
     consensus_hash_lifetime: u32,
+    pub first_block_height: u64,
+    pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
 }
 
 impl BurnchainParameters {
+
+    pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
+        match (chain, network) {
+            ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
+            ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
+            ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
+            _ => None,
+        }
+    } 
+
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
@@ -109,6 +122,9 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_MAINNET,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -119,6 +135,9 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_TESTNET,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: 1891063,
+            first_block_hash: BurnchainHeaderHash::from_hex("000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637").unwrap(),
+            first_block_timestamp: 1604967939,
         }
     }
 
@@ -129,6 +148,9 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_REGTEST,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -261,6 +283,7 @@ pub struct Burnchain {
     pub stable_confirmations: u32,
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
 }
 

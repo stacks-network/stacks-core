@@ -6,7 +6,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{BurnchainHeaderHash, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
@@ -419,15 +419,6 @@ impl Config {
                     poll_time_secs: burnchain
                         .poll_time_secs
                         .unwrap_or(default_burnchain_config.poll_time_secs),
-                    first_block_hash: burnchain
-                        .first_block_hash
-                        .unwrap_or(default_burnchain_config.first_block_hash),
-                    first_block_height: burnchain
-                        .first_block_height
-                        .unwrap_or(default_burnchain_config.first_block_height),
-                    first_block_timestamp: burnchain
-                        .first_block_timestamp
-                        .unwrap_or(default_burnchain_config.first_block_timestamp),
                 }
             }
             None => default_burnchain_config,
@@ -744,9 +735,6 @@ pub struct BurnchainConfig {
     pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
-    pub first_block_hash: BurnchainHeaderHash,
-    pub first_block_height: u32,
-    pub first_block_timestamp: u64,
 }
 
 impl BurnchainConfig {
@@ -769,9 +757,6 @@ impl BurnchainConfig {
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
-            first_block_hash: BurnchainHeaderHash::zero(),
-            first_block_height: 0,
-            first_block_timestamp: 0,
         }
     }
 
@@ -822,9 +807,6 @@ pub struct BurnchainConfigFile {
     pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
-    pub first_block_hash: Option<BurnchainHeaderHash>,
-    pub first_block_height: Option<u32>,
-    pub first_block_timestamp: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

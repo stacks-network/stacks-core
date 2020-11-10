@@ -6,7 +6,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -154,12 +154,16 @@ impl Node {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-
+        
+        let (network, _) = config.burnchain.get_bitcoin_network();
+        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+            .expect("Bitcoin network unsupported");
+    
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            first_burnchain_block_hash: config.burnchain.first_block_hash,
-            first_burnchain_block_height: config.burnchain.first_block_height,
-            first_burnchain_block_timestamp: config.burnchain.first_block_timestamp,
+            first_burnchain_block_hash: burnchain_params.first_block_hash,
+            first_burnchain_block_height: burnchain_params.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain_params.first_block_timestamp,
             post_flight_callback: Some(boot_block_exec),
         };
 
@@ -488,12 +492,18 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(
-                self.config.get_initial_liquid_ustx(),
-                &self.config.burnchain.first_block_hash,
-                self.config.burnchain.first_block_height.into(),
-                self.config.burnchain.first_block_timestamp,
-            ),
+            true => {
+                let (network, _) = self.config.burnchain.get_bitcoin_network();
+                let burnchain_params = BurnchainParameters::from_params(&self.config.burnchain.chain, &network)
+                    .expect("Bitcoin network unsupported");        
+                
+                ChainTip::genesis(
+                    self.config.get_initial_liquid_ustx(),
+                    &burnchain_params.first_block_hash,
+                    burnchain_params.first_block_height.into(),
+                    burnchain_params.first_block_timestamp.into(),
+                )
+            },
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),

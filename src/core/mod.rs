@@ -72,8 +72,6 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 pub fn sync_burnchain_bitcoin(
     working_dir: &String,
     network_name: &String,
-    first_block_hash: &BurnchainHeaderHash,
-    first_block_height: u64,
 ) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
     let channels = CoordinatorCommunication::instantiate();
@@ -82,8 +80,6 @@ pub fn sync_burnchain_bitcoin(
         working_dir,
         &"bitcoin".to_string(),
         network_name,
-        first_block_hash,
-        first_block_height as u32,
     )
     .map_err(|e| {
         error!(
