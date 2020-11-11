@@ -197,8 +197,9 @@ fn find_microblock_privkey(
     max_tries: u64,
 ) -> Option<StacksPrivateKey> {
     let mut keychain = Keychain::default(conf.node.seed.clone());
-    for _ in 0..max_tries {
-        let privk = keychain.rotate_microblock_keypair();
+    for ix in 0..max_tries {
+        // the first rotation occurs at 203.
+        let privk = keychain.rotate_microblock_keypair(203 + ix);
         let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
