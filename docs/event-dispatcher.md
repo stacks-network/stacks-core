@@ -36,6 +36,7 @@ Example:
   "burn_block_time": 1591301733,
   "events": [
     {
+      "event_index": 1,
       "committed": true,
       "stx_transfer_event": {
         "amount": "1000",
