@@ -37,6 +37,9 @@ use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MarfTrieId, TrieHash};
 use chainstate::stacks::StacksBlockId;
 
+#[cfg(test)]
+use chainstate::stacks::boot::{BOOT_CODE_COSTS, STACKS_BOOT_COST_CONTRACT};
+
 use std::error;
 use std::fmt;
 
@@ -322,8 +325,6 @@ impl ClarityInstance {
             parent: self,
             cost_track,
         };
-
-        use chainstate::stacks::boot::{BOOT_CODE_COSTS, STACKS_BOOT_COST_CONTRACT};
 
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
