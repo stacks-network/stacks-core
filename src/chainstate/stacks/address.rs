@@ -36,6 +36,7 @@ use util::hash::HASH160_ENCODED_SIZE;
 use burnchains::Address;
 use burnchains::PublicKey;
 
+use address::b58;
 use address::c32::c32_address_decode;
 
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
@@ -165,6 +166,16 @@ impl StacksAddress {
             version: version,
             bytes: addr.bytes.clone(),
         }
+    }
+
+    pub fn to_b58(self) -> String {
+        let StacksAddress { version, bytes } = self;
+        let btc_version = to_b52_version_byte(version)
+            // fallback to version
+            .unwrap_or(version);
+        let mut all_bytes = vec![btc_version];
+        all_bytes.extend(bytes.0.iter());
+        b58::check_encode_slice(&all_bytes)
     }
 
     /// Convert to PrincipalData::Standard(StandardPrincipalData)

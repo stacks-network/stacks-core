@@ -145,9 +145,17 @@ pub struct StacksHeaderInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MinerRewardInfo {
+    pub from_block_consensus_hash: ConsensusHash,
+    pub from_stacks_block_hash: BlockHeaderHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksEpochReceipt {
     pub header: StacksHeaderInfo,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub matured_rewards: Vec<MinerReward>,
+    pub matured_rewards_info: Option<MinerRewardInfo>,
     pub parent_microblocks_cost: ExecutionCost,
     pub anchored_block_cost: ExecutionCost,
 }

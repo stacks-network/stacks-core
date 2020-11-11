@@ -92,6 +92,7 @@ fn handle_pox_api_contract_call(
                                 STXEventType::STXLockEvent(STXLockEventData {
                                     locked_amount,
                                     unlock_height,
+                                    locked_address: stacker,
                                 }),
                             ));
                         }
