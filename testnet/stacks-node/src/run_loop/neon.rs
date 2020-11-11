@@ -154,16 +154,16 @@ impl RunLoop {
         let burnchain_config = match burnchain_opt {
             Some(burnchain_config) => burnchain_config.clone(),
             None => match Burnchain::new(
-            &self.config.get_burn_db_path(),
-            &self.config.burnchain.chain,
-            &network) 
-                {
-                    Ok(burnchain) => burnchain,
-                    Err(e) => {
-                        error!("Failed to instantiate burnchain: {}", e);
-                        panic!()
+                &self.config.get_burn_db_path(),
+                &self.config.burnchain.chain,
+                &network,
+            ) {
+                Ok(burnchain) => burnchain,
+                Err(e) => {
+                    error!("Failed to instantiate burnchain: {}", e);
+                    panic!()
                 }
-            }
+            },
         };
         let chainstate_path = self.config.get_chainstate_path();
         let first_burnchain_block_hash = burnchain_config.first_block_hash.clone();

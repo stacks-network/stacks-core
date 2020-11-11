@@ -159,14 +159,14 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
-        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
+    fn default_burnchain(&self) -> Burnchain {
+        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
         match &self.burnchain_config {
-            Some(burnchain) => (burnchain.clone(), network_type),
+            Some(burnchain) => burnchain.clone(),
             None => {
                 let working_dir = self.config.get_burn_db_path();
                 match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-                    Ok(burnchain) => (burnchain, network_type),
+                    Ok(burnchain) => burnchain,
                     Err(e) => {
                         error!("Failed to instantiate burnchain: {}", e);
                         panic!()
@@ -177,13 +177,15 @@ impl BitcoinRegtestController {
     }
 
     pub fn get_pox_constants(&self) -> PoxConstants {
-        let (burnchain, _) = self.setup_burnchain();
+        let burnchain = self.get_burnchain();
         burnchain.pox_constants.clone()
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
-        let (burnchain, _) = self.setup_burnchain();
-        burnchain
+        match self.burnchain_config {
+            Some(ref burnchain) => burnchain.clone(),
+            None => self.default_burnchain(),
+        }
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
@@ -857,15 +859,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sortdb_mut(&mut self) -> &mut SortitionDB {
-        let working_dir = self.config.get_burn_db_path();
-        let (network, _) = self.config.burnchain.get_bitcoin_network();
-        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network) {
-            Ok(burnchain) => burnchain,
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
-            }
-        };
+        let burnchain = self.get_burnchain();
 
         let (db, burnchain_db) = burnchain.open_db(true).unwrap();
         self.db = Some(db);

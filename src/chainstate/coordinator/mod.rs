@@ -30,7 +30,10 @@ use chainstate::burn::{
 };
 use chainstate::stacks::{
     boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
-    db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo, ChainStateBootData},
+    db::{
+        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
+        StacksHeaderInfo,
+    },
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };

@@ -626,19 +626,12 @@ impl InitializedNeonNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
-        _burnchain: Burnchain,
+        burnchain: Burnchain,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
-        let (network_name, _) = config.burnchain.get_bitcoin_network();
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            &network_name,
-        )
-        .expect("Error while instantiating burnchain");
 
         let view = {
             let ic = sortdb.index_conn();
@@ -1101,7 +1094,6 @@ impl InitializedNeonNode {
                 return None;
             }
         };
-        println!("===> {:?}", recipients);
 
         let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
         let rest_commit = burn_fee_cap - sunset_burn;
