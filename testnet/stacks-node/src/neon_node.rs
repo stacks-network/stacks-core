@@ -1101,6 +1101,7 @@ impl InitializedNeonNode {
                 return None;
             }
         };
+        println!("===> {:?}", recipients);
 
         let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
         let rest_commit = burn_fee_cap - sunset_burn;

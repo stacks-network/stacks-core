@@ -365,6 +365,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
     }
 }
 
+#[derive(Debug)]
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(StacksAddress, u16)>,
