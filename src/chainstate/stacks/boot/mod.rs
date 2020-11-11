@@ -261,30 +261,6 @@ impl StacksChainState {
         (threshold, participation)
     }
 
-    pub fn get_cost_contract_identifier(
-        &mut self,
-        _block_id: &StacksBlockId,
-    ) -> Result<QualifiedContractIdentifier, Error> {
-        Ok(STACKS_BOOT_COST_CONTRACT.clone())
-    }
-
-    pub fn get_contract_context(
-        &mut self,
-        at_block: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-    ) -> Result<ContractContext, Error> {
-        let mut conn =
-            self.clarity_state
-                .read_only_connection(at_block, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
-        let result =
-            conn.with_clarity_db_readonly(|clarity_db| match clarity_db.get_contract(contract) {
-                Ok(contract) => Ok(contract.contract_context),
-                Err(e) => Err(Error::ClarityError(e.into())),
-            });
-        conn.done();
-        result
-    }
-
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses(
         &mut self,
