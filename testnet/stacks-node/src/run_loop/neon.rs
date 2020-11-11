@@ -94,7 +94,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt,
+            burnchain_opt.clone(),
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -151,15 +151,18 @@ impl RunLoop {
 
         let (network, _) = self.config.burnchain.get_bitcoin_network();
 
-        let burnchain_config = match Burnchain::new(
+        let burnchain_config = match burnchain_opt {
+            Some(burnchain_config) => burnchain_config.clone(),
+            None => match Burnchain::new(
             &self.config.get_burn_db_path(),
             &self.config.burnchain.chain,
-            &network,
-        ) {
-            Ok(burnchain) => burnchain,
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
+            &network) 
+                {
+                    Ok(burnchain) => burnchain,
+                    Err(e) => {
+                        error!("Failed to instantiate burnchain: {}", e);
+                        panic!()
+                }
             }
         };
         let chainstate_path = self.config.get_chainstate_path();
