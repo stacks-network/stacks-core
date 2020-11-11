@@ -637,8 +637,8 @@ fn mempool_setup_chainstate() {
                 conf.node.seed = vec![0x00];
 
                 let mut keychain = Keychain::default(conf.node.seed.clone());
-                for _i in 0..4 {
-                    let microblock_secret_key = keychain.rotate_microblock_keypair();
+                for i in 0..4 {
+                    let microblock_secret_key = keychain.rotate_microblock_keypair(1 + i);
                     let mut microblock_pubkey =
                         Secp256k1PublicKey::from_private(&microblock_secret_key);
                     microblock_pubkey.set_compressed(true);
