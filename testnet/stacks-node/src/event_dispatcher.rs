@@ -197,7 +197,7 @@ impl EventObserver {
 
     fn send(
         &self,
-        filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>,
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
         boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
@@ -207,7 +207,9 @@ impl EventObserver {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
-            .map(|(committed, txid, event)| event.json_serialize(txid, *committed))
+            .map(|(event_index, (committed, txid, event))| {
+                event.json_serialize(*event_index, txid, *committed)
+            })
             .collect();
 
         let mut tx_index: u32 = 0;
@@ -449,7 +451,7 @@ impl EventDispatcher {
             for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
                 let filtered_events: Vec<_> = filtered_events_ids
                     .iter()
-                    .map(|event_id| &events[*event_id])
+                    .map(|event_id| (*event_id, &events[*event_id]))
                     .collect();
 
                 self.registered_observers[observer_id].send(
