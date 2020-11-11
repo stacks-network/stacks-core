@@ -154,7 +154,7 @@ impl LimitedCostTracker {
             memory: 0,
             free: false,
         };
-        //TODO: costs chould get passed in and this shouldn't be constructable without them
+        //TODO: costs should get passed in and this shouldn't be constructable without them
         cost_tracker.load_boot_costs();
         cost_tracker
     }
