@@ -211,7 +211,7 @@ impl RPCPoxInfoData {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        options: &ConnectionOptions,
+        _options: &ConnectionOptions,
     ) -> Result<RPCPoxInfoData, net_error> {
         let contract_identifier = boot::boot_code_id("pox");
         let function = "get-pox-info";

@@ -233,7 +233,8 @@ impl LimitedCostTracker {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
-                               "contract" => %boot_costs_id.to_string());
+                               "contract" => %boot_costs_id.to_string(),
+                               "error" => %format!("{:?}", e));
                         clarity_db.roll_back();
                         return Err(CostErrors::CostContractLoadFailure);
                     }

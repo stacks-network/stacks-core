@@ -87,8 +87,12 @@ pub fn build_ast_free(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chainstate::stacks::index::MarfTrieId;
+    use chainstate::stacks::StacksBlockId;
     use std::collections::HashMap;
-    use vm::costs::LimitedCostTracker;
+    use vm::clarity::ClarityInstance;
+    use vm::costs::*;
+    use vm::database::*;
     use vm::representations::depth_traverse;
 
     fn dependency_edge_counting_runtime(iters: usize) -> u64 {
@@ -101,7 +105,27 @@ mod tests {
             progn.push_str("))");
         }
 
-        let mut cost_track = LimitedCostTracker::new_free();
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        let mut cost_track = clarity_instance
+            .begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
         build_ast(
             &QualifiedContractIdentifier::transient(),
             &progn,
