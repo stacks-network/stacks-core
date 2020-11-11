@@ -36,6 +36,7 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
@@ -43,6 +44,8 @@ use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::syncctl::PoxSyncWatchdogComms;
+
 use crate::ChainTip;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -238,6 +241,7 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
+    mut sync_comms: PoxSyncWatchdogComms,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -269,6 +273,9 @@ fn spawn_peer(
         };
 
         let mut disconnected = false;
+        let mut num_p2p_state_machine_passes = 0;
+        let mut num_inv_sync_passes = 0;
+
         while !disconnected {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = if !download_backpressure && this.has_more_downloads() {
@@ -310,6 +317,18 @@ fn spawn_peer(
                     panic!();
                 }
             };
+
+            if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
+                // p2p state-machine did a full pass. Notify anyone listening.
+                sync_comms.notify_p2p_state_pass();
+                num_p2p_state_machine_passes = network_result.num_state_machine_passes;
+            }
+
+            if num_inv_sync_passes < network_result.num_inv_sync_passes {
+                // inv-sync state-machine did a full pass. Notify anyone listening.
+                sync_comms.notify_inv_sync_pass();
+                num_inv_sync_passes = network_result.num_inv_sync_passes;
+            }
 
             if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
@@ -606,6 +625,7 @@ impl InitializedNeonNode {
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
         burnchain: Burnchain,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
@@ -656,7 +676,7 @@ impl InitializedNeonNode {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -670,6 +690,22 @@ impl InitializedNeonNode {
             Some(&initial_neighbors),
         )
         .unwrap();
+
+        println!("DENY NEIGHBORS {:?}", &config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -716,6 +752,7 @@ impl InitializedNeonNode {
             config.clone(),
             5000,
             relay_send.clone(),
+            sync_comms,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -996,7 +1033,20 @@ impl InitializedNeonNode {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
+        let microblock_secret_key = if attempt > 1 {
+            match keychain.get_microblock_key() {
+                Some(k) => k,
+                None => {
+                    error!(
+                        "Failed to obtain microblock key for mining attempt";
+                        "attempt" => %attempt
+                    );
+                    return None;
+                }
+            }
+        } else {
+            keychain.rotate_microblock_keypair(burn_block.block_height)
+        };
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
@@ -1216,6 +1266,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1229,6 +1280,7 @@ impl NeonGenesisNode {
             true,
             blocks_processed,
             coord_comms,
+            sync_comms,
             self.burnchain,
         )
     }
@@ -1238,6 +1290,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1251,6 +1304,7 @@ impl NeonGenesisNode {
             false,
             blocks_processed,
             coord_comms,
+            sync_comms,
             self.burnchain,
         )
     }

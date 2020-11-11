@@ -921,7 +921,7 @@ impl StacksChainState {
     /// Returns Ok(Some(microblocks)) if the data was found
     /// Returns Ok(None) if the microblocks stream was previously processed and is known to be invalid
     /// Returns Err(...) for not found, I/O error, etc.
-    fn load_microblock_stream(
+    pub fn load_microblock_stream(
         blocks_path: &String,
         consensus_hash: &ConsensusHash,
         microblock_head_hash: &BlockHeaderHash,
@@ -1689,7 +1689,7 @@ impl StacksChainState {
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
     /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(
-        &mut self,
+        &self,
         header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) -> Result<BlocksInvData, Error> {
         let mut block_bits = vec![];
@@ -2239,7 +2239,7 @@ impl StacksChainState {
 
     /// Is a particular microblock in staging, given its _indexed anchored block hash_?
     pub fn has_staging_microblock_indexed(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
         seq: u16,
     ) -> Result<bool, Error> {
@@ -2259,7 +2259,7 @@ impl StacksChainState {
 
     /// Do we have a particular microblock stream given it _indexed head microblock hash_?
     pub fn has_confirmed_microblocks_indexed(
-        &mut self,
+        &self,
         index_microblock_hash: &StacksBlockId,
     ) -> Result<bool, Error> {
         StacksChainState::has_block_indexed(&self.blocks_path, index_microblock_hash)
@@ -2278,7 +2278,7 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
         let sql = "SELECT microblock_hash,consensus_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
@@ -3854,17 +3854,19 @@ impl StacksChainState {
         let next_block_height = block.header.total_work.work;
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        let matured_miner_rewards_opt = {
-            StacksChainState::find_mature_miner_rewards(
+        let (matured_rewards, matured_rewards_info) =
+            match StacksChainState::find_mature_miner_rewards(
                 &mut chainstate_tx.headers_tx,
                 parent_chain_tip,
                 Some(chainstate_tx.miner_payment_cache),
-            )?
-        };
+            )? {
+                Some((rewards, rewards_info)) => (rewards, Some(rewards_info)),
+                None => (vec![], None),
+            };
 
         let (
             scheduled_miner_reward,
-            txs_receipts,
+            tx_receipts,
             microblock_execution_cost,
             block_execution_cost,
             total_liquid_ustx,
@@ -3994,16 +3996,12 @@ impl StacksChainState {
                 .expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            let new_liquid_miner_ustx =
-                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                    // grant in order by miner, then users
-                    StacksChainState::process_matured_miner_rewards(
-                        &mut clarity_tx,
-                        &mature_miner_rewards,
-                    )?
-                } else {
-                    0
-                };
+            let new_liquid_miner_ustx = if matured_rewards.len() > 0 {
+                // grant in order by miner, then users
+                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &matured_rewards)?
+            } else {
+                0
+            };
 
             // total burns
             let total_burnt = block_burns
@@ -4092,11 +4090,13 @@ impl StacksChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &txs_receipts);
+        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
-            tx_receipts: txs_receipts,
+            tx_receipts,
+            matured_rewards,
+            matured_rewards_info,
             parent_microblocks_cost: microblock_execution_cost,
             anchored_block_cost: block_execution_cost,
         };

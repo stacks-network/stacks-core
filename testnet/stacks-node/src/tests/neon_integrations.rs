@@ -66,7 +66,16 @@ mod test_observer {
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    }
+
+    async fn handle_burn_block(
+        burn_block: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut blocks = BURN_BLOCKS.lock().unwrap();
+        blocks.push(burn_block);
+        Ok(warp::http::StatusCode::OK)
     }
 
     async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
@@ -96,6 +105,10 @@ mod test_observer {
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_burn_blocks() -> Vec<serde_json::Value> {
+        BURN_BLOCKS.lock().unwrap().clone()
+    }
+
     async fn serve() {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
@@ -105,8 +118,13 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mempool_txs);
+        let new_burn_blocks = warp::path!("new_burn_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_burn_block);
+
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs))
+        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks))
             .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
             .await
     }
@@ -179,8 +197,9 @@ fn find_microblock_privkey(
     max_tries: u64,
 ) -> Option<StacksPrivateKey> {
     let mut keychain = Keychain::default(conf.node.seed.clone());
-    for _ in 0..max_tries {
-        let privk = keychain.rotate_microblock_keypair();
+    for ix in 0..max_tries {
+        // the first rotation occurs at 203.
+        let privk = keychain.rotate_microblock_keypair(203 + ix);
         let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
@@ -474,6 +493,20 @@ fn microblock_integration_test() {
     );
     assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
 
+    let burn_blocks_observed = test_observer::get_burn_blocks();
+    let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
+        .into_iter()
+        .filter(|block| block.get("burn_amount").unwrap().as_u64().unwrap() > 0)
+        .collect();
+    assert!(
+        burn_blocks_with_burns.len() >= 3,
+        "Burn block sortitions {} should be >= 3",
+        burn_blocks_with_burns.len()
+    );
+    for burn_block in burn_blocks_with_burns {
+        eprintln!("{}", burn_block);
+    }
+
     let mut prior = None;
     for block in blocks_observed.iter() {
         let parent_index_hash = block
@@ -493,8 +526,6 @@ fn microblock_integration_test() {
         }
 
         // make sure we have a burn_block_hash, burn_block_height and miner_txid
-
-        eprintln!("{}", block);
 
         let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
 

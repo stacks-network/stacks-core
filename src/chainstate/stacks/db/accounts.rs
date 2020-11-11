@@ -116,30 +116,6 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl MinerReward {
-    pub fn empty_miner(address: &StacksAddress) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: 0,
-        }
-    }
-
-    pub fn empty_user(address: &StacksAddress, vtxindex: u32) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: vtxindex,
-        }
-    }
-
     pub fn total(&self) -> u128 {
         self.coinbase
             + self.tx_fees_anchored_shared
@@ -624,11 +600,11 @@ impl StacksChainState {
     /// scheduled miner payments to the cache.  Miner payments are immutable once written, and are
     /// keyed to the index block hash (which is globally unique), so once cached, no invalidation
     /// should be necessary.
-    pub fn find_mature_miner_rewards<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn find_mature_miner_rewards(
+        tx: &mut StacksDBTx,
         tip: &StacksHeaderInfo,
         mut cache: Option<&mut MinerPaymentCache>,
-    ) -> Result<Option<Vec<MinerReward>>, Error> {
+    ) -> Result<Option<(Vec<MinerReward>, MinerRewardInfo)>, Error> {
         if tip.block_height <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
             // no mature rewards exist
             return Ok(None);
@@ -736,6 +712,11 @@ impl StacksChainState {
             assert_eq!(*scheduled_payments.last().unwrap(), rs_miners_after);
         }
 
+        let matured_rewards_info = MinerRewardInfo {
+            from_stacks_block_hash: matured_miners.0.block_hash.clone(),
+            from_block_consensus_hash: matured_miners.0.consensus_hash.clone(),
+        };
+
         let mut rewards = vec![];
         let miner_reward =
             StacksChainState::calculate_miner_reward(&matured_miners.0, &scheduled_payments);
@@ -745,7 +726,7 @@ impl StacksChainState {
             let reward = StacksChainState::calculate_miner_reward(user_reward, &scheduled_payments);
             rewards.push(reward);
         }
-        Ok(Some(rewards))
+        Ok(Some((rewards, matured_rewards_info)))
     }
 }
 
@@ -1162,31 +1143,33 @@ mod test {
         let legacy_rewards = old_find_mature_miner_rewards(&mut tx, &parent_tip)
             .unwrap()
             .unwrap();
+
         assert_eq!(legacy_rewards, expected_rewards);
 
-        let rewards_opt =
-            StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None).unwrap();
-        assert!(rewards_opt.is_some());
+        let (rewards, _) = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None)
+            .unwrap()
+            .unwrap();
 
-        let rewards = rewards_opt.unwrap();
         assert_eq!(rewards.len(), 2);
         assert_eq!(rewards, expected_rewards);
 
-        let rewards_cached =
+        let (rewards_cached, _) =
             StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut cache))
                 .unwrap()
                 .unwrap();
+
         assert_eq!(rewards_cached, rewards);
         assert_eq!(rewards_cached, expected_rewards);
 
         let mut empty_cache = MinerPaymentCache::new();
-        let rewards_cached = StacksChainState::find_mature_miner_rewards(
+        let (rewards_cached, _) = StacksChainState::find_mature_miner_rewards(
             &mut tx,
             &parent_tip,
             Some(&mut empty_cache),
         )
         .unwrap()
         .unwrap();
+
         assert_eq!(rewards_cached, rewards);
         assert_eq!(rewards_cached, expected_rewards);
     }

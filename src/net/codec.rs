@@ -437,7 +437,6 @@ impl BlocksInvData {
         bitvec
     }
 
-    #[cfg(test)]
     pub fn has_ith_block(&self, block_index: u16) -> bool {
         if block_index >= self.bitlen {
             return false;
@@ -448,7 +447,6 @@ impl BlocksInvData {
         (self.block_bitvec[idx as usize] & (1 << bit)) != 0
     }
 
-    #[cfg(test)]
     pub fn has_ith_microblock_stream(&self, block_index: u16) -> bool {
         if block_index >= self.bitlen {
             return false;

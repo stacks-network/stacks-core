@@ -1623,7 +1623,7 @@ impl ConversationHttp {
                         }
                     }
                     None => {
-                        // not streamed; all data is bufferred
+                        // not streamed; all data is buffered
                         drained_stream = true;
 
                         // try moving some data to the connection

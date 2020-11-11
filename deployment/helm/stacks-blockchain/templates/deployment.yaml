@@ -1,0 +1,119 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stacks-blockchain.fullname" . }}
+  labels: 
+    {{- include "stacks-blockchain.labels" . | nindent 4 }}
+    {{- if .Values.node.labels }}
+    {{- toYaml .Values.node.labels | nindent 4 }}
+    {{- end }}
+  {{- if .Values.node.annotations }}
+  annotations: {{- toYaml .Values.node.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.node.replicaCount }}
+  revisionHistoryLimit: {{ .Values.node.revisionHistoryLimit }}
+  {{- if .Values.node.updateStrategy }}
+  strategy: {{ toYaml .Values.node.updateStrategy | indent 4 }}
+  {{- end }}
+  minReadySeconds: {{ .Values.node.minReadySeconds }}
+  selector:
+    matchLabels: {{- include "stacks-blockchain.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if or .Values.node.podAnnotations .Values.node.podAnnotationConfigChecksum }}
+      annotations:
+      {{- range $key, $value := .Values.node.podAnnotations }}
+        {{ $key }}: {{ $value }}
+      {{- end }}
+      {{- if .Values.node.podAnnotationConfigChecksum }}
+        checksum/config: {{ tpl (toYaml .Values.config) . | sha256sum }}
+      {{- end }}
+      {{- end }}
+      labels: {{- include "stacks-blockchain.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.node.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "stacks-blockchain.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriodSeconds }}
+      {{- if .Values.node.podSecurityContext }}
+      securityContext: {{- toYaml .Values.node.podSecurityContext | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- if .Values.node.securityContext }}
+          securityContext: {{- toYaml .Values.node.securityContext | nindent 12 }}
+          {{- end }}
+          image: {{ .Values.node.image.repository }}:{{ .Values.node.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.node.image.pullPolicy }}
+          {{- with .Values.node.command }}
+          command: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.node.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: rpc
+              containerPort: {{ .Values.node.rpcPort | default 20443 }}
+              protocol: TCP
+            - name: p2p
+              containerPort: {{ .Values.node.p2pPort | default 20444 }}
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - containerPort: {{ .Values.metrics.port | default 9153 }}
+              name: metrics
+            {{- end }}
+          volumeMounts:
+            - name: {{ include "stacks-blockchain.fullname" . }}-config
+              mountPath: /src/stacks-node
+          {{- with .Values.node.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.node.debug .Values.node.jsonLogging .Values.node.extraEnv }}
+          env:
+            {{- if eq .Values.node.debug true }}
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: BLOCKSTACK_DEBUG
+              value: "1"
+            {{- end }}
+            {{- if eq .Values.node.jsonLogging true }}
+            - name: BLOCKSTACK_LOG_JSON
+              value: "1"
+            {{- end }}
+            {{- with .Values.node.extraEnv }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.node.resources }}
+          resources: {{- toYaml .Values.node.resources | nindent 12 }}
+          {{- end }}
+      {{- with .Values.node.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: {{ include "stacks-blockchain.fullname" . }}-config
+          configMap:
+            name: {{ include "stacks-blockchain.fullname" . }}
+      {{- with .Values.node.volumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
