@@ -35,7 +35,7 @@ use std::io::prelude::*;
 
 use core::*;
 
-use burnchains::Address;
+use burnchains::{Address, BurnchainParameters};
 
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::ConsensusHash;
@@ -165,13 +165,14 @@ impl StacksHeaderInfo {
     }
 
     pub fn regtest_genesis(total_liquid_ustx: u128) -> StacksHeaderInfo {
+        let burnchain_params = BurnchainParameters::bitcoin_regtest();
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: BurnchainHeaderHash::zero(),
-            burn_header_height: 0,
+            burn_header_hash: burnchain_params.first_block_hash.clone(),
+            burn_header_height: burnchain_params.first_block_height as u32,
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             total_liquid_ustx,
