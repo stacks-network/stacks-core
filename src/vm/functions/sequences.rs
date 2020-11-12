@@ -16,7 +16,8 @@
 
 use std::cmp;
 use std::convert::TryInto;
-use vm::costs::{cost_functions, CostOverflowingMath, runtime_cost};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{
     check_argument_count, CheckErrors, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -26,7 +27,6 @@ use vm::types::{
     TypeSignature::BoolType, Value,
 };
 use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
-use vm::costs::cost_functions::ClarityCostFunction;
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -154,7 +154,7 @@ pub fn special_append(
             runtime_cost(
                 ClarityCostFunction::Append,
                 env,
-                u64::from(cmp::max(entry_type.size(), element_type.size()))
+                u64::from(cmp::max(entry_type.size(), element_type.size())),
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
@@ -189,7 +189,7 @@ pub fn special_concat(
     runtime_cost(
         ClarityCostFunction::Concat,
         env,
-        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?
+        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?,
     )?;
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {

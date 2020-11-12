@@ -28,8 +28,8 @@ use vm::types::{
 };
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
-use vm::costs::{analysis_typecheck_cost, cost_functions, CostOverflowingMath, runtime_cost};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
 mod assets;
 mod maps;
@@ -56,7 +56,7 @@ fn check_special_list_cons(
         runtime_cost(
             ClarityCostFunction::AnalysisListItemsCheck,
             checker,
-            type_arg.type_size()?
+            type_arg.type_size()?,
         )?;
     }
     TypeSignature::parent_list_type(&typed_args)
@@ -116,7 +116,7 @@ fn inner_handle_tuple_get(
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleGet,
         checker,
-        tuple_type_sig.len()
+        tuple_type_sig.len(),
     )?;
 
     let return_type = tuple_type_sig
@@ -167,7 +167,7 @@ pub fn check_special_tuple_cons(
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleCons,
         checker,
-        args.len()
+        args.len(),
     )?;
 
     handle_binding_list(args, |var_name, var_sexp| {
@@ -175,7 +175,7 @@ pub fn check_special_tuple_cons(
             runtime_cost(
                 ClarityCostFunction::AnalysisTupleItemsCheck,
                 checker,
-                var_type.type_size()?
+                var_type.type_size()?,
             )?;
             tuple_type_data.push((var_name.clone(), var_type));
             Ok(())
@@ -215,7 +215,7 @@ fn check_special_let(
         runtime_cost(
             ClarityCostFunction::AnalysisBindName,
             checker,
-            typed_result.type_size()?
+            typed_result.type_size()?,
         )?;
         out_context
             .variable_types
@@ -253,7 +253,7 @@ fn check_special_fetch_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?
+        value_type.type_size()?,
     )?;
 
     Ok(value_type.clone())
@@ -278,7 +278,7 @@ fn check_special_set_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type.type_size()?
+        expected_value_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
 
@@ -372,7 +372,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisGetFunctionEntry,
                 checker,
-                func_signature.total_type_size()?
+                func_signature.total_type_size()?,
             )?;
 
             func_signature
@@ -404,7 +404,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupFunctionTypes,
                 &mut checker.cost_track,
-                func_signature.total_type_size()?
+                func_signature.total_type_size()?,
             )?;
 
             func_signature.clone()

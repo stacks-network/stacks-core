@@ -20,7 +20,10 @@ pub mod natives;
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
-use vm::costs::{analysis_typecheck_cost, cost_functions, CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker, ClarityCostFunctionReference, runtime_cost};
+use vm::costs::{
+    analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
+    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
+};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpressionType::{
@@ -78,7 +81,8 @@ impl CostTracker for TypeChecker<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64) -> Result<ExecutionCost, CostErrors> {
+        input: u64,
+    ) -> Result<ExecutionCost, CostErrors> {
         self.cost_track.compute_cost(cost_function, input)
     }
 
@@ -328,7 +332,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeCheck,
             self,
-            return_type.type_size()?
+            return_type.type_size()?,
         )?;
 
         match self.function_return_tracker {
@@ -632,7 +636,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupVariableDepth,
                 self,
-                context.depth
+                context.depth,
             )?;
 
             if let Some(type_result) = context.lookup_variable_type(name) {
@@ -660,7 +664,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            type_sig.type_size()?
+            type_sig.type_size()?,
         )?;
         self.type_map.set_type(expr, type_sig.clone())?;
         Ok(type_sig)
@@ -740,7 +744,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type.type_size()?
+                        v_type.type_size()?,
                     )?;
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 }
@@ -751,7 +755,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?
+                        f_type.total_type_size()?,
                     )?;
                     self.contract_context
                         .add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -762,7 +766,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?
+                        f_type.total_type_size()?,
                     )?;
 
                     if f_type.returns.is_response_type() {
@@ -781,7 +785,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?
+                        f_type.total_type_size()?,
                     )?;
                     self.contract_context
                         .add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -808,7 +812,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type.type_size()?
+                        v_type.type_size()?,
                     )?;
                     self.contract_context
                         .add_persisted_variable_type(v_name, v_type)?;
@@ -818,7 +822,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType.type_size()?
+                        TypeSignature::UIntType.type_size()?,
                     )?;
                     self.contract_context.add_ft(token_name)?;
                 }
@@ -827,7 +831,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType.type_size()?
+                        TypeSignature::UIntType.type_size()?,
                     )?;
                     self.contract_context.add_ft(token_name)?;
                 }
@@ -837,7 +841,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        token_type.type_size()?
+                        token_type.type_size()?,
                     )?;
                     self.contract_context.add_nft(token_name, token_type)?;
                 }
@@ -847,7 +851,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        trait_type_size(&trait_signature)?
+                        trait_type_size(&trait_signature)?,
                     )?;
                     self.contract_context
                         .add_trait(trait_name, trait_signature)?;
@@ -866,7 +870,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             runtime_cost(
                                 ClarityCostFunction::AnalysisUseTraitEntry,
                                 self,
-                                type_size
+                                type_size,
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
                             self.contract_context

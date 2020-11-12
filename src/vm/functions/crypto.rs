@@ -16,7 +16,9 @@
 
 use util::hash;
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer, runtime_cost};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
