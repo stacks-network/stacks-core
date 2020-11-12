@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
@@ -21,7 +22,6 @@ use vm::errors::{
 use vm::representations::SymbolicExpression;
 use vm::types::{TypeSignature, Value};
 use vm::{eval, Environment, LocalContext};
-use vm::costs::cost_functions::ClarityCostFunction;
 
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {

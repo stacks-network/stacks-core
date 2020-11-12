@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
@@ -21,7 +22,6 @@ use vm::representations::SymbolicExpressionType::List;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{TupleData, TypeSignature, Value};
 use vm::{eval, Environment, LocalContext};
-use vm::costs::cost_functions::ClarityCostFunction;
 
 pub fn tuple_cons(
     args: &[SymbolicExpression],

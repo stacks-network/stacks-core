@@ -26,8 +26,8 @@ use vm::analysis::type_checker::{
     TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 fn check_and_type_map_arg_tuple(
     checker: &mut TypeChecker,
@@ -41,7 +41,7 @@ fn check_and_type_map_arg_tuple(
             runtime_cost(
                 ClarityCostFunction::AnalysisTypeAnnotate,
                 checker,
-                type_result.type_size()?
+                type_result.type_size()?,
             )?;
             checker.type_map.set_type(expr, type_result.clone())?;
             Ok(type_result)
@@ -68,12 +68,12 @@ pub fn check_special_fetch_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size()?
+        expected_key_type.type_size()?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?
+        value_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
@@ -108,7 +108,7 @@ pub fn check_special_delete_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size()?
+        expected_key_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
@@ -142,12 +142,12 @@ fn check_set_or_insert_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size()?
+        expected_key_type.type_size()?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?
+        value_type.type_size()?,
     )?;
 
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;

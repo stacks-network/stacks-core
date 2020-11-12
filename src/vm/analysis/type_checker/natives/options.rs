@@ -22,8 +22,8 @@ use vm::analysis::type_checker::{
     TypeResult, TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -281,7 +281,7 @@ fn eval_with_new_binding(
     runtime_cost(
         ClarityCostFunction::AnalysisBindName,
         checker,
-        bind_type.type_size()?
+        bind_type.type_size()?,
     )?;
 
     checker.contract_context.check_name_used(&bind_name)?;

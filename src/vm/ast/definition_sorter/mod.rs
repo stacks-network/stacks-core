@@ -18,7 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::costs::{cost_functions, CostTracker, runtime_cost, LimitedCostTracker};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::representations::PreSymbolicExpressionType::{
@@ -27,7 +28,6 @@ use vm::representations::PreSymbolicExpressionType::{
 };
 use vm::representations::{ClarityName, PreSymbolicExpression};
 use vm::types::Value;
-use vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
 mod tests;
@@ -54,9 +54,7 @@ impl<'a> DefinitionSorter {
         Ok(())
     }
 
-    pub fn run_pass_free(
-        contract_ast: &mut ContractAST,
-    ) -> ParseResult<()> {
+    pub fn run_pass_free(contract_ast: &mut ContractAST) -> ParseResult<()> {
         let mut pass = DefinitionSorter::new();
         pass.run(contract_ast, &mut LimitedCostTracker::new_free())?;
         Ok(())
@@ -90,7 +88,7 @@ impl<'a> DefinitionSorter {
         runtime_cost(
             ClarityCostFunction::AstCycleDetection,
             accounting,
-            self.graph.edges_count()?
+            self.graph.edges_count()?,
         )?;
 
         let mut walker = GraphWalker::new();
