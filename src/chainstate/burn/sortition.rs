@@ -482,12 +482,7 @@ mod test {
                 &VRFSeed::initial(),
                 &key,
                 0,
-                &BurnchainSigner::new_p2pkh(
-                    &StacksPublicKey::from_hex(
-                        "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
-                    )
-                    .unwrap(),
-                ),
+                &(Txid([0; 32]), 0),
             ),
             key: LeaderKeyRegisterOp::new(
                 &StacksAddress::new(0, Hash160([0u8; 20])),

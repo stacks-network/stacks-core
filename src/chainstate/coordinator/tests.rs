@@ -435,11 +435,7 @@ fn make_genesis_block_with_recipients(
         sunset_burn: 0,
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
-        input: BurnchainSigner {
-            num_sigs: 1,
-            hash_mode: address::AddressHashMode::SerializeP2PKH,
-            public_keys: vec![StacksPublicKey::from_private(miner)],
-        },
+        input: (Txid([0; 32]), 0),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
         memo: vec![],
@@ -595,11 +591,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
         sunset_burn,
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
-        input: BurnchainSigner {
-            num_sigs: 1,
-            hash_mode: address::AddressHashMode::SerializeP2PKH,
-            public_keys: vec![StacksPublicKey::from_private(miner)],
-        },
+        input: (Txid([0; 32]), 0),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
         memo: vec![],

@@ -925,16 +925,7 @@ pub mod test {
             fork_snapshot: Option<&BlockSnapshot>,
             parent_block_snapshot: Option<&BlockSnapshot>,
         ) -> LeaderBlockCommitOp {
-            let pubks = miner
-                .privks
-                .iter()
-                .map(|ref pk| StacksPublicKey::from_private(pk))
-                .collect();
-            let input = BurnchainSigner {
-                hash_mode: miner.hash_mode.clone(),
-                num_sigs: miner.num_sigs as usize,
-                public_keys: pubks,
-            };
+            let input = (Txid([0; 32]), 0);
 
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
