@@ -477,6 +477,12 @@ fn test_simple_arithmetic_functions() {
         // from https://en.wikipedia.org/wiki/128-bit_computing
         "(sqrti 170141183460469231731687303715884105727)", // max i128
         "(sqrti u340282366920938463463374607431768211455)", // max u128
+        "(log2 u8)",
+        "(log2 u9)",
+        "(log2 8)",
+        "(log2 9)",
+        "(log2 170141183460469231731687303715884105727)", // max i128
+        "(log2 u340282366920938463463374607431768211455)", // max u128
         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
         "(+ (to-uint 127) u10)",
         "(to-int (- (pow u2 u127) u1))",
@@ -510,6 +516,12 @@ fn test_simple_arithmetic_functions() {
         Value::Int(8),
         Value::Int(13_043_817_825_332_782_212),
         Value::UInt(18_446_744_073_709_551_615),
+        Value::UInt(3),
+        Value::UInt(3),
+        Value::Int(3),
+        Value::Int(3),
+        Value::Int(126),
+        Value::UInt(127),
         Value::UInt(u128::max_value()),
         Value::UInt(137),
         Value::Int(i128::max_value()),

@@ -62,6 +62,7 @@ define_named_enum!(NativeFunctions {
     Modulo("mod"),
     Power("pow"),
     Sqrti("sqrti"),
+    Log2("log2"),
     BitwiseXOR("xor"),
     And("and"),
     Or("or"),
@@ -195,6 +196,11 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 "native_sqrti",
                 NativeHandle::SingleArg(&arithmetic::native_sqrti),
                 ClarityCostFunction::Sqrti,
+            ),
+            Log2 => NativeFunction(
+                "native_log2",
+                NativeHandle::SingleArg(&arithmetic::native_log2),
+                ClarityCostFunction::Log2,
             ),
             BitwiseXOR => NativeFunction(
                 "native_xor",
