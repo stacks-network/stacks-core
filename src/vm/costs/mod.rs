@@ -120,6 +120,12 @@ pub struct ClarityCostFunctionReference {
     pub function_name: String,
 }
 
+impl ::std::fmt::Display for ClarityCostFunctionReference {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(f, "{}.{}", &self.contract_id, &self.function_name)
+    }
+}
+
 impl ClarityCostFunctionReference {
     fn new(id: QualifiedContractIdentifier, name: String) -> ClarityCostFunctionReference {
         ClarityCostFunctionReference {
@@ -314,17 +320,19 @@ fn compute_cost(
     let cost_function_reference = cost_tracker
         .cost_function_references
         .get(&cost_function)
-        .ok_or(CostErrors::CostComputationFailed(
-            "CostFunction not defined".to_string(),
-        ))?
+        .ok_or(CostErrors::CostComputationFailed(format!(
+            "CostFunction not defined: {}",
+            &cost_function
+        )))?
         .clone();
 
     let cost_contract = cost_tracker
         .cost_contracts
         .get_mut(&cost_function_reference.contract_id)
-        .ok_or(CostErrors::CostComputationFailed(
-            "Cost Contract not cached".to_string(),
-        ))?;
+        .ok_or(CostErrors::CostComputationFailed(format!(
+            "CostFunction not found: {} at {}",
+            &cost_function, &cost_function_reference
+        )))?;
 
     let program = vec![
         SymbolicExpression::atom(cost_function_reference.function_name[..].into()),

@@ -1078,7 +1078,7 @@ impl StacksChainState {
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
 
         test_debug!(
-            "Begin processing Stacks block off of {}/{}",
+            "Begin processing genesis Stacks block off of {}/{}",
             parent_consensus_hash,
             parent_block
         );

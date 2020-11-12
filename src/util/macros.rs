@@ -51,6 +51,19 @@ macro_rules! define_named_enum {
                     )*
                 }
             }
+
+            pub fn get_name_str(&self) -> &'static str {
+                match self {
+                    $(
+                        $Name::$Variant => $VarName,
+                    )*
+                }
+            }
+        }
+        impl ::std::fmt::Display for $Name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                write!(f, "{}", self.get_name_str())
+            }
         }
     }
 }
