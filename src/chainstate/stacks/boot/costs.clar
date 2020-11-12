@@ -212,6 +212,9 @@
 (define-read-only (cost_sqrti (n uint))
     (runtime u1))
 
+(define-read-only (cost_log2 (n uint))
+    (runtime u1))
+
 (define-read-only (cost_xor (n uint))
     (runtime u1))
 

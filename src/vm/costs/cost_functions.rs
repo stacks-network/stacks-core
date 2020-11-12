@@ -52,6 +52,7 @@ define_named_enum!(ClarityCostFunction {
     Mod("cost_mod"),
     Pow("cost_pow"),
     Sqrti("cost_sqrti"),
+    Log2("cost_log2"),
     Xor("cost_xor"),
     Not("cost_not"),
     Eq("cost_eq"),

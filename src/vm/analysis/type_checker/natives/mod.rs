@@ -527,7 +527,7 @@ impl TypedNativeFunction {
             CmpGeq | CmpLeq | CmpLess | CmpGreater => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison))
             }
-            Sqrti => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
+            Sqrti | Log2 => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
             Modulo | Power | BitwiseXOR => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
