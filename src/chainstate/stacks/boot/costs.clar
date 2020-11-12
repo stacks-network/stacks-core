@@ -16,15 +16,13 @@
 (define-private (linear (n uint) (a uint) (b uint))
     (+ (* a n) b))
 
-;; TODO: fix this once log is available
 ;; LogN cost-assessment function
 (define-private (logn (n uint) (a uint) (b uint))
-    (+ (* a n) b))
+    (+ (* a (log2 n)) b))
 
-;; TODO: fix this once log is available
 ;; NLogN cost-assessment function
 (define-private (nlogn (n uint) (a uint) (b uint))
-    (+ (* a n) b))
+    (+ (* a (* n (log2 n))) b))
 
 
 ;; Cost Functions
