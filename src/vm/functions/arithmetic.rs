@@ -220,16 +220,16 @@ macro_rules! make_arithmetic_ops {
                     Some(result) => Self::make_value(result),
                     None => {
                         return Err(RuntimeErrorType::Arithmetic(
-                            "sqrti must be passed a positive number".to_string(),
+                            "sqrti must be passed a positive integer".to_string(),
                         )
                         .into())
                     }
                 }
             }
             fn log2(n: $type) -> InterpreterResult<Value> {
-                if n < 0 {
+                if n < 1 {
                     return Err(RuntimeErrorType::Arithmetic(
-                        "log2 must be passed a positive number".to_string()
+                        "log2 must be passed a positive integer".to_string()
                         )
                         .into())
                 }
