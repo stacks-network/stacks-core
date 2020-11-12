@@ -236,7 +236,7 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(log2 n)",
-    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer.  Fails on a negative numbers.",
+    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
     example: "(log2 u8) ;; Returns u3
 (log2 8) ;; Returns 3
 (log2 u1) ;; Returns u0
