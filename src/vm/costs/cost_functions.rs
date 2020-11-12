@@ -37,7 +37,6 @@ define_named_enum!(ClarityCostFunction {
     Fold("cost_fold"),
     ListCons("cost_list_cons"),
     TypeParseStep("cost_type_parse_step"),
-    DataHashCost("cost_data_hash_cost"),
     TupleGet("cost_tuple_get"),
     TupleCons("cost_tuple_cons"),
     Add("cost_add"),
