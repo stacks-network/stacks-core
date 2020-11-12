@@ -484,14 +484,6 @@ mod test {
                 0,
                 &(Txid([0; 32]), 0),
             ),
-            key: LeaderKeyRegisterOp::new(
-                &StacksAddress::new(0, Hash160([0u8; 20])),
-                &VRFPublicKey::from_bytes(
-                    &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                        .unwrap(),
-                )
-                .unwrap(),
-            ),
             user_burns: vec![],
         };
 

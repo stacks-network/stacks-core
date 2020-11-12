@@ -46,10 +46,10 @@ pub struct BurnSamplePoint {
     pub range_start: Uint256,
     pub range_end: Uint256,
     pub candidate: LeaderBlockCommitOp,
-    pub key: LeaderKeyRegisterOp,
     pub user_burns: Vec<UserBurnSupportOp>,
 }
 
+#[derive(Clone)]
 struct LinkedCommitmentScore {
     rel_block_height: u8,
     op: LeaderBlockCommitOp,
@@ -74,37 +74,40 @@ impl BurnSamplePoint {
     ///     during the mining window. This value is the first index in the block_commits
     ///     for which PoX is fully disabled (i.e., the block commit has a single burn output).
     pub fn make_min_median_distribution(
-        mut block_commits: HashMap<u8, Vec<LeaderBlockCommitOp>>,
-        user_burns: HashMap<u8, Vec<UserBurnSupportOp>>,
+        mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
+        mut user_burns: Vec<Vec<UserBurnSupportOp>>,
         sunset_finished_at: Option<u8>,
     ) -> Vec<BurnSamplePoint> {
         // sanity check
-        for i in 0..MINING_COMMITMENT_WINDOW {
-            assert!(block_commits.contains_key(&i));
-            assert!(user_burns.contains_key(&i));
-        }
+        assert!(MINING_COMMITMENT_WINDOW > 0);
+        assert_eq!(block_commits.len(), user_burns.len());
+        assert!(block_commits.len() <= (MINING_COMMITMENT_WINDOW as usize));
+
+        let window_size = block_commits.len() as u8;
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
             // start with the most recent
             block_commits
-            .remove(&(MINING_COMMITMENT_WINDOW - 1))
-            .unwrap()
+            .remove((window_size - 1) as usize)
             .into_iter()
-            .map(|op| vec![
-                LinkedCommitmentScore {
-                    rel_block_height: MINING_COMMITMENT_WINDOW - 1,
-                    op,
-                    user_burns: 0
-                }])
+            .map(|op| {
+                let mut linked_commits = vec![None; window_size as usize];
+                linked_commits[0] = Some(LinkedCommitmentScore {
+                        rel_block_height: window_size - 1,
+                        op,
+                        user_burns: 0
+                    });
+                linked_commits
+            })
             .collect();
 
         let mut user_burn_targets: HashMap<UserBurnIdentifier, Vec<usize>> = HashMap::new();
 
         for (ix, linked_commit) in commits_with_priors.iter().enumerate() {
-            let cur_commit = &linked_commit[0].op;
+            let cur_commit = &linked_commit[0].as_ref().unwrap().op;
             let user_burn_target_key = UserBurnIdentifier {
-                rel_block_height: MINING_COMMITMENT_WINDOW - 1,
+                rel_block_height: window_size - 1,
                 key_vtxindex: cur_commit.key_vtxindex,
                 key_block_ptr: cur_commit.key_block_ptr,
                 block_hash: Hash160::from_sha256(&cur_commit.block_header_hash.0),
@@ -116,27 +119,28 @@ impl BurnSamplePoint {
             }
         }
 
-        for i in (0..(MINING_COMMITMENT_WINDOW - 1)).rev() {
-            let cur_commits = block_commits.remove(&i).unwrap();
+        for rel_block_height in (0..(window_size - 1)).rev() {
+            let cur_commits = block_commits.remove(rel_block_height as usize);
             let mut cur_commits_map: HashMap<_, _> = cur_commits
                 .into_iter()
                 .map(|commit| (commit.txid.clone(), commit))
                 .collect();
             let sunset_finished = if let Some(sunset_finished_at) = sunset_finished_at {
-                sunset_finished_at <= i
+                sunset_finished_at <= rel_block_height
             } else {
                 false
             };
             let expected_index = LeaderBlockCommitOp::expected_chained_utxo(sunset_finished);
             for (commitment_ix, linked_commit) in commits_with_priors.iter_mut().enumerate() {
-                let end = linked_commit.last().unwrap();
+                let end = linked_commit.iter().rev().find_map(|o| o.as_ref()).unwrap(); // guaranteed to be at least 1 non-none entry
+
                 // check that the commit is using the right output index
                 if end.op.input.1 != expected_index {
                     continue;
                 }
                 if let Some(referenced_commit) = cur_commits_map.remove(&end.op.input.0) {
                     let user_burn_target_key = UserBurnIdentifier {
-                        rel_block_height: i,
+                        rel_block_height,
                         key_vtxindex: referenced_commit.key_vtxindex,
                         key_block_ptr: referenced_commit.key_block_ptr,
                         block_hash: Hash160::from_sha256(&referenced_commit.block_header_hash.0),
@@ -151,11 +155,12 @@ impl BurnSamplePoint {
                     }
 
                     // found a chained utxo, connect
-                    linked_commit.push(LinkedCommitmentScore {
-                        op: referenced_commit,
-                        rel_block_height: i,
-                        user_burns: 0,
-                    });
+                    linked_commit[(window_size - rel_block_height) as usize] =
+                        Some(LinkedCommitmentScore {
+                            op: referenced_commit,
+                            rel_block_height,
+                            user_burns: 0,
+                        });
                 }
             }
         }
@@ -166,8 +171,112 @@ impl BurnSamplePoint {
         //  User burns identify a block commit using VRF public key, so we'll use the
         //    user_burn_targets map to figure out which linked commitment should receive
         //    the user burn
+        let mut commit_txid_to_user_burns: HashMap<_, Vec<UserBurnSupportOp>> = HashMap::new();
 
-        panic!("");
+        // iterate across user burns in block_height order
+        for (rel_block_height, user_burns_at_height) in user_burns.into_iter().enumerate() {
+            for mut user_burn in user_burns_at_height.into_iter() {
+                let UserBurnSupportOp {
+                    key_vtxindex,
+                    key_block_ptr,
+                    block_header_hash_160,
+                    burn_fee,
+                    ..
+                } = user_burn.clone();
+
+                let user_burn_target_key = UserBurnIdentifier {
+                    rel_block_height: rel_block_height as u8,
+                    key_vtxindex: key_vtxindex,
+                    key_block_ptr: key_block_ptr,
+                    block_hash: block_header_hash_160,
+                };
+
+                if let Some(user_burn_recipients) = user_burn_targets.get(&user_burn_target_key) {
+                    let per_recipient = burn_fee / (user_burn_recipients.len() as u64);
+                    // set the burn fee to the per recipient amount for when we include this
+                    //  user burn op in the burn samples
+                    user_burn.burn_fee = per_recipient;
+
+                    for recipient in user_burn_recipients.iter() {
+                        let recipient_commit = commits_with_priors[*recipient]
+                            .get_mut(window_size as usize - 1 - rel_block_height)
+                            .expect("BUG: (window_size - i) should be in window range")
+                            .as_mut()
+                            .expect("BUG: Should have a non-none commit entry");
+                        // cheap sanity checks
+                        assert_eq!(
+                            recipient_commit.op.key_block_ptr,
+                            user_burn_target_key.key_block_ptr
+                        );
+                        assert_eq!(
+                            recipient_commit.op.key_vtxindex,
+                            user_burn_target_key.key_vtxindex
+                        );
+                        // are we at the last block in the window?
+                        //  if so, track the user burn op
+                        if rel_block_height as u8 == window_size - 1 {
+                            if let Some(user_burns) =
+                                commit_txid_to_user_burns.get_mut(&recipient_commit.op.txid)
+                            {
+                                user_burns.push(user_burn.clone());
+                            } else {
+                                commit_txid_to_user_burns.insert(
+                                    recipient_commit.op.txid.clone(),
+                                    vec![user_burn.clone()],
+                                );
+                            }
+                        }
+
+                        recipient_commit.user_burns += per_recipient;
+                    }
+                }
+            }
+        }
+
+        // now, commits_with_priors has the burn amounts and user burn supports for each
+        //   linked commitment, we can now generate the burn sample points.
+        let mut burn_sample = commits_with_priors
+            .into_iter()
+            .map(|mut linked_commits| {
+                let mut all_burns: Vec<_> = linked_commits
+                    .iter()
+                    .map(|commit| {
+                        if let Some(commit) = commit {
+                            (commit.op.burn_fee as u128) + (commit.user_burns as u128)
+                        } else {
+                            0
+                        }
+                    })
+                    .collect();
+                all_burns.sort();
+                let min_burn = all_burns[0];
+                let median_burn = if window_size % 2 == 0 {
+                    (all_burns[(window_size / 2) as usize]
+                        + all_burns[(window_size / 2 - 1) as usize])
+                        / 2
+                } else {
+                    all_burns[(window_size / 2) as usize]
+                };
+
+                let burns = (min_burn + median_burn) / 2;
+                let candidate = linked_commits.remove(0).unwrap().op;
+                let user_burns = commit_txid_to_user_burns
+                    .get(&candidate.txid)
+                    .cloned()
+                    .unwrap_or_default();
+                BurnSamplePoint {
+                    burns,
+                    range_start: Uint256::zero(), // To be filled in
+                    range_end: Uint256::zero(),   // To be filled in
+                    candidate,
+                    user_burns,
+                }
+            })
+            .collect();
+
+        // calculate burn ranges
+        BurnSamplePoint::make_sortition_ranges(&mut burn_sample);
+        burn_sample
     }
 
     /// Make a burn distribution -- a list of (burn total, block candidate) pairs -- from a block's
@@ -184,71 +293,7 @@ impl BurnSamplePoint {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
-        // trivial case
-        if all_block_candidates.len() == 0 {
-            return vec![];
-        }
-
-        BurnSamplePoint::ops_sanity_checks(&all_block_candidates, &user_burns);
-
-        // map each leader key's position in the blockchain to its index in consumed_leader_keys.
-        // note that this effectively de-duplicates entries in consumed_leader_keys (see below)
-        let mut key_index: BTreeMap<(u64, u32), usize> = BTreeMap::new();
-        for i in 0..consumed_leader_keys.len() {
-            let key_loc = (
-                consumed_leader_keys[i].block_height,
-                consumed_leader_keys[i].vtxindex,
-            );
-            assert!(
-                key_index.get(&key_loc).is_none(),
-                format!("duplicate entry: ({}, {})", &key_loc.0, &key_loc.1)
-            );
-
-            key_index.insert(key_loc, i);
-        }
-
-        // sanity check -- each block commit must refer to a consumed key
-        for bc in all_block_candidates.iter() {
-            if !key_index.contains_key(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
-                panic!(
-                    "No leader key for block commitment {} at ({},{}) -- points to ({},{})",
-                    &bc.txid, bc.block_height, bc.vtxindex, bc.key_block_ptr, bc.key_vtxindex
-                );
-            }
-        }
-
-        // consume block candidates and leader keys to produce the list of burn sample points.
-        // If multiple commits try to use the same key, then take the first one (by vtxindex order)
-        // and drop the rest that consume the same key.
-        let mut burn_sample = Vec::with_capacity(all_block_candidates.len());
-        for i in 0..all_block_candidates.len() {
-            let bc = &all_block_candidates[i];
-            match key_index.get(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
-                None => {
-                    // leader key already consumed; drop this commit
-                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.key_block_ptr, bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid);
-                    continue;
-                }
-                Some(i) => {
-                    // next burn sample
-                    burn_sample.push(BurnSamplePoint {
-                        burns: bc.burn_fee as u128, // Initial burn weight is the block commitment's burn
-                        range_start: Uint256::zero(), // To be filled in
-                        range_end: Uint256::zero(), // To be filled in
-                        candidate: bc.clone(),
-                        key: consumed_leader_keys[*i].clone(),
-                        user_burns: vec![],
-                    });
-                }
-            };
-        }
-
-        // assign user burns to the burn sample points
-        BurnSamplePoint::apply_user_burns(&mut burn_sample, user_burns);
-
-        // calculate burn ranges
-        BurnSamplePoint::make_sortition_ranges(&mut burn_sample);
-        burn_sample
+        Self::make_min_median_distribution(vec![all_block_candidates], vec![user_burns], None)
     }
 
     // sanity checks for making a burn distribution
@@ -297,49 +342,6 @@ impl BurnSamplePoint {
                     panic!("FATAL ERROR: user burns are not in order");
                 }
             }
-        }
-    }
-
-    /// Move a list of user burns into their burn sample points.
-    fn apply_user_burns(
-        burn_sample: &mut Vec<BurnSamplePoint>,
-        user_burns: Vec<UserBurnSupportOp>,
-    ) -> () {
-        // map each burn sample's (VRF public key, block hash 160) pair to its index.
-        // The pair will be unique, since the DB requires each VRF key to be unique.
-        // Hovever, the block hash 160 is not guaranteed to be unique -- two different
-        // leaders can burn for the same block.
-        let mut burn_index: BTreeMap<(VRFPublicKey, Hash160), usize> = BTreeMap::new();
-        for i in 0..burn_sample.len() {
-            let block_header_hash_160 =
-                Hash160::from_sha256(&burn_sample[i].candidate.block_header_hash.as_bytes());
-            let vrf_pubkey = burn_sample[i].key.public_key.clone();
-            let key = (vrf_pubkey, block_header_hash_160);
-            assert!(burn_index.get(&key).is_none());
-
-            burn_index.insert(key, i);
-        }
-
-        // match user burns to the leaders
-        for user_burn in user_burns {
-            let key = (
-                user_burn.public_key.clone(),
-                user_burn.block_header_hash_160.clone(),
-            );
-            match burn_index.get(&key) {
-                Some(block_idx) => {
-                    // user burn matches a (key, block) pair committed to in this block
-                    let idx = *block_idx;
-                    burn_sample[idx].burns += user_burn.burn_fee as u128;
-                    burn_sample[idx].user_burns.push(user_burn.clone());
-                }
-                None => {
-                    debug!("User burn {} ({},{}) of {} for key={}, block={} has no matching block commit",
-                          &user_burn.txid, user_burn.block_height, user_burn.vtxindex, user_burn.burn_fee,
-                          user_burn.public_key.to_hex(), &user_burn.block_header_hash_160);
-                    continue;
-                }
-            };
         }
     }
 
@@ -887,7 +889,6 @@ mod tests {
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
                     candidate: block_commit_1.clone(),
-                    key: leader_key_1.clone(),
                     user_burns: vec![],
                 }],
             },
@@ -906,7 +907,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
@@ -919,7 +919,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![],
                     },
                 ],
@@ -939,7 +938,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
@@ -952,7 +950,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![],
                     },
                 ],
@@ -972,7 +969,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
@@ -985,7 +981,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![],
                     },
                 ],
@@ -1009,7 +1004,6 @@ mod tests {
                             0xa4e5f328cf38744d,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![user_burn_1.clone()],
                     },
                     BurnSamplePoint {
@@ -1022,7 +1016,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![],
                     },
                 ],
@@ -1047,7 +1040,6 @@ mod tests {
                             0x6898693a2f1713b4,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![user_burn_1.clone()],
                     },
                     BurnSamplePoint {
@@ -1060,7 +1052,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![user_burn_2.clone()],
                     },
                 ],
@@ -1090,7 +1081,6 @@ mod tests {
                             0x6b7815d84b0f9fc0,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![user_burn_1.clone(), user_burn_1_2.clone()],
                     },
                     BurnSamplePoint {
@@ -1106,7 +1096,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![user_burn_2.clone(), user_burn_2_2.clone()],
                     },
                 ],
@@ -1144,7 +1133,6 @@ mod tests {
                             0x5a7416b691bddbad,
                         ]),
                         candidate: block_commit_1.clone(),
-                        key: leader_key_1.clone(),
                         user_burns: vec![user_burn_1.clone(), user_burn_1_2.clone()],
                     },
                     BurnSamplePoint {
@@ -1165,7 +1153,6 @@ mod tests {
                             0xd777aa6d9e769e59,
                         ]),
                         candidate: block_commit_2.clone(),
-                        key: leader_key_2.clone(),
                         user_burns: vec![user_burn_2.clone(), user_burn_2_2.clone()],
                     },
                     BurnSamplePoint {
@@ -1178,7 +1165,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_3.clone(),
-                        key: leader_key_3.clone(),
                         user_burns: vec![],
                     },
                 ],

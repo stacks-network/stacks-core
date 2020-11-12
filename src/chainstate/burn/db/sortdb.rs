@@ -1150,7 +1150,7 @@ impl<'a> SortitionHandleTx<'a> {
         return Ok(false);
     }
 
-    fn get_block_snapshot_by_height(
+    pub fn get_block_snapshot_by_height(
         &mut self,
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
