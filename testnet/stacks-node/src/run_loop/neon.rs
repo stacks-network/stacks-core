@@ -169,7 +169,8 @@ impl RunLoop {
         let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
-            let mut boot_data = ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
+            let mut boot_data =
+                ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
 
             ChainsCoordinator::run(
                 &chainstate_path,

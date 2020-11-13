@@ -241,11 +241,10 @@ pub fn setup_states(
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
-
         };
-    
+
         boot_data.post_flight_callback = Some(Box::new(post_flight_callback));
-    
+
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
             0x80000000,

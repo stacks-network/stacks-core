@@ -1241,7 +1241,8 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
 
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(

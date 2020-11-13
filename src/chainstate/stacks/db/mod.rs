@@ -35,7 +35,7 @@ use std::io::prelude::*;
 
 use core::*;
 
-use burnchains::{Address, BurnchainParameters, Burnchain};
+use burnchains::{Address, Burnchain, BurnchainParameters};
 
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::ConsensusHash;
@@ -546,7 +546,11 @@ pub struct ChainStateBootData {
 }
 
 impl ChainStateBootData {
-    pub fn new(burnchain: &Burnchain, initial_balances: Vec<(PrincipalData, u64)>, post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>) -> ChainStateBootData {
+    pub fn new(
+        burnchain: &Burnchain,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),
             first_burnchain_block_height: burnchain.first_block_height as u32,

@@ -67,7 +67,8 @@ use util::secp256k1::MessageSignature;
 
 const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1891063;
 const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1604967939;
-const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str = "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637";
+const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
+    "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637";
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
@@ -139,10 +140,8 @@ impl BurnchainParameters {
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-            first_block_hash: BurnchainHeaderHash::from_hex(
-                BITCOIN_TESTNET_FIRST_BLOCK_HASH,
-            )
-            .unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
+                .unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
         }
     }

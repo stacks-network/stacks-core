@@ -2227,7 +2227,6 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-
                         let boot_code_auth = TransactionAuth::Standard(
                             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                                 signer: boot_code_address.bytes.clone(),
@@ -2269,7 +2268,11 @@ pub mod test {
                 }
             };
 
-            let mut boot_data = ChainStateBootData::new(&config.burnchain, config.initial_balances.clone(), Some(Box::new(post_flight_callback)));
+            let mut boot_data = ChainStateBootData::new(
+                &config.burnchain,
+                config.initial_balances.clone(),
+                Some(Box::new(post_flight_callback)),
+            );
 
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,

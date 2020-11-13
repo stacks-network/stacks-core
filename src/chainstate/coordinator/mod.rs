@@ -29,8 +29,11 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::{STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR},
-    db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo, ChainStateBootData},
+    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+    db::{
+        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
+        StacksHeaderInfo,
+    },
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
