@@ -120,6 +120,7 @@ pub trait BlockEventDispatcher {
     fn announce_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     );
@@ -464,7 +465,12 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         }
     }
     let reward_recipients_vec = reward_recipients.into_iter().collect();
-    dispatcher.announce_burn_block(&burn_header.block_hash, reward_recipients_vec, burn_amt);
+    dispatcher.announce_burn_block(
+        &burn_header.block_hash,
+        burn_header.block_height,
+        reward_recipients_vec,
+        burn_amt,
+    );
 }
 
 impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>

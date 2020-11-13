@@ -117,6 +117,7 @@ impl EventObserver {
 
     fn make_new_burn_block_payload(
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) -> serde_json::Value {
@@ -132,6 +133,7 @@ impl EventObserver {
 
         json!({
             "burn_block_hash": format!("0x{}", burn_block),
+            "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "burn_amount": burns
         })
@@ -291,10 +293,11 @@ impl BlockEventDispatcher for EventDispatcher {
     fn announce_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) {
-        self.process_burn_block(burn_block, rewards, burns)
+        self.process_burn_block(burn_block, burn_block_height, rewards, burns)
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -319,6 +322,7 @@ impl EventDispatcher {
     pub fn process_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) {
@@ -336,7 +340,12 @@ impl EventDispatcher {
             return;
         }
 
-        let payload = EventObserver::make_new_burn_block_payload(burn_block, rewards, burns);
+        let payload = EventObserver::make_new_burn_block_payload(
+            burn_block,
+            burn_block_height,
+            rewards,
+            burns,
+        );
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_burn_block(&payload);
