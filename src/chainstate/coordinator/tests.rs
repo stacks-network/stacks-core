@@ -1519,7 +1519,7 @@ fn test_pox_btc_ops() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
