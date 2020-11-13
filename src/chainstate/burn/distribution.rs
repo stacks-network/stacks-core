@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
 
 use chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
@@ -244,7 +245,9 @@ impl BurnSamplePoint {
                         if let Some(commit) = commit {
                             (commit.op.burn_fee as u128) + (commit.user_burns as u128)
                         } else {
-                            0
+                            // use 1 as the linked commit min. this gives a miner a _small_
+                            //  chance of winning a block even if they haven't performed chained utxos yet
+                            1
                         }
                     })
                     .collect();
@@ -260,6 +263,12 @@ impl BurnSamplePoint {
 
                 let burns = (min_burn + median_burn) / 2;
                 let candidate = linked_commits.remove(0).unwrap().op;
+                debug!("Burn sample";
+                       "txid" => %candidate.txid.to_string(),
+                       "min_burn" => %min_burn,
+                       "median_burn" => %median_burn,
+                       "all_burns" => %format!("{:?}", all_burns));
+
                 let user_burns = commit_txid_to_user_burns
                     .get(&candidate.txid)
                     .cloned()
@@ -396,21 +405,16 @@ impl BurnSamplePoint {
 
     /// Calculate the total amount of crypto destroyed in this burn distribution.
     /// Returns None if there was an overflow.
-    pub fn get_total_burns(burn_dist: &Vec<BurnSamplePoint>) -> Option<u64> {
-        let block_burn_total_u128: u128 =
-            burn_dist
-                .iter()
-                .fold(0u128, |mut burns_so_far, sample_point| {
-                    burns_so_far += sample_point.burns;
-                    burns_so_far
-                });
-
-        // check overflow
-        if block_burn_total_u128 >= u64::max_value().into() {
-            return None;
-        }
-        let block_burn_total = block_burn_total_u128 as u64;
-        Some(block_burn_total)
+    pub fn get_total_burns(burn_dist: &[BurnSamplePoint]) -> Option<u64> {
+        burn_dist
+            .iter()
+            .fold(Some(0), |burns_so_far, sample_point| {
+                if let Some(burns_so_far) = burns_so_far {
+                    burns_so_far.checked_add(sample_point.burns.try_into().ok()?)
+                } else {
+                    None
+                }
+            })
     }
 }
 

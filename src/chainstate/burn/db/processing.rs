@@ -144,6 +144,22 @@ impl<'a> SortitionHandleTx<'a> {
                 e
             })?;
 
+        let total_burn = state_transition
+            .accepted_ops
+            .iter()
+            .fold(Some(0u64), |acc, op| {
+                if let Some(acc) = acc {
+                    let bf = match op {
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                        BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
+                        _ => 0,
+                    };
+                    acc.checked_add(bf)
+                } else {
+                    None
+                }
+            });
+
         let txids = state_transition
             .accepted_ops
             .iter()
@@ -179,6 +195,7 @@ impl<'a> SortitionHandleTx<'a> {
             block_header,
             &state_transition.burn_dist,
             &txids,
+            total_burn,
         )
         .map_err(|e| {
             error!(

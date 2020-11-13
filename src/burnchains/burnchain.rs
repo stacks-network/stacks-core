@@ -2114,6 +2114,7 @@ pub mod tests {
                 block_122_snapshot.consensus_hash.clone(),
                 ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ];
+
             let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
                 let bf = match op {
                     BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
