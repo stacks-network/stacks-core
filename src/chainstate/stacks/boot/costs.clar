@@ -225,19 +225,19 @@
     (runtime u1))
 
 (define-read-only (cost_hash160 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha512 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha512t256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_keccak256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_secp256k1recover (n uint))
     (runtime u1))
