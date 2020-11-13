@@ -35,7 +35,7 @@ use std::io::prelude::*;
 
 use core::*;
 
-use burnchains::{Address, BurnchainParameters};
+use burnchains::{Address, BurnchainParameters, Burnchain};
 
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::ConsensusHash;
@@ -546,7 +546,19 @@ pub struct ChainStateBootData {
 }
 
 impl ChainStateBootData {
-    pub fn preprend_post_flight_callback(
+    pub fn new(burnchain: &Burnchain, initial_balances: Vec<(PrincipalData, u64)>, post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>) -> ChainStateBootData {
+        ChainStateBootData {
+            first_burnchain_block_hash: burnchain.first_block_hash.clone(),
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
+            initial_balances,
+            post_flight_callback,
+        }
+    }
+
+    /// The callback post_flight_callback invoked is after initial balances are inserted, and after boot contracts are initialized
+    /// This method is used for inserting a callback before any other callback previously setup.
+    pub fn prepend_post_flight_callback(
         &mut self,
         new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
     ) {

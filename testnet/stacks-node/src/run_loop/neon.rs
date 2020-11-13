@@ -166,19 +166,10 @@ impl RunLoop {
             },
         };
         let chainstate_path = self.config.get_chainstate_path();
-        let first_burnchain_block_hash = burnchain_config.first_block_hash.clone();
-        let first_burnchain_block_height = burnchain_config.first_block_height as u32;
-        let first_burnchain_block_timestamp = burnchain_config.first_block_timestamp;
         let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
-            let mut boot_data = ChainStateBootData {
-                initial_balances,
-                post_flight_callback: None,
-                first_burnchain_block_hash,
-                first_burnchain_block_height,
-                first_burnchain_block_timestamp,
-            };
+            let mut boot_data = ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
 
             ChainsCoordinator::run(
                 &chainstate_path,

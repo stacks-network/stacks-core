@@ -282,7 +282,7 @@ impl<'a, T: BlockEventDispatcher>
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
         };
-        boot_data.preprend_post_flight_callback(Box::new(boot_block));
+        boot_data.prepend_post_flight_callback(Box::new(boot_block));
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             stacks_mainnet,
@@ -349,13 +349,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
-        let mut boot_data = ChainStateBootData {
-            initial_balances: vec![],
-            post_flight_callback: None,
-            first_burnchain_block_height: burnchain.first_block_height as u32,
-            first_burnchain_block_hash: burnchain.first_block_hash,
-            first_burnchain_block_timestamp: 0,
-        };
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
