@@ -17,6 +17,7 @@
 use deps;
 use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 
+use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::sync_channel;
@@ -56,8 +57,7 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -79,10 +79,6 @@ use util::vrf::VRFPublicKey;
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION;
-
-use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET;
-use burnchains::bitcoin::indexer::FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST;
-use burnchains::bitcoin::indexer::FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -360,9 +356,39 @@ impl Burnchain {
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
-            first_block_hash: params.first_block_hash.clone(),
+            first_block_hash: params.first_block_hash,
+            first_block_timestamp: params.first_block_timestamp,
             pox_constants,
         })
+    }
+
+    /// the expected sunset burn is:
+    ///   total_commit * (progress through sunset phase) / (sunset phase duration)
+    pub fn expected_sunset_burn(&self, burn_height: u64, total_commit: u64) -> u64 {
+        if burn_height < self.pox_constants.sunset_start
+            || burn_height >= self.pox_constants.sunset_end
+        {
+            return 0;
+        }
+
+        let reward_cycle_height = self.reward_cycle_to_block_height(
+            self.block_height_to_reward_cycle(burn_height)
+                .expect("BUG: Sunset start is less than first_block_height"),
+        );
+
+        if reward_cycle_height <= self.pox_constants.sunset_start {
+            return 0;
+        }
+
+        let sunset_duration =
+            (self.pox_constants.sunset_end - self.pox_constants.sunset_start) as u128;
+        let sunset_progress = (reward_cycle_height - self.pox_constants.sunset_start) as u128;
+
+        // use u128 to avoid any possibilities of overflowing in the calculation here.
+        let expected_u128 = (total_commit as u128) * (sunset_progress) / sunset_duration;
+        u64::try_from(expected_u128)
+            // should never be possible, because sunset_burn is <= total_commit, which is a u64
+            .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
     pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
@@ -390,6 +416,12 @@ impl Burnchain {
             (block_height - self.first_block_height)
                 / (self.pox_constants.reward_cycle_length as u64),
         )
+    }
+
+    pub fn regtest(working_dir: &str) -> Burnchain {
+        let ret =
+            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+        ret
     }
 
     #[cfg(test)]
@@ -450,7 +482,11 @@ impl Burnchain {
     pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let indexer: I = BurnchainIndexer::init(&self.working_dir, &self.network_name)?;
+        let indexer: I = BurnchainIndexer::init(
+            &self.working_dir,
+            &self.network_name,
+            self.first_block_height,
+        )?;
         Ok(indexer)
     }
 
@@ -467,7 +503,7 @@ impl Burnchain {
             0
         };
 
-        if !headers_pathbuf.exists() || headers_height < indexer.get_first_block_height() {
+        if !headers_pathbuf.exists() || headers_height < self.first_block_height {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
@@ -504,7 +540,6 @@ impl Burnchain {
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let first_block_height = indexer.get_first_block_height();
         let first_block_header_hash = indexer.get_first_block_header_hash()?;
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
 
@@ -513,14 +548,14 @@ impl Burnchain {
 
         let sortitiondb = SortitionDB::connect(
             &db_path,
-            first_block_height,
+            self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
             &burnchain_db_path,
-            first_block_height,
+            self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
             readwrite,
@@ -554,6 +589,7 @@ impl Burnchain {
     pub fn classify_transaction(
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
+        sunset_end_ht: u64,
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
@@ -571,7 +607,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::LeaderBlockCommit as u8 => {
-                match LeaderBlockCommitOp::from_tx(block_header, burn_tx) {
+                match LeaderBlockCommitOp::from_tx(block_header, burn_tx, sunset_end_ht) {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {
                         warn!(
@@ -714,6 +750,7 @@ impl Burnchain {
     pub fn process_block(
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
+        sunset_end_ht: u64,
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
         debug!(
             "Process block {} {}",
@@ -721,7 +758,7 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block, sunset_end_ht)?;
 
         let header = block.header();
 
@@ -743,7 +780,7 @@ impl Burnchain {
         );
 
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block, u64::max_value())?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -1167,6 +1204,7 @@ impl Burnchain {
                 Ok(())
             });
 
+        let sunset_end = self.pox_constants.sunset_end;
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::spawn(move || {
                 let mut last_processed = burn_chain_tip;
@@ -1178,7 +1216,8 @@ impl Burnchain {
                     }
 
                     let insert_start = get_epoch_time_ms();
-                    last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
+                    last_processed =
+                        Burnchain::process_block(&mut burnchain_db, &burnchain_block, sunset_end)?;
                     if !coord_comm.announce_new_burn_block() {
                         return Err(burnchain_error::CoordinatorClosed);
                     }
@@ -1271,8 +1310,7 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use chainstate::burn::distribution::BurnSamplePoint;
@@ -1321,7 +1359,8 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000123",
@@ -1608,6 +1647,7 @@ pub mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
@@ -1646,6 +1686,7 @@ pub mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
@@ -1684,6 +1725,7 @@ pub mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
@@ -2137,6 +2179,7 @@ pub mod tests {
 
         for i in 0..10 {
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                sunset_burn: 0,
                 commit_outs: vec![],
                 block_header_hash: BlockHeaderHash::from_bytes(&vec![
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2177,6 +2220,7 @@ pub mod tests {
         }
 
         let noncolliding_op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash([0xbb; 32]),
             new_seed: VRFSeed([0xcc; 32]),
@@ -2292,8 +2336,9 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
         };
 
         let mut leader_private_keys = vec![];
@@ -2386,6 +2431,7 @@ pub mod tests {
             // insert block commit paired to previous round's leader key, as well as a user burn
             if i > 0 {
                 let next_block_commit = LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     commit_outs: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![
                         i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

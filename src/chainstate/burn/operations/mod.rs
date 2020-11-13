@@ -152,6 +152,8 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<StacksAddress>,
+    /// how much sunset burn this block performed
+    pub sunset_burn: u64,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -189,15 +191,6 @@ pub struct UserBurnSupportOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of burnchain block with this tx
-}
-
-pub trait BlockstackOperation {
-    fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

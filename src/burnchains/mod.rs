@@ -20,12 +20,12 @@ pub mod burnchain;
 pub mod db;
 pub mod indexer;
 
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::default::Default;
 use std::error;
 use std::fmt;
 use std::io;
-
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
@@ -38,9 +38,6 @@ use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
-    FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET,
-    FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST,
-    FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET,
 };
 
 use core::*;
@@ -100,22 +97,33 @@ pub struct BurnchainParameters {
     chain_name: String,
     network_name: String,
     network_id: u32,
-    first_block_height: u64,
-    first_block_hash: BurnchainHeaderHash,
     stable_confirmations: u32,
     consensus_hash_lifetime: u32,
+    pub first_block_height: u64,
+    pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
 }
 
 impl BurnchainParameters {
+    pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
+        match (chain, network) {
+            ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
+            ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
+            ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
+            _ => None,
+        }
+    }
+
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_MAINNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_MAINNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_MAINNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -124,10 +132,14 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_TESTNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_TESTNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_TESTNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_TESTNET.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: 1891063,
+            first_block_hash: BurnchainHeaderHash::from_hex(
+                "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637",
+            )
+            .unwrap(),
+            first_block_timestamp: 1604967939,
         }
     }
 
@@ -136,10 +148,11 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_REGTEST_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_REGTEST,
-            first_block_height: BITCOIN_FIRST_BLOCK_REGTEST,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_REGTEST.clone(),
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -238,6 +251,12 @@ impl BurnchainTransaction {
                 .collect(),
         }
     }
+
+    pub fn get_burn_amount(&self) -> u64 {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -266,6 +285,7 @@ pub struct Burnchain {
     pub stable_confirmations: u32,
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
 }
 
@@ -284,6 +304,10 @@ pub struct PoxConstants {
     /// percentage of liquid STX that must participate for PoX
     ///  to occur
     pub pox_participation_threshold_pct: u64,
+    /// last+1 block height of sunset phase
+    pub sunset_end: u64,
+    /// first block height of sunset phase
+    pub sunset_start: u64,
     _shadow: PhantomData<()>,
 }
 
@@ -294,8 +318,12 @@ impl PoxConstants {
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
         pox_participation_threshold_pct: u64,
+        sunset_start: u64,
+        sunset_end: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
+
+        assert!(sunset_start <= sunset_end);
 
         PoxConstants {
             reward_cycle_length,
@@ -303,12 +331,14 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
+            sunset_start,
+            sunset_end,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25, 5)
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -326,11 +356,27 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192, 25, 5)
+        PoxConstants::new(
+            POX_REWARD_CYCLE_LENGTH,
+            POX_PREPARE_WINDOW_LENGTH,
+            192,
+            25,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        )
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333, 5) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(
+            120,
+            30,
+            20,
+            3333333333333333,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        ) // total liquid supply is 40000000000000000 µSTX
     }
 }
 

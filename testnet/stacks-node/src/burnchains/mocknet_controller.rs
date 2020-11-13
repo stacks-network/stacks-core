@@ -34,12 +34,7 @@ impl MocknetController {
 
     fn new(config: Config) -> Self {
         debug!("Opening Burnchain at {}", &config.get_burn_db_path());
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            &"regtest".to_string(),
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&config.get_burn_db_path());
 
         Self {
             config: config,
@@ -95,7 +90,7 @@ impl BurnchainController for MocknetController {
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
-            &BurnchainHeaderHash([0u8; 32]),
+            &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
             true,
         ) {
@@ -160,6 +155,7 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                        sunset_burn: 0,
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,
                         parent_block_ptr: payload.parent_block_ptr,

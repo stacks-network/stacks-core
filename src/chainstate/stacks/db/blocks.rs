@@ -3753,9 +3753,9 @@ impl StacksChainState {
     /// block's transactions.  Finally, it returns the execution costs for the microblock stream
     /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
-    fn append_block<'a>(
-        chainstate_tx: &mut ChainstateTx<'a>,
-        clarity_instance: &'a mut ClarityInstance,
+    fn append_block(
+        chainstate_tx: &mut ChainstateTx,
+        clarity_instance: &mut ClarityInstance,
         burn_dbconn: &dyn BurnStateDB,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_consensus_hash: &ConsensusHash,
@@ -3778,17 +3778,19 @@ impl StacksChainState {
         let next_block_height = block.header.total_work.work;
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        let matured_miner_rewards_opt = {
-            StacksChainState::find_mature_miner_rewards(
+        let (matured_rewards, matured_rewards_info) =
+            match StacksChainState::find_mature_miner_rewards(
                 &mut chainstate_tx.headers_tx,
                 parent_chain_tip,
                 Some(chainstate_tx.miner_payment_cache),
-            )?
-        };
+            )? {
+                Some((rewards, rewards_info)) => (rewards, Some(rewards_info)),
+                None => (vec![], None),
+            };
 
         let (
             scheduled_miner_reward,
-            txs_receipts,
+            tx_receipts,
             microblock_execution_cost,
             block_execution_cost,
             total_liquid_ustx,
@@ -3896,16 +3898,12 @@ impl StacksChainState {
                 .expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            let new_liquid_miner_ustx =
-                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                    // grant in order by miner, then users
-                    StacksChainState::process_matured_miner_rewards(
-                        &mut clarity_tx,
-                        &mature_miner_rewards,
-                    )?
-                } else {
-                    0
-                };
+            let new_liquid_miner_ustx = if matured_rewards.len() > 0 {
+                // grant in order by miner, then users
+                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &matured_rewards)?
+            } else {
+                0
+            };
 
             // total burns
             let total_burnt = block_burns
@@ -3994,11 +3992,13 @@ impl StacksChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &txs_receipts);
+        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
-            tx_receipts: txs_receipts,
+            tx_receipts,
+            matured_rewards,
+            matured_rewards_info,
             parent_microblocks_cost: microblock_execution_cost,
             anchored_block_cost: block_execution_cost,
         };

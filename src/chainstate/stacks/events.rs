@@ -44,58 +44,72 @@ pub enum StacksTransactionEvent {
 }
 
 impl StacksTransactionEvent {
-    pub fn json_serialize(&self, txid: &Txid, committed: bool) -> serde_json::Value {
+    pub fn json_serialize(
+        &self,
+        event_index: usize,
+        txid: &Txid,
+        committed: bool,
+    ) -> serde_json::Value {
         match self {
             StacksTransactionEvent::SmartContractEvent(event_data) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "contract_event",
                 "contract_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_transfer_event",
                 "stx_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_mint_event",
                 "stx_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_burn_event",
                 "stx_burn_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_lock_event",
                 "stx_lock_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "nft_transfer_event",
                 "nft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "nft_mint_event",
                 "nft_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "ft_transfer_event",
                 "ft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "ft_mint_event",
                 "ft_mint_event": event_data.json_serialize()
@@ -160,6 +174,7 @@ impl STXMintEventData {
 pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
+    pub locked_address: PrincipalData,
 }
 
 impl STXLockEventData {
@@ -167,6 +182,7 @@ impl STXLockEventData {
         json!({
             "locked_amount": format!("{}",self.locked_amount),
             "unlock_height": format!("{}", self.unlock_height),
+            "locked_address": format!("{}", self.locked_address),
         })
     }
 }
@@ -180,7 +196,7 @@ pub struct STXBurnEventData {
 impl STXBurnEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "sender": format!("{}",self.sender),
+            "sender": format!("{}", self.sender),
             "amount": format!("{}", self.amount),
         })
     }
