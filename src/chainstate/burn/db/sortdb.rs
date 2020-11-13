@@ -1424,14 +1424,47 @@ impl<'a> SortitionHandleConn<'a> {
             // no winner
             return Ok(vec![]);
         }
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2";
+        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &snapshot.winning_block_txid];
+        let winning_commit: LeaderBlockCommitOp = query_row(self, qry, &args)?
+            .expect("BUG: sortition exists, but winner cannot be found");
 
         let winning_block_hash160 =
             Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
 
-        let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 ORDER BY vtxindex ASC";
-        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &winning_block_hash160];
+        let qry = "SELECT * FROM user_burn_support
+                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4
+                   ORDER BY vtxindex ASC";
+        let args: [&dyn ToSql; 4] = [
+            &snapshot.sortition_id,
+            &winning_block_hash160,
+            &winning_commit.key_vtxindex,
+            &winning_commit.key_block_ptr,
+        ];
 
-        query_rows(self, qry, &args)
+        let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
+
+        // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
+        let qry = "SELECT COUNT(*) FROM block_commits
+                   WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
+        let args: [&dyn ToSql; 4] = [
+            &snapshot.sortition_id,
+            &snapshot.winning_stacks_block_hash,
+            &winning_commit.key_vtxindex,
+            &winning_commit.key_block_ptr,
+        ];
+        let shared_miners = query_count(self, qry, &args)? as u64;
+
+        assert!(
+            shared_miners >= 1,
+            "BUG: Should be at least 1 matching miner for the winning block commit"
+        );
+
+        for winning_user_burn in winning_user_burns.iter_mut() {
+            winning_user_burn.burn_fee /= shared_miners;
+        }
+
+        Ok(winning_user_burns)
     }
 
     /// Get the block snapshot of the parent stacks block of the given stacks block

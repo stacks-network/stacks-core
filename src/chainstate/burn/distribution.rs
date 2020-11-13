@@ -76,7 +76,7 @@ impl BurnSamplePoint {
     ///     for which PoX is fully disabled (i.e., the block commit has a single burn output).
     pub fn make_min_median_distribution(
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
-        mut user_burns: Vec<Vec<UserBurnSupportOp>>,
+        user_burns: Vec<Vec<UserBurnSupportOp>>,
         sunset_finished_at: Option<u8>,
     ) -> Vec<BurnSamplePoint> {
         // sanity check
@@ -156,7 +156,7 @@ impl BurnSamplePoint {
                     }
 
                     // found a chained utxo, connect
-                    linked_commit[(window_size - rel_block_height) as usize] =
+                    linked_commit[(window_size - 1 - rel_block_height) as usize] =
                         Some(LinkedCommitmentScore {
                             op: referenced_commit,
                             rel_block_height,
@@ -299,7 +299,7 @@ impl BurnSamplePoint {
     /// Returns the distribution, which consumes the given lists of operations.
     pub fn make_distribution(
         all_block_candidates: Vec<LeaderBlockCommitOp>,
-        consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
+        _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
         Self::make_min_median_distribution(vec![all_block_candidates], vec![user_burns], None)
@@ -440,7 +440,7 @@ mod tests {
     use burnchains::{BurnchainHeaderHash, Txid};
     use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
     use util::hash::hex_bytes;
-    use util::vrf::VRFPublicKey;
+    use util::vrf::*;
 
     use util::hash::Hash160;
     use util::uint::BitArray;
@@ -458,6 +458,147 @@ mod tests {
         block_commits: Vec<LeaderBlockCommitOp>,
         user_burns: Vec<UserBurnSupportOp>,
         res: Vec<BurnSamplePoint>,
+    }
+
+    fn make_user_burn(
+        burn_fee: u64,
+        vrf_ident: u32,
+        block_id: u64,
+        txid_id: u64,
+    ) -> UserBurnSupportOp {
+        let mut block_header_hash = [0; 32];
+        block_header_hash[0..8].copy_from_slice(&block_id.to_be_bytes());
+        let mut txid = [3; 32];
+        txid[0..8].copy_from_slice(&txid_id.to_be_bytes());
+        let txid = Txid(txid);
+
+        UserBurnSupportOp {
+            address: StacksAddress {
+                version: 0,
+                bytes: Hash160([0; 20]),
+            },
+            consensus_hash: ConsensusHash([0; 20]),
+            public_key: VRFPublicKey::from_private(&VRFPrivateKey::new()),
+            key_block_ptr: vrf_ident,
+            key_vtxindex: 0,
+            block_header_hash_160: Hash160::from_sha256(&block_header_hash),
+            burn_fee,
+            txid,
+            vtxindex: 0,     // index in the block where this tx occurs
+            block_height: 0, // block height at which this tx occurs
+            burn_header_hash: BurnchainHeaderHash([0; 32]), // hash of burnchain block with this tx
+        }
+    }
+
+    fn make_block_commit(
+        burn_fee: u64,
+        vrf_ident: u32,
+        block_id: u64,
+        txid_id: u64,
+        input_tx: Option<u64>,
+    ) -> LeaderBlockCommitOp {
+        let mut block_header_hash = [0; 32];
+        block_header_hash[0..8].copy_from_slice(&block_id.to_be_bytes());
+        let mut txid = [0; 32];
+        txid[0..8].copy_from_slice(&txid_id.to_be_bytes());
+        let mut input_txid = [0; 32];
+        if let Some(input_tx) = input_tx {
+            input_txid[0..8].copy_from_slice(&input_tx.to_be_bytes());
+        } else {
+            // no txid will match
+            input_txid.copy_from_slice(&[1; 32]);
+        }
+        let txid = Txid(txid);
+        let input_txid = Txid(input_txid);
+
+        LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash(block_header_hash),
+            new_seed: VRFSeed([0; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: vrf_ident,
+            key_vtxindex: 0,
+            memo: vec![],
+            burn_fee,
+            input: (input_txid, 3),
+            commit_outs: vec![],
+            sunset_burn: 0,
+            txid,
+            vtxindex: 0,
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0; 32]),
+        }
+    }
+
+    #[test]
+    fn make_mean_min_median() {
+        // test case 1:
+        //    miner 1:  3 4 5 4 5 4
+        //       ub  :  1 0 0 0 0 0
+        //    miner 2:  1 3 3 3 3 3
+        //       ub  :  1 0 0 0 0 0
+        //              0 1 0 0 0 0
+        //                   ..
+
+        // miner 1 => min = 4, median = 4.
+        // miner 2 => min = 2, median = 4.
+
+        let commits = vec![
+            vec![
+                make_block_commit(3, 1, 1, 1, None),
+                make_block_commit(1, 2, 2, 2, None),
+            ],
+            vec![
+                make_block_commit(4, 3, 3, 3, Some(1)),
+                make_block_commit(3, 4, 4, 4, Some(2)),
+            ],
+            vec![
+                make_block_commit(5, 5, 5, 5, Some(3)),
+                make_block_commit(3, 6, 6, 6, Some(4)),
+            ],
+            vec![
+                make_block_commit(4, 7, 7, 7, Some(5)),
+                make_block_commit(3, 8, 8, 8, Some(6)),
+            ],
+            vec![
+                make_block_commit(5, 9, 9, 9, Some(7)),
+                make_block_commit(3, 10, 10, 10, Some(8)),
+            ],
+            vec![
+                make_block_commit(4, 11, 11, 11, Some(9)),
+                make_block_commit(3, 12, 12, 12, Some(10)),
+            ],
+        ];
+        let user_burns = vec![
+            vec![make_user_burn(1, 1, 1, 1), make_user_burn(1, 2, 2, 2)],
+            vec![make_user_burn(1, 4, 4, 4)],
+            vec![make_user_burn(1, 6, 6, 6)],
+            vec![make_user_burn(1, 8, 8, 8)],
+            vec![make_user_burn(1, 10, 10, 10)],
+            vec![make_user_burn(1, 12, 12, 12)],
+        ];
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            commits.clone(),
+            user_burns.clone(),
+            None,
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
+
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 1);
+
+        assert_eq!(result[1].user_burns[0].txid, user_burns[5][0].txid);
     }
 
     #[test]
