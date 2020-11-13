@@ -614,7 +614,7 @@ impl NullBackingStore {
 
 impl ClarityBackingStore for NullBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        panic!("NullBackingStore can't set block hash")
     }
 
     fn get(&mut self, _key: &str) -> Option<String> {
@@ -630,23 +630,19 @@ impl ClarityBackingStore for NullBackingStore {
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
-        if height == 0 {
-            Some(StacksBlockId::sentinel())
-        } else {
-            None
-        }
+        panic!("NullBackingStore can't get block at height")
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        StacksBlockId::sentinel()
+        panic!("NullBackingStore can't open chain tip")
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {
-        0
+        panic!("NullBackingStore can't get open chain tip height")
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        0
+        panic!("NullBackingStore can't get current block height")
     }
 
     fn put_all(&mut self, mut _items: Vec<(String, String)>) {

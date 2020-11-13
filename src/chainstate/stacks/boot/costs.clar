@@ -16,15 +16,13 @@
 (define-private (linear (n uint) (a uint) (b uint))
     (+ (* a n) b))
 
-;; TODO: fix this once log is available
 ;; LogN cost-assessment function
 (define-private (logn (n uint) (a uint) (b uint))
-    (+ (* a n) b))
+    (+ (* a (log2 n)) b))
 
-;; TODO: fix this once log is available
 ;; NLogN cost-assessment function
 (define-private (nlogn (n uint) (a uint) (b uint))
-    (+ (* a n) b))
+    (+ (* a (* n (log2 n))) b))
 
 
 ;; Cost Functions
@@ -212,6 +210,9 @@
 (define-read-only (cost_sqrti (n uint))
     (runtime u1))
 
+(define-read-only (cost_log2 (n uint))
+    (runtime u1))
+
 (define-read-only (cost_xor (n uint))
     (runtime u1))
 
@@ -225,19 +226,19 @@
     (runtime u1))
 
 (define-read-only (cost_hash160 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha512 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_sha512t256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_keccak256 (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_secp256k1recover (n uint))
     (runtime u1))

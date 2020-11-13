@@ -17,11 +17,12 @@
 pub mod constants;
 pub mod cost_functions;
 
+use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use chainstate::stacks::boot::boot_code_id;
 
@@ -33,8 +34,6 @@ use vm::errors::{Error, InterpreterResult};
 use vm::types::Value::UInt;
 use vm::types::{QualifiedContractIdentifier, TypeSignature, NONE};
 use vm::{ast, eval_all, SymbolicExpression, Value};
-
-use std::time::Instant;
 
 type Result<T> = std::result::Result<T, CostErrors>;
 
