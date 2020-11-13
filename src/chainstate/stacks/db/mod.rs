@@ -560,7 +560,7 @@ impl ChainStateBootData {
         }
     }
 
-    /// The callback post_flight_callback invoked is after initial balances are inserted, and after boot contracts are initialized
+    /// The callback post_flight_callback is invoked after initial balances are inserted, and after boot contracts are initialized
     /// This method is used for inserting a callback before any other callback previously setup.
     pub fn prepend_post_flight_callback(
         &mut self,
