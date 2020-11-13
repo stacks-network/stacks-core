@@ -229,9 +229,9 @@ macro_rules! make_arithmetic_ops {
             fn log2(n: $type) -> InterpreterResult<Value> {
                 if n < 1 {
                     return Err(RuntimeErrorType::Arithmetic(
-                        "log2 must be passed a positive integer".to_string()
-                        )
-                        .into())
+                        "log2 must be passed a positive integer".to_string(),
+                    )
+                    .into());
                 }
                 let size = std::mem::size_of::<$type>() as u32;
                 Self::make_value((size * 8 - 1 - n.leading_zeros()) as $type)
@@ -239,7 +239,6 @@ macro_rules! make_arithmetic_ops {
         }
     };
 }
-
 
 make_arithmetic_ops!(U128Ops, u128);
 make_arithmetic_ops!(I128Ops, i128);
