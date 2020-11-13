@@ -273,6 +273,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_burn_block(
         &self,
         _burn_block: &BurnchainHeaderHash,
+        _burn_block_height: u64,
         _rewards: Vec<(StacksAddress, u64)>,
         _burns: u64,
     ) {
