@@ -377,8 +377,12 @@ impl<'a> ClarityDatabase<'a> {
         self.store.rollback();
     }
 
-    pub fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
-        self.store.set_block_hash(bhh)
+    pub fn set_block_hash(
+        &mut self,
+        bhh: StacksBlockId,
+        query_pending_data: bool,
+    ) -> Result<StacksBlockId> {
+        self.store.set_block_hash(bhh, query_pending_data)
     }
 
     pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) {
@@ -639,6 +643,15 @@ impl<'a> ClarityDatabase<'a> {
         let cur_height = self.get_current_block_height();
         let cur_id_bhh = self.get_index_block_header_hash(cur_height);
         self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
+    }
+
+    pub fn get_stx_btc_ops_processed(&mut self) -> u64 {
+        self.get("vm_pox::stx_btc_ops::processed_blocks")
+            .unwrap_or(0)
+    }
+
+    pub fn set_stx_btc_ops_processed(&mut self, processed: u64) {
+        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed);
     }
 }
 
@@ -1096,6 +1109,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
+        debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get(&key);
         match result {
             None => STXBalance::zero(),

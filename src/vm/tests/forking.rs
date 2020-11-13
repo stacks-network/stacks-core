@@ -48,6 +48,76 @@ fn test_forking_simple() {
 }
 
 #[test]
+fn test_at_block_mutations() {
+    // test how at-block works when a mutation has occurred
+    fn initialize(owned_env: &mut OwnedEnvironment) {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let contract =
+            "(define-data-var datum int 1)
+             (define-public (working)
+               (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum))))
+             (define-public (broken)
+               (begin
+                 (var-set datum 10)
+                 ;; this should return 1, not 10!
+                 (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum)))))";
+
+        eprintln!("Initializing contract...");
+        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+    }
+
+    fn branch(
+        owned_env: &mut OwnedEnvironment,
+        expected_value: i128,
+        to_exec: &str,
+    ) -> Result<Value> {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let p1 = execute(p1_str);
+        eprintln!("Branched execution...");
+
+        {
+            let mut env = owned_env.get_exec_environment(None);
+            let command = format!("(var-get datum)");
+            let value = env.eval_read_only(&c, &command).unwrap();
+            assert_eq!(value, Value::Int(expected_value));
+        }
+
+        owned_env
+            .execute_transaction(p1, c, to_exec, &vec![])
+            .map(|(x, _, _)| x)
+    }
+
+    with_separate_forks_environment(
+        initialize,
+        |x| {
+            assert_eq!(
+                branch(x, 1, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 1, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 10, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            // make this test fail: this assertion _should_ be
+            //  true, but at-block is broken. when a context
+            //  switches to an at-block context, _any_ of the db
+            //  wrapping that the Clarity VM does needs to be
+            //  ignored.
+            assert_eq!(
+                branch(x, 10, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+        },
+        |_x| {},
+        |_x| {},
+    );
+}
+
+#[test]
 fn test_at_block_good() {
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();

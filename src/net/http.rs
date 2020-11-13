@@ -633,7 +633,7 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // send out any bufferred chunk data
+        // send out any buffered chunk data
         if !self.state.corked {
             self.flush_chunk().and_then(|nw| {
                 if nw > 0 {
@@ -3602,7 +3602,7 @@ impl ProtocolFamily for StacksHttp {
                     Some((request_version, request_path, message_bytes, total_bytes_consumed)) => {
                         // can parse!
                         test_debug!(
-                            "read http response payload of {} bytes (just bufferred {}) for {}",
+                            "read http response payload of {} bytes (just buffered {}) for {}",
                             message_bytes.len(),
                             num_read,
                             &request_path
@@ -3638,7 +3638,7 @@ impl ProtocolFamily for StacksHttp {
                     None => {
                         // need more data
                         trace!(
-                            "did not read http response payload, but bufferred {}",
+                            "did not read http response payload, but buffered {}",
                             num_read
                         );
                         Ok((None, num_read))

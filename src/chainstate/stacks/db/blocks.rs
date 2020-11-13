@@ -75,8 +75,7 @@ use vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 
-use vm::database::BurnStateDB;
-use vm::database::ClarityDatabase;
+use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use vm::contracts::Contract;
 
@@ -922,7 +921,7 @@ impl StacksChainState {
     /// Returns Ok(Some(microblocks)) if the data was found
     /// Returns Ok(None) if the microblocks stream was previously processed and is known to be invalid
     /// Returns Err(...) for not found, I/O error, etc.
-    fn load_microblock_stream(
+    pub fn load_microblock_stream(
         blocks_path: &String,
         consensus_hash: &ConsensusHash,
         microblock_head_hash: &BlockHeaderHash,
@@ -1690,7 +1689,7 @@ impl StacksChainState {
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
     /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(
-        &mut self,
+        &self,
         header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) -> Result<BlocksInvData, Error> {
         let mut block_bits = vec![];
@@ -2240,7 +2239,7 @@ impl StacksChainState {
 
     /// Is a particular microblock in staging, given its _indexed anchored block hash_?
     pub fn has_staging_microblock_indexed(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
         seq: u16,
     ) -> Result<bool, Error> {
@@ -2260,7 +2259,7 @@ impl StacksChainState {
 
     /// Do we have a particular microblock stream given it _indexed head microblock hash_?
     pub fn has_confirmed_microblocks_indexed(
-        &mut self,
+        &self,
         index_microblock_hash: &StacksBlockId,
     ) -> Result<bool, Error> {
         StacksChainState::has_block_indexed(&self.blocks_path, index_microblock_hash)
@@ -2279,7 +2278,7 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(
-        &mut self,
+        &self,
         index_anchor_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
         let sql = "SELECT microblock_hash,consensus_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
@@ -3638,8 +3637,8 @@ impl StacksChainState {
     /// Process a stream of microblocks
     /// Return the fees and burns.
     /// TODO: if we find an invalid Stacks microblock, then punish the miner who produced it
-    pub fn process_microblocks_transactions<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_microblocks_transactions(
+        clarity_tx: &mut ClarityTx,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
@@ -3662,10 +3661,87 @@ impl StacksChainState {
         Ok((fees, burns, receipts))
     }
 
+    /// Process any Stacking-related bitcoin operations
+    ///  that haven't been processed in this Stacks fork yet.
+    pub fn process_stacking_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<StackStxOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        let mut all_receipts = vec![];
+        let mut cost_so_far = clarity_tx.cost_so_far();
+        for stack_stx_op in operations.into_iter() {
+            let StackStxOp {
+                sender,
+                reward_addr,
+                stacked_ustx,
+                num_cycles,
+                block_height,
+                txid,
+                burn_header_hash,
+                ..
+            } = stack_stx_op;
+            let result = clarity_tx.connection().as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender.into(),
+                    &QualifiedContractIdentifier::boot_contract("pox"),
+                    "stack-stx",
+                    &[
+                        Value::UInt(stacked_ustx),
+                        reward_addr.as_clarity_tuple().into(),
+                        Value::UInt(u128::from(block_height)),
+                        Value::UInt(u128::from(num_cycles)),
+                    ],
+                    |_, _| false,
+                )
+            });
+            match result {
+                Ok((value, _, events)) => {
+                    if let Value::Response(ref resp) = value {
+                        if !resp.committed {
+                            debug!("StackStx burn op rejected by PoX contract.";
+                                   "txid" => %txid,
+                                   "burn_block" => %burn_header_hash,
+                                   "contract_call_ecode" => %resp.data);
+                        }
+                        let mut execution_cost = clarity_tx.cost_so_far();
+                        execution_cost
+                            .sub(&cost_so_far)
+                            .expect("BUG: cost declined between executions");
+                        cost_so_far = clarity_tx.cost_so_far();
+
+                        let receipt = StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Burn(txid),
+                            events,
+                            result: value,
+                            post_condition_aborted: false,
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost,
+                        };
+
+                        all_receipts.push(receipt);
+                    } else {
+                        unreachable!(
+                            "BUG: Non-response value returned by Stacking STX burnchain op"
+                        )
+                    }
+                }
+                Err(e) => {
+                    info!("StackStx burn op processing error.";
+                           "error" => %format!("{:?}", e),
+                           "txid" => %txid,
+                           "burn_block" => %burn_header_hash);
+                }
+            };
+        }
+
+        all_receipts
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
-    fn process_block_transactions<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn process_block_transactions(
+        clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
@@ -3753,10 +3829,10 @@ impl StacksChainState {
     /// block's transactions.  Finally, it returns the execution costs for the microblock stream
     /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
-    fn append_block<'a>(
-        chainstate_tx: &mut ChainstateTx<'a>,
-        clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &dyn BurnStateDB,
+    fn append_block(
+        chainstate_tx: &mut ChainstateTx,
+        clarity_instance: &mut ClarityInstance,
+        burn_dbconn: &mut SortitionHandleTx,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_consensus_hash: &ConsensusHash,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -3778,17 +3854,19 @@ impl StacksChainState {
         let next_block_height = block.header.total_work.work;
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        let matured_miner_rewards_opt = {
-            StacksChainState::find_mature_miner_rewards(
+        let (matured_rewards, matured_rewards_info) =
+            match StacksChainState::find_mature_miner_rewards(
                 &mut chainstate_tx.headers_tx,
                 parent_chain_tip,
                 Some(chainstate_tx.miner_payment_cache),
-            )?
-        };
+            )? {
+                Some((rewards, rewards_info)) => (rewards, Some(rewards_info)),
+                None => (vec![], None),
+            };
 
         let (
             scheduled_miner_reward,
-            txs_receipts,
+            tx_receipts,
             microblock_execution_cost,
             block_execution_cost,
             total_liquid_ustx,
@@ -3834,6 +3912,18 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
 
+            // get the burnchain block that precedes this block's sortition
+            let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
+                &burn_dbconn.tx(),
+                &chain_tip_consensus_hash,
+            )?
+            .expect(
+                "BUG: Failed to load snapshot for block snapshot during Stacks block processing",
+            )
+            .parent_burn_header_hash;
+            let stacking_burn_ops =
+                SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
+
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,
                 clarity_instance,
@@ -3845,7 +3935,7 @@ impl StacksChainState {
             );
 
             // process microblock stream
-            let (microblock_fees, microblock_burns, mut microblock_txs_receipts) =
+            let (microblock_fees, microblock_burns, microblock_txs_receipts) =
                 match StacksChainState::process_microblocks_transactions(
                     &mut clarity_tx,
                     &microblocks,
@@ -3870,13 +3960,21 @@ impl StacksChainState {
                 };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                   chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
-                   block.header.total_work.work, block.header.total_work.burn,
-                   last_microblock_hash, last_microblock_seq, microblocks.len());
+            debug!("\n\nAppend block";
+                   "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
+                   "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
+                   "stacks_height" => %block.header.total_work.work,
+                   "total_burns" => %block.header.total_work.burn,
+                   "microblock_parent" => %last_microblock_hash,
+                   "microblock_parent_seq" => %last_microblock_seq,
+                   "microblock_parent_count" => %microblocks.len());
+
+            // process stacking operations from bitcoin ops
+            let mut receipts =
+                StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
 
             // process anchored block
-            let (block_fees, block_burns, mut txs_receipts) =
+            let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
@@ -3890,22 +3988,20 @@ impl StacksChainState {
                     }
                 };
 
+            receipts.extend(txs_receipts.into_iter());
+
             let mut block_cost = clarity_tx.cost_so_far();
             block_cost
                 .sub(&microblock_cost)
                 .expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            let new_liquid_miner_ustx =
-                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                    // grant in order by miner, then users
-                    StacksChainState::process_matured_miner_rewards(
-                        &mut clarity_tx,
-                        &mature_miner_rewards,
-                    )?
-                } else {
-                    0
-                };
+            let new_liquid_miner_ustx = if matured_rewards.len() > 0 {
+                // grant in order by miner, then users
+                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &matured_rewards)?
+            } else {
+                0
+            };
 
             // total burns
             let total_burnt = block_burns
@@ -3961,11 +4057,11 @@ impl StacksChainState {
             ) // TODO: calculate total compute budget and scale up
             .expect("FATAL: parsed and processed a block without a coinbase");
 
-            txs_receipts.append(&mut microblock_txs_receipts);
+            receipts.extend(microblock_txs_receipts.into_iter());
 
             (
                 scheduled_miner_reward,
-                txs_receipts,
+                receipts,
                 microblock_cost,
                 block_cost,
                 total_liquid_ustx,
@@ -3994,11 +4090,13 @@ impl StacksChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &txs_receipts);
+        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
-            tx_receipts: txs_receipts,
+            tx_receipts,
+            matured_rewards,
+            matured_rewards_info,
             parent_microblocks_cost: microblock_execution_cost,
             anchored_block_cost: block_execution_cost,
         };

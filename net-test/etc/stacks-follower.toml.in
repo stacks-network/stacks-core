@@ -1,8 +1,10 @@
 [node]
-rpc_bind = "0.0.0.0:20443"
-p2p_bind = "0.0.0.0:20444"
-bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@@@STACKS_MASTER_IP:20444@@"
+rpc_bind = "0.0.0.0:@@STACKS_FOLLOWER_RPC_PORT@@"
+p2p_bind = "0.0.0.0:@@STACKS_FOLLOWER_P2P_PORT@@"
+bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@@@STACKS_BOOTSTRAP_IP@@:@@STACKS_BOOTSTRAP_PORT@@"
+deny_nodes = "@@STACKS_DENY_NODES@@"
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
+p2p_address = "@@STACKS_PUBLIC_IP@@:@@STACKS_FOLLOWER_P2P_PORT@@"
 
 [burnchain]
 chain = "bitcoin"
@@ -10,6 +12,14 @@ mode = "krypton"
 peer_host = "@@BITCOIN_IP@@"
 rpc_port = 28443
 peer_port = 18444
+process_exit_at_block_height = @@PROCESS_EXIT_AT_BLOCK_HEIGHT@@
+
+[connection_options]
+inv_sync_interval = 10
+download_interval = 10
+walk_interval = 10
+disable_inbound_handshakes = @@DISABLE_INBOUND_HANDSHAKES@@
+disable_inbound_walks = @@DISABLE_INBOUND_WALKS@@
 
 [[mstx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001

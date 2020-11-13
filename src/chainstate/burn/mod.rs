@@ -111,6 +111,8 @@ pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
     UserBurnSupport = '_' as u8,
+    StackStx = 'x' as u8,
+    PreStackStx = 'p' as u8,
 }
 
 // a burnchain block snapshot

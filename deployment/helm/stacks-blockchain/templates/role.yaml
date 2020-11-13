@@ -1,0 +1,10 @@
+{{- if and .Values.rbac.create .Values.rbac.rules -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "stacks-blockchain.fullname" . }}
+  labels: {{- include "stacks-blockchain.labels" . | nindent 4 }}
+rules:
+  {{- .Values.rbac.rules | toYaml | nindent 2}}
+{{- end }}

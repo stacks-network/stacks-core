@@ -457,6 +457,14 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
+    pub fn new_free(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
     pub fn new_cost_limited(
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
@@ -882,12 +890,12 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = self
             .global_context
             .database
-            .set_block_hash(bhh)
+            .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
                 let result = eval(closure, self, local);
                 self.global_context
                     .database
-                    .set_block_hash(prior_bhh)
+                    .set_block_hash(prior_bhh, true)
                     .expect(
                     "ERROR: Failed to restore prior active block after time-shifted evaluation.",
                 );

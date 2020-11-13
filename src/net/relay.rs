@@ -704,6 +704,7 @@ impl Relayer {
                         block.block_hash(),
                         neighbor_key
                     );
+                    let bhh = block.block_hash();
                     match Relayer::process_new_anchored_block(
                         sort_ic,
                         chainstate,
@@ -713,6 +714,10 @@ impl Relayer {
                     ) {
                         Ok(accepted) => {
                             if accepted {
+                                debug!(
+                                    "Accepted block {}/{} from {}",
+                                    &consensus_hash, &bhh, &neighbor_key
+                                );
                                 new_blocks.insert(consensus_hash.clone());
                             }
                         }
@@ -1440,6 +1445,14 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
+        debug!(
+            "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
+            &self.local_peer,
+            availability_data.len(),
+            outbound_recipients.len(),
+            inbound_recipients.len()
+        );
+
         for recipient in outbound_recipients.drain(..) {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
@@ -1474,6 +1487,8 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
+        debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
+
         for recipient in outbound_recipients.drain(..) {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
@@ -1951,11 +1966,6 @@ mod test {
                     peer_configs[0].connection_opts.timeout = 180;
                     peer_configs[1].connection_opts.timeout = 180;
                     peer_configs[2].connection_opts.timeout = 180;
-
-                    // impatient
-                    peer_configs[0].connection_opts.download_interval = 5;
-                    peer_configs[1].connection_opts.download_interval = 5;
-                    peer_configs[2].connection_opts.download_interval = 5;
 
                     let peer_0 = peer_configs[0].to_neighbor();
                     let peer_1 = peer_configs[1].to_neighbor();
@@ -3297,6 +3307,334 @@ mod test {
                     assert_eq!(tx_infos[0].tx.txid(), sent_tx.txid());
                 }
             }
+        })
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_antientropy() {
+        with_timeout(600, move || {
+            run_get_blocks_and_microblocks(
+                "test_get_blocks_and_microblocks_2_peers_antientropy",
+                4240,
+                2,
+                |ref mut peer_configs| {
+                    // build initial network topology.
+                    assert_eq!(peer_configs.len(), 2);
+
+                    // peer 0 mines blocks, but does not advertize them nor announce them as
+                    // available via its inventory.  It only uses its anti-entropy protocol to
+                    // discover that peer 1 doesn't have them, and sends them to peer 1 that way.
+                    peer_configs[0].connection_opts.disable_block_advertisement = true;
+                    peer_configs[0].connection_opts.disable_inv_chat = true;
+                    peer_configs[0].connection_opts.disable_block_download = true;
+
+                    peer_configs[1].connection_opts.disable_block_download = true;
+                    peer_configs[1].connection_opts.disable_block_advertisement = true;
+
+                    // disable nat punches -- disconnect/reconnect
+                    // clears inv state
+                    peer_configs[0].connection_opts.disable_natpunch = true;
+                    peer_configs[1].connection_opts.disable_natpunch = true;
+
+                    // peer 0 ignores peer 1's handshakes
+                    peer_configs[0].connection_opts.disable_inbound_handshakes = true;
+
+                    // make peer 0 go slowly
+                    peer_configs[0].connection_opts.max_block_push = 2;
+                    peer_configs[0].connection_opts.max_microblock_push = 2;
+
+                    let peer_0 = peer_configs[0].to_neighbor();
+                    let peer_1 = peer_configs[1].to_neighbor();
+
+                    // peer 0 is inbound to peer 1
+                    peer_configs[0].add_neighbor(&peer_1);
+                    peer_configs[1].add_neighbor(&peer_0);
+                },
+                |num_blocks, ref mut peers| {
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    let this_reward_cycle = peers[0]
+                        .config
+                        .burnchain
+                        .block_height_to_reward_cycle(tip.block_height)
+                        .unwrap();
+
+                    // build up block data to replicate
+                    let mut block_data = vec![];
+                    for _ in 0..num_blocks {
+                        let tip = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        if peers[0]
+                            .config
+                            .burnchain
+                            .block_height_to_reward_cycle(tip.block_height)
+                            .unwrap()
+                            != this_reward_cycle
+                        {
+                            continue;
+                        }
+                        let (mut burn_ops, stacks_block, microblocks) =
+                            peers[0].make_default_tenure();
+
+                        let (_, burn_header_hash, consensus_hash) =
+                            peers[0].next_burnchain_block(burn_ops.clone());
+                        peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                        for i in 1..peers.len() {
+                            peers[i].next_burnchain_block_raw(burn_ops.clone());
+                        }
+
+                        let sn = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        block_data.push((
+                            sn.consensus_hash.clone(),
+                            Some(stacks_block),
+                            Some(microblocks),
+                        ));
+                    }
+                    block_data
+                },
+                |ref mut peers| {
+                    let tip_opt = peers[1]
+                        .with_db_state(|sortdb, chainstate, _, _| {
+                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            Ok(tip_opt)
+                        })
+                        .unwrap();
+
+                    if let Some(tip) = tip_opt {
+                        for (_, convo) in peers[1].network.peers.iter() {
+                            if !convo.is_outbound() {
+                                assert!(
+                                    convo.stats.get_message_recv_count(StacksMessageID::Blocks)
+                                        <= tip.height
+                                );
+                            }
+                        }
+                    }
+                },
+                |ref peer| {
+                    // check peer health
+                    // nothing should break
+                    // TODO
+                    true
+                },
+                |_| true,
+            );
+        })
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
+        with_timeout(600, move || {
+            let sortitions = RefCell::new(vec![]);
+            let blocks_and_microblocks = RefCell::new(vec![]);
+            let idx = RefCell::new(0usize);
+            let pushed_idx = RefCell::new(0usize);
+            run_get_blocks_and_microblocks(
+                "test_get_blocks_and_microblocks_2_peers_buffered_messages",
+                4242,
+                2,
+                |ref mut peer_configs| {
+                    // build initial network topology.
+                    assert_eq!(peer_configs.len(), 2);
+
+                    // peer 0 mines blocks, but it does not present its inventory.
+                    peer_configs[0].connection_opts.disable_inv_chat = true;
+                    peer_configs[0].connection_opts.disable_block_download = true;
+
+                    peer_configs[1].connection_opts.disable_block_download = true;
+                    peer_configs[1].connection_opts.disable_block_advertisement = true;
+
+                    // disable nat punches -- disconnect/reconnect
+                    // clears inv state
+                    peer_configs[0].connection_opts.disable_natpunch = true;
+                    peer_configs[1].connection_opts.disable_natpunch = true;
+
+                    // peer 0 ignores peer 1's handshakes
+                    peer_configs[0].connection_opts.disable_inbound_handshakes = true;
+
+                    // disable anti-entropy
+                    peer_configs[0].connection_opts.max_block_push = 0;
+                    peer_configs[0].connection_opts.max_microblock_push = 0;
+
+                    let peer_0 = peer_configs[0].to_neighbor();
+                    let peer_1 = peer_configs[1].to_neighbor();
+
+                    // peer 0 is inbound to peer 1
+                    peer_configs[0].add_neighbor(&peer_1);
+                    peer_configs[1].add_neighbor(&peer_0);
+                },
+                |num_blocks, ref mut peers| {
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    let this_reward_cycle = peers[0]
+                        .config
+                        .burnchain
+                        .block_height_to_reward_cycle(tip.block_height)
+                        .unwrap();
+
+                    // build up block data to replicate
+                    let mut block_data = vec![];
+                    for block_num in 0..num_blocks {
+                        let tip = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        let (mut burn_ops, stacks_block, microblocks) =
+                            peers[0].make_default_tenure();
+
+                        let (_, burn_header_hash, consensus_hash) =
+                            peers[0].next_burnchain_block(burn_ops.clone());
+                        peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                        if block_num == 0 {
+                            for i in 1..peers.len() {
+                                peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                peers[i].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                            }
+                        } else {
+                            let mut all_sortitions = sortitions.borrow_mut();
+                            all_sortitions.push(burn_ops.clone());
+                        }
+
+                        let sn = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        block_data.push((
+                            sn.consensus_hash.clone(),
+                            Some(stacks_block),
+                            Some(microblocks),
+                        ));
+                    }
+                    *blocks_and_microblocks.borrow_mut() = block_data.clone()[1..]
+                        .to_vec()
+                        .drain(..)
+                        .map(|(ch, blk_opt, mblocks_opt)| {
+                            (ch, blk_opt.unwrap(), mblocks_opt.unwrap())
+                        })
+                        .collect();
+                    block_data
+                },
+                |ref mut peers| {
+                    let mut i = idx.borrow_mut();
+                    let mut pushed_i = pushed_idx.borrow_mut();
+                    let all_sortitions = sortitions.borrow();
+                    let all_blocks_and_microblocks = blocks_and_microblocks.borrow();
+                    let peer_0_nk = peers[0].to_neighbor().addr;
+                    let peer_1_nk = peers[1].to_neighbor().addr;
+
+                    let tip_opt = peers[1]
+                        .with_db_state(|sortdb, chainstate, _, _| {
+                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            Ok(tip_opt)
+                        })
+                        .unwrap();
+
+                    if !is_peer_connected(&peers[0], &peer_1_nk) {
+                        debug!("Peer 0 not connected to peer 1");
+                        return;
+                    }
+
+                    if let Some(tip) = tip_opt {
+                        debug!(
+                            "Push at {}, need {}",
+                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            *pushed_i
+                        );
+                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                            == *pushed_i as u64
+                        {
+                            // next block
+                            push_block(
+                                &mut peers[0],
+                                &peer_1_nk,
+                                vec![],
+                                (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                                (*all_blocks_and_microblocks)[*pushed_i].1.clone(),
+                            );
+                            push_microblocks(
+                                &mut peers[0],
+                                &peer_1_nk,
+                                vec![],
+                                (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                                (*all_blocks_and_microblocks)[*pushed_i].1.block_hash(),
+                                (*all_blocks_and_microblocks)[*pushed_i].2.clone(),
+                            );
+                            *pushed_i += 1;
+                        }
+                        debug!(
+                            "Sortition at {}, need {}",
+                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            *i
+                        );
+                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                            == *i as u64
+                        {
+                            let event_id = {
+                                let mut ret = 0;
+                                for (nk, event_id) in peers[1].network.events.iter() {
+                                    ret = *event_id;
+                                    break;
+                                }
+                                if ret == 0 {
+                                    return;
+                                }
+                                ret
+                            };
+                            let mut update_sortition = false;
+                            for (event_id, pending) in peers[1].network.pending_messages.iter() {
+                                debug!("Pending at {} is ({}, {})", *i, event_id, pending.len());
+                                if pending.len() >= 1 {
+                                    update_sortition = true;
+                                }
+                            }
+                            if update_sortition {
+                                debug!("Advance sortition!");
+                                peers[1].next_burnchain_block_raw((*all_sortitions)[*i].clone());
+                                *i += 1;
+                            }
+                        }
+                    }
+
+                    /*
+                    if let Some(tip) = tip_opt {
+                        for (_, convo) in peers[1].network.peers.iter() {
+                            if !convo.is_outbound() {
+                                assert!(
+                                    convo
+                                        .stats
+                                        .get_message_recv_count(StacksMessageID::Blocks)
+                                    <= tip.height
+                                );
+                            }
+                        }
+                    }
+                    */
+                },
+                |ref peer| {
+                    // check peer health
+                    // nothing should break
+                    // TODO
+                    true
+                },
+                |_| true,
+            );
         })
     }
 

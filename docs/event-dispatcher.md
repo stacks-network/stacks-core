@@ -36,6 +36,7 @@ Example:
   "burn_block_time": 1591301733,
   "events": [
     {
+      "event_index": 1,
       "committed": true,
       "stx_transfer_event": {
         "amount": "1000",
@@ -67,10 +68,42 @@ Example:
       "tx_index": 1,
       "txid": "0x738e4d44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b4214c"
     }
-  ]
+   ],
+   "matured_miner_rewards": [
+    {
+      "recipient": "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96",
+      "coinbase_amount": "1000",
+      "tx_fees_anchored_shared": "800",
+      "tx_fees_anchored_exclusive": "0",
+      "tx_fees_streamed_confirmed": "0",
+      "from_stacks_block_hash": "0xf5d4ce0efe1d42c963d615ce57f0d014f263a985175e4ece766eceff10e0a358",
+      "from_index_block_hash": "0x329efcbcc6daf5ac3f264522e0df50eddb5be85df6ee8a9fc2384c54274d7afc",
+    }
+   ]
 }
 ```
 
+### `POST /new_burn_block`
+
+This payload includes information about burn blocks as their sortitions are processed.
+In the event of PoX forks, a `new_burn_block` event may be triggered for a burn block
+previously processed.
+
+Example:
+
+```json
+{
+  "burn_block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+  "burn_block_height": 331,
+  "reward_recipients": [
+    {
+      "recipient": "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
+      "amount": 5000
+    }
+  ],
+  "burn_amount": 12000
+}
+```
 
 ### `POST /new_mempool_tx`
 

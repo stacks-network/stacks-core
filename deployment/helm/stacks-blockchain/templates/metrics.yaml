@@ -1,0 +1,21 @@
+{{- if .Values.metrics.enabled -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "stacks-blockchain.fullname" . }}
+  labels:
+    {{- include "stacks-blockchain.labels" . | nindent 4 }}
+spec:
+  endpoints:
+    - interval: {{ .Values.metrics.interval | default "30s" }}
+      port: metrics
+      path: /
+  jobLabel: {{ include "stacks-blockchain.fullname" . }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "stacks-blockchain.selectorLabels" . | nindent 6 }}
+{{- end }}

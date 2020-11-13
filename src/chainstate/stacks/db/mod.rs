@@ -145,9 +145,17 @@ pub struct StacksHeaderInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MinerRewardInfo {
+    pub from_block_consensus_hash: ConsensusHash,
+    pub from_stacks_block_hash: BlockHeaderHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksEpochReceipt {
     pub header: StacksHeaderInfo,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub matured_rewards: Vec<MinerReward>,
+    pub matured_rewards_info: Option<MinerRewardInfo>,
     pub parent_microblocks_cost: ExecutionCost,
     pub anchored_block_cost: ExecutionCost,
 }
@@ -638,8 +646,7 @@ impl StacksChainState {
             TransactionVersion::Testnet
         };
 
-        let boot_code_address =
-            StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
+        let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
         let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
                 signer: boot_code_address.bytes.clone(),
@@ -652,9 +659,7 @@ impl StacksChainState {
         ));
 
         let mut boot_code_account = StacksAccount {
-            principal: PrincipalData::Standard(StandardPrincipalData::from(
-                boot_code_address.clone(),
-            )),
+            principal: PrincipalData::Standard(boot_code_address.into()),
             nonce: 0,
             stx_balance: STXBalance::zero(),
         };
@@ -678,7 +683,7 @@ impl StacksChainState {
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
                     "Instantiate boot code contract '{}.{}' ({} bytes)...",
-                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
                     boot_code_name,
                     boot_code_contract.len()
                 );
@@ -1492,11 +1497,9 @@ pub mod test {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        let boot_code_address =
-            StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(boot_code_address.clone()),
+                StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
             let contract_res =

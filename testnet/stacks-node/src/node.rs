@@ -25,12 +25,12 @@ use stacks::net::{
     db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
 };
 
+use stacks::chainstate::stacks::index::TrieHash;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
-
-use stacks::chainstate::stacks::index::TrieHash;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -303,7 +303,7 @@ impl Node {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -317,6 +317,22 @@ impl Node {
             Some(&initial_neighbors),
         )
         .unwrap();
+
+        println!("DENY NEIGHBORS {:?}", &self.config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in self.config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -393,8 +409,10 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
+                BlockstackOperationType::PreStackStx(_)
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::UserBurnSupport(_) => {
+                    // no-op, ops are not supported / produced at this point.
                 }
             }
         }
@@ -459,7 +477,9 @@ impl Node {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
+        let microblock_secret_key = self
+            .keychain
+            .rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
@@ -631,8 +651,13 @@ impl Node {
             receipts,
         };
 
-        self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash, Txid([0; 32]));
+        self.event_dispatcher.process_chain_tip(
+            &chain_tip,
+            &parent_index_hash,
+            Txid([0; 32]),
+            vec![],
+            None,
+        );
 
         self.chain_tip = Some(chain_tip.clone());
 
