@@ -94,6 +94,7 @@ Example:
 ```json
 {
   "burn_block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+  "burn_block_height": 331,
   "reward_recipients": [
     {
       "recipient": "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
