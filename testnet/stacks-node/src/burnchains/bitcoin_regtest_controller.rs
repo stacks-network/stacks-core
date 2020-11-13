@@ -935,6 +935,8 @@ impl BurnchainController for BitcoinRegtestController {
             BlockstackOperationType::UserBurnSupport(payload) => {
                 self.build_user_burn_support_tx(payload, op_signer, attempt)
             }
+            BlockstackOperationType::PreStackStx(_payload) => unimplemented!(),
+            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
         };
 
         let transaction = match transaction {

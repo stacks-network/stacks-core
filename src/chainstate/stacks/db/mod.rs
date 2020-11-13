@@ -646,8 +646,7 @@ impl StacksChainState {
             TransactionVersion::Testnet
         };
 
-        let boot_code_address =
-            StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
+        let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
         let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
                 signer: boot_code_address.bytes.clone(),
@@ -660,9 +659,7 @@ impl StacksChainState {
         ));
 
         let mut boot_code_account = StacksAccount {
-            principal: PrincipalData::Standard(StandardPrincipalData::from(
-                boot_code_address.clone(),
-            )),
+            principal: PrincipalData::Standard(boot_code_address.into()),
             nonce: 0,
             stx_balance: STXBalance::zero(),
         };
@@ -686,7 +683,7 @@ impl StacksChainState {
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
                     "Instantiate boot code contract '{}.{}' ({} bytes)...",
-                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
                     boot_code_name,
                     boot_code_contract.len()
                 );
@@ -1463,11 +1460,9 @@ pub mod test {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        let boot_code_address =
-            StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(boot_code_address.clone()),
+                StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
             let contract_res =

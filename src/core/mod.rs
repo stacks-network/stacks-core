@@ -74,6 +74,8 @@ pub const POX_MAXIMAL_SCALING: u128 = 4;
 /// This is the amount that PoX threshold adjustments are stepped by.
 pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
+pub const POX_MAX_NUM_CYCLES: u8 = 12;
+
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(
     working_dir: &String,

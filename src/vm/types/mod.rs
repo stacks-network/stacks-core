@@ -25,7 +25,9 @@ use std::{cmp, fmt};
 use regex::Regex;
 
 use address::c32;
+use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS;
 use util::hash;
+
 use vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -98,6 +100,16 @@ impl QualifiedContractIdentifier {
         Self {
             issuer: StandardPrincipalData::transient(),
             name,
+        }
+    }
+
+    pub fn boot_contract(contract_name: &str) -> QualifiedContractIdentifier {
+        QualifiedContractIdentifier {
+            issuer: STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone().into(),
+            name: contract_name
+                .to_string()
+                .try_into()
+                .expect("BUG: Bad contract name supplied for a boot contract"),
         }
     }
 

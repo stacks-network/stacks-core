@@ -229,6 +229,14 @@ impl BurnchainTransaction {
         }
     }
 
+    pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
+        match self {
+            BurnchainTransaction::Bitcoin(ref btc) => {
+                btc.inputs.get(input).map(|txin| &txin.tx_ref)
+            }
+        }
+    }
+
     pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc

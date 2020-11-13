@@ -909,6 +909,80 @@ tunable proof score.
 
 The Stacks blockchain leader election protocol will be written in Rust.
 
+## Bitcoin Wire Formats
+
+The election process described in this SIP will be implemented for the Stacks blockchain
+on top of the Bitcoin blockchain. There are three associated operations, with the following
+wire formats:
+
+### Leader Block Commit
+
+Leader block commits require at least two Bitcoin outputs. The first output is an `OP_RETURN`
+with the following data:
+
+```
+            0      2  3            35               67     71     73    77   79     80
+            |------|--|-------------|---------------|------|------|-----|-----|-----|
+             magic  op   block hash     new seed     parent parent key   key   memo
+                                                     block  txoff  block txoff
+```
+
+Where `op = [` and:
+
+* `block_hash` is the header block hash of the Stacks anchored block.
+* `new_seed` is the next value for the VRF seed
+* `parent_block` is the burn block height of this block's parent.
+* `parent_txoff` is the vtxindex for this block's parent's block commit.
+* `key_block` is the burn block height of the miner's VRF key registration
+* `key_txoff` is the vtxindex for this miner's VRF key registration
+* `memo` is a short field for including a miner memo
+
+The second output is the burn commitment. It must send funds to the canonical burn address.
+
+The first input of this Bitcoin operation must have the same address as the second output
+of the VRF key registration.
+
+### Leader VRF Key Registrations
+
+Leader VRF key registrations require at least two Bitcoin outputs. The first output is an `OP_RETURN`
+with the following data:
+
+```
+        0      2  3              23                       55                          80
+        |------|--|---------------|-----------------------|---------------------------|
+         magic  op consensus hash    proving public key               memo
+```
+
+Where `op = ^` and:
+
+* `consensus_hash` is the current consensus hash for the burnchain state of the Stacks blockchain
+* `proving_public_key` is the 32-byte public key used in the miner's VRF proof
+* `memo` is a field for including a miner memo
+
+The second output is the address that must be used as an input in any of the miner's block commits.
+
+### User Support Burns
+
+User support burns require at least two Bitcoin outputs. The first output is an `OP_RETURN`
+with the following data:
+
+```
+            0      2  3              22                       54                 74       78        80
+            |------|--|---------------|-----------------------|------------------|--------|---------|
+             magic  op consensus hash    proving public key       block hash 160   key blk  key
+                       (truncated by 1)                                                     vtxindex
+```
+
+Where `op = _` and:
+
+* `consensus_hash` is the current consensus hash for the burnchain state of the Stacks blockchain
+* `proving_public_key` is the 32-byte public key used in the miner's VRF proof
+* `block_hash_160` is the hash_160 of the Stacks anchored block
+* `key_blk` is the burn block height of the VRF key used in the miner's VRF proof
+* `key_vtxindex` is the vtxindex of the VRF key used in the miner's VRF proof
+
+The second output is the burn commitment. It must send funds to the canonical burn address.
+
 ## References
 
 [1] Basu, Easley, O'Hara, and Sirer. [Towards a Functional Market for Cryptocurrencies.](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3318327)

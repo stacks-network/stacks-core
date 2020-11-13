@@ -29,7 +29,7 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
     db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
@@ -261,7 +261,7 @@ impl<'a, T: BlockEventDispatcher>
                 let burnchain = burnchain.clone();
                 let contract = QualifiedContractIdentifier::parse(&format!(
                     "{}.pox",
-                    STACKS_BOOT_CODE_CONTRACT_ADDRESS
+                    STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
                 ))
                 .expect("Failed to construct boot code contract address");
                 let sender = PrincipalData::from(contract.clone());

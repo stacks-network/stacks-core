@@ -533,3 +533,52 @@ Where `total_block_commit_amount` is equal to the sum of outputs [1, M+1].
 
 After the sunset phase _ends_ (i.e., blocks >= 500,000th burn block), block commits are _only_ burns, with
 a single burn output at index 1.
+
+## Stacking Operations on Bitcoin
+
+As described above, PoX allows stackers to submit `stack-stx` operations on Bitcoin as well as on
+the Stacks blockchain. Any such operations must be evaluated by miners before beginning execution of
+any anchor block following those operations.
+
+In order to submit on the Bitcoin chain, stackers must submit two Bitcoin transactions:
+
+* `PreStackStxOp`: this operation prepares the Stacks blockchain node to validate the subsequent
+  StackStxOp.
+* `StackStxOp`: this operation executes the `stack-stx` operation.
+
+The wire formats for the above two operations are as follows:
+
+### PreStackStxOp
+
+This operation includes an `OP_RETURN` output for the first Bitcoin output that looks as follows:
+
+```
+            0      2  3
+            |------|--|
+             magic  op 
+```
+
+Where `op = p` (ascii encoded).
+
+Then, the second Bitcoin output _must_ be Stacker address that will be used in a `StackStxOp`. This
+address must be a standard address type parseable by the stacks-blockchain node.
+
+### StackStxOp
+
+The first input to the Bitcoin operation _must_ consume a UTXO that is
+the second output of a `PreStackStxOp`. This validates that the `StackStxOp` was signed
+by the appropriate Stacker address.
+
+This operation includes an `OP_RETURN` output for the first Bitcoin output:
+
+```
+            0      2  3                             19        20
+            |------|--|-----------------------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)
+```
+
+Where `op = x` (ascii encoded).
+
+Where the unsigned integers are big-endian encoded.
+
+The second Bitcoin output will be used as the reward address for any stacking rewards.

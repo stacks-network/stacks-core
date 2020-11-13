@@ -644,6 +644,15 @@ impl<'a> ClarityDatabase<'a> {
         let cur_id_bhh = self.get_index_block_header_hash(cur_height);
         self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
     }
+
+    pub fn get_stx_btc_ops_processed(&mut self) -> u64 {
+        self.get("vm_pox::stx_btc_ops::processed_blocks")
+            .unwrap_or(0)
+    }
+
+    pub fn set_stx_btc_ops_processed(&mut self, processed: u64) {
+        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed);
+    }
 }
 
 // this is used so that things like load_map, load_var, load_nft, etc.
@@ -1100,6 +1109,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
+        debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get(&key);
         match result {
             None => STXBalance::zero(),

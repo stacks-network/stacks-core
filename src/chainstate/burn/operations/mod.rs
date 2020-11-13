@@ -17,6 +17,7 @@
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
+pub mod stack_stx;
 pub mod user_burn_support;
 
 use std::convert::From;
@@ -77,6 +78,9 @@ pub enum Error {
     // all the things that can go wrong with user burn supports
     UserBurnSupportBadConsensusHash,
     UserBurnSupportNoLeaderKey,
+
+    StackStxMustBePositive,
+    StackStxInvalidCycles,
 }
 
 impl fmt::Display for Error {
@@ -117,6 +121,11 @@ impl fmt::Display for Error {
                 f,
                 "User burn support does not match a registered leader key"
             ),
+            Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
+            Error::StackStxInvalidCycles => write!(
+                f,
+                "Stack STX must set num cycles between 1 and max num cycles"
+            ),
         }
     }
 }
@@ -134,6 +143,34 @@ impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct StackStxOp {
+    pub sender: StacksAddress,
+    /// the PoX reward address
+    pub reward_addr: StacksAddress,
+    /// how many ustx this transaction locks
+    pub stacked_ustx: u128,
+    pub num_cycles: u8,
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PreStackStxOp {
+    /// the output address
+    pub output: StacksAddress,
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
@@ -198,6 +235,8 @@ pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
     UserBurnSupport(UserBurnSupportOp),
+    PreStackStx(PreStackStxOp),
+    StackStx(StackStxOp),
 }
 
 impl BlockstackOperationType {
@@ -206,14 +245,22 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(_) => Opcodes::LeaderKeyRegister,
             BlockstackOperationType::LeaderBlockCommit(_) => Opcodes::LeaderBlockCommit,
             BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
+            BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
+            BlockstackOperationType::PreStackStx(_) => Opcodes::PreStackStx,
         }
     }
 
     pub fn txid(&self) -> Txid {
+        self.txid_ref().clone()
+    }
+
+    pub fn txid_ref(&self) -> &Txid {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.txid.clone(),
-            BlockstackOperationType::LeaderBlockCommit(ref data) => data.txid.clone(),
-            BlockstackOperationType::UserBurnSupport(ref data) => data.txid.clone(),
+            BlockstackOperationType::LeaderKeyRegister(ref data) => &data.txid,
+            BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
+            BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
+            BlockstackOperationType::StackStx(ref data) => &data.txid,
+            BlockstackOperationType::PreStackStx(ref data) => &data.txid,
         }
     }
 
@@ -222,6 +269,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.vtxindex,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.vtxindex,
             BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
+            BlockstackOperationType::StackStx(ref data) => data.vtxindex,
+            BlockstackOperationType::PreStackStx(ref data) => data.vtxindex,
         }
     }
 
@@ -230,6 +279,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.block_height,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.block_height,
             BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
+            BlockstackOperationType::StackStx(ref data) => data.block_height,
+            BlockstackOperationType::PreStackStx(ref data) => data.block_height,
         }
     }
 
@@ -238,6 +289,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PreStackStx(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -247,6 +300,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.block_height = height,
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
+            BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PreStackStx(ref mut data) => data.block_height = height,
         };
     }
 
@@ -260,6 +315,8 @@ impl BlockstackOperationType {
                 data.burn_header_hash = hash
             }
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PreStackStx(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }
@@ -270,6 +327,10 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref leader_key_register) => {
                 fmt::Display::fmt(&format!("{:?}", leader_key_register), f)
             }
+            BlockstackOperationType::PreStackStx(ref op) => {
+                fmt::Display::fmt(&format!("{:?}", op), f)
+            }
+            BlockstackOperationType::StackStx(ref op) => fmt::Display::fmt(&format!("{:?}", op), f),
             BlockstackOperationType::LeaderBlockCommit(ref leader_block_commit) => {
                 fmt::Display::fmt(&format!("{:?}", leader_block_commit), f)
             }
@@ -281,6 +342,10 @@ impl fmt::Display for BlockstackOperationType {
 }
 
 // parser helpers
+pub fn parse_u128_from_be(bytes: &[u8]) -> Option<u128> {
+    bytes.try_into().ok().map(u128::from_be_bytes)
+}
+
 pub fn parse_u32_from_be(bytes: &[u8]) -> Option<u32> {
     bytes.try_into().ok().map(u32::from_be_bytes)
 }

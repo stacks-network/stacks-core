@@ -1805,6 +1805,9 @@ pub mod test {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
+                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
+                    Ok(())
+                }
             }
         }
 
@@ -2210,14 +2213,13 @@ pub mod test {
                 |ref mut clarity_tx| {
                     if init_code.len() > 0 {
                         clarity_tx.connection().as_transaction(|clarity| {
-                            let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
                             let boot_code_account = StacksAccount {
-                                principal: PrincipalData::Standard(StandardPrincipalData::from(boot_code_address.clone())),
+                                principal: PrincipalData::Standard(StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone())),
                                 nonce: 0,
                                 stx_balance: STXBalance::zero(),
                             };
                             let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: boot_code_address.bytes.clone(),
+                                signer: STACKS_BOOT_CODE_CONTRACT_ADDRESS.deref().bytes.clone(),
                                 hash_mode: SinglesigHashMode::P2PKH,
                                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                                 nonce: 0,
@@ -2225,7 +2227,7 @@ pub mod test {
                                 signature: MessageSignature::empty()
                             }));
 
-                            debug!("Instantiate test-specific boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, &config.test_name, init_code.len());
+                            debug!("Instantiate test-specific boot code contract '{}.{}' ({} bytes)...", &*STACKS_BOOT_CODE_CONTRACT_ADDRESS, &config.test_name, init_code.len());
 
                             let smart_contract = TransactionPayload::SmartContract(
                                 TransactionSmartContract {
@@ -2478,17 +2480,7 @@ pub mod test {
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                }
+                op.set_burn_header_hash(bhh.clone());
             }
         }
 

@@ -49,7 +49,8 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -110,6 +111,12 @@ impl From<BurnchainHeaderHash> for BlockHeaderHash {
 impl From<BlockHeaderHash> for BurnchainHeaderHash {
     fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
         BurnchainHeaderHash(bhh.0)
+    }
+}
+
+impl FromRow<SortitionId> for SortitionId {
+    fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
+        SortitionId::from_column(row, "sortition_id")
     }
 }
 
@@ -308,6 +315,33 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
     }
 }
 
+impl FromRow<StackStxOp> for StackStxOp {
+    fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let reward_addr = StacksAddress::from_column(row, "reward_addr")?;
+        let stacked_ustx_str: String = row.get("stacked_ustx");
+        let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let num_cycles = row.get("num_cycles");
+
+        Ok(StackStxOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            reward_addr,
+            stacked_ustx,
+            num_cycles,
+        })
+    }
+}
+
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
@@ -442,6 +476,20 @@ const BURNDB_SETUP: &'static [&'static str] = &[
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+    );"#,
+    r#"
+    CREATE TABLE stack_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        reward_addr TEXT NOT NULL,
+        stacked_ustx TEXT NOT NULL,
+        num_cycles INTEGER NOT NULL,
+
+        PRIMARY KEY(txid)
     );"#,
     r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
@@ -2435,12 +2483,33 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
+    pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
+        let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
+            Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
+            Err(e) => Err(db_error::from(e)),
+        }
+    }
+
+    /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
+    /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
+    }
+
+    pub fn get_stack_stx_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<StackStxOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
     }
 
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
@@ -2544,6 +2613,20 @@ impl SortitionDB {
             &[&u64_to_sql(arrival_index)?],
             || "BUG: multiple snapshots have the same non-zero arrival index".to_string(),
         )
+    }
+
+    pub fn get_sortition_id_by_consensus(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<SortitionId>, db_error> {
+        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1";
+        let args = [&consensus_hash];
+        query_row_panic(conn, qry, &args, || {
+            format!(
+                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                consensus_hash
+            )
+        })
     }
 
     /// Get a snapshot for an existing burn chain block given its consensus hash.
@@ -3006,6 +3089,21 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_user_burn(op, sort_id)
             }
+            BlockstackOperationType::StackStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) stack stx opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_stack_stx(op)
+            }
+            BlockstackOperationType::PreStackStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) pre stack stx op {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                // no need to store this op in the sortition db.
+                Ok(())
+            }
         }
     }
 
@@ -3033,6 +3131,24 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a stack-stx op
+    fn insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &op.reward_addr.to_string(),
+            &op.stacked_ustx.to_string(),
+            &op.num_cycles,
+        ];
+
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
