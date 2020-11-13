@@ -24,6 +24,7 @@
 import os
 import sys
 import signal
+import pipes
 import json
 import traceback
 import time
@@ -258,6 +259,58 @@ def get_namespace_cost( db, namespace_id ):
     namespace_fee = int(math.ceil(namespace_fee))
 
     return {'amount': namespace_fee, 'units': namespace_units, 'namespace': namespace}
+
+def load_name_info( db, name, block_height, include_history=False ):
+    """
+    Get some extra name information, given a db-loaded name record.
+    Return the updated name_record
+    """
+    name_record = db.get_name(name, lastblock=block_height, include_history=include_history)
+
+    namespace_id = get_namespace_from_name(name)
+    namespace_record = db.get_namespace(namespace_id, include_history=include_history)
+    if namespace_record is None:
+        namespace_record = db.get_namespace_reveal(namespace_id, include_history=include_history)
+
+    if namespace_record is None:
+        # name can't exist (this can be arrived at if we're resolving a DID)
+        return None
+
+    # when does this name expire (if it expires)?
+    if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+        deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, block_height)
+        if deadlines is not None:
+            name_record['expire_block'] = deadlines['expire_block']
+            name_record['renewal_deadline'] = deadlines['renewal_deadline']
+        else:
+            # only possible if namespace is not yet ready
+            name_record['expire_block'] = -1
+            name_record['renewal_deadline'] = -1
+
+    else:
+        name_record['expire_block'] = -1
+        name_record['renewal_deadline'] = -1
+
+    if name_record['expire_block'] > 0 and name_record['expire_block'] <= block_height:
+        name_record['expired'] = True
+    else:
+        name_record['expired'] = False
+
+    # try to get the zonefile as well 
+    if 'value_hash' in name_record and name_record['value_hash'] is not None:
+        conf = get_blockstack_opts()
+
+        # check cache
+        atlas_zonefile_data = get_atlas_zonefile_data( name_record['value_hash'], conf['zonefiles'], check=False )
+        if atlas_zonefile_data is not None:
+            # check hash
+            zfh = get_zonefile_data_hash( atlas_zonefile_data )
+            if zfh != name_record['value_hash']:
+                print "Invalid local zonefile %s" % zonefile_hash
+            else:
+                name_record['zonefile'] = atlas_zonefile_data
+
+    return name_record
 
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
@@ -3179,7 +3232,7 @@ def run_blockstackd():
         help='validate a fast-sync file and export as JSON for Stacks 2.0 migration')
     parser.add_argument(
         'path', nargs='?',
-        help='the path to the fastdump file')
+        help='the path to the fast-sync dump file')
     parser.add_argument(
         'block_height', nargs='?',
         help='the block height to export from')
@@ -3188,7 +3241,7 @@ def run_blockstackd():
         help='the known-good consensus hash string or file path')
     parser.add_argument(
         'output_path', nargs='?',
-        help='the migration JSON output file path')
+        help='the output directory for the exported data')
     parser.add_argument(
         '--verify', action='store_true',
         help='Run a full database verification against the consensus hash')
@@ -3507,17 +3560,25 @@ def run_blockstackd():
            sys.exit(1)
 
     elif args.action == 'export_migration_json':
+
+        import hashlib
+        def sha256(file_path):
+            hash_sha256 = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_sha256.update(chunk)
+            return hash_sha256.hexdigest()
+
+        def print_status(msg):
+            print "[{}] {}".format(int(round(time.time())), msg)
+
         path = str(args.path)
-        print "Importing fast-sync dump {} into {}".format(path, working_dir)
+        print_status("Importing fast-sync dump {} into {}".format(path, working_dir))
         rc = True
         rc = fast_sync_import(working_dir, path, public_keys=[], num_required=0, verbose=True, delete_file=False)
         if not rc:
            print 'fast_sync failed'
            sys.exit(1)
-
-        # treat this as a recovery
-        print "Running setup recovery..."
-        setup_recovery(working_dir)
 
         block = int(args.block_height)
         # allow consensus_hash to be provided as a string or within a file
@@ -3529,29 +3590,183 @@ def run_blockstackd():
         db = get_db_state(working_dir)
         ch = db.get_consensus_at(block)
         if str(ch) != consensus_hash:
-            print "Fast-sync import does not match consensus hash!"
+            print_status("Fast-sync import does not match consensus hash!")
             sys.exit(1)
+
+        output_dir = os.path.abspath(args.output_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
         if args.verify:
             db_verified = False
-            print "Running database verification..."
+            print_status("Running database verification...")
             tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
             try:
                 db_verified = verify_database(consensus_hash, block, working_dir, tmpdir, start_block=FIRST_BLOCK_MAINNET)
             except Exception as e:
-                print "Exception during database verification"
+                print_status("Exception during database verification")
                 print e
                 traceback.print_exc()
             shutil.rmtree(tmpdir)
             if db_verified:
-                print "Database is consistent with %s" % args.consensus_hash
+                print_status("Database is consistent with %s" % args.consensus_hash)
             else:
-                print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
+                print_status("Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash))
                 sys.exit(1)
+        
+        print_status("Exporting subdomain metadata to csv...")
+        if not which_tools(['sqlite3']):
+            print_status('Could not find sqlite3 on system path')
+            sys.exit(1)
+        subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
+        subdomain_csv_path = os.path.join(output_dir, 'subdomains.csv')
+        subdomain_csv_hash_path = subdomain_csv_path + '.sha256'
+        subdomain_query_str = """
+            SELECT zonefile_hash, parent_zonefile_hash, fully_qualified_subdomain, owner, block_height, parent_zonefile_index, zonefile_offset, resolver
+            FROM subdomain_records
+            WHERE accepted = 1 AND missing = ''
+            GROUP BY fully_qualified_subdomain
+            ORDER BY block_height DESC, zonefile_hash;"""
+        cmd = 'sqlite3 {} -cmd ".headers on" -cmd ".mode csv" -cmd ".output {}" "{}"'.format(
+            pipes.quote(subdomain_db_path), 
+            pipes.quote(subdomain_csv_path), 
+            subdomain_query_str)
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p_res = p.communicate()
+        rc = p.returncode
+        if rc != 0:
+            print_status('Subdomain sqlite data dump failed with error {}: {}'.format(rc, p_res[1]))
+            sys.exit(1)
 
-        print "Querying account addresses..."
+        print_status("Writing subdomains csv file hash...")
+        file_hash = sha256(subdomain_csv_path)
+        print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
+        with open(subdomain_csv_hash_path, 'w') as hash_out:
+            hash_out.write(file_hash)
+            hash_out.flush()
+
+        print_status("Aggregating subdomain zonefiles...")
+        # Reduce 10GB disk space of zonefiles into a 400MB txt file.
+        subdomain_zonefile_txt_path = os.path.join(output_dir, 'subdomain_zonefiles.txt')
+        subdomain_zonefile_hash_txt_path = subdomain_zonefile_txt_path + '.sha256'
+        zonefile_dir = os.path.abspath(os.path.join(working_dir, 'zonefiles'))
+        # First, try using a csharp script if dotnet is available (this is the fastest option, ~2 minutes)
+        if which_tools(['dotnet']):
+            print_status("Using dotnet script for file aggregation...")
+            cs_script = """
+                using System.Collections.Generic;
+                using System.IO;
+                using System.Linq;
+                class Program {
+                    static void Main(string[] args) {
+                        IEnumerable<string> EnumLines(StreamReader fp) {
+                            while (!fp.EndOfStream) yield return fp.ReadLine();
+                        }
+                        using var reader = new StreamReader(args[0]);
+                        var entries = EnumLines(reader).Skip(1).AsParallel().AsOrdered().Select(line => {
+                            var hash = line.Substring(0, 40);
+                            var zfPath = Path.Join(args[1], hash.Substring(0, 2), hash.Substring(2, 2), hash + ".txt");
+                            return hash + "\\n" + File.ReadAllText(zfPath).Replace("\\n", "\\\\n") + "\\n";
+                        });
+                        foreach (var entry in entries) System.Console.Out.Write(entry);
+                    }
+                }"""
+            cs_proj = """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
+                    <OutputType>Exe</OutputType><TargetFramework>netcoreapp3.1</TargetFramework>
+                </PropertyGroup></Project>"""
+            tmpdir = tempfile.mkdtemp('blockstack-cs-subdomain-agg')
+            with open(os.path.join(tmpdir, "Program.cs"), "w") as cs_file:
+                cs_file.write(cs_script)
+            with open(os.path.join(tmpdir, "Program.csproj"), "w") as cs_prog_file:
+                cs_prog_file.write(cs_proj)
+            cs_script_args = ["dotnet", "run", "-c=Release", "--", subdomain_csv_path, zonefile_dir]
+            with open(subdomain_zonefile_txt_path, 'wb') as writer:
+                p = subprocess.Popen(cs_script_args, shell=False, cwd=tmpdir, stdout=writer, stderr=subprocess.PIPE)
+                p_res = p.communicate()
+                writer.flush()
+                rc = p.returncode
+                if rc != 0:
+                    print_status('Subdomain zonefile export via "dotnet" failed with error {}: {}'.format(rc, p_res[1]))
+                    sys.exit(1)
+        # Otherwise, try using an awk script, takes ~25 minutes.
+        elif which_tools(['awk']):
+            print_status("Using awk script for file aggregation...")
+            awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
+                save_rs = RS
+                RS = "^$"
+                file_path = "%s/" substr($1,0,2) "/" substr($1,3,2) "/" $1 ".txt"
+                getline zonefile < file_path
+                gsub(/\\n/,"\\\\n",zonefile)
+                close(file_path)
+                print $1
+                print zonefile
+                RS = save_rs
+            }' %s""" % (zonefile_dir, pipes.quote(subdomain_csv_path))
+            with open(subdomain_zonefile_txt_path, 'wb') as writer:
+                p = subprocess.Popen(awk_export_cmd, shell=True, stdout=writer, stderr=subprocess.PIPE)
+                p_res = p.communicate()
+                writer.flush()
+                rc = p.returncode
+                if rc != 0:
+                    print_status('Subdomain zonefile export via "awk" failed with error {}: {}'.format(rc, p_res[1]))
+                    sys.exit(1)
+        else:
+            print_status('Could not find "awk" or "dotnet" on PATH, subdomain zonefiles cannot be exported')
+            sys.exit(1)
+
+        # out sha256 hash of aggregated subdomain subdomain_zonefiles.txt
+        print_status("Writing json file hash for aggregated subdomain zonefiles...")
+        json_hash = sha256(subdomain_zonefile_txt_path)
+        print_status("Aggregated subdomain zonefiles sha256 hash: {}".format(json_hash))
+        with open(subdomain_zonefile_hash_txt_path, 'w') as hash_out:
+            hash_out.write(json_hash)
+            hash_out.flush()
+
+        print_status("Querying namespace IDs...")
+        namespaces_entries = db.get_all_namespace_ids()
+        namespaces_entries.sort()
+        namespaces = []
+        for namespace_str in namespaces_entries:
+            namespace_info = db.get_namespace(namespace_str)
+            namespace = {}
+            namespace['ready_block'] = namespace_info['ready_block']
+            namespace['reveal_block'] = namespace_info['reveal_block']
+            namespace['namespace_id'] = namespace_info['namespace_id']
+            namespace['address'] = b58ToC32(str(namespace_info['address']))
+            namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
+            namespace['base'] = namespace_info['base']
+            namespace['coeff'] = namespace_info['coeff']
+            namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
+            namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
+            namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
+            namespaces.append(namespace)
+
+        print_status("Querying names...")
+        name_entries = db.get_all_names()
+        name_entries.sort()
+        names = []
+        for name_str in name_entries:
+            name_info = load_name_info(db, name_str, block)
+            if name_info['revoked']:
+                continue
+            if name_info['expired']:
+                continue
+            name = {}
+            name['name'] = name_info['name']
+            name['address'] = b58ToC32(str(name_info['address']))
+            name['expire_block'] = name_info['expire_block']
+            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
+            if 'zonefile' not in name_info or name_info['zonefile'] is None:
+                # print 'missing zonefile for {}'.format(name)
+                name['zonefile'] = ""
+            else:
+                name['zonefile'] = name_info['zonefile']
+            names.append(name)
+
+        print_status("Querying account addresses...")
         addresses = db.get_all_account_addresses(from_cli=True)
-        print "Querying account balances..."
+        addresses.sort()
+        print_status("Querying account balances...")
         stx_balances = []
         for addr in addresses:
             account = db.get_account(str(addr), TOKEN_TYPE_STACKS)
@@ -3564,8 +3779,9 @@ def run_blockstackd():
                         'balance': str(balance)
                     })
 
-        print "Querying account vesting addresses..."
+        print_status("Querying account vesting addresses...")
         vesting_entries = db.get_account_vesting_addresses(block)
+        vesting_entries.sort()
         vesting = []
         for entry in vesting_entries:
             account = {}
@@ -3579,24 +3795,46 @@ def run_blockstackd():
         json_data = {}
         json_data['balances'] = stx_balances
         json_data['vesting'] = vesting
+        json_data['namespaces'] = namespaces
+        json_data['names'] = names
 
         # write the json output file
-        print "Writing migration data to {}".format(args.output_path)
-        with open(args.output_path, 'w') as json_out:
-            json.dump(json_data, json_out, separators=(',', ':'))
+        print_status("Writing on-chain migration data to json...")
+        json_output_path = os.path.join(output_dir, 'chainstate.json')
+        json_hash_output_path = json_output_path + '.sha256'
+        with open(json_output_path, 'w') as json_out:
+            json.dump(json_data, json_out, separators=(',', ':'), check_circular=False)
+            json_out.flush()
 
         # also output the sha256 hash
-        from hashlib import sha256
-        with open(args.output_path, 'rb') as f:
-            file_bytes = f.read()
-            json_hash = sha256(file_bytes).hexdigest()
-            output_path, ext = os.path.splitext(args.output_path)
-            hash_file_name = output_path + '.sha256'
-            print "Migration data sha256 hash: {}".format(json_hash)
-            with open(hash_file_name, 'w') as hash_out:
-                hash_out.write(json_hash)
-                print "Migration data sha256 hash wrote to file {}".format(hash_file_name)
+        print_status("Writing json file hash...")
+        json_hash = sha256(json_output_path)
+        print_status("Migration json data sha256 hash: {}".format(json_hash))
+        with open(json_hash_output_path, 'w') as hash_out:
+            hash_out.write(json_hash)
+            hash_out.flush()
+        
+        # compress into tar.gz
+        print_status("Compressing export data into archive file...")
+        export_archive = os.path.join(output_dir, 'export-data.tar.gz')
+        if not which_tools(['tar']):
+            print_status('Could not find "tar" utility on system path')
+            sys.exit(1)
+        tar_args = ['tar', '-czSf', export_archive, '-C', output_dir, 
+            os.path.basename(subdomain_csv_path),
+            os.path.basename(subdomain_csv_hash_path),
+            os.path.basename(json_output_path),
+            os.path.basename(json_hash_output_path),
+            os.path.basename(subdomain_zonefile_txt_path),
+            os.path.basename(subdomain_zonefile_hash_txt_path)]
+        p = subprocess.Popen(tar_args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p_res = p.communicate()
+        rc = p.returncode
+        if rc != 0:
+            print_status('Export archive process with "tar" failed with error {}: {}'.format(rc, p_res[1]))
+            sys.exit(1)
 
+        print_status("Files exported to {}".format(export_archive))
         print "Migration data export complete"
 
     elif args.action == 'fast_sync':
