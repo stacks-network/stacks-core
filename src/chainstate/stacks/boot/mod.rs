@@ -44,7 +44,7 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS: &'static str = "ST000000000000000000002AMW42H";
+pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR: &'static str = "ST000000000000000000002AMW42H";
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -52,6 +52,8 @@ const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainne
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 
 lazy_static! {
+    pub static ref STACKS_BOOT_CODE_CONTRACT_ADDRESS: StacksAddress =
+        StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR).unwrap();
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref BOOT_CODE_POX_TESTNET: String =
@@ -67,7 +69,7 @@ lazy_static! {
 }
 
 pub fn boot_code_addr() -> StacksAddress {
-    StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS).unwrap()
+    STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()
 }
 
 pub fn boot_code_id(name: &str) -> QualifiedContractIdentifier {
@@ -82,6 +84,19 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
         StandardPrincipalData::from(addr.clone()),
         ContractName::try_from(name.to_string()).unwrap(),
     )
+}
+
+impl StacksAddress {
+    pub fn as_clarity_tuple(&self) -> TupleData {
+        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
+        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
+            .expect("BUG: hash160 bytes do not fit in Clarity Value");
+        TupleData::from_data(vec![
+            ("version".into(), version),
+            ("hashbytes".into(), hashbytes),
+        ])
+        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
+    }
 }
 
 /// Extract a PoX address from its tuple representation
@@ -1060,7 +1075,7 @@ pub mod test {
                 if tenure_id == 2 {
                     let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
                         "(define-public (nested-stack-stx)
-                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
 
                     block_txs.push(alice_test_tx);
                 }
@@ -1952,7 +1967,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
 
                     block_txs.push(bob_test_tx);
 
@@ -1966,7 +1981,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
 
                     block_txs.push(alice_test_tx);
 
@@ -1980,7 +1995,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
 
                     block_txs.push(charlie_test_tx);
                 }

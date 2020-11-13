@@ -33,8 +33,7 @@ use chainstate::stacks::STACKS_ADDRESS_ENCODED_SIZE;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 
-use burnchains::Address;
-use burnchains::PublicKey;
+use burnchains::{Address, BurnchainSigner, PublicKey};
 
 use address::b58;
 use address::c32::c32_address_decode;
@@ -51,8 +50,10 @@ use burnchains::bitcoin::address::{
 
 use vm::types::{PrincipalData, StandardPrincipalData};
 
-use chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -103,6 +104,14 @@ impl StacksAddress {
         }
     }
 
+    pub fn is_mainnet(&self) -> bool {
+        match self.version {
+            C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => true,
+            C32_ADDRESS_VERSION_TESTNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => false,
+            _ => false,
+        }
+    }
+
     pub fn burn_address(mainnet: bool) -> StacksAddress {
         StacksAddress {
             version: if mainnet {
@@ -112,6 +121,26 @@ impl StacksAddress {
             },
             bytes: Hash160([0u8; 20]),
         }
+    }
+
+    pub fn from_burnchain_signer(o: &BurnchainSigner, mainnet: bool) -> Option<StacksAddress> {
+        let version = if mainnet {
+            match &o.hash_mode {
+                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                AddressHashMode::SerializeP2SH
+                | AddressHashMode::SerializeP2WPKH
+                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+            }
+        } else {
+            match &o.hash_mode {
+                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                AddressHashMode::SerializeP2SH
+                | AddressHashMode::SerializeP2WPKH
+                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+            }
+        };
+
+        StacksAddress::from_public_keys(version, &o.hash_mode, o.num_sigs, &o.public_keys)
     }
 
     /// Generate an address from a given address hash mode, signature threshold, and list of public

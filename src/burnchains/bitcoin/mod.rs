@@ -174,6 +174,7 @@ pub struct BitcoinTxInput {
     pub keys: Vec<BitcoinPublicKey>,
     pub num_required: usize,
     pub in_type: BitcoinInputType,
+    pub tx_ref: (Txid, u32),
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

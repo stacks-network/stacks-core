@@ -29,11 +29,8 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
-    db::{
-        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
-        StacksHeaderInfo,
-    },
+    boot::{STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR},
+    db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo, ChainStateBootData},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
@@ -123,6 +120,7 @@ pub trait BlockEventDispatcher {
     fn announce_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     );
@@ -262,7 +260,7 @@ impl<'a, T: BlockEventDispatcher>
         let boot_block = move |clarity_tx: &mut ClarityTx| {
             let contract = QualifiedContractIdentifier::parse(&format!(
                 "{}.pox",
-                STACKS_BOOT_CODE_CONTRACT_ADDRESS
+                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
             ))
             .expect("Failed to construct boot code contract address");
             let sender = PrincipalData::from(contract.clone());
@@ -495,7 +493,12 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         }
     }
     let reward_recipients_vec = reward_recipients.into_iter().collect();
-    dispatcher.announce_burn_block(&burn_header.block_hash, reward_recipients_vec, burn_amt);
+    dispatcher.announce_burn_block(
+        &burn_header.block_hash,
+        burn_header.block_height,
+        reward_recipients_vec,
+        burn_amt,
+    );
 }
 
 impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>

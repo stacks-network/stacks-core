@@ -15,7 +15,7 @@ use std::convert::TryInto;
 
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS;
+use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::MarfTrieId;
@@ -53,9 +53,10 @@ lazy_static! {
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH
     );
-    static ref POX_CONTRACT: QualifiedContractIdentifier =
-        QualifiedContractIdentifier::parse(&format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS))
-            .unwrap();
+    static ref POX_CONTRACT: QualifiedContractIdentifier = QualifiedContractIdentifier::parse(
+        &format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
+    )
+    .unwrap();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)

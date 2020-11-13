@@ -418,8 +418,10 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
+                BlockstackOperationType::PreStackStx(_)
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::UserBurnSupport(_) => {
+                    // no-op, ops are not supported / produced at this point.
                 }
             }
         }
@@ -484,7 +486,9 @@ impl Node {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
+        let microblock_secret_key = self
+            .keychain
+            .rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {

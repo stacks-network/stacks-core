@@ -1805,6 +1805,9 @@ pub mod test {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
+                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
+                    Ok(())
+                }
             }
         }
 
@@ -2223,6 +2226,8 @@ pub mod test {
                             nonce: 0,
                             stx_balance: STXBalance::zero(),
                         };
+
+
                         let boot_code_auth = TransactionAuth::Standard(
                             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                                 signer: boot_code_address.bytes.clone(),
@@ -2236,7 +2241,7 @@ pub mod test {
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
-                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string(),
                             &conf.test_name,
                             conf.setup_code.len()
                         );
@@ -2518,17 +2523,7 @@ pub mod test {
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                }
+                op.set_burn_header_hash(bhh.clone());
             }
         }
 

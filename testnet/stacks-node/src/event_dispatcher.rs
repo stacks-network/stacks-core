@@ -1,6 +1,5 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
-use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -15,7 +14,8 @@ use serde_json::json;
 
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent,
+    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
+    TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
@@ -117,6 +117,7 @@ impl EventObserver {
 
     fn make_new_burn_block_payload(
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) -> serde_json::Value {
@@ -132,6 +133,7 @@ impl EventObserver {
 
         json!({
             "burn_block_hash": format!("0x{}", burn_block),
+            "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "burn_amount": burns
         })
@@ -158,11 +160,16 @@ impl EventObserver {
             _ => unreachable!(), // Transaction results should always be a Value::Response type
         };
 
-        let raw_tx = {
-            let mut bytes = vec![];
-            tx.consensus_serialize(&mut bytes).unwrap();
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            formatted_bytes
+        let (txid, raw_tx) = match tx {
+            TransactionOrigin::Burn(txid) => (txid.to_string(), "00".to_string()),
+            TransactionOrigin::Stacks(ref tx) => {
+                let txid = tx.txid().to_string();
+                let mut bytes = vec![];
+                tx.consensus_serialize(&mut bytes).unwrap();
+                let formatted_bytes: Vec<String> =
+                    bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                (txid, formatted_bytes.join(""))
+            }
         };
 
         let raw_result = {
@@ -178,11 +185,11 @@ impl EventObserver {
             }
         };
         json!({
-            "txid": format!("0x{}", tx.txid()),
+            "txid": format!("0x{}", &txid),
             "tx_index": tx_index,
             "status": success,
             "raw_result": format!("0x{}", raw_result.join("")),
-            "raw_tx": format!("0x{}", raw_tx.join("")),
+            "raw_tx": format!("0x{}", &raw_tx),
             "contract_abi": contract_interface_json,
         })
     }
@@ -291,10 +298,11 @@ impl BlockEventDispatcher for EventDispatcher {
     fn announce_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) {
-        self.process_burn_block(burn_block, rewards, burns)
+        self.process_burn_block(burn_block, burn_block_height, rewards, burns)
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -319,6 +327,7 @@ impl EventDispatcher {
     pub fn process_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
     ) {
@@ -336,7 +345,12 @@ impl EventDispatcher {
             return;
         }
 
-        let payload = EventObserver::make_new_burn_block_payload(burn_block, rewards, burns);
+        let payload = EventObserver::make_new_burn_block_payload(
+            burn_block,
+            burn_block_height,
+            rewards,
+            burns,
+        );
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_burn_block(&payload);
