@@ -71,6 +71,7 @@ impl LeaderBlockCommitOp {
         paired_key: &LeaderKeyRegisterOp,
         burn_fee: u64,
         input: &(Txid, u32),
+        apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -85,6 +86,7 @@ impl LeaderBlockCommitOp {
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
+            apparent_sender: apparent_sender.clone(),
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -103,6 +105,7 @@ impl LeaderBlockCommitOp {
         key_vtxindex: u16,
         burn_fee: u64,
         input: &(Txid, u32),
+        apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -116,6 +119,7 @@ impl LeaderBlockCommitOp {
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
+            apparent_sender: apparent_sender.clone(),
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -315,6 +319,10 @@ impl LeaderBlockCommitOp {
             .expect("UNREACHABLE: checked that inputs > 0")
             .clone();
 
+        let apparent_sender = tx
+            .get_signer(0)
+            .expect("UNREACHABLE: checked that inputs > 0");
+
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
             new_seed: data.new_seed,
@@ -328,6 +336,7 @@ impl LeaderBlockCommitOp {
             sunset_burn,
             burn_fee,
             input,
+            apparent_sender,
 
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
@@ -597,7 +606,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = tx
+        let _register_key = tx
             .get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &tx_tip)?
             .ok_or_else(|| {
                 warn!(
@@ -1140,6 +1149,13 @@ mod tests {
 
                     burn_fee: 24690,
                     input: (Txid([0x11; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![
+                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                        ],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH
+                    },
 
                     txid: Txid::from_hex("b08d5d1bc81049a3957e9ff9a5882463811735fd5de985e6d894e9b3d5c49501").unwrap(),
                     vtxindex: vtxindex,
@@ -1361,6 +1377,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -1513,6 +1537,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1554,6 +1586,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1595,6 +1635,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1636,6 +1684,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1677,6 +1733,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "03984286096373539ae529bd997c92792d4e5b5967be72979a42f587a625394116",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1718,6 +1782,14 @@ mod tests {
 
                     burn_fee: 0,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1759,6 +1831,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1800,6 +1880,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
