@@ -204,6 +204,13 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    if not check_tx_sender_types(senders, block_id):
        log.warning('Invalid senders for {}'.format(txid))
        return None
+        
+   # check if the v2 upgrade threshold block has already been reached.
+   # if so, then no more transactions will be considered
+   v2_block_id = db_state.get_v2_upgrade_threshold_block()
+   if v2_block_id is not None:
+       log.warning("V2 upgrade threshold reached; ignoring transaction {}".format(data.encode('hex')))
+       return None
 
    # this virtualchain instance must give the 'raw_tx' hint
    assert 'raw_tx' in virtualchain_hints, 'BUG: incompatible virtualchain: requires raw_tx support'
