@@ -1594,30 +1594,6 @@ fn test_explicit_tuple_map() {
 }
 
 #[test]
-fn test_implicit_tuple_map() {
-    let contract = "(define-map kv-store ((key int)) ((value int)))
-          (define-private (kv-add (key int) (value int))
-             (begin
-                 (map-insert kv-store ((key key))
-                                     ((value value)))
-             value))
-          (define-private (kv-get (key int))
-             (unwrap! (get value (map-get? kv-store ((key key)))) 0))
-          (define-private (kv-set (key int) (value int))
-             (begin
-                 (map-set kv-store ((key key))
-                                    ((value value)))
-                 value))
-          (define-private (kv-del (key int))
-             (begin
-                 (map-delete kv-store ((key key)))
-                 key))
-         ";
-
-    mem_type_check(contract).unwrap();
-}
-
-#[test]
 fn test_bound_tuple_map() {
     let contract = "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
@@ -1713,10 +1689,10 @@ fn test_fetch_entry_unbound_variables() {
 #[test]
 fn test_insert_entry_matching_type_signatures() {
     let cases = [
-        "map-insert kv-store ((key key)) ((value value))",
-        "map-insert kv-store ((key 0)) ((value 1))",
+        "map-insert kv-store { key: key } { value: value }",
+        "map-insert kv-store { key: 0 } { value: 1 }",
         "map-insert kv-store (tuple (key 0)) (tuple (value 1))",
-        "map-insert kv-store (compatible-tuple) ((value 1))",
+        "map-insert kv-store (compatible-tuple) { value: 1 }",
     ];
 
     for case in cases.iter() {
@@ -1734,11 +1710,11 @@ fn test_insert_entry_matching_type_signatures() {
 #[test]
 fn test_insert_entry_mismatching_type_signatures() {
     let cases = [
-        "map-insert kv-store ((incomptible-key key)) ((value value))",
-        "map-insert kv-store ((key key)) ((incomptible-key value))",
-        "map-insert kv-store ((key true)) ((value 1))",
-        "map-insert kv-store ((key key)) ((value true))",
-        "map-insert kv-store (incompatible-tuple) ((value 1))",
+        "map-insert kv-store { incomptible-key: key } { value: value }",
+        "map-insert kv-store { key: key } { incomptible-key: value }",
+        "map-insert kv-store { key: true } { value: 1 }",
+        "map-insert kv-store { key: key } { value: true }",
+        "map-insert kv-store (incompatible-tuple) { value: 1 }",
     ];
 
     for case in cases.iter() {
@@ -1760,8 +1736,8 @@ fn test_insert_entry_mismatching_type_signatures() {
 #[test]
 fn test_insert_entry_unbound_variables() {
     let cases = [
-        "map-insert kv-store ((key unknown-value)) ((value 1))",
-        "map-insert kv-store ((key key)) ((value unknown-value))",
+        "map-insert kv-store { key: unknown-value } { value: 1 }",
+        "map-insert kv-store { key: key } { value: unknown-value }",
     ];
 
     for case in cases.iter() {
@@ -1782,8 +1758,8 @@ fn test_insert_entry_unbound_variables() {
 #[test]
 fn test_delete_entry_matching_type_signatures() {
     let cases = [
-        "map-delete kv-store ((key key))",
-        "map-delete kv-store ((key 1))",
+        "map-delete kv-store (tuple (key key))",
+        "map-delete kv-store { key: 1 }",
         "map-delete kv-store (tuple (key 1))",
         "map-delete kv-store (compatible-tuple)",
     ];
@@ -1803,8 +1779,8 @@ fn test_delete_entry_matching_type_signatures() {
 #[test]
 fn test_delete_entry_mismatching_type_signatures() {
     let cases = [
-        "map-delete kv-store ((incomptible-key key))",
-        "map-delete kv-store ((key true))",
+        "map-delete kv-store (tuple (incomptible-key key))",
+        "map-delete kv-store { key: true }",
         "map-delete kv-store (incompatible-tuple)",
     ];
 
@@ -1826,7 +1802,7 @@ fn test_delete_entry_mismatching_type_signatures() {
 
 #[test]
 fn test_delete_entry_unbound_variables() {
-    let cases = ["map-delete kv-store ((key unknown-value))"];
+    let cases = ["map-delete kv-store { key: unknown-value }"];
 
     for case in cases.iter() {
         let contract_src = format!(
@@ -1846,11 +1822,11 @@ fn test_delete_entry_unbound_variables() {
 #[test]
 fn test_set_entry_matching_type_signatures() {
     let cases = [
-        "map-set kv-store ((key key)) ((value value))",
-        "map-set kv-store ((key 0)) ((value 1))",
+        "map-set kv-store { key: key } { value: value }",
+        "map-set kv-store { key: 0 } { value: 1 }",
         "map-set kv-store (tuple (key 0)) (tuple (value 1))",
         "map-set kv-store (tuple (key 0)) (tuple (value known-value))",
-        "map-set kv-store (compatible-tuple) ((value 1))",
+        "map-set kv-store (compatible-tuple) { value: 1 }",
     ];
 
     for case in cases.iter() {
@@ -1869,11 +1845,11 @@ fn test_set_entry_matching_type_signatures() {
 #[test]
 fn test_set_entry_mismatching_type_signatures() {
     let cases = [
-        "map-set kv-store ((incomptible-key key)) ((value value))",
-        "map-set kv-store ((key key)) ((incomptible-key value))",
-        "map-set kv-store ((key true)) ((value 1))",
-        "map-set kv-store ((key key)) ((value true))",
-        "map-set kv-store (incompatible-tuple) ((value 1))",
+        "map-set kv-store (tuple (incomptible-key key)) (tuple (value value))",
+        "map-set kv-store { key: key } { incomptible-key: value }",
+        "map-set kv-store { key: true } { value: 1 }",
+        "map-set kv-store { key: key } { value: true }",
+        "map-set kv-store (incompatible-tuple) { value: 1 }",
     ];
 
     for case in cases.iter() {
@@ -1895,8 +1871,8 @@ fn test_set_entry_mismatching_type_signatures() {
 #[test]
 fn test_set_entry_unbound_variables() {
     let cases = [
-        "map-set kv-store ((key unknown-value)) ((value 1))",
-        "map-set kv-store ((key key)) ((value unknown-value))",
+        "map-set kv-store { key: unknown-value } { value: 1 }",
+        "map-set kv-store { key: key } { value: unknown-value }",
     ];
 
     for case in cases.iter() {
