@@ -226,7 +226,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | MintToken | TransferAsset | TransferToken => {
                 self.check_all_read_only(args)?;
                 Ok(false)
-            },
+            }
             Let => {
                 check_arguments_at_least(2, args)?;
 
