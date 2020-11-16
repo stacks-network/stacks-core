@@ -87,6 +87,11 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
 def check( state_engine ):
+    # toolate shouldn't have even been registered
+    if state_engine.get_name( "toolate.miner" ) is not None:
+        print "registered late name"
+        return False
+
     os.environ['V2_MIGRATION_EXPORT'] = '0'
 
     migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data.tar.bz2')
