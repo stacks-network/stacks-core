@@ -32,6 +32,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
+use std::collections::{HashMap, hash_map::Entry};
 
 use core::*;
 
@@ -85,6 +86,7 @@ use vm::database::{
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+use vm::types::TupleData;
 
 use core::CHAINSTATE_VERSION;
 
@@ -542,6 +544,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub initial_vesting_schedules: Vec<(PrincipalData, u64, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
 }
 
@@ -760,6 +763,7 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            println!("Initializing chain with {} balances", boot_data.initial_balances.len());
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::account_genesis_credit(clarity, address, *amount)
@@ -768,6 +772,52 @@ impl StacksChainState {
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
             }
+
+            println!("Initializing chain with {} vesting schedules", boot_data.initial_vesting_schedules.len());
+            let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
+            let lockup_contract_id = boot_code_id("lockup");
+            for (address, amount, block_height) in boot_data.initial_vesting_schedules.drain(..) {
+                
+                let value = unlocks_per_blocks.get(&block_height).unwrap_or(&0);
+                let index = value + 1;
+                unlocks_per_blocks.insert(block_height, index);
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    clarity.with_clarity_db(|db| {
+                        let key = TupleData::from_data(vec![
+                            ("stx-height".into(), Value::UInt(block_height.into())),
+                            ("index".into(), Value::UInt(index.into())),
+                        ]).unwrap();
+
+                        let value = TupleData::from_data(vec![
+                            ("owner".into(), Value::Principal(address)),
+                            ("metadata".into(), Value::buff_from_byte(0)),
+                            ("unlock-ustx".into(), Value::UInt(amount.into())),
+                        ]).unwrap();
+                        db.insert_entry(
+                            &lockup_contract_id, 
+                            "internal-locked-stx", 
+                            Value::Tuple(key),
+                            Value::Tuple(value))?;
+                        
+                        let key = TupleData::from_data(vec![
+                            ("stx-height".into(), Value::UInt(block_height.into())),
+                        ]).unwrap();
+                        let value = TupleData::from_data(vec![
+                            ("total-unlocked".into(), Value::UInt(index.into())),
+                        ]).unwrap();
+                        db.insert_entry(
+                            &lockup_contract_id, 
+                            "unlocked-stx-per-block", 
+                            Value::Tuple(key),
+                            Value::Tuple(value))?;
+
+                        Ok(())
+                    }).unwrap();
+                });
+            }
+            println!("Done initializing chain with {} vesting schedules", boot_data.initial_vesting_schedules.len());
+
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
             }
@@ -1451,6 +1501,7 @@ pub mod test {
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
+            initial_vesting_schedules: vec![],
             post_flight_callback: None,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,

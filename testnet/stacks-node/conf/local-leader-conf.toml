@@ -142,3 +142,7 @@ amount = 100000000000000
 # [[events_observer]]
 # endpoint = "http://127.0.0.1:8080"
 # events_keys = ["*"]
+
+[genesis]
+sha2sum = "beea31c4c23cfdf8b4de8b6bd97639b8883571c22ded23b3f39e66186d7b93ed"
+file_path = "/Users/ludovic/Downloads/export-data/chainstate.json"

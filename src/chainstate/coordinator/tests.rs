@@ -215,6 +215,7 @@ pub fn setup_states(
 
     let mut boot_data = ChainStateBootData {
         initial_balances: vec![],
+        initial_vesting_schedules: vec![],
         post_flight_callback: None,
         first_burnchain_block_hash: BurnchainHeaderHash::zero(),
         first_burnchain_block_height: 0,
