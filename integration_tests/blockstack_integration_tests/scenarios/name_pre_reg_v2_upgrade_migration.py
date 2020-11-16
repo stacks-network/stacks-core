@@ -85,6 +85,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "toolate.miner", wallets[6].privkey, wallets[7].addr )
     testlib.blockstack_name_register( "toolate.miner", wallets[6].privkey, wallets[7].addr )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at("toolate.miner", testlib.get_current_block(**kw))
 
 def check( state_engine ):
     # toolate shouldn't have even been registered
