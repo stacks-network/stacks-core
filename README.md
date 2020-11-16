@@ -64,7 +64,7 @@ _For building on Windows, follow the rustup installer instructions at https://ru
 From there, you can clone this repository:
 
 ```bash
-git clone https://github.com/blockstack/stacks-blockchain.git
+git clone --depth=1 https://github.com/blockstack/stacks-blockchain.git
 
 cd stacks-blockchain
 ```
