@@ -30,7 +30,10 @@ use chainstate::burn::{
 };
 use chainstate::stacks::{
     boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
-    db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo},
+    db::{
+        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
+        StacksHeaderInfo,
+    },
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
@@ -233,18 +236,16 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 impl<'a, T: BlockEventDispatcher>
     ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider>
 {
-    pub fn run<F>(
+    pub fn run(
         chain_state_path: &str,
         burnchain: Burnchain,
         stacks_mainnet: bool,
         stacks_chain_id: u32,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
         block_limit: ExecutionCost,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
-        boot_block_exec: F,
+        boot_data: &mut ChainStateBootData,
     ) where
-        F: FnOnce(&mut ClarityTx),
         T: BlockEventDispatcher,
     {
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
@@ -253,37 +254,44 @@ impl<'a, T: BlockEventDispatcher>
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
+
+        let first_block_height = burnchain.first_block_height as u128;
+        let pox_prepare_length = burnchain.pox_constants.prepare_length as u128;
+        let pox_reward_cycle_length = burnchain.pox_constants.reward_cycle_length as u128;
+        let pox_rejection_fraction = burnchain.pox_constants.pox_rejection_fraction as u128;
+
+        let boot_block = move |clarity_tx: &mut ClarityTx| {
+            let contract = QualifiedContractIdentifier::parse(&format!(
+                "{}.pox",
+                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
+            ))
+            .expect("Failed to construct boot code contract address");
+            let sender = PrincipalData::from(contract.clone());
+            let params = vec![
+                Value::UInt(first_block_height),
+                Value::UInt(pox_prepare_length),
+                Value::UInt(pox_reward_cycle_length),
+                Value::UInt(pox_rejection_fraction),
+            ];
+
+            clarity_tx.connection().as_transaction(|conn| {
+                conn.run_contract_call(
+                    &sender,
+                    &contract,
+                    "set-burnchain-parameters",
+                    &params,
+                    |_, _| false,
+                )
+                .expect("Failed to set burnchain parameters in PoX contract");
+            });
+        };
+        boot_data.prepend_post_flight_callback(Box::new(boot_block));
+
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             stacks_mainnet,
             stacks_chain_id,
             chain_state_path,
-            initial_balances,
-            |clarity_tx| {
-                let burnchain = burnchain.clone();
-                let contract = QualifiedContractIdentifier::parse(&format!(
-                    "{}.pox",
-                    STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
-                ))
-                .expect("Failed to construct boot code contract address");
-                let sender = PrincipalData::from(contract.clone());
-
-                clarity_tx.connection().as_transaction(|conn| {
-                    conn.run_contract_call(
-                        &sender,
-                        &contract,
-                        "set-burnchain-parameters",
-                        &[
-                            Value::UInt(burnchain.first_block_height as u128),
-                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
-                        ],
-                        |_, _| false,
-                    )
-                    .expect("Failed to set burnchain parameters in PoX contract");
-                });
-                boot_block_exec(clarity_tx)
-            },
+            Some(boot_data),
             block_limit,
         )
         .unwrap();
@@ -344,12 +352,19 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let (chain_state_db, _) =
-            StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
-
+        let (chain_state_db, _) = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &format!("{}/chainstate/", path),
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap();
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 

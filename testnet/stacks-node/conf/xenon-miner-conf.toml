@@ -9,9 +9,12 @@ miner = true
 [burnchain]
 chain = "bitcoin"
 mode = "xenon"
-peer_host = "xenon.blockstack.org"
+peer_host = "127.0.0.1"
 rpc_port = 18332
 peer_port = 18333
+username = "xenon"
+password = "password"
+first_block_height = 1836770
 
 [[mstx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"

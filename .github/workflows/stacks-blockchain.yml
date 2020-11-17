@@ -126,12 +126,12 @@ jobs:
           if [[ -z ${TAG} ]]; then
               REF=$(echo ${GITHUB_REF#refs/*/} | tr / -)
               if [[ "${REF}" == "master" ]]; then
-                  echo "::set-env name=STRETCH_TAG::latest-stretch"
+                  echo "STRETCH_TAG=latest-stretch" >> $GITHUB_ENV
               else
-                  echo "::set-env name=STRETCH_TAG::${REF}-stretch"
+                  echo "STRETCH_TAG=${REF}-stretch" >> $GITHUB_ENV
               fi
           else
-              echo "::set-env name=STRETCH_TAG::${TAG}-stretch"
+              echo "STRETCH_TAG=${TAG}-stretch" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.inputs.tag }}
