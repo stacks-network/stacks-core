@@ -34,7 +34,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::StacksBlockId;
 use vm::contexts::Environment;
-use vm::costs::ExecutionCost;
+use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
@@ -288,12 +288,15 @@ fn test_cost_contract_short_circuits() {
 
         let intercepted_src = "
     (define-read-only (intercepted-function (a uint))
-       (+ a a a))
+       (if (>= a u10)
+           (+ (+ a a) (+ a a)
+              (+ a a) (+ a a))
+           u0))
     ";
 
         let caller_src = "
-    (define-public (execute)
-       (ok (contract-call? .intercepted intercepted-function u1)))
+    (define-public (execute (a uint))
+       (ok (contract-call? .intercepted intercepted-function a)))
     ";
 
         owned_env
@@ -310,18 +313,116 @@ fn test_cost_contract_short_circuits() {
     }
 
     marf_kv.test_commit();
-
     marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
-    let without_interposing = {
+    let without_interposing_5 = {
         let mut owned_env = OwnedEnvironment::new_max_limit(
             marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
-        execute_transaction(&mut owned_env, p2, &caller, "execute", &[]).unwrap();
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
 
         let (_db, tracker) = owned_env.destruct().unwrap();
 
         tracker.get_total()
     };
+
+    let without_interposing_10 = {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(10)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
+
+    let with_interposing_5 = {
+        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
+            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            vec![(
+                (intercepted.clone(), "intercepted-function".into()),
+                ClarityCostFunctionReference {
+                    contract_id: cost_definer.clone(),
+                    function_name: "cost-definition".into(),
+                },
+            )],
+        )
+        .unwrap();
+
+        let mut owned_env = OwnedEnvironment::new_cost_limited(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            cost_tracker,
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    let with_interposing_10 = {
+        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
+            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            vec![(
+                (intercepted.clone(), "intercepted-function".into()),
+                ClarityCostFunctionReference {
+                    contract_id: cost_definer.clone(),
+                    function_name: "cost-definition".into(),
+                },
+            )],
+        )
+        .unwrap();
+
+        let mut owned_env = OwnedEnvironment::new_cost_limited(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            cost_tracker,
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(10)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    assert!(without_interposing_5.exceeds(&with_interposing_5));
+    assert!(without_interposing_10.exceeds(&with_interposing_10));
+
+    assert_eq!(with_interposing_5, with_interposing_10);
+    assert!(without_interposing_5 != without_interposing_10);
 }

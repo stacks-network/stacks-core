@@ -155,7 +155,7 @@ impl ClarityCostFunctionReference {
 pub struct LimitedCostTracker {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference>,
     cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
-    pub contract_call_circuits:
+    contract_call_circuits:
         HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
     total: ExecutionCost,
     limit: ExecutionCost,
@@ -215,6 +215,29 @@ impl LimitedCostTracker {
     pub fn new_max_limit(clarity_db: &mut ClarityDatabase) -> Result<LimitedCostTracker> {
         LimitedCostTracker::new(ExecutionCost::max_value(), clarity_db)
     }
+
+    #[cfg(test)]
+    pub fn new_max_limit_with_circuits(
+        clarity_db: &mut ClarityDatabase,
+        circuits: Vec<(
+            (QualifiedContractIdentifier, ClarityName),
+            ClarityCostFunctionReference,
+        )>,
+    ) -> Result<LimitedCostTracker> {
+        let mut cost_tracker = LimitedCostTracker {
+            cost_function_references: HashMap::new(),
+            cost_contracts: HashMap::new(),
+            contract_call_circuits: circuits.into_iter().collect(),
+            limit: ExecutionCost::max_value(),
+            memory_limit: CLARITY_MEMORY_LIMIT,
+            total: ExecutionCost::zero(),
+            memory: 0,
+            free: false,
+        };
+        cost_tracker.load_boot_costs(clarity_db)?;
+        Ok(cost_tracker)
+    }
+
     pub fn new_free() -> LimitedCostTracker {
         LimitedCostTracker {
             cost_function_references: HashMap::new(),
@@ -253,6 +276,23 @@ impl LimitedCostTracker {
                 cost_contracts.insert(boot_costs_id.clone(), contract_context);
             }
         }
+
+        for (_, circuit_target) in self.contract_call_circuits.iter() {
+            if !cost_contracts.contains_key(&circuit_target.contract_id) {
+                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
+                    Ok(contract) => contract.contract_context,
+                    Err(e) => {
+                        error!("Failed to load intended Clarity cost contract";
+                               "contract" => %boot_costs_id.to_string(),
+                               "error" => %format!("{:?}", e));
+                        clarity_db.roll_back();
+                        return Err(CostErrors::CostContractLoadFailure);
+                    }
+                };
+                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
+            }
+        }
+
         self.cost_function_references = m;
         self.cost_contracts = cost_contracts;
 

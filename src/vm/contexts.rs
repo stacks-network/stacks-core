@@ -60,7 +60,7 @@ pub struct Environment<'a, 'b> {
 }
 
 pub struct OwnedEnvironment<'a> {
-    pub context: GlobalContext<'a>,
+    context: GlobalContext<'a>,
     default_contract: ContractContext,
     call_stack: CallStack,
 }
