@@ -613,7 +613,7 @@ impl NullBackingStore {
 }
 
 impl ClarityBackingStore for NullBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
         panic!("NullBackingStore can't set block hash")
     }
 
@@ -629,7 +629,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore has no side store")
     }
 
-    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+    fn get_block_at_height(&mut self, _height: u32) -> Option<StacksBlockId> {
         panic!("NullBackingStore can't get block at height")
     }
 

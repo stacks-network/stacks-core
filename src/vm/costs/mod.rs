@@ -24,7 +24,7 @@ use std::{cmp, fmt};
 
 use std::collections::{BTreeMap, HashMap};
 
-use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::boot::STACKS_BOOT_COST_CONTRACT;
 
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
@@ -219,7 +219,7 @@ impl LimitedCostTracker {
         }
     }
     pub fn load_boot_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<()> {
-        let boot_costs_id = boot_code_id("costs");
+        let boot_costs_id = (*STACKS_BOOT_COST_CONTRACT).clone();
 
         clarity_db.begin();
 
