@@ -512,9 +512,9 @@ impl ConversationP2P {
             data_url: UrlString::try_from("".to_string()).unwrap(),
 
             burnchain_tip_height: 0,
-            burnchain_tip_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burnchain_tip_burn_header_hash: BurnchainHeaderHash::zero(),
             burnchain_stable_tip_height: 0,
-            burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash::zero(),
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
@@ -2314,6 +2314,8 @@ mod test {
 
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use chainstate::stacks::db::ChainStateBootData;
+    use vm::costs::ExecutionCost;
 
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
@@ -2374,7 +2376,20 @@ mod test {
             true,
         )
         .unwrap();
-        let (chainstate, _) = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+
+        let first_burnchain_block_height = burnchain.first_block_height;
+        let first_burnchain_block_hash = burnchain.first_block_hash;
+
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
+        let (chainstate, _) = StacksChainState::open_and_exec(
+            false,
+            network_id,
+            &chainstate_path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap();
 
         let pox_id = {
             let ic = sortdb.index_conn();
@@ -2512,6 +2527,7 @@ mod test {
             stable_confirmations: 7,
             first_block_height: 12300,
             first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),
         }
     }

@@ -146,7 +146,7 @@ pub fn setup_states(
             &burnchain.get_db_path(),
             burnchain.first_block_height,
             &burnchain.first_block_hash,
-            0,
+            burnchain.first_block_timestamp.into(),
             true,
         )
         .unwrap();
@@ -155,7 +155,7 @@ pub fn setup_states(
             &burnchain.get_burnchaindb_path(),
             burnchain.first_block_height,
             &burnchain.first_block_hash,
-            0,
+            burnchain.first_block_timestamp as u64,
             true,
         )
         .unwrap();
@@ -212,39 +212,44 @@ pub fn setup_states(
     );
 
     let block_limit = ExecutionCost::max_value();
-
+    let initial_balances = initial_balances.unwrap_or(vec![]);
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
+
+        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
+
+        let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
+            let contract = QualifiedContractIdentifier::parse(&format!(
+                "{}.pox",
+                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
+            ))
+            .expect("Failed to construct boot code contract address");
+            let sender = PrincipalData::from(contract.clone());
+
+            clarity_tx.connection().as_transaction(|conn| {
+                conn.run_contract_call(
+                    &sender,
+                    &contract,
+                    "set-burnchain-parameters",
+                    &[
+                        Value::UInt(burnchain.first_block_height as u128),
+                        Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                        Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                        Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                    ],
+                    |_, _| false,
+                )
+                .expect("Failed to set burnchain parameters in PoX contract");
+            });
+        };
+
+        boot_data.post_flight_callback = Some(Box::new(post_flight_callback));
 
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
             0x80000000,
             &format!("{}/chainstate/", path),
-            initial_balances.clone(),
-            |clarity_tx| {
-                let contract = QualifiedContractIdentifier::parse(&format!(
-                    "{}.pox",
-                    STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
-                ))
-                .expect("Failed to construct boot code contract address");
-                let sender = PrincipalData::from(contract.clone());
-
-                clarity_tx.connection().as_transaction(|conn| {
-                    conn.run_contract_call(
-                        &sender,
-                        &contract,
-                        "set-burnchain-parameters",
-                        &[
-                            Value::UInt(burnchain.first_block_height as u128),
-                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
-                        ],
-                        |_, _| false,
-                    )
-                    .expect("Failed to set burnchain parameters in PoX contract");
-                });
-            },
+            Some(&mut boot_data),
             block_limit.clone(),
         )
         .unwrap();
@@ -284,8 +289,10 @@ impl BlockEventDispatcher for NullEventDispatcher {
 
 pub fn make_coordinator<'a>(
     path: &str,
+    burnchain: Option<Burnchain>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path, None), path, OnChainRewardSetProvider())
+    let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
+    ChainsCoordinator::test_new(&burnchain, path, OnChainRewardSetProvider())
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
@@ -316,16 +323,9 @@ fn make_reward_set_coordinator<'a>(
 }
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
-    let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = pox_consts.unwrap_or(PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        u64::max_value(),
-        u64::max_value(),
-    ));
+    let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
+    b.pox_constants = pox_consts
+        .unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value()));
     b
 }
 
@@ -403,7 +403,7 @@ fn make_genesis_block_with_recipients(
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
+    let parent_stacks_header = StacksHeaderInfo::regtest_genesis(0);
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
@@ -632,8 +632,8 @@ fn test_simple_setup() {
 
     setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
-    let mut coord = make_coordinator(path);
-    let mut coord_blind = make_coordinator(path_blinded);
+    let mut coord = make_coordinator(path, None);
+    let mut coord_blind = make_coordinator(path_blinded, None);
 
     coord.handle_new_burnchain_block().unwrap();
     coord_blind.handle_new_burnchain_block().unwrap();
@@ -1289,7 +1289,7 @@ fn test_pox_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -1309,7 +1309,7 @@ fn test_pox_btc_ops() {
         Some(initial_balances),
     );
 
-    let mut coord = make_coordinator(path);
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -1791,8 +1791,8 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
-    let mut coord = make_coordinator(path);
-    let mut coord_blind = make_coordinator(path_blinded);
+    let mut coord = make_coordinator(path, None);
+    let mut coord_blind = make_coordinator(path_blinded, None);
 
     coord.handle_new_burnchain_block().unwrap();
     coord_blind.handle_new_burnchain_block().unwrap();
@@ -2032,8 +2032,8 @@ fn test_pox_no_anchor_selected() {
 
     setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
-    let mut coord = make_coordinator(path);
-    let mut coord_blind = make_coordinator(path_blinded);
+    let mut coord = make_coordinator(path, None);
+    let mut coord_blind = make_coordinator(path_blinded, None);
 
     coord.handle_new_burnchain_block().unwrap();
     coord_blind.handle_new_burnchain_block().unwrap();
@@ -2233,8 +2233,8 @@ fn test_pox_fork_out_of_order() {
 
     setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
-    let mut coord = make_coordinator(path);
-    let mut coord_blind = make_coordinator(path_blinded);
+    let mut coord = make_coordinator(path, None);
+    let mut coord_blind = make_coordinator(path_blinded, None);
 
     coord.handle_new_burnchain_block().unwrap();
     coord_blind.handle_new_burnchain_block().unwrap();

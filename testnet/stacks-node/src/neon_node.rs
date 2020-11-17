@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -17,7 +17,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksBlockId;
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -180,7 +180,7 @@ fn inner_generate_leader_key_register_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
     })
 }
 
@@ -229,7 +229,7 @@ fn inner_generate_block_commit_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
         commit_outs,
     })
 }
@@ -974,7 +974,17 @@ impl InitializedNeonNode {
             )
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
-            let chain_tip = ChainTip::genesis(config.get_initial_liquid_ustx());
+            let (network, _) = config.burnchain.get_bitcoin_network();
+            let burnchain_params =
+                BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                    .expect("Bitcoin network unsupported");
+
+            let chain_tip = ChainTip::genesis(
+                config.get_initial_liquid_ustx(),
+                &burnchain_params.first_block_hash,
+                burnchain_params.first_block_height.into(),
+                burnchain_params.first_block_timestamp.into(),
+            );
 
             (
                 chain_tip.metadata,
@@ -1218,15 +1228,12 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(
+    pub fn new(
         config: Config,
         mut event_dispatcher: EventDispatcher,
         burnchain: Burnchain,
-        boot_block_exec: F,
-    ) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
             .initial_balances
@@ -1234,13 +1241,15 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
+
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,
