@@ -81,10 +81,6 @@ use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION;
 
-use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET;
-use burnchains::bitcoin::indexer::FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST;
-use burnchains::bitcoin::indexer::FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET;
-
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
         BurnchainStateTransitionOps {
@@ -367,7 +363,8 @@ impl Burnchain {
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
-            first_block_hash: params.first_block_hash.clone(),
+            first_block_hash: params.first_block_hash,
+            first_block_timestamp: params.first_block_timestamp,
             pox_constants,
         })
     }
@@ -428,6 +425,12 @@ impl Burnchain {
         )
     }
 
+    pub fn regtest(working_dir: &str) -> Burnchain {
+        let ret =
+            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+        ret
+    }
+
     #[cfg(test)]
     pub fn default_unittest(
         first_block_height: u64,
@@ -486,7 +489,11 @@ impl Burnchain {
     pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let indexer: I = BurnchainIndexer::init(&self.working_dir, &self.network_name)?;
+        let indexer: I = BurnchainIndexer::init(
+            &self.working_dir,
+            &self.network_name,
+            self.first_block_height,
+        )?;
         Ok(indexer)
     }
 
@@ -503,7 +510,7 @@ impl Burnchain {
             0
         };
 
-        if !headers_pathbuf.exists() || headers_height < indexer.get_first_block_height() {
+        if !headers_pathbuf.exists() || headers_height < self.first_block_height {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
@@ -540,7 +547,6 @@ impl Burnchain {
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let first_block_height = indexer.get_first_block_height();
         let first_block_header_hash = indexer.get_first_block_header_hash()?;
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
 
@@ -549,14 +555,14 @@ impl Burnchain {
 
         let sortitiondb = SortitionDB::connect(
             &db_path,
-            first_block_height,
+            self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
             &burnchain_db_path,
-            first_block_height,
+            self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
             readwrite,
@@ -1402,7 +1408,8 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000123",
@@ -2364,8 +2371,9 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
         };
 
         let mut leader_private_keys = vec![];

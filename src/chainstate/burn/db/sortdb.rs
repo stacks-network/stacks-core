@@ -87,7 +87,6 @@ use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use std::collections::HashMap;
 
 use core::FIRST_BURNCHAIN_BLOCK_HASH;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 
 use vm::representations::{ClarityName, ContractName};

@@ -2181,10 +2181,13 @@ pub mod test {
             )
             .unwrap();
 
+            let first_burnchain_block_height = config.burnchain.first_block_height;
+            let first_burnchain_block_hash = config.burnchain.first_block_hash;
+
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
-                config.burnchain.first_block_height,
-                &config.burnchain.first_block_hash,
+                first_burnchain_block_height,
+                &first_burnchain_block_hash,
                 0,
                 true,
             )
@@ -2208,40 +2211,77 @@ pub mod test {
             )
             .unwrap();
 
-            let init_code = config.setup_code.clone();
-            let (chainstate, _) = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()),
-                |ref mut clarity_tx| {
-                    if init_code.len() > 0 {
-                        clarity_tx.connection().as_transaction(|clarity| {
-                            let boot_code_account = StacksAccount {
-                                principal: PrincipalData::Standard(StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone())),
-                                nonce: 0,
-                                stx_balance: STXBalance::zero(),
-                            };
-                            let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: STACKS_BOOT_CODE_CONTRACT_ADDRESS.deref().bytes.clone(),
+            let conf = config.clone();
+            let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
+                if conf.setup_code.len() > 0 {
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        let boot_code_address = StacksAddress::from_string(
+                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string(),
+                        )
+                        .unwrap();
+                        let boot_code_account = StacksAccount {
+                            principal: PrincipalData::Standard(StandardPrincipalData::from(
+                                boot_code_address.clone(),
+                            )),
+                            nonce: 0,
+                            stx_balance: STXBalance::zero(),
+                        };
+
+                        let boot_code_auth = TransactionAuth::Standard(
+                            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                                signer: boot_code_address.bytes.clone(),
                                 hash_mode: SinglesigHashMode::P2PKH,
                                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                                 nonce: 0,
                                 fee_rate: 0,
-                                signature: MessageSignature::empty()
-                            }));
+                                signature: MessageSignature::empty(),
+                            }),
+                        );
 
-                            debug!("Instantiate test-specific boot code contract '{}.{}' ({} bytes)...", &*STACKS_BOOT_CODE_CONTRACT_ADDRESS, &config.test_name, init_code.len());
+                        debug!(
+                            "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
+                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string(),
+                            &conf.test_name,
+                            conf.setup_code.len()
+                        );
 
-                            let smart_contract = TransactionPayload::SmartContract(
-                                TransactionSmartContract {
-                                    name: ContractName::try_from(config.test_name.as_str()).expect("FATAL: invalid boot-code contract name"),
-                                    code_body: StacksString::from_str(&init_code).expect("FATAL: invalid boot code body"),
-                                }
-                            );
+                        let smart_contract =
+                            TransactionPayload::SmartContract(TransactionSmartContract {
+                                name: ContractName::try_from(conf.test_name.as_str())
+                                    .expect("FATAL: invalid boot-code contract name"),
+                                code_body: StacksString::from_str(&conf.setup_code)
+                                    .expect("FATAL: invalid boot code body"),
+                            });
 
-                            let boot_code_smart_contract = StacksTransaction::new(TransactionVersion::Testnet, boot_code_auth.clone(), smart_contract);
-                            StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account).unwrap();
-                        });
-                    }
-                },
-                ExecutionCost::max_value()).unwrap();
+                        let boot_code_smart_contract = StacksTransaction::new(
+                            TransactionVersion::Testnet,
+                            boot_code_auth.clone(),
+                            smart_contract,
+                        );
+                        StacksChainState::process_transaction_payload(
+                            clarity,
+                            &boot_code_smart_contract,
+                            &boot_code_account,
+                        )
+                        .unwrap();
+                    });
+                }
+            };
+
+            let mut boot_data = ChainStateBootData::new(
+                &config.burnchain,
+                config.initial_balances.clone(),
+                Some(Box::new(post_flight_callback)),
+            );
+
+            let (chainstate, _) = StacksChainState::open_and_exec(
+                false,
+                config.network_id,
+                &chainstate_path,
+                Some(&mut boot_data),
+                ExecutionCost::max_value(),
+            )
+            .unwrap();
 
             let mut coord =
                 ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider());
