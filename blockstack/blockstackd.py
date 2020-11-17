@@ -3756,6 +3756,12 @@ def run_blockstackd():
             name['address'] = b58ToC32(str(name_info['address']))
             name['expire_block'] = name_info['expire_block']
             name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
+
+            if 'value_hash' in name_info and name_info['value_hash'] is not None:
+                name['zonefile_hash'] = name_info['value_hash']
+            else:
+                name['zonefile_hash'] = ""
+
             if 'zonefile' not in name_info or name_info['zonefile'] is None:
                 # print 'missing zonefile for {}'.format(name)
                 name['zonefile'] = ""
