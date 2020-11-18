@@ -613,15 +613,15 @@ impl NullBackingStore {
 }
 
 impl ClarityBackingStore for NullBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    fn get(&mut self, _key: &str) -> Option<String> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+    fn get_with_proof(&mut self, _key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -629,7 +629,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore has no side store")
     }
 
-    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+    fn get_block_at_height(&mut self, _height: u32) -> Option<StacksBlockId> {
         panic!("NullBackingStore can't get block at height")
     }
 
@@ -645,7 +645,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+    fn put_all(&mut self, mut _items: Vec<(String, String)>) {
         panic!("NullBackingStore cannot put")
     }
 }

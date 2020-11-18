@@ -138,6 +138,9 @@ impl From<CostErrors> for ParseError {
             CostErrors::CostComputationFailed(s) => {
                 ParseError::new(ParseErrors::CostComputationFailed(s))
             }
+            CostErrors::CostContractLoadFailure => ParseError::new(
+                ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
+            ),
         }
     }
 }

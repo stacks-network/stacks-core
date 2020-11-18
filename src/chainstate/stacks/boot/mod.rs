@@ -31,10 +31,14 @@ use vm::types::{
     Value,
 };
 
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::StacksBlockId;
 
 use burnchains::Burnchain;
 
+use vm::clarity::ClarityConnection;
+use vm::contexts::ContractContext;
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::representations::ContractName;
 
 use util::hash::Hash160;
@@ -50,7 +54,7 @@ const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
-const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_CONTRACT_ADDRESS: StacksAddress =
@@ -69,6 +73,7 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS)
     ];
+    pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
 }
 
 pub fn boot_code_addr() -> StacksAddress {
@@ -136,12 +141,15 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_conn();
-        self.clarity_eval_read_only_checked(
-            &iconn,
-            &stacks_block_id,
-            &boot_code_id(boot_contract_name),
-            code,
-        )
+        self.clarity_state
+            .eval_read_only(
+                &stacks_block_id,
+                self.headers_state_index.sqlite_conn(),
+                &iconn,
+                &boot_code_id(boot_contract_name),
+                code,
+            )
+            .map_err(Error::ClarityError)
     }
 
     /// Determine which reward cycle this particular block lives in.

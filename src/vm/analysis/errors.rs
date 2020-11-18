@@ -240,6 +240,9 @@ impl From<CostErrors> for CheckErrors {
             CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
             CostErrors::MemoryBalanceExceeded(a, b) => CheckErrors::MemoryBalanceExceeded(a, b),
             CostErrors::CostComputationFailed(s) => CheckErrors::CostComputationFailed(s),
+            CostErrors::CostContractLoadFailure => {
+                CheckErrors::CostComputationFailed("Failed to load cost contract".into())
+            }
         }
     }
 }

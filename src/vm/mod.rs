@@ -350,7 +350,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)
@@ -405,7 +405,7 @@ mod test {
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
-            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
+            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .variables

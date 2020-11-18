@@ -103,7 +103,7 @@ pub struct GlobalContext<'a> {
     pub cost_track: LimitedCostTracker,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
@@ -428,9 +428,22 @@ impl EventBatch {
 }
 
 impl<'a> OwnedEnvironment<'a> {
+    #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
+            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_max_limit(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        let cost_track = LimitedCostTracker::new_max_limit(&mut database)
+            .expect("FAIL: problem instantiating cost tracking");
+
+        OwnedEnvironment {
+            context: GlobalContext::new(database, cost_track),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
