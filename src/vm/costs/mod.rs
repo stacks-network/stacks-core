@@ -302,6 +302,39 @@ impl ExecutionCost {
         }
     }
 
+    /// Calculates a scalar value representing the amount of each dimension
+    ///   of `limit` that `self` filled.
+    /// This is ~ the dot product of `self` with `1/limit`
+    pub fn fill_scalar(&self, limit: &ExecutionCost) -> Option<u64> {
+        if self.exceeds(limit) {
+            None
+        } else {
+            assert!(
+                !(limit.runtime == 0
+                    || limit.read_count == 0
+                    || limit.read_length == 0
+                    || limit.write_length == 0
+                    || limit.write_count == 0),
+                "Limit must not have a zero dimension"
+            );
+            let dimensional_max = u64::max_value() as u128 / 5;
+            // use u128 math to avoid overflows
+            let mut total_score = 0u128;
+            for (self_dimension, lim_dimension) in &[
+                (self.runtime, limit.runtime),
+                (self.read_count, limit.read_count),
+                (self.write_count, limit.write_count),
+                (self.read_length, limit.read_length),
+                (self.write_length, limit.write_length),
+            ] {
+                let dimension_score =
+                    (*self_dimension as u128) * dimensional_max / (*lim_dimension as u128);
+                total_score += dimension_score;
+            }
+            Some(u64::try_from(total_score).expect("BUG: overflowed u64 calculating fill_scalar"))
+        }
+    }
+
     pub fn add_runtime(&mut self, runtime: u64) -> Result<()> {
         self.runtime = self.runtime.cost_overflow_add(runtime)?;
         Ok(())
