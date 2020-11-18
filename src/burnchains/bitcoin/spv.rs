@@ -337,6 +337,7 @@ impl SpvClient {
             "SELECT MAX(height) FROM headers",
             NO_PARAMS,
         )? {
+            Some(max) if max == 0 => Ok(0),
             Some(max) => Ok(max + 1),
             None => Ok(0),
         }
@@ -904,7 +905,7 @@ impl BitcoinMessageHandler for SpvClient {
 
                 debug!(
                     "Request headers for blocks {} - {} in range {} - {}",
-                    block_height,
+                    block_height + 1,
                     block_height + 2000,
                     self.start_block_height,
                     end_block_height
@@ -1019,7 +1020,7 @@ mod test {
             false,
         )
         .unwrap();
-        assert_eq!(spv_client.get_headers_height().unwrap(), 1);
+        assert_eq!(spv_client.get_headers_height().unwrap(), 0);
         assert_eq!(
             spv_client.read_block_header(0).unwrap().unwrap(),
             genesis_regtest_header
