@@ -490,6 +490,72 @@ fn test_attachments_batch_constructs() {
     );
 }
 
+
+#[test]
+fn test_attachments_batch_pages() {
+    let attachment_instance_1 =
+        new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1, 1);
+    let attachment_instance_2 =
+        new_attachment_instance_from(&new_attachment_from("facade12"), 2, 2, 1);
+    let attachment_instance_3 =
+        new_attachment_instance_from(&new_attachment_from("facade13"), 3, 3, 1);
+    let attachment_instance_4 =
+        new_attachment_instance_from(&new_attachment_from("facade14"), 4, 4, 1);
+    let attachment_instance_5 =
+        new_attachment_instance_from(&new_attachment_from("facade15"), 1, 5, 1);
+    let attachment_instance_6 =
+        new_attachment_instance_from(&new_attachment_from("facade16"), 1, 6, 1);
+    let attachment_instance_7 =
+        new_attachment_instance_from(&new_attachment_from("facade17"), 2, 7, 1);
+    let attachment_instance_8 =
+        new_attachment_instance_from(&new_attachment_from("facade18"), 3, 8, 1);
+    let attachment_instance_9 =
+        new_attachment_instance_from(&new_attachment_from("facade19"), 4, 9, 1);
+    let attachment_instance_10 =
+        new_attachment_instance_from(&new_attachment_from("facade20"), 1, 10, 1);
+
+    let mut attachments_batch = AttachmentsBatch::new();
+    attachments_batch.track_attachment(&attachment_instance_1);
+    attachments_batch.track_attachment(&attachment_instance_2);
+    attachments_batch.track_attachment(&attachment_instance_3);
+    attachments_batch.track_attachment(&attachment_instance_4);
+    attachments_batch.track_attachment(&attachment_instance_5);
+    attachments_batch.track_attachment(&attachment_instance_6);
+    attachments_batch.track_attachment(&attachment_instance_7);
+    attachments_batch.track_attachment(&attachment_instance_8);
+    attachments_batch.track_attachment(&attachment_instance_9);
+    attachments_batch.track_attachment(&attachment_instance_10);
+
+    let default_contract_id = QualifiedContractIdentifier::transient();
+
+    assert_eq!(attachments_batch.attachments_instances_count, 10);
+    assert_eq!(
+        attachments_batch
+            .get_missing_pages_for_contract_id(&default_contract_id)
+            .len(),
+        10
+    );
+
+    assert_eq!(
+        attachments_batch
+            .get_paginated_missing_pages_for_contract_id(&default_contract_id)
+            .len(),
+        2
+    );
+
+    attachments_batch.resolve_attachment(&attachment_instance_1.content_hash);
+    attachments_batch.resolve_attachment(&attachment_instance_2.content_hash);
+    attachments_batch.resolve_attachment(&attachment_instance_3.content_hash);
+
+    // Assuming MAX_ATTACHMENT_INV_PAGES_PER_REQUEST = 8
+    assert_eq!(
+        attachments_batch
+            .get_paginated_missing_pages_for_contract_id(&default_contract_id)
+            .len(),
+        1
+    );
+}
+
 #[test]
 fn test_downloader_context_attachment_inventories_requests() {
     let localhost = PeerHost::from_host_port("127.0.0.1".to_string(), 1024);

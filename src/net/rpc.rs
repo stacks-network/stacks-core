@@ -24,7 +24,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 
 use core::mempool::*;
-use net::atlas::{AtlasDB, Attachment, OnchainInventoryLookup};
+use net::atlas::{AtlasDB, Attachment, OnchainInventoryLookup, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
@@ -561,6 +561,14 @@ impl ConversationHttp {
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
+        if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
+            let msg = format!("Number of attachment inv pages is limited by {} per request", MAX_ATTACHMENT_INV_PAGES_PER_REQUEST);
+            warn!("{}", msg);
+            let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+            response.send(http, fd)?;
+            return Ok(()) 
+        }
+
         let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
         pages_indexes.sort();
         let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
@@ -2249,6 +2257,19 @@ impl ConversationHttp {
             tip_opt,
         )
     }
+
+    /// Make a new request for attachment inventory page
+    pub fn new_getattachmentsinv(
+        &self,
+        tip_opt: Option<StacksBlockId>,
+        pages_indexes: HashSet<u32>,
+    ) -> HttpRequestType {
+        HttpRequestType::GetAttachmentsInv(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            tip_opt,
+            pages_indexes,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2259,6 +2280,7 @@ mod test {
     use net::test::*;
     use net::*;
     use std::cell::RefCell;
+    use std::iter::FromIterator;
 
     use burnchains::Burnchain;
     use burnchains::BurnchainHeaderHash;
@@ -3796,4 +3818,37 @@ mod test {
             },
         );
     }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getattachmentsinv_limit_reached() {
+        test_rpc(
+            "test_rpc_getattachmentsinv",
+            40000,
+            40001,
+            50000,
+            50001,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let pages_indexes = HashSet::from_iter(vec![1,2,3,4,5,6,7,8,9]);
+                convo_client.new_getattachmentsinv(None, pages_indexes)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::ServerError(_, msg) => {
+                        assert_eq!(msg, "Number of attachment inv pages is limited by 8 per request");
+                        true
+                    }
+                    _ => {
+                        false
+                    }
+                }
+            },
+        );
+    }
+
 }

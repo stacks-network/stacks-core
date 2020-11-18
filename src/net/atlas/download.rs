@@ -1,4 +1,4 @@
-use super::{AtlasDB, Attachment, AttachmentInstance};
+use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
@@ -218,18 +218,18 @@ impl AttachmentsBatchStateContext {
         let mut queue = BinaryHeap::new();
         for (contract_id, _) in self.attachments_batch.attachments_instances.iter() {
             for (peer_url, reliability_report) in self.peers.iter() {
-                let request = AttachmentsInventoryRequest {
-                    url: peer_url.clone(),
-                    reliability_report: reliability_report.clone(),
-                    contract_id: contract_id.clone(),
-                    pages: self
-                        .attachments_batch
-                        .get_missing_pages_for_contract_id(contract_id),
-                    block_height: self.attachments_batch.block_height,
-                    consensus_hash: self.attachments_batch.consensus_hash,
-                    block_header_hash: self.attachments_batch.block_header_hash,
-                };
-                queue.push(request);
+                for pages in self.attachments_batch.get_paginated_missing_pages_for_contract_id(contract_id) {
+                    let request = AttachmentsInventoryRequest {
+                        url: peer_url.clone(),
+                        reliability_report: reliability_report.clone(),
+                        contract_id: contract_id.clone(),
+                        pages: pages,
+                        block_height: self.attachments_batch.block_height,
+                        consensus_hash: self.attachments_batch.consensus_hash,
+                        block_header_hash: self.attachments_batch.block_header_hash,
+                    };
+                    queue.push(request);    
+                }
             }
         }
         queue
@@ -927,6 +927,18 @@ impl AttachmentsBatch {
             }
         }
         pages_indexes.into_iter().collect()
+    }
+
+    pub fn get_paginated_missing_pages_for_contract_id(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> Vec<Vec<u32>> {
+        let mut paginated = vec![];
+        let pages_indexes = self.get_missing_pages_for_contract_id(contract_id);
+        for page in pages_indexes.chunks(MAX_ATTACHMENT_INV_PAGES_PER_REQUEST) {
+            paginated.push(page.to_vec());
+        }
+        paginated
     }
 
     pub fn resolve_attachment(&mut self, content_hash: &Hash160) {
