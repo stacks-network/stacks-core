@@ -43,12 +43,12 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         created_at INTEGER NOT NULL,
         consensus_hash STRING NOT NULL,
         block_header_hash STRING NOT NULL,
-        block_id STRING NOT NULL,
+        index_block_hash STRING NOT NULL,
         position_in_page INTEGER NOT NULL,
         page_index INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
-        metadata STRING NOT NULL,
+        metadata TEXT NOT NULL,
         contract_id STRING NOT NULL
     );"#,
     r#"
@@ -156,7 +156,7 @@ impl AtlasDB {
         Ok(db)
     }
 
-    // Open a burn database in memory (used for testing)
+    // Open an atlas database in memory (used for testing)
     #[cfg(test)]
     pub fn connect_memory() -> Result<AtlasDB, db_error> {
         let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
@@ -197,8 +197,8 @@ impl AtlasDB {
         let mut rows = stmt.query(&args)?;
         match rows.next() {
             Some(Ok(row)) => {
-                let min: i64 = row.get_checked("min")?;
-                let max: i64 = row.get_checked("max")?;
+                let min: i64 = row.get("min");
+                let max: i64 = row.get("max");
                 Ok((min as u64, max as u64))
             }
             _ => Err(db_error::NotFoundError),
@@ -231,10 +231,10 @@ impl AtlasDB {
         // todo(ludo): unable to build a compiled stmt with rusqlite that includes a WHERE ... IN () clause - investigate carray.
         let ancestor_tree_sql = blocks_ids
             .iter()
-            .map(|block_id| format!("'{}'", block_id))
+            .map(|index_block_hash| format!("'{}'", index_block_hash))
             .collect::<Vec<String>>()
             .join(", ");
-        let qry = format!("SELECT is_available FROM attachment_instances WHERE page_index = {} AND block_id IN ({}) ORDER BY position_in_page ASC", page_index, ancestor_tree_sql);
+        let qry = format!("SELECT is_available FROM attachment_instances WHERE page_index = {} AND index_block_hash IN ({}) ORDER BY position_in_page ASC", page_index, ancestor_tree_sql);
         let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
         let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
         println!("get_attachments_missing_at_page_index res: {:?}", res);
@@ -310,7 +310,7 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             &[
                 &hex_content_hash as &dyn ToSql,
                 &now as &dyn ToSql,
