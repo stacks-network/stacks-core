@@ -669,7 +669,7 @@ impl Config {
     }
 
     pub fn get_atlas_db_path(&self) -> String {
-        format!("{}/atlas_db.sqlite", self.node.working_dir)
+        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
