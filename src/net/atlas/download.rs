@@ -884,9 +884,9 @@ impl AttachmentsBatch {
             self.consensus_hash = attachment.consensus_hash.clone();
             self.block_header_hash = attachment.block_header_hash;
         } else {
-            assert!(self.block_height == attachment.block_height);
-            assert!(self.consensus_hash == attachment.consensus_hash);
-            assert!(self.block_header_hash == attachment.block_header_hash);
+            assert_eq!(self.block_height, attachment.block_height);
+            assert_eq!(self.consensus_hash, attachment.consensus_hash);
+            assert_eq!(self.block_header_hash, attachment.block_header_hash);
         }
 
         self.attachments_instances_count += 1;
