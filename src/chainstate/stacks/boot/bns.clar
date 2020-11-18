@@ -42,9 +42,6 @@
 (define-constant ERR_PRINCIPAL_ALREADY_ASSOCIATED 3001)
 (define-constant ERR_INSUFFICIENT_FUNDS 4001)
 
-;;;; Constants
-(define-constant BURN_ADDRESS 'S0000000000000000000002AA028H)
-
 ;; TTL
 ;; todo(ludo): add real-life values
 (define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u10)
@@ -342,7 +339,7 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err ERR_NAMESPACE_STX_BURNT_INSUFFICIENT))
     ;; Burn the tokens
-    (unwrap! (stx-transfer? stx-to-burn contract-caller BURN_ADDRESS) (err ERR_INSUFFICIENT_FUNDS))
+    (unwrap! (stx-burn? stx-to-burn contract-caller) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the preorder
     (map-set namespace-preorders
       ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
@@ -563,7 +560,7 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err ERR_NAME_STX_BURNT_INSUFFICIENT))
     ;; Burn the tokens
-    (unwrap! (stx-transfer? stx-to-burn contract-caller BURN_ADDRESS) (err ERR_INSUFFICIENT_FUNDS))
+    (unwrap! (stx-burn? stx-to-burn contract-caller) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the pre-order
     (map-set name-preorders
       ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller))
