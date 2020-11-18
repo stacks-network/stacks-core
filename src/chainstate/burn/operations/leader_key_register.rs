@@ -72,7 +72,7 @@ impl LeaderKeyRegisterOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -399,8 +399,8 @@ pub mod tests {
                 },
                 None => BurnchainBlockHeader {
                     block_height: 0,
-                    block_hash: BurnchainHeaderHash([0u8; 32]),
-                    parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                    block_hash: BurnchainHeaderHash::zero(),
+                    parent_block_hash: BurnchainHeaderHash::zero(),
                     num_txs: 0,
                     timestamp: get_epoch_time_secs(),
                 },
@@ -513,6 +513,7 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

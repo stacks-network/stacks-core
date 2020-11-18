@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PoxConstants};
+use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -798,12 +798,16 @@ fn pox_integration_test() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    let mut burnchain_config = btc_regtest_controller.get_burnchain();
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
     let pox_constants = PoxConstants::new(10, 5, 4, 5, 15, 239, 250);
     burnchain_config.pox_constants = pox_constants;
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -1031,7 +1035,7 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
-    // we should have received _three_ Bitcoin commitments, because our commitment was 3 * threshold
+    // we should have received _seven_ Bitcoin commitments, because our commitment was 7 * threshold
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());

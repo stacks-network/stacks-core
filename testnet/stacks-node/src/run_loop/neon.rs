@@ -8,6 +8,7 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::stacks::db::ChainStateBootData;
 use std::cmp;
 use std::thread;
 
@@ -93,7 +94,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt,
+            burnchain_opt.clone(),
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -147,21 +148,39 @@ impl RunLoop {
         }
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
-        let burnchain_config = burnchain.get_burnchain();
+
+        let (network, _) = self.config.burnchain.get_bitcoin_network();
+
+        let burnchain_config = match burnchain_opt {
+            Some(burnchain_config) => burnchain_config.clone(),
+            None => match Burnchain::new(
+                &self.config.get_burn_db_path(),
+                &self.config.burnchain.chain,
+                &network,
+            ) {
+                Ok(burnchain) => burnchain,
+                Err(e) => {
+                    error!("Failed to instantiate burnchain: {}", e);
+                    panic!()
+                }
+            },
+        };
         let chainstate_path = self.config.get_chainstate_path();
         let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
+            let mut boot_data =
+                ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
+
             ChainsCoordinator::run(
                 &chainstate_path,
                 coordinator_burnchain_config,
                 mainnet,
                 chainid,
-                Some(initial_balances),
                 block_limit,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
-                |_| {},
+                &mut boot_data,
             );
         });
 
@@ -185,7 +204,7 @@ impl RunLoop {
             self.config.clone(),
             event_dispatcher,
             burnchain_config.clone(),
-            |_| {},
+            Box::new(|_| {}),
         );
         let mut node = if is_miner {
             node.into_initialized_leader_node(

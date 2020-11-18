@@ -574,6 +574,10 @@ impl BurnchainHeaderHash {
         // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
     }
+
+    pub fn zero() -> BurnchainHeaderHash {
+        BurnchainHeaderHash([0x00; 32])
+    }
 }
 
 #[cfg(test)]

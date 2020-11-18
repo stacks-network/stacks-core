@@ -38,9 +38,6 @@ use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
-    FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET,
-    FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST,
-    FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET,
 };
 
 use core::*;
@@ -67,6 +64,11 @@ use util::db::Error as db_error;
 use util::hash::Hash160;
 
 use util::secp256k1::MessageSignature;
+
+const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1891063;
+const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1604967939;
+const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
+    "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637";
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
@@ -100,22 +102,33 @@ pub struct BurnchainParameters {
     chain_name: String,
     network_name: String,
     network_id: u32,
-    first_block_height: u64,
-    first_block_hash: BurnchainHeaderHash,
     stable_confirmations: u32,
     consensus_hash_lifetime: u32,
+    pub first_block_height: u64,
+    pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
 }
 
 impl BurnchainParameters {
+    pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
+        match (chain, network) {
+            ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
+            ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
+            ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
+            _ => None,
+        }
+    }
+
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_MAINNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_MAINNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_MAINNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -124,10 +137,12 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_TESTNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_TESTNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_TESTNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_TESTNET.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
+            first_block_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
         }
     }
 
@@ -136,10 +151,11 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_REGTEST_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_REGTEST,
-            first_block_height: BITCOIN_FIRST_BLOCK_REGTEST,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_REGTEST.clone(),
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_timestamp: 0,
         }
     }
 
@@ -280,6 +296,7 @@ pub struct Burnchain {
     pub stable_confirmations: u32,
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
 }
 

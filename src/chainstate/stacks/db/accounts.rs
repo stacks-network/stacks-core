@@ -893,7 +893,7 @@ mod test {
             let mut tx = chainstate.headers_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
-                &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0),
+                &StacksHeaderInfo::regtest_genesis(0),
                 0,
             )
             .unwrap();
@@ -902,7 +902,7 @@ mod test {
 
         let parent_tip = advance_tip(
             &mut chainstate,
-            &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0),
+            &StacksHeaderInfo::regtest_genesis(0),
             &mut miner_reward,
             &mut user_supports,
         );
@@ -949,14 +949,14 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
+        let initial_tip = StacksHeaderInfo::regtest_genesis(0);
 
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
         let parent_tip = advance_tip(
             &mut chainstate,
-            &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0),
+            &StacksHeaderInfo::regtest_genesis(0),
             &mut miner_reward,
             &mut user_supports,
         );
@@ -1065,7 +1065,7 @@ mod test {
             StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
                 .unwrap();
 
-        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
+        let mut parent_tip = StacksHeaderInfo::regtest_genesis(0);
 
         let mut cache = MinerPaymentCache::new();
         let mut matured_miners = vec![];

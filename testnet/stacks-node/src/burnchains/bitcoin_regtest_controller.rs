@@ -21,20 +21,18 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::Burnchain;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
+use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::StacksAddress;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -75,12 +73,13 @@ impl BitcoinRegtestController {
     ) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
+        let (network, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(
             &config.burnchain.spv_headers_path,
             0,
             None,
-            config.burnchain.get_bitcoin_network().1,
+            network_id,
             true,
             false,
         );
@@ -88,6 +87,9 @@ impl BitcoinRegtestController {
             error!("Unable to init block headers: {}", err);
             panic!()
         }
+
+        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+            .expect("Bitcoin network unsupported");
 
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
@@ -100,7 +102,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -122,6 +124,10 @@ impl BitcoinRegtestController {
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
     pub fn new_dummy(config: Config) -> Self {
+        let (network, _) = config.burnchain.get_bitcoin_network();
+        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+            .expect("Bitcoin network unsupported");
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -133,7 +139,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -152,14 +158,14 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
-        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
+    fn default_burnchain(&self) -> Burnchain {
+        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
         match &self.burnchain_config {
-            Some(burnchain) => (burnchain.clone(), network_type),
+            Some(burnchain) => burnchain.clone(),
             None => {
                 let working_dir = self.config.get_burn_db_path();
                 match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-                    Ok(burnchain) => (burnchain, network_type),
+                    Ok(burnchain) => burnchain,
                     Err(e) => {
                         error!("Failed to instantiate burnchain: {}", e);
                         panic!()
@@ -170,13 +176,15 @@ impl BitcoinRegtestController {
     }
 
     pub fn get_pox_constants(&self) -> PoxConstants {
-        let (burnchain, _) = self.setup_burnchain();
+        let burnchain = self.get_burnchain();
         burnchain.pox_constants.clone()
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
-        let (burnchain, _) = self.setup_burnchain();
-        burnchain
+        match self.burnchain_config {
+            Some(ref burnchain) => burnchain.clone(),
+            None => self.default_burnchain(),
+        }
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
@@ -850,15 +858,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sortdb_mut(&mut self) -> &mut SortitionDB {
-        let network = "regtest".to_string();
-        let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network) {
-            Ok(burnchain) => burnchain,
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
-            }
-        };
+        let burnchain = self.get_burnchain();
 
         let (db, burnchain_db) = burnchain.open_db(true).unwrap();
         self.db = Some(db);

@@ -44,12 +44,6 @@ pub const FIRST_BURNCHAIN_BLOCK_HASH: BurnchainHeaderHash = BurnchainHeaderHash(
 pub const FIRST_BURNCHAIN_BLOCK_HEIGHT: u32 = 0;
 pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP: u64 = 0;
 
-pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET: BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
-pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST: BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
-
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_TESTNET: ConsensusHash = ConsensusHash([1u8; 20]);
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_REGTEST: ConsensusHash = ConsensusHash([2u8; 20]);
-
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
