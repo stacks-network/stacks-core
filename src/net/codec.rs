@@ -916,7 +916,6 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
             StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
             StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
-            StacksMessageType::Attachment(ref _m) => StacksMessageID::Attachment,
         }
     }
 
@@ -941,7 +940,6 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => "Pong",
             StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
             StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
-            StacksMessageType::Attachment(ref _m) => "Attachment",
         }
     }
 
@@ -1000,7 +998,6 @@ impl StacksMessageType {
             StacksMessageType::NatPunchReply(ref m) => {
                 format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
             }
-            StacksMessageType::Attachment(ref m) => format!("Attachment({})", m.hash),
         }
     }
 }
@@ -1034,7 +1031,6 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Pong as u8 => StacksMessageID::Pong,
             x if x == StacksMessageID::NatPunchRequest as u8 => StacksMessageID::NatPunchRequest,
             x if x == StacksMessageID::NatPunchReply as u8 => StacksMessageID::NatPunchReply,
-            x if x == StacksMessageID::Attachment as u8 => StacksMessageID::Attachment,
             _ => {
                 return Err(net_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1068,7 +1064,6 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Pong(ref m) => write_next(fd, m)?,
             StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
             StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
-            StacksMessageType::Attachment(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1145,10 +1140,6 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::NatPunchReply => {
                 let m: NatPunchData = read_next(fd)?;
                 StacksMessageType::NatPunchReply(m)
-            }
-            StacksMessageID::Attachment => {
-                let m: Attachment = read_next(fd)?;
-                StacksMessageType::Attachment(m)
             }
             StacksMessageID::Reserved => {
                 return Err(net_error::DeserializeError(

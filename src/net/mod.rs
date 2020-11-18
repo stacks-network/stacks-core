@@ -886,7 +886,6 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
-    Attachment(Attachment),
 }
 
 /// Peer address variants
@@ -1357,7 +1356,6 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
-    Attachment = 19,
     Reserved = 255,
 }
 
@@ -1756,9 +1754,6 @@ impl NetworkResult {
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
-                }
-                StacksMessageType::Attachment(attachment_data) => {
-                    self.uploaded_attachments.push(attachment_data);
                 }
                 _ => {
                     // drop
