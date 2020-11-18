@@ -1511,11 +1511,6 @@ impl PeerNetwork {
         Ok(())
     }
 
-    // todo(ludo): open question - should nodes be advertising the fact that they just received an attachment?
-    pub fn advertize_attachments(&mut self) -> Result<(), net_error> {
-        Ok(())
-    }
-
     /// Update accounting information for relayed messages from a network result.
     /// This influences selecting next-hop neighbors to get data from us.
     pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) -> () {
