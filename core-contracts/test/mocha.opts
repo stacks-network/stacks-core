@@ -1,0 +1,5 @@
+--require ts-node/register/transpile-only
+--require source-map-support/register
+--extension ts
+--timeout 0
+--recursive
