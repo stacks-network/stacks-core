@@ -317,7 +317,7 @@ impl ExecutionCost {
                     || limit.write_count == 0),
                 "Limit must not have a zero dimension"
             );
-            let dimensional_max = u64::max_value() as u128 / 5;
+            let dimensional_max = u64::max_value() as u128;
             // use u128 math to avoid overflows
             let mut total_score = 0u128;
             for (self_dimension, lim_dimension) in &[
@@ -331,6 +331,9 @@ impl ExecutionCost {
                     (*self_dimension as u128) * dimensional_max / (*lim_dimension as u128);
                 total_score += dimension_score;
             }
+            // divide by the number of dimensions.
+            total_score /= 5;
+
             Some(u64::try_from(total_score).expect("BUG: overflowed u64 calculating fill_scalar"))
         }
     }
@@ -457,8 +460,59 @@ impl From<ExecutionCost> for SimpleCostSpecification {
 }
 
 #[cfg(test)]
+impl From<(u64, u64, u64, u64, u64)> for ExecutionCost {
+    fn from(value: (u64, u64, u64, u64, u64)) -> ExecutionCost {
+        ExecutionCost {
+            write_length: value.0,
+            write_count: value.1,
+            read_length: value.2,
+            read_count: value.3,
+            runtime: value.4,
+        }
+    }
+}
+
+#[cfg(test)]
 mod unit_tests {
     use super::*;
+
+    #[test]
+    fn test_scalar() {
+        let limit = ExecutionCost::from((100, 100, 100, 100, 100));
+        let full = ExecutionCost::from((100, 100, 100, 100, 100));
+        assert_eq!(full.fill_scalar(&limit), Some(u64::max_value()));
+        assert_eq!(ExecutionCost::zero().fill_scalar(&limit), Some(0));
+        assert_eq!(ExecutionCost::max_value().fill_scalar(&limit), None);
+
+        // now lets try some amounts that are the same across two different dimensions.
+        let limit = ExecutionCost::from((100, 1000, 100, 1000, 100));
+        let full_write_count = ExecutionCost::from((0, 1000, 0, 0, 0));
+        let full_write_length = ExecutionCost::from((100, 0, 0, 0, 0));
+
+        assert_eq!(
+            full_write_count.fill_scalar(&limit),
+            full_write_length.fill_scalar(&limit)
+        );
+        // should be 1/5th of the "maximum"
+        assert_eq!(
+            full_write_count.fill_scalar(&limit),
+            Some(u64::max_value() / 5)
+        );
+
+        // and now a weird equality cases:
+        //    a cost that occupies 1/5 of each limit
+        //     should get the same scalar as one that occupies one full dimension
+        let even_one_fifth = ExecutionCost::from((20, 200, 20, 200, 20)).fill_scalar(&limit);
+        assert_eq!(full_write_count.fill_scalar(&limit), even_one_fifth);
+
+        // should be one fifth of a score that occupied the full limit
+        assert_eq!(even_one_fifth, Some(u64::max_value() / 5));
+
+        // make sure we don't overflow
+        let limit = ExecutionCost::max_value();
+        let full = ExecutionCost::max_value();
+        assert_eq!(full.fill_scalar(&limit), Some(u64::max_value()));
+    }
 
     #[test]
     fn test_simple_overflows() {
