@@ -3745,29 +3745,39 @@ def run_blockstackd():
         name_entries = db.get_all_names()
         name_entries.sort()
         names = []
-        for name_str in name_entries:
-            name_info = load_name_info(db, name_str, block)
-            if name_info['revoked']:
-                continue
-            if name_info['expired']:
-                continue
-            name = {}
-            name['name'] = name_info['name']
-            name['address'] = b58ToC32(str(name_info['address']))
-            name['expire_block'] = name_info['expire_block']
-            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
+        name_zonefiles_txt_output_path = os.path.join(output_dir, 'name_zonefiles.txt')
+        name_zonefiles_txt_hash_output_path = name_zonefiles_txt_output_path + '.sha256'
+        with open(name_zonefiles_txt_output_path, 'w') as name_zonefiles:
+            for name_str in name_entries:
+                name_info = load_name_info(db, name_str, block)
+                if name_info['revoked']:
+                    continue
+                if name_info['expired']:
+                    continue
+                name = {}
+                name['name'] = name_info['name']
+                name['address'] = b58ToC32(str(name_info['address']))
+                name['expire_block'] = name_info['expire_block']
+                name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
 
-            if 'value_hash' in name_info and name_info['value_hash'] is not None:
-                name['zonefile_hash'] = name_info['value_hash']
-            else:
-                name['zonefile_hash'] = ""
+                has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
+                if has_zonefile_hash:
+                    name['zonefile_hash'] = name_info['value_hash']
+                else:
+                    name['zonefile_hash'] = ""
 
-            if 'zonefile' not in name_info or name_info['zonefile'] is None:
-                # print 'missing zonefile for {}'.format(name)
-                name['zonefile'] = ""
-            else:
-                name['zonefile'] = name_info['zonefile']
-            names.append(name)
+                if has_zonefile_hash and 'zonefile' in name_info and name_info['zonefile'] is not None:
+                    # print 'missing zonefile for {}'.format(name)
+                    name_zonefiles.write(name_info['value_hash'] + '\n')
+                    name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
+                names.append(name)
+            name_zonefiles.flush()
+
+        # also output name zonefile txt sha256 hash
+        json_hash = sha256(name_zonefiles_txt_output_path)
+        with open(name_zonefiles_txt_hash_output_path, 'w') as hash_out:
+            hash_out.write(json_hash)
+            hash_out.flush()
 
         print_status("Querying account addresses...")
         addresses = db.get_all_account_addresses(from_cli=True)
@@ -3829,6 +3839,8 @@ def run_blockstackd():
         tar_args = ['tar', '-czSf', export_archive, '-C', output_dir, 
             os.path.basename(subdomain_csv_path),
             os.path.basename(subdomain_csv_hash_path),
+            os.path.basename(name_zonefiles_txt_output_path),
+            os.path.basename(name_zonefiles_txt_hash_output_path),
             os.path.basename(json_output_path),
             os.path.basename(json_hash_output_path),
             os.path.basename(subdomain_zonefile_txt_path),
