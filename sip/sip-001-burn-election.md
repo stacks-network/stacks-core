@@ -111,7 +111,7 @@ the risk of operating in traditional mining pools.
 In addition to helping lots of small burners mine blocks, fair mining pools
 are also used to give different block leaders a way to hedge their bets on their
 chain tips:  they can burn some cryptocurrency to competing chain tips and
-receive some of the reward if their preferred chain tip loses.  This is
+receive some of the reward if their preferred chain tip wins.  This is
 important because it gives frequent leaders a way to reduce the variance of
 their block rewards.
 
