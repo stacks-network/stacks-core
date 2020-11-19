@@ -3721,11 +3721,15 @@ def run_blockstackd():
         with open(subdomain_zonefile_hash_txt_path, 'w') as hash_out:
             hash_out.write(json_hash)
             hash_out.flush()
+        chainstate_txt_output_path = os.path.join(output_dir, 'chainstate.txt')
+        chainstate_txt_hash_output_path = chainstate_txt_output_path + '.sha256'
+        chainstate_f = open(chainstate_txt_output_path, 'w')
 
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
         namespaces_entries.sort()
-        namespaces = []
+        chainstate_f.write('-----BEGIN NAMESPACES-----\n')
+        chainstate_f.write('namespace_id,address,reveal_block,ready_block,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
             namespace = {}
@@ -3739,39 +3743,51 @@ def run_blockstackd():
             namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
             namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
             namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
-            namespaces.append(namespace)
+            chainstate_f.write('{},{},{},{},{},{},{},{},{},{}\n'.format(
+                namespace['namespace_id'], namespace['address'], namespace['reveal_block'], namespace['ready_block'],
+                namespace['buckets'], namespace['base'], namespace['coeff'], namespace['nonalpha_discount'], 
+                namespace['no_vowel_discount'], namespace['lifetime']
+            ))
+        chainstate_f.write('-----END NAMESPACES-----\n')
+        chainstate_f.flush()
 
         print_status("Querying names...")
         name_entries = db.get_all_names()
         name_entries.sort()
-        names = []
         name_zonefiles_txt_output_path = os.path.join(output_dir, 'name_zonefiles.txt')
         name_zonefiles_txt_hash_output_path = name_zonefiles_txt_output_path + '.sha256'
-        with open(name_zonefiles_txt_output_path, 'w') as name_zonefiles:
-            for name_str in name_entries:
-                name_info = load_name_info(db, name_str, block)
-                if name_info['revoked']:
-                    continue
-                if name_info['expired']:
-                    continue
-                name = {}
-                name['name'] = name_info['name']
-                name['address'] = b58ToC32(str(name_info['address']))
-                name['expire_block'] = name_info['expire_block']
-                name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
+        chainstate_f.write('-----BEGIN NAMES-----\n')
+        chainstate_f.write('name,address,registered_at,expire_block,zonefile_hash\n')
+        name_zonefiles = open(name_zonefiles_txt_output_path, 'w')
+        for name_str in name_entries:
+            name_info = load_name_info(db, name_str, block)
+            if name_info['revoked']:
+                continue
+            if name_info['expired']:
+                continue
+            name = {}
+            name['name'] = name_info['name']
+            name['address'] = b58ToC32(str(name_info['address']))
+            name['expire_block'] = name_info['expire_block']
+            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
 
-                has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
-                if has_zonefile_hash:
-                    name['zonefile_hash'] = name_info['value_hash']
-                else:
-                    name['zonefile_hash'] = ""
+            has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
+            if has_zonefile_hash:
+                name['zonefile_hash'] = name_info['value_hash']
+            else:
+                name['zonefile_hash'] = ""
 
-                if has_zonefile_hash and 'zonefile' in name_info and name_info['zonefile'] is not None:
-                    # print 'missing zonefile for {}'.format(name)
-                    name_zonefiles.write(name_info['value_hash'] + '\n')
-                    name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
-                names.append(name)
-            name_zonefiles.flush()
+            if has_zonefile_hash and 'zonefile' in name_info and name_info['zonefile'] is not None:
+                # print 'missing zonefile for {}'.format(name)
+                name_zonefiles.write(name_info['value_hash'] + '\n')
+                name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
+            chainstate_f.write('{},{},{},{},{}\n'.format(
+                name['name'], name['address'], name['registered_at'], name['expire_block'], name['zonefile_hash']
+            ))
+        name_zonefiles.flush()
+        name_zonefiles.close()
+        chainstate_f.write('-----END NAMES-----\n')
+        chainstate_f.flush()
 
         # also output name zonefile txt sha256 hash
         json_hash = sha256(name_zonefiles_txt_output_path)
@@ -3783,53 +3799,42 @@ def run_blockstackd():
         addresses = db.get_all_account_addresses(from_cli=True)
         addresses.sort()
         print_status("Querying account balances...")
-        stx_balances = []
+        chainstate_f.write('-----BEGIN STX BALANCES-----\n')
+        chainstate_f.write('address,balance\n')
         for addr in addresses:
             account = db.get_account(str(addr), TOKEN_TYPE_STACKS)
             if account is not None:
                 balance = db.get_account_balance(account)
                 if balance is not None and balance > 0:
-                    stx_balances.append({
-                        'address': addr,
-                        # balance as string to avoid issues with large ints in JSON parsers
-                        'balance': str(balance)
-                    })
+                    chainstate_f.write('{},{}\n'.format(addr, balance))
+        chainstate_f.write('-----END STX BALANCES-----\n')
+        chainstate_f.flush()
 
         print_status("Querying account vesting addresses...")
         vesting_entries = db.get_account_vesting_addresses(block)
         vesting_entries.sort()
-        vesting = []
+        chainstate_f.write('-----BEGIN STX VESTING-----\n')
+        chainstate_f.write('address,value,blocks\n')
         for entry in vesting_entries:
             account = {}
             account['address'] = entry['address']
             account['value'] = str(entry['vesting_value'])
             # block count to wait until vested/unlocked
             account['blocks'] = entry['block_id'] - block
-            vesting.append(account)
-
-        # write migration data to json object
-        json_data = {}
-        json_data['balances'] = stx_balances
-        json_data['vesting'] = vesting
-        json_data['namespaces'] = namespaces
-        json_data['names'] = names
-
-        # write the json output file
-        print_status("Writing on-chain migration data to json...")
-        json_output_path = os.path.join(output_dir, 'chainstate.json')
-        json_hash_output_path = json_output_path + '.sha256'
-        with open(json_output_path, 'w') as json_out:
-            json.dump(json_data, json_out, separators=(',', ':'), check_circular=False)
-            json_out.flush()
+            chainstate_f.write('{},{},{}\n'.format(account['address'], account['value'], account['blocks']))
+        chainstate_f.write('-----END STX VESTING-----\n')
+        chainstate_f.flush()
+        
+        chainstate_f.close()
 
         # also output the sha256 hash
-        print_status("Writing json file hash...")
-        json_hash = sha256(json_output_path)
+        print_status("Writing on-chain migration data file hash...")
+        json_hash = sha256(chainstate_txt_output_path)
         print_status("Migration json data sha256 hash: {}".format(json_hash))
-        with open(json_hash_output_path, 'w') as hash_out:
+        with open(chainstate_txt_hash_output_path, 'w') as hash_out:
             hash_out.write(json_hash)
             hash_out.flush()
-        
+
         # compress into tar.gz
         print_status("Compressing export data into archive file...")
         export_archive = os.path.join(output_dir, 'export-data.tar.gz')
@@ -3837,12 +3842,12 @@ def run_blockstackd():
             print_status('Could not find "tar" utility on system path')
             sys.exit(1)
         tar_args = ['tar', '-czSf', export_archive, '-C', output_dir, 
-            os.path.basename(subdomain_csv_path),
-            os.path.basename(subdomain_csv_hash_path),
+            os.path.basename(chainstate_txt_output_path),
+            os.path.basename(chainstate_txt_hash_output_path),
             os.path.basename(name_zonefiles_txt_output_path),
             os.path.basename(name_zonefiles_txt_hash_output_path),
-            os.path.basename(json_output_path),
-            os.path.basename(json_hash_output_path),
+            os.path.basename(subdomain_csv_path),
+            os.path.basename(subdomain_csv_hash_path),
             os.path.basename(subdomain_zonefile_txt_path),
             os.path.basename(subdomain_zonefile_hash_txt_path)]
         p = subprocess.Popen(tar_args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
