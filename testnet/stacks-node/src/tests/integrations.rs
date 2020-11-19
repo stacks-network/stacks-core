@@ -886,7 +886,7 @@ fn contract_stx_transfer() {
                                 })
                             }
                         ),
-                        93000
+                        69000
                     );
                 }
 
