@@ -332,7 +332,6 @@
         (>= block-height (+ NAMESPACE_PREORDER_CLAIMABILITY_TTL
                             (unwrap! (get created-at former-preorder) (err ERR_PANIC)))))
       (err ERR_NAMESPACE_PREORDER_ALREADY_EXISTS))
-          (asserts! (> stx-to-burn u0) (err ERR_NAMESPACE_STX_BURNT_INSUFFICIENT))
     ;; Ensure that the hashed namespace is 20 bytes long
     (asserts! (is-eq (len hashed-salted-namespace) u20) (err ERR_NAMESPACE_HASH_MALFORMED))
     ;; Ensure that user will be burning a positive amount of tokens
