@@ -623,12 +623,19 @@
                             (name (buff 16))
                             (zonefile-hash (buff 20)))
   (let (
+    (namespace-props (unwrap!
+      (map-get? namespaces ((namespace namespace)))
+      (err ERR_NAMESPACE_NOT_FOUND))) ;; The namespace must exist
     (owner (unwrap!
       (nft-get-owner? names (tuple (name name) (namespace namespace)))
       (err ERR_NAME_NOT_FOUND))) ;; The name must exist
     (name-props (unwrap!
       (map-get? name-properties ((name name) (namespace namespace)))
       (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
+    ;; The name's namespace must be launched
+    (asserts!
+      (is-some (get launched-at namespace-props))
+      (err ERR_NAMESPACE_NOT_LAUNCHED))
     ;; The sender must match the name's current owner
     (asserts!
       (is-eq owner tx-sender)
@@ -857,21 +864,12 @@
 (define-read-only (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
   (let (
       (wrapped-name-props (map-get? name-properties ((namespace namespace) (name name))))
-      (current-owner (map-get? owner-name ((owner contract-caller))))
       (namespace-props (unwrap! (map-get? namespaces ((namespace namespace))) (ok false))))
     ;; Ensure that namespace has been launched 
     (unwrap! (get launched-at namespace-props) (ok false))
     ;; Early return - Name has never be minted
-    (asserts! (is-none (nft-get-owner? names (tuple (name name) (namespace namespace)))) (ok true))
-    ;; Integrity check - Ensure that we have some entries in nft && owner-name && name-props
-    (asserts! 
-      (and 
-        (is-some wrapped-name-props)
-        (is-some current-owner))
-      (err ERR_PANIC))
+    (asserts! (is-some (nft-get-owner? names (tuple (name name) (namespace namespace)))) (ok true))
     (let ((name-props (unwrap! wrapped-name-props (err ERR_PANIC))))
-      ;; Early return - Name has been revoked and can be registered
-      (asserts! (is-some (get revoked-at name-props)) (ok true))
       ;; Integrity check - Ensure that the name was either "imported" or "registered".
       (asserts! 
         (or 
