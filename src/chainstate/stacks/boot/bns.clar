@@ -84,7 +84,8 @@
 
 (define-non-fungible-token names (tuple (name (buff 16)) (namespace (buff 19))))
 
-(define-map owner-name ((owner principal)) ((name (buff 16)) (namespace (buff 19))))
+;; Rule 1-1 -> 1 principal, 1 name
+(define-map rule-1-1 ((owner principal)) ((name (buff 16)) (namespace (buff 19))))
 
 (define-map name-properties
   ((name (buff 16)) (namespace (buff 19)))
@@ -262,8 +263,8 @@
       (unwrap!
         (nft-transfer? names (tuple (name name) (namespace namespace)) from to)
         (err ERR_NAME_COULD_NOT_BE_TRANSFERED))
-      (map-delete owner-name ((owner from)))
-      (map-set owner-name
+      (map-delete rule-1-1 ((owner from)))
+      (map-set rule-1-1
         ((owner to))
         ((namespace namespace) (name name)))
       (ok true))))
@@ -635,8 +636,8 @@
               (tuple (namespace namespace) (name name)) 
               tx-sender)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
-          (map-set owner-name
-            ((owner contract-caller))
+          (map-set rule-1-1
+            ((owner tx-sender))
             ((namespace namespace) (name name))))
         (if (is-eq tx-sender (unwrap! current-owner (err ERR_PANIC)))
           true
@@ -705,7 +706,7 @@
                               (new-owner principal)
                               (zonefile-hash (optional (buff 20))))
   (let (
-    (current-owned-name (map-get? owner-name ((owner new-owner))))
+    (current-owned-name (map-get? rule-1-1 ((owner new-owner))))
     (namespace-props (unwrap!
       (map-get? namespaces ((namespace namespace)))
       (err ERR_NAMESPACE_NOT_FOUND))))
