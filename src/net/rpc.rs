@@ -666,7 +666,7 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match atlasdb.find_attachment(&content_hash) {
+        match atlasdb.find_instanciated_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
                 let response = HttpResponseType::GetAttachment(response_metadata, content);
@@ -1275,7 +1275,7 @@ impl ConversationHttp {
         if let Some(attachment) = attachment {
             if accepted {
                 atlasdb
-                    .insert_new_inboxed_attachment(attachment)
+                    .insert_new_attachment(&attachment)
                     .map_err(|e| net_error::DBError(e))?;
             }
         }

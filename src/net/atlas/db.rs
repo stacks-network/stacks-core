@@ -34,7 +34,8 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(
         hash TEXT UNIQUE PRIMARY KEY,
-        content BLOB NOT NULL
+        content BLOB NOT NULL,
+        was_instanciated INTEGER NOT NULL
     );"#,
     r#"
     CREATE TABLE attachment_instances(
@@ -50,12 +51,6 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         is_available INTEGER NOT NULL,
         metadata TEXT NOT NULL,
         contract_id STRING NOT NULL
-    );"#,
-    r#"
-    CREATE TABLE inboxed_attachments(
-        hash TEXT UNIQUE PRIMARY KEY,
-        created_at INTEGER NOT NULL,
-        content BLOB NOT NULL
     );"#,
     r#"
     CREATE TABLE db_version(version TEXT NOT NULL);
@@ -239,26 +234,16 @@ impl AtlasDB {
         Ok(res)
     }
 
-    pub fn insert_new_inboxed_attachment(
+    pub fn insert_new_attachment(
         &mut self,
-        attachment: Attachment,
+        attachment: &Attachment,
     ) -> Result<(), db_error> {
-        // Do we already have an entry (proceessed or unprocessed) for this attachment? - todo(ludo) think more about this
-        let qry = "SELECT count(*) FROM inboxed_attachments WHERE hash = ?1".to_string();
-        let args = [&attachment.hash as &dyn ToSql];
-        let count = query_count(&self.conn, &qry, &args)?;
-        if count != 0 {
-            return Ok(());
-        }
-
         let tx = self.tx_begin()?;
-        let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO inboxed_attachments (hash, content, created_at) VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 0)",
             &[
-                &attachment.hash as &dyn ToSql,
+                &attachment.hash() as &dyn ToSql,
                 &attachment.content as &dyn ToSql,
-                &now as &dyn ToSql,
             ],
         );
         res.map_err(db_error::SqliteError)?;
@@ -266,12 +251,33 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn find_inboxed_attachment(
+    pub fn insert_instanciated_attachment(
+        &mut self,
+        attachment: &Attachment,
+    ) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 1)",
+            &[
+                &attachment.hash() as &dyn ToSql,
+                &attachment.content as &dyn ToSql
+            ],
+        ).map_err(db_error::SqliteError)?;
+        tx.execute(
+            "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
+            &[&attachment.hash() as &dyn ToSql],
+        )
+        .map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    pub fn find_new_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM inboxed_attachments WHERE hash = ?1".to_string();
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 0".to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
         Ok(row)
@@ -288,12 +294,12 @@ impl AtlasDB {
         Ok(rows)
     }
 
-    pub fn find_attachment(
+    pub fn find_instanciated_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1".to_string();
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 1".to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
         Ok(row)
@@ -325,53 +331,6 @@ impl AtlasDB {
         );
         res.map_err(db_error::SqliteError)?;
         tx.commit().map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
-    pub fn insert_new_attachment(
-        &mut self,
-        content_hash: &Hash160,
-        content: &Vec<u8>,
-        cascade_update: bool,
-    ) -> Result<(), db_error> {
-        let hex_content_hash = to_hex(&content_hash.0[..]);
-        let tx = self.tx_begin()?;
-        tx.execute(
-            "INSERT INTO attachments (hash, content) VALUES (?1, ?2)",
-            &[&hex_content_hash as &dyn ToSql, &content as &dyn ToSql],
-        )
-        .map_err(db_error::SqliteError)?;
-        if cascade_update {
-            tx.execute(
-                "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
-                &[&hex_content_hash as &dyn ToSql],
-            )
-            .map_err(db_error::SqliteError)?;
-        }
-        tx.commit().map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
-    pub fn remove_attachment_from_inbox(&mut self, content_hash: &Hash160) -> Result<(), db_error> {
-        let hex_content_hash = to_hex(&content_hash.0[..]);
-        let tx = self.tx_begin()?;
-        tx.execute(
-            "DELETE FROM inboxed_attachments WHERE hash = ?1",
-            &[&hex_content_hash as &dyn ToSql],
-        )
-        .map_err(db_error::SqliteError)?;
-        tx.commit().map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
-    pub fn import_attachment_from_inbox(&mut self, content_hash: &Hash160) -> Result<(), db_error> {
-        let attachment = match self.find_inboxed_attachment(content_hash) {
-            Ok(Some(attachment)) => attachment,
-            _ => return Err(db_error::NotFoundError),
-        };
-
-        self.insert_new_attachment(&attachment.hash, &attachment.content, true)?;
-        self.remove_attachment_from_inbox(&attachment.hash)?;
         Ok(())
     }
 }

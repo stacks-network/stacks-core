@@ -86,16 +86,16 @@ impl AttachmentsDownloader {
                 for attachment in context.attachments.drain() {
                     let mut attachments_instances = network
                         .atlasdb
-                        .find_all_attachment_instances(&attachment.hash)
+                        .find_all_attachment_instances(&attachment.hash())
                         .map_err(|e| net_error::DBError(e))?;
                     network
                         .atlasdb
-                        .insert_new_attachment(&attachment.hash, &attachment.content, true)
+                        .insert_instanciated_attachment(&attachment)
                         .map_err(|e| net_error::DBError(e))?;
                     resolved_attachments.append(&mut attachments_instances);
                     context
                         .attachments_batch
-                        .resolve_attachment(&attachment.hash)
+                        .resolve_attachment(&attachment.hash())
                 }
 
                 // Update reliability reports
@@ -128,48 +128,48 @@ impl AttachmentsDownloader {
 
         let mut resolved_attachments = vec![];
         let mut attachments_batch = AttachmentsBatch::new();
-        for attachment in new_attachments.drain() {
+        for attachment_instance in new_attachments.drain() {
             // Are we dealing with an empty hash - allowed for undoing onchain binding
-            if attachment.content_hash == Hash160::empty() {
+            if attachment_instance.content_hash == Hash160::empty() {
                 // todo(ludo) insert or update ?
                 atlasdb
-                    .insert_new_attachment_instance(&attachment, true)
+                    .insert_new_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
-                resolved_attachments.push(attachment);
+                resolved_attachments.push(attachment_instance);
                 continue;
             }
 
             // Do we already have a matching validated attachment
-            if let Ok(Some(_entry)) = atlasdb.find_attachment(&attachment.content_hash) {
+            if let Ok(Some(_entry)) = atlasdb.find_instanciated_attachment(&attachment_instance.content_hash) {
                 atlasdb
-                    .insert_new_attachment_instance(&attachment, true)
+                    .insert_new_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
                 );
-                resolved_attachments.push(attachment);
+                resolved_attachments.push(attachment_instance);
                 continue;
             }
 
             // Do we already have a matching inboxed attachment
-            if let Ok(Some(_entry)) = atlasdb.find_inboxed_attachment(&attachment.content_hash) {
+            if let Ok(Some(attachment)) = atlasdb.find_new_attachment(&attachment_instance.content_hash) {
                 atlasdb
-                    .import_attachment_from_inbox(&attachment.content_hash)
+                    .insert_instanciated_attachment(&attachment)
                     .map_err(|e| net_error::DBError(e))?;
                 atlasdb
-                    .insert_new_attachment_instance(&attachment, true)
+                    .insert_new_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
-                resolved_attachments.push(attachment);
+                resolved_attachments.push(attachment_instance);
                 continue;
             }
 
             // This attachment in refering to an unknown attachment.
             // Let's append it to the batch being constructed in this routine.
-            attachments_batch.track_attachment(&attachment);
+            attachments_batch.track_attachment(&attachment_instance);
             atlasdb
-                .insert_new_attachment_instance(&attachment, false)
+                .insert_new_attachment_instance(&attachment_instance, false)
                 .map_err(|e| net_error::DBError(e))?;
         }
 
