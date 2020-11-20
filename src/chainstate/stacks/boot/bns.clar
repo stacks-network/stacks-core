@@ -465,10 +465,6 @@
       (asserts!
         (is-none (get launched-at namespace-props))
         (err ERR_NAMESPACE_ALREADY_LAUNCHED))
-      ;; The principal can register a name. Should we enable this condition in case of NAME-IMPORT
-      ;; (asserts!
-      ;;   can-sender-register-name
-      ;;   (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
       ;; Less than 1 year must have passed since the namespace was "revealed"
       (asserts!
         (< block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL))
@@ -477,10 +473,6 @@
       (unwrap! 
         (nft-mint? names (tuple (namespace namespace) (name name)) tx-sender)
         (err ERR_NAME_UNAVAILABLE))
-      ;; Attach the new name
-      (map-set owner-name
-        ((owner contract-caller))
-        ((namespace namespace) (name name)))
       ;; Update zonefile and props
       (update-zonefile-and-props
         namespace 
@@ -498,8 +490,7 @@
   (let (
       (namespace-props (unwrap!
         (map-get? namespaces ((namespace namespace)))
-        (err ERR_NAMESPACE_NOT_FOUND)))
-      (owned-name (map-get? owner-name ((owner contract-caller)))))
+        (err ERR_NAMESPACE_NOT_FOUND))))
     ;; The sender principal must match the namespace's import principal
     (asserts!
       (is-eq (get namespace-import namespace-props) tx-sender)
@@ -512,18 +503,6 @@
     (asserts!
       (< block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL))
       (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
-    ;; Update eventual name-props
-    (if (is-none owned-name)
-      true
-      (let ((name (unwrap! (get name owned-name) (err ERR_PANIC))))
-        (let ((name-props (unwrap! (map-get? name-properties ((name name) (namespace namespace))) (err ERR_PANIC))))
-          ;; Unset imported-at, Set registered-at
-          (map-set name-properties
-            ((name name) (namespace namespace))
-            ((registered-at (some block-height))
-            (imported-at none)
-            (revoked-at none)
-            (zonefile-hash (get zonefile-hash name-props)))))))
     ;; The namespace will be set to "launched"
     (map-set namespaces
       ((namespace namespace))
@@ -727,11 +706,7 @@
         (err ERR_NAMESPACE_NOT_LAUNCHED))
       ;; The sender must match the name's current owner
       (asserts!
-        (is-eq owner contract-caller)
-        (err ERR_NAME_OPERATION_UNAUTHORIZED))
-      ;; The name must have been registered (vs imported)
-      (unwrap!
-        (get registered-at name-props)
+        (is-eq owner tx-sender)
         (err ERR_NAME_OPERATION_UNAUTHORIZED))
       ;; The name must not be in the renewal grace period
       (asserts!
@@ -845,11 +820,7 @@
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The sender must match the name's current owner
     (asserts!
-      (is-eq owner contract-caller)
-      (err ERR_NAME_OPERATION_UNAUTHORIZED))
-    ;; The name must have been registered (vs imported)
-    (unwrap!
-      (get registered-at name-props)
+      (is-eq owner tx-sender)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; If expired, the name must not be in the renewal grace period.
     (if (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC))
@@ -942,10 +913,6 @@
       (map-get? namespaces ((namespace namespace))) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (is-lease-expired (is-name-lease-expired? namespace name)))
-    ;; The namespace must be launched
-    (asserts!
-      (is-some (get launched-at namespace-props))
-      (err ERR_NAMESPACE_NOT_LAUNCHED))
     ;; The name must not be in the renewal grace period
     (asserts!
       (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) false)
