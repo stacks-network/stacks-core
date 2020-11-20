@@ -42,8 +42,6 @@
 (define-constant ERR_PRINCIPAL_ALREADY_ASSOCIATED 3001)
 (define-constant ERR_INSUFFICIENT_FUNDS 4001)
 
-;; TTL
-;; todo(ludo): add real-life values
 (define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u10)
 (define-constant NAMESPACE_LAUNCHABILITY_TTL u10)
 (define-constant NAME_PREORDER_CLAIMABILITY_TTL u10)
@@ -210,7 +208,7 @@
           (get coeff price-function)
           (pow (get base price-function) exponent))
         (max nonalpha-discount no-vowel-discount))
-      u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
+      u10)))
 
 (define-private (is-name-lease-expired? (namespace (buff 19)) (name (buff 16)))
   (let (
@@ -611,7 +609,7 @@
       (asserts!
         (> (get created-at preorder) (unwrap! (get launched-at namespace-props) (err ERR_PANIC)))
         (err ERR_NAME_PREORDERED_BEFORE_NAMESPACE_LAUNCH))
-      ;; The preorder entry must be unclaimed - todo(ludo): is this assertion redundant?
+      ;; The preorder entry must be unclaimed
       (asserts!
         (is-eq (get claimed preorder) false)
         (err ERR_NAME_ALREADY_CLAIMED))
