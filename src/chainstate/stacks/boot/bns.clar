@@ -447,16 +447,7 @@
   (let (
     (namespace-props (unwrap!
       (map-get? namespaces ((namespace namespace)))
-      (err ERR_NAMESPACE_NOT_FOUND)))
-    (name-currently-owned (map-get? owner-name ((owner contract-caller)))))
-    (let ( 
-        (can-sender-register-name (if (is-none name-currently-owned)
-                                 true
-                                  (unwrap! 
-                                    (is-name-lease-expired?
-                                      (unwrap! (get namespace name-currently-owned) (err ERR_PANIC))
-                                      (unwrap! (get name name-currently-owned) (err ERR_PANIC)))
-                                    (err ERR_PANIC)))))
+      (err ERR_NAMESPACE_NOT_FOUND))))
       ;; The sender principal must match the namespace's import principal
       (asserts!
         (is-eq (get namespace-import namespace-props) tx-sender)
@@ -481,7 +472,7 @@
         (some block-height) ;; Set imported-at
         none
         zonefile-hash)
-      (ok true))))
+      (ok true)))
 
 ;; NAMESPACE_READY
 ;; The final step of the process launches the namespace and makes the namespace available to the public. Once a namespace
@@ -552,8 +543,8 @@
                               (salt (buff 20))
                               (zonefile-hash (buff 20)))
   (let (
-    (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt)))
-    (name-currently-owned (map-get? owner-name ((owner contract-caller)))))
+    (can-sender-register-name (try! (can-register-name tx-sender)))
+    (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt))))
     (let ( 
         (preorder (unwrap!
           (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))
@@ -561,14 +552,7 @@
         (namespace-props (unwrap!
           (map-get? namespaces ((namespace namespace)))
           (err ERR_NAMESPACE_NOT_FOUND)))
-        (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace))))
-        (can-sender-register-name (if (is-none name-currently-owned)
-                                 true
-                                  (unwrap! 
-                                    (is-name-lease-expired?
-                                      (unwrap! (get namespace name-currently-owned) (err ERR_PANIC))
-                                      (unwrap! (get name name-currently-owned) (err ERR_PANIC)))
-                                    (err ERR_PANIC)))))
+        (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
       ;; The name must only have valid chars
       (asserts!
         (not (has-invalid-chars name))
@@ -693,13 +677,7 @@
       (name-props (unwrap!
         (map-get? name-properties ((name name) (namespace namespace)))
         (err ERR_NAME_NOT_FOUND))) ;; The name must exist
-      (can-new-owner-get-name (if (is-none current-owned-name)
-                                  true
-                                  (unwrap! 
-                                    (is-name-lease-expired?
-                                      (unwrap! (get namespace current-owned-name) (err ERR_PANIC))
-                                      (unwrap! (get name current-owned-name) (err ERR_PANIC)))
-                                    (err ERR_PANIC)))))
+      (can-new-owner-get-name (try! (can-register-name new-owner))))
       ;; The namespace must be launched
       (asserts!
         (is-some (get launched-at namespace-props))
@@ -838,23 +816,8 @@
       (err ERR_NAME_REVOKED))
     ;; Transfer the name, if any new-owner
     (if (is-none new-owner)
-      (ok true) 
-      (let ((owner-unwrapped (unwrap! new-owner (err ERR_PANIC))))
-        (let ((current-owned-name (map-get? owner-name ((owner owner-unwrapped)))))
-          (let ((can-new-owner-get-name (if (is-none current-owned-name)
-                                  true
-                                  (unwrap! 
-                                    (is-name-lease-expired?
-                                      (unwrap! (get namespace current-owned-name) (err ERR_PANIC))
-                                      (unwrap! (get name current-owned-name) (err ERR_PANIC)))
-                                    (err ERR_PANIC)))))
-            (asserts!
-              can-new-owner-get-name
-              (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
-            (unwrap!
-              (update-name-ownership? namespace name contract-caller owner-unwrapped)
-              (err ERR_NAME_COULD_NOT_BE_TRANSFERED))
-            (ok true)))))
+      true 
+      (try! (can-register-name (unwrap-panic new-owner))))
     ;; Update the zonefile, if any.
     (if (is-none zonefile-hash)
       (map-set name-properties
@@ -873,6 +836,23 @@
     (ok true)))
 
 ;; Additionals public methods
+
+(define-read-only (can-register-name (owner principal))
+  (let ((current-owned-name (map-get? rule-1-1 ((owner owner)))))
+    (if (is-none current-owned-name)
+      (ok true)
+      (let (
+        (namespace (unwrap-panic (get namespace current-owned-name)))
+        (name (unwrap-panic (get name current-owned-name))))
+        ;; Early return if lease is expired
+        (asserts! 
+          (not (try! (is-name-lease-expired? namespace name)))
+          (ok true))
+        (let (
+          (name-props (unwrap-panic (map-get? name-properties ((namespace namespace) (name name))))))
+          ;; Has name been revoked?
+          (asserts! (is-some (get revoked-at name-props)) (ok false))
+          (ok true))))))
 
 (define-read-only (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
   (let (
