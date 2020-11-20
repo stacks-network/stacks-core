@@ -134,6 +134,7 @@ pub struct ChainsCoordinator<
     dispatcher: Option<&'a T>,
     reward_set_provider: R,
     notifier: N,
+    atlas_config: AtlasConfig,
 }
 
 #[derive(Debug)]
@@ -300,6 +301,7 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
+            atlas_config: AtlasConfig::default(),
         };
 
         loop {
@@ -358,6 +360,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             reward_set_provider,
             notifier: (),
             attachments_tx,
+            atlas_config: AtlasConfig::default(),
         }
     }
 }
@@ -599,13 +602,12 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
                     let mut attachments_instances = HashSet::new();
-                    let atlas_config = AtlasConfig::default();
                     for receipt in block_receipt.tx_receipts.iter() {
                         if let TransactionPayload::ContractCall(ref contract_call) =
                             receipt.transaction.payload
                         {
                             let contract_id = contract_call.to_clarity_contract_id();
-                            if atlas_config.contracts.contains(&contract_id) {
+                            if self.atlas_config.contracts.contains(&contract_id) {
                                 for event in receipt.events.iter() {
                                     if let StacksTransactionEvent::SmartContractEvent(
                                         ref event_data,
