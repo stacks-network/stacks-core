@@ -1,5 +1,5 @@
 [package]
-name = "stacks-blockchain"
+name = "blockstack-core"
 version = "0.0.1"
 authors = [ "Jude Nelson <jude@stacks.org>",
             "Aaron Blankstein <aaron@blockstack.com>",
@@ -19,7 +19,7 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "stacks-blockchain"
+name = "blockstack-core"
 path = "src/main.rs"
 
 [[bin]]
