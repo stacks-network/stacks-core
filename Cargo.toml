@@ -19,7 +19,7 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "blockstack-core"
+name = "stacks-blockchain"
 path = "src/main.rs"
 
 [[bin]]

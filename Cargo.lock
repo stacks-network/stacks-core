@@ -226,39 +226,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blockstack-core"
-version = "0.0.1"
-dependencies = [
- "assert-json-diff",
- "criterion",
- "curve25519-dalek",
- "ed25519-dalek",
- "integer-sqrt",
- "lazy_static",
- "mio",
- "percent-encoding",
- "prometheus",
- "rand 0.7.2",
- "rand_chacha 0.2.2",
- "regex",
- "ripemd160",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2",
- "sha2-asm",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "time 0.2.16",
- "tini",
- "url",
-]
-
-[[package]]
 name = "broadcaster"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2221,6 +2188,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
+name = "stacks-blockchain"
+version = "0.0.1"
+dependencies = [
+ "assert-json-diff",
+ "criterion",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "integer-sqrt",
+ "lazy_static",
+ "mio",
+ "percent-encoding",
+ "prometheus",
+ "rand 0.7.2",
+ "rand_chacha 0.2.2",
+ "regex",
+ "ripemd160",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2",
+ "sha2-asm",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.2.16",
+ "tini",
+ "url",
+]
+
+[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -2228,7 +2228,6 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
- "blockstack-core",
  "http-types",
  "lazy_static",
  "libc",
@@ -2239,6 +2238,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
+ "stacks-blockchain",
  "tokio",
  "toml",
  "warp",
