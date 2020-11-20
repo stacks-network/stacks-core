@@ -65,9 +65,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
 impl FromRow<Attachment> for Attachment {
     fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
         let content: Vec<u8> = row.get("content");
-        let hex_hash: String = row.get("hash");
-        let hash = Hash160::from_hex(&hex_hash).map_err(|_| db_error::TypeError)?;
-        Ok(Attachment { content, hash })
+        Ok(Attachment { content })
     }
 }
 

@@ -2065,8 +2065,7 @@ impl HttpRequestType {
                 let content = hex_bytes(&attachment_content).map_err(|_e| {
                     net_error::DeserializeError("Failed to parse attachment".into())
                 })?;
-                let hash = Hash160::from_data(&content[..]);
-                Some(Attachment::new(content, hash))
+                Some(Attachment::new(content))
             }
         };
 

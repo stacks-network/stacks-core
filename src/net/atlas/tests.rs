@@ -20,7 +20,6 @@ use std::convert::TryFrom;
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {
-        hash: Hash160::from_data(&content.as_bytes()),
         content: content.as_bytes().to_vec(),
     }
 }
@@ -32,7 +31,7 @@ fn new_attachment_instance_from(
     block_height: u64,
 ) -> AttachmentInstance {
     AttachmentInstance {
-        content_hash: attachment.hash.clone(),
+        content_hash: attachment.hash().clone(),
         page_index,
         position_in_page,
         block_height,
@@ -397,7 +396,7 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:20443", 2, 2),
             ("http://localhost:40443", 0, 1),
         ],
-        &attachment_1.hash,
+        &attachment_1.hash(),
     );
 
     let attachment_2_request = new_attachment_request(
@@ -406,14 +405,14 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:40443", 0, 1),
             ("http://localhost:30443", 0, 1),
         ],
-        &attachment_2.hash,
+        &attachment_2.hash(),
     );
 
     let attachment_3_request =
-        new_attachment_request(vec![("http://localhost:30443", 0, 1)], &attachment_3.hash);
+        new_attachment_request(vec![("http://localhost:30443", 0, 1)], &attachment_3.hash());
 
     let attachment_4_request =
-        new_attachment_request(vec![("http://localhost:50443", 4, 4)], &attachment_4.hash);
+        new_attachment_request(vec![("http://localhost:50443", 4, 4)], &attachment_4.hash());
 
     let mut priority_queue = BinaryHeap::new();
     priority_queue.push(attachment_1_request.clone());
@@ -665,7 +664,7 @@ fn test_downloader_context_attachment_requests() {
     // Attachment 4 is the rarest resource
     assert_eq!(
         request_type.request_path(),
-        format!("/v2/attachments/{}", attachment_4.hash)
+        format!("/v2/attachments/{}", attachment_4.hash())
     );
     // Peer 1 is the only peer showing Attachment 4 as being available in its inventory
     assert_eq!(request.get_url(), &peer_url_3);
@@ -675,7 +674,7 @@ fn test_downloader_context_attachment_requests() {
     // Attachment 1 is the 2nd rarest resource
     assert_eq!(
         request_type.request_path(),
-        format!("/v2/attachments/{}", attachment_1.hash)
+        format!("/v2/attachments/{}", attachment_1.hash())
     );
     // Both Peer 1 and Peer 2 could serve Attachment 1, but Peer 1 has a better history
     assert_eq!(request.get_url(), &peer_url_1);

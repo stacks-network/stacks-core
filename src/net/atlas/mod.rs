@@ -50,13 +50,16 @@ impl AtlasConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Attachment {
-    pub hash: Hash160,
     pub content: Vec<u8>,
 }
 
 impl Attachment {
-    pub fn new(content: Vec<u8>, hash: Hash160) -> Attachment {
-        Attachment { hash, content }
+    pub fn new(content: Vec<u8>) -> Attachment {
+        Attachment { content }
+    }
+
+    pub fn hash(&self) -> Hash160 {
+        Hash160::from_data(&self.content)
     }
 }
 

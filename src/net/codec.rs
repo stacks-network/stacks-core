@@ -880,15 +880,13 @@ impl StacksMessageCodec for RelayData {
 
 impl StacksMessageCodec for Attachment {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.hash)?;
         write_next(fd, &self.content)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Attachment, net_error> {
-        let hash: Hash160 = read_next(fd)?;
         let content: Vec<u8> = read_next(fd)?;
-        Ok(Attachment { hash, content })
+        Ok(Attachment { content })
     }
 }
 
