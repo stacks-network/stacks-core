@@ -325,7 +325,7 @@
                                    (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller)))))
+      (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none former-preorder)
@@ -339,10 +339,10 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err ERR_NAMESPACE_STX_BURNT_INSUFFICIENT))
     ;; Burn the tokens
-    (unwrap! (stx-burn? stx-to-burn contract-caller) (err ERR_INSUFFICIENT_FUNDS))
+    (unwrap! (stx-burn? stx-to-burn tx-sender) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the preorder
     (map-set namespace-preorders
-      ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
+      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
       ((created-at block-height) (claimed false) (stx-burned stx-to-burn)))
     (ok (+ block-height NAMESPACE_PREORDER_CLAIMABILITY_TTL))))
 
@@ -403,7 +403,7 @@
       (no-vowel-discount p-func-no-vowel-discount))))
     (let (
       (preorder (unwrap!
-        (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller)))
+        (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender)))
         (err ERR_NAMESPACE_PREORDER_NOT_FOUND)))
       (namespace-price (unwrap! 
         (compute-namespace-price? namespace)
@@ -426,7 +426,7 @@
       (err ERR_NAMESPACE_PREORDER_CLAIMABILITY_EXPIRED))
     ;; The preorder record for this namespace will be marked as "claimed"
     (map-set namespace-preorders
-      ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
+      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
       ((created-at (get created-at preorder)) (claimed true) (stx-burned (get stx-burned preorder))))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
@@ -461,7 +461,7 @@
                                     (err ERR_PANIC)))))
       ;; The sender principal must match the namespace's import principal
       (asserts!
-        (is-eq (get namespace-import namespace-props) contract-caller)
+        (is-eq (get namespace-import namespace-props) tx-sender)
         (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
       ;; The name's namespace must not be launched
       (asserts!
@@ -477,7 +477,7 @@
         (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
       ;; Mint the new name
       (unwrap! 
-        (nft-mint? names (tuple (namespace namespace) (name name)) contract-caller)
+        (nft-mint? names (tuple (namespace namespace) (name name)) tx-sender)
         (err ERR_NAME_UNAVAILABLE))
       ;; Attach the new name
       (map-set owner-name
@@ -504,7 +504,7 @@
       (owned-name (map-get? owner-name ((owner contract-caller)))))
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (is-eq (get namespace-import namespace-props) contract-caller)
+      (is-eq (get namespace-import namespace-props) tx-sender)
       (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
     ;; The name's namespace must not be launched
     (asserts!
@@ -546,7 +546,7 @@
                               (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller)))))
+      (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none former-preorder)
@@ -560,10 +560,10 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err ERR_NAME_STX_BURNT_INSUFFICIENT))
     ;; Burn the tokens
-    (unwrap! (stx-burn? stx-to-burn contract-caller) (err ERR_INSUFFICIENT_FUNDS))
+    (unwrap! (stx-burn? stx-to-burn tx-sender) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the pre-order
     (map-set name-preorders
-      ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller))
+      ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender))
       ((created-at block-height) (stx-burned stx-to-burn) (claimed false)))
     (ok (+ block-height NAME_PREORDER_CLAIMABILITY_TTL))))
 
@@ -579,7 +579,7 @@
     (name-currently-owned (map-get? owner-name ((owner contract-caller)))))
     (let ( 
         (preorder (unwrap!
-          (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller)))
+          (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))
           (err ERR_NAME_PREORDER_NOT_FOUND)))
         (namespace-props (unwrap!
           (map-get? namespaces ((namespace namespace)))
@@ -633,16 +633,16 @@
             (nft-mint? 
               names 
               (tuple (namespace namespace) (name name)) 
-              contract-caller)
+              tx-sender)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
           (map-set owner-name
             ((owner contract-caller))
             ((namespace namespace) (name name))))
-        (if (is-eq contract-caller (unwrap! current-owner (err ERR_PANIC)))
+        (if (is-eq tx-sender (unwrap! current-owner (err ERR_PANIC)))
           true
           (let ((previous-owner (unwrap! current-owner (err ERR_PANIC)))) 
             (unwrap!
-              (update-name-ownership? namespace name previous-owner contract-caller)
+              (update-name-ownership? namespace name previous-owner tx-sender)
               (err ERR_NAME_COULD_NOT_BE_TRANSFERED)))))
       ;; Update name's metadata / properties
       (update-zonefile-and-props
@@ -670,7 +670,7 @@
       (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (is-eq owner contract-caller)
+      (is-eq owner tx-sender)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The name must not be in the renewal grace period
     (asserts!
@@ -753,7 +753,7 @@
         (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
       ;; Transfer the name
       (unwrap!
-        (update-name-ownership? namespace name contract-caller new-owner)
+        (update-name-ownership? namespace name tx-sender new-owner)
         (err ERR_NAME_TRANSFER_FAILED))
       ;; Update or clear the zonefile
       (update-zonefile-and-props
@@ -790,7 +790,7 @@
       (err ERR_NAMESPACE_NOT_LAUNCHED))
     ;; The sender must match the name's current owner
     (asserts!
-      (is-eq owner contract-caller)
+      (is-eq owner tx-sender)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The name must not be expired
     (asserts!
