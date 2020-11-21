@@ -169,6 +169,18 @@ impl From<marf_error> for Error {
     }
 }
 
+impl From<clarity_error> for Error {
+    fn from(e: clarity_error) -> Error {
+        Error::ClarityError(e)
+    }
+}
+
+impl From<net_error> for Error {
+    fn from(e: net_error) -> Error {
+        Error::NetError(e)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -849,6 +861,7 @@ pub struct StacksBlockBuilder {
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
     miner_payouts: Option<(MinerReward, Vec<MinerReward>)>,
+    parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
 }
 
