@@ -939,7 +939,7 @@ pub mod test {
     ) -> StacksHeaderInfo {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
-            None => StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap(),
+            None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
             Some(block) => {
                 let ic = sortdb.index_conn();
                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -950,7 +950,7 @@ pub mod test {
                 .unwrap()
                 .unwrap(); // succeeds because we don't fork
                 StacksChainState::get_anchored_block_header_info(
-                    chainstate.headers_db(),
+                    chainstate.db(),
                     &snapshot.consensus_hash,
                     &snapshot.winning_stacks_block_hash,
                 )
@@ -1212,13 +1212,13 @@ pub mod test {
     }
 
     fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
-        let parent_block_id = StacksChainState::get_parent_block_id(state.headers_db(), block_id)
+        let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();
 
         let parent_header_info =
             StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                state.headers_db(),
+                state.db(),
                 &parent_block_id,
             )
             .unwrap()
