@@ -196,7 +196,7 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             events: vec![],
             post_condition_aborted: false,
             result: result,
