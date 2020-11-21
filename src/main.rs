@@ -671,8 +671,6 @@ fn main() {
                     }
                 }
             }
-
-            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db).unwrap();
         }
 
         eprintln!(
