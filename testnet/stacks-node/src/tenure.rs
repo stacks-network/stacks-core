@@ -4,6 +4,7 @@ use super::{BurnchainTip, Config};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::burn::VRFSeed;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -13,8 +14,6 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::MemPoolDB;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
-
-use stacks::vm::database::BurnStateDB;
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,
@@ -67,7 +66,7 @@ impl<'a> Tenure {
         }
     }
 
-    pub fn run(&mut self, burn_dbconn: &dyn BurnStateDB) -> Option<TenureArtifacts> {
+    pub fn run(&mut self, burn_dbconn: &SortitionDBConn) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 
         let duration_left: u128 = self.config.burnchain.commit_anchor_block_within as u128;

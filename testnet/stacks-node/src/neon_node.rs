@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -17,7 +17,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{miner::StacksMicroblockBuilder, StacksBlockBuilder};
@@ -204,7 +204,7 @@ fn inner_generate_leader_key_register_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
     })
 }
 
@@ -234,13 +234,13 @@ fn inner_generate_block_commit_op(
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    recipients: Option<RewardSetInfo>,
+    commit_outs: Vec<StacksAddress>,
+    sunset_burn: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
-    let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
-
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+        sunset_burn,
         block_header_hash,
         burn_fee,
         input,
@@ -253,7 +253,7 @@ fn inner_generate_block_commit_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
         commit_outs,
     })
 }
@@ -1155,7 +1155,17 @@ impl InitializedNeonNode {
             )
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
-            let chain_tip = ChainTip::genesis(config.get_initial_liquid_ustx());
+            let (network, _) = config.burnchain.get_bitcoin_network();
+            let burnchain_params =
+                BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                    .expect("Bitcoin network unsupported");
+
+            let chain_tip = ChainTip::genesis(
+                config.get_initial_liquid_ustx(),
+                &burnchain_params.first_block_hash,
+                burnchain_params.first_block_height.into(),
+                burnchain_params.first_block_timestamp.into(),
+            );
 
             (
                 chain_tip.metadata,
@@ -1310,18 +1320,29 @@ impl InitializedNeonNode {
                 return None;
             }
         };
+
+        let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
+        let rest_commit = burn_fee_cap - sunset_burn;
+
+        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end {
+            RewardSetInfo::into_commit_outs(recipients, false)
+        } else {
+            vec![StacksAddress::burn_address(false)]
+        };
+
         // let's commit
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            burn_fee_cap,
+            rest_commit,
             &registered_key,
             parent_block_burn_height
                 .try_into()
                 .expect("Could not convert parent block height into u32"),
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
-            recipients,
+            commit_outs,
+            sunset_burn,
         );
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
@@ -1420,15 +1441,12 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(
+    pub fn new(
         config: Config,
         mut event_dispatcher: EventDispatcher,
         burnchain: Burnchain,
-        boot_block_exec: F,
-    ) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
             .initial_balances
@@ -1436,13 +1454,15 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
+
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,

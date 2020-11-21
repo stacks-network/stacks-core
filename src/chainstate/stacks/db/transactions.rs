@@ -86,7 +86,7 @@ impl StacksTransactionReceipt {
             stx_burned: 0,
             post_condition_aborted: false,
             contract_analysis: None,
-            transaction: tx,
+            transaction: tx.into(),
             execution_cost: cost,
         }
     }
@@ -99,7 +99,7 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             post_condition_aborted: false,
             events,
             result,
@@ -117,7 +117,7 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             post_condition_aborted: true,
             events,
             result,
@@ -135,7 +135,7 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             events,
             post_condition_aborted: false,
             result: Value::okay_true(),
@@ -153,7 +153,7 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             events,
             post_condition_aborted: true,
             result: Value::okay_true(),
@@ -165,7 +165,7 @@ impl StacksTransactionReceipt {
 
     pub fn from_coinbase(tx: StacksTransaction) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             events: vec![],
             post_condition_aborted: false,
             result: Value::okay_true(),
@@ -180,7 +180,7 @@ impl StacksTransactionReceipt {
         analysis_cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            transaction: tx,
+            transaction: tx.into(),
             events: vec![],
             post_condition_aborted: false,
             result: Value::err_none(),

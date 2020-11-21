@@ -848,12 +848,12 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = self
             .global_context
             .database
-            .set_block_hash(bhh)
+            .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
                 let result = eval(closure, self, local);
                 self.global_context
                     .database
-                    .set_block_hash(prior_bhh)
+                    .set_block_hash(prior_bhh, true)
                     .expect(
                     "ERROR: Failed to restore prior active block after time-shifted evaluation.",
                 );

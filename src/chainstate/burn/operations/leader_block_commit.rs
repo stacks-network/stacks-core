@@ -27,8 +27,8 @@ use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 
 use chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperation, BlockstackOperationType,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use burnchains::Address;
@@ -73,6 +73,7 @@ impl LeaderBlockCommitOp {
         input: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_height: block_height,
             new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
@@ -88,7 +89,7 @@ impl LeaderBlockCommitOp {
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -104,6 +105,7 @@ impl LeaderBlockCommitOp {
         input: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             new_seed: new_seed.clone(),
             key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
@@ -119,7 +121,7 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -166,14 +168,30 @@ impl LeaderBlockCommitOp {
         })
     }
 
+    pub fn from_tx(
+        block_header: &BurnchainBlockHeader,
+        tx: &BurnchainTransaction,
+        pox_sunset_ht: u64,
+    ) -> Result<LeaderBlockCommitOp, op_error> {
+        LeaderBlockCommitOp::parse_from_tx(
+            block_header.block_height,
+            &block_header.block_hash,
+            tx,
+            pox_sunset_ht,
+        )
+    }
+
+    /// parse a LeaderBlockCommitOp
+    /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         tx: &BurnchainTransaction,
+        pox_sunset_ht: u64,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
-        let outputs = tx.get_recipients();
+        let mut outputs = tx.get_recipients();
 
         if inputs.len() == 0 {
             warn!(
@@ -234,41 +252,55 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-        let mut commit_outs = vec![];
-        let mut pox_fee = None;
-        for (ix, output) in outputs.into_iter().enumerate() {
-            // only look at the first OUTPUTS_PER_COMMIT outputs
-            if ix >= OUTPUTS_PER_COMMIT {
-                break;
+        // check if we've reached PoX disable
+        let (commit_outs, sunset_burn, burn_fee) = if block_height >= pox_sunset_ht {
+            if !outputs[0].address.is_burn() {
+                return Err(op_error::BlockCommitBadOutputs);
             }
-            // all pox outputs must have the same fee
-            if let Some(pox_fee) = pox_fee {
-                if output.amount != pox_fee {
-                    warn!("Invalid commit tx: different output amounts for different PoX reward addresses");
-                    return Err(op_error::ParseError);
+            let BurnchainRecipient { address, amount } = outputs.remove(0);
+            (vec![address], 0, amount)
+        } else {
+            // check if this transaction provided a sunset burn
+            let sunset_burn = tx.get_burn_amount();
+
+            let mut commit_outs = vec![];
+            let mut pox_fee = None;
+            for (ix, output) in outputs.into_iter().enumerate() {
+                // only look at the first OUTPUTS_PER_COMMIT outputs
+                if ix >= OUTPUTS_PER_COMMIT {
+                    break;
                 }
-            } else {
-                pox_fee.replace(output.amount);
+                // all pox outputs must have the same fee
+                if let Some(pox_fee) = pox_fee {
+                    if output.amount != pox_fee {
+                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses");
+                        return Err(op_error::ParseError);
+                    }
+                } else {
+                    pox_fee.replace(output.amount);
+                }
+                commit_outs.push(output.address);
             }
-            commit_outs.push(output.address);
-        }
 
-        if commit_outs.len() != OUTPUTS_PER_COMMIT {
-            warn!("Invalid commit tx: {} commit addresses, but {} PoX addresses should be committed to", commit_outs.len(), OUTPUTS_PER_COMMIT);
-            return Err(op_error::InvalidInput);
-        }
+            if commit_outs.len() != OUTPUTS_PER_COMMIT {
+                warn!("Invalid commit tx: {} commit addresses, but {} PoX addresses should be committed to", commit_outs.len(), OUTPUTS_PER_COMMIT);
+                return Err(op_error::InvalidInput);
+            }
 
-        // compute the total amount transfered/burned, and check that the burn amount
-        //   is expected given the amount transfered.
-        let burn_fee = pox_fee
-            .expect("A 0-len output should have already errored")
-            .checked_mul(OUTPUTS_PER_COMMIT as u64) // total commitment is the pox_amount * outputs
-            .ok_or_else(|| op_error::ParseError)?;
+            // compute the total amount transfered/burned, and check that the burn amount
+            //   is expected given the amount transfered.
+            let burn_fee = pox_fee
+                .expect("A 0-len output should have already errored")
+                .checked_mul(OUTPUTS_PER_COMMIT as u64) // total commitment is the pox_amount * outputs
+                .ok_or_else(|| op_error::ParseError)?;
 
-        if burn_fee == 0 {
-            warn!("Invalid commit tx: burn/transfer amount is 0");
-            return Err(op_error::ParseError);
-        }
+            if burn_fee == 0 {
+                warn!("Invalid commit tx: burn/transfer amount is 0");
+                return Err(op_error::ParseError);
+            }
+
+            (commit_outs, sunset_burn, burn_fee)
+        };
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
@@ -280,6 +312,7 @@ impl LeaderBlockCommitOp {
             memo: data.memo,
 
             commit_outs,
+            sunset_burn,
             burn_fee,
             input: inputs[0].clone(),
 
@@ -332,15 +365,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
     }
 }
 
-impl BlockstackOperation for LeaderBlockCommitOp {
-    fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
-    ) -> Result<LeaderBlockCommitOp, op_error> {
-        LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
-    }
-}
-
+#[derive(Debug)]
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(StacksAddress, u16)>,
@@ -370,24 +395,26 @@ impl RewardSetInfo {
 }
 
 impl LeaderBlockCommitOp {
-    pub fn check(
+    fn check_pox(
         &self,
-        _burnchain: &Burnchain,
+        burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
         reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<(), op_error> {
-        let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
 
-        let tx_tip = tx.context.chain_tip.clone();
-
-        /////////////////////////////////////////////////////////////////////////////////////
-        // There must be a burn
-        /////////////////////////////////////////////////////////////////////////////////////
-
-        if self.burn_fee == 0 {
-            warn!("Invalid block commit: no burn amount");
-            return Err(op_error::BlockCommitBadInput);
+        let total_committed = self
+            .burn_fee
+            .checked_add(self.sunset_burn)
+            .expect("BUG: Overflow in total committed calculation");
+        let expected_sunset_burn =
+            burnchain.expected_sunset_burn(self.block_height, total_committed);
+        if self.sunset_burn < expected_sunset_burn {
+            warn!(
+                "Invalid block commit: should have included sunset burn amount of {}, found {}",
+                expected_sunset_burn, self.sunset_burn
+            );
+            return Err(op_error::BlockCommitBadOutputs);
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
@@ -477,6 +504,46 @@ impl LeaderBlockCommitOp {
                 return Err(op_error::BlockCommitBadOutputs);
             }
         };
+        Ok(())
+    }
+
+    fn check_after_pox_sunset(&self) -> Result<(), op_error> {
+        if self.commit_outs.len() != 1 {
+            warn!("Invalid post-sunset block commit, should have 1 commit out");
+            return Err(op_error::BlockCommitBadOutputs);
+        }
+        if !self.commit_outs[0].is_burn() {
+            warn!("Invalid post-sunset block commit, should have burn address output");
+            return Err(op_error::BlockCommitBadOutputs);
+        }
+        Ok(())
+    }
+
+    pub fn check(
+        &self,
+        burnchain: &Burnchain,
+        tx: &mut SortitionHandleTx,
+        reward_set_info: Option<&RewardSetInfo>,
+    ) -> Result<(), op_error> {
+        let leader_key_block_height = self.key_block_ptr as u64;
+        let parent_block_height = self.parent_block_ptr as u64;
+
+        let tx_tip = tx.context.chain_tip.clone();
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        // There must be a burn
+        /////////////////////////////////////////////////////////////////////////////////////
+
+        if self.burn_fee == 0 {
+            warn!("Invalid block commit: no burn amount");
+            return Err(op_error::BlockCommitBadInput);
+        }
+
+        if self.block_height >= burnchain.pox_constants.sunset_end {
+            self.check_after_pox_sunset()?;
+        } else {
+            self.check_pox(burnchain, tx, reward_set_info)?;
+        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
@@ -622,8 +689,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_pox_commits() {
+    fn test_parse_sunset_end() {
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -632,6 +700,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -661,14 +730,22 @@ mod tests {
             ],
         });
 
-        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap();
+        let err = LeaderBlockCommitOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843022,
+        )
+        .unwrap_err();
 
-        // should have 2 commit outputs, summing to 20 burned units
-        assert_eq!(op.commit_outs.len(), 2);
-        assert_eq!(op.burn_fee, 20);
+        assert!(if let op_error::BlockCommitBadOutputs = err {
+            true
+        } else {
+            false
+        });
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -677,6 +754,116 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843022,
+        )
+        .unwrap();
+
+        assert_eq!(op.commit_outs.len(), 1);
+        assert!(op.commit_outs[0].is_burn());
+        assert_eq!(op.burn_fee, 10);
+    }
+
+    #[test]
+    fn test_parse_pox_commits() {
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 30,
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap();
+
+        // should have 2 commit outputs, summing to 20 burned units
+        assert_eq!(op.commit_outs.len(), 2);
+        assert_eq!(op.burn_fee, 20);
+        // the third output, because it's a burn, should have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 30);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -699,14 +886,20 @@ mod tests {
         });
 
         // burn amount should have been 10, not 9
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -715,6 +908,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -760,14 +954,22 @@ mod tests {
             ],
         });
 
-        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap();
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap();
 
         // should have 2 commit outputs
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 26);
+        // the third output, because it's not a burn, should not have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 0);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -776,6 +978,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 13,
@@ -788,14 +991,20 @@ mod tests {
         });
 
         // not enough PoX outputs
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::InvalidInput => {}
             _ => unreachable!(),
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -804,6 +1013,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -826,14 +1036,20 @@ mod tests {
         });
 
         // unequal PoX outputs
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -842,6 +1058,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -888,8 +1105,13 @@ mod tests {
         });
 
         // 0 total burn
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),
@@ -911,6 +1133,7 @@ mod tests {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
                 opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707180".to_string(),
                 result: Some(LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
                     parent_block_ptr: 0x40414243,
@@ -985,15 +1208,15 @@ mod tests {
                 },
                 None => BurnchainBlockHeader {
                     block_height: 0,
-                    block_hash: BurnchainHeaderHash([0u8; 32]),
-                    parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                    block_hash: BurnchainHeaderHash::zero(),
+                    parent_block_hash: BurnchainHeaderHash::zero(),
                     num_txs: 0,
                     timestamp: get_epoch_time_secs(),
                 },
             };
             let burnchain_tx =
                 BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
-            let op = LeaderBlockCommitOp::from_tx(&header, &burnchain_tx);
+            let op = LeaderBlockCommitOp::from_tx(&header, &burnchain_tx, block_height + 1);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
@@ -1070,6 +1293,7 @@ mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
+            first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
         };
 
@@ -1133,6 +1357,7 @@ mod tests {
 
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -1287,6 +1512,7 @@ mod tests {
             CheckFixture {
                 // reject -- predates start block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1334,6 +1560,7 @@ mod tests {
             CheckFixture {
                 // reject -- no such leader key
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1381,6 +1608,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1428,6 +1656,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist in a different block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1475,6 +1704,7 @@ mod tests {
             CheckFixture {
                 // reject -- tx input does not match any leader keys
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1522,6 +1752,7 @@ mod tests {
             CheckFixture {
                 // reject -- fee is 0
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1569,6 +1800,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1616,6 +1848,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",

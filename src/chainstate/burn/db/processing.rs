@@ -23,9 +23,7 @@ use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 
 use chainstate::coordinator::RewardCycleInfo;
 
-use chainstate::burn::operations::{
-    leader_block_commit::RewardSetInfo, BlockstackOperation, BlockstackOperationType,
-};
+use chainstate::burn::operations::{leader_block_commit::RewardSetInfo, BlockstackOperationType};
 
 use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainStateTransition,
@@ -75,6 +73,17 @@ impl<'a> SortitionHandleTx<'a> {
                     );
                     BurnchainError::OpError(e)
                 })
+            }
+            BlockstackOperationType::StackStx(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) stack stx op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PreStackStx(_) => {
+                // no check() required for PreStackStx
+                Ok(())
             }
         }
     }
