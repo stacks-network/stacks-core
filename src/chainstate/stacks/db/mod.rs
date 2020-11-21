@@ -33,6 +33,8 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 
+use std::ops::{Deref, DerefMut};
+
 use core::*;
 
 use burnchains::Address;
@@ -59,7 +61,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{
     db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBTx,
+    FromColumn, FromRow, IndexDBTx, IndexDBConn,
 };
 
 use util::hash::to_hex;
@@ -94,8 +96,7 @@ pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
     clarity_state: ClarityInstance,
-    pub blocks_db: DBConn,
-    pub headers_state_index: MARF<StacksBlockId>,
+    pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
@@ -141,6 +142,7 @@ pub struct StacksHeaderInfo {
     pub burn_header_height: u32,
     pub burn_header_timestamp: u64,
     pub total_liquid_ustx: u128,
+    pub anchored_block_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -176,6 +178,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
             total_liquid_ustx: initial_liquid_ustx,
+            anchored_block_size: 0,
         }
     }
     pub fn is_first_mined(&self) -> bool {
@@ -213,6 +216,10 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let total_liquid_ustx = total_liquid_ustx_str
             .parse::<u128>()
             .map_err(|_| db_error::ParseError)?;
+        let anchored_block_size_str: String = row.get("block_size");
+        let anchored_block_size = anchored_block_size_str
+            .parse::<u64>()
+            .map_err(|_| db_error::ParseError)?;
 
         if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
@@ -228,43 +235,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height,
             burn_header_timestamp: burn_header_timestamp,
             total_liquid_ustx: total_liquid_ustx,
+            anchored_block_size: anchored_block_size,
         })
     }
 }
 
 pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
-
-pub struct BlocksDBTx<'a> {
-    pub tx: DBTx<'a>,
-    pub blocks_path: String,
-}
-
-impl<'a> Deref for BlocksDBTx<'a> {
-    type Target = DBTx<'a>;
-    fn deref(&self) -> &DBTx<'a> {
-        &self.tx
-    }
-}
-
-impl<'a> DerefMut for BlocksDBTx<'a> {
-    fn deref_mut(&mut self) -> &mut DBTx<'a> {
-        &mut self.tx
-    }
-}
-
-impl<'a> BlocksDBTx<'a> {
-    pub fn new(tx: DBTx, blocks_path: String) -> BlocksDBTx {
-        BlocksDBTx { tx, blocks_path }
-    }
-
-    pub fn get_blocks_path(&self) -> &String {
-        &self.blocks_path
-    }
-
-    pub fn commit(self) -> Result<(), db_error> {
-        self.tx.commit().map_err(db_error::SqliteError)
-    }
-}
+pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
 
 pub struct ClarityTx<'a> {
     block: ClarityBlockConnection<'a>,
@@ -337,18 +314,25 @@ impl<'a> ClarityTx<'a> {
 
 pub struct ChainstateTx<'a> {
     pub config: DBConfig,
-    pub headers_tx: StacksDBTx<'a>,
-    pub blocks_tx: BlocksDBTx<'a>,
+    pub blocks_path: String,
+    pub tx: StacksDBTx<'a>
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn get_config(&self) -> &DBConfig {
-        &self.config
+    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+        ChainstateTx { config, blocks_path, tx }
+    }
+
+    pub fn get_blocks_path(&self) -> &String {
+        &self.blocks_path
     }
 
     pub fn commit(self) -> Result<(), db_error> {
-        self.headers_tx.commit()?;
-        self.blocks_tx.commit()
+        self.tx.commit()
+    }
+    
+    pub fn get_config(&self) -> &DBConfig {
+        &self.config
     }
 
     #[cfg(feature = "tx_log")]
@@ -364,7 +348,7 @@ impl<'a> ChainstateTx<'a> {
             let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
             let result = tx_event.result.to_string();
             let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.headers_tx.tx().execute(insert, params) {
+            if let Err(e) = self.tx.tx().execute(insert, params) {
                 warn!("Failed to log TX: {}", e);
             }
         }
@@ -376,6 +360,19 @@ impl<'a> ChainstateTx<'a> {
         _block_id: &StacksBlockId,
         _events: &[StacksTransactionReceipt],
     ) {
+    }
+}
+
+impl<'a> Deref for ChainstateTx<'a> {
+    type Target = StacksDBTx<'a>;
+    fn deref(&self) -> &StacksDBTx<'a> {
+        &self.tx
+    }
+}
+
+impl<'a> DerefMut for ChainstateTx<'a> {
+    fn deref_mut(&mut self) -> &mut StacksDBTx<'a> {
+        &mut self.tx
     }
 }
 
@@ -395,20 +392,6 @@ pub struct BlockStreamData {
     unconfirmed: bool,
     num_mblocks_buf: [u8; 4],
     num_mblocks_ptr: usize
-}
-
-/// Microblock stream poison record
-#[derive(Debug, PartialEq, Clone)]
-pub struct MicroblockStreamPoison {
-    pub parent_consensus_hash: ConsensusHash,
-    pub parent_block_hash: BlockHeaderHash,
-    pub child_consensus_hash: ConsensusHash,
-    pub child_block_hash: BlockHeaderHash,
-    pub child_burn_block_height: u64,
-    pub fork_seq: u16,
-    pub address: Option<StacksAddress>,
-    pub tx: Option<StacksTransaction>,
-    pub parent_index_block_hash: StacksBlockId
 }
 
 const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
@@ -440,12 +423,14 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
         total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
-        parent_block_id TEXT NOT NULL,        -- NOTE: this is the parent index_block_hash
+        parent_block_id TEXT NOT NULL,               -- NOTE: this is the parent index_block_hash
 
         cost TEXT NOT NULL,
+        block_size TEXT NOT NULL,       -- converted to/from u64
 
         PRIMARY KEY(consensus_hash,block_hash)
     );
+    CREATE UNIQUE INDEX index_block_hash_to_primary_key(index_block_hash,consensus_hash,block_hash);
     "#,
     #[cfg(feature = "tx_log")]
     r#"
@@ -489,29 +474,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     );
     "#,
     r#"
-    -- microblock stream poisons (witnessed or not)
-    CREATE TABLE stream_poisons(
-        -- parent anchor block and consensus hash (who gets slashed)
-        parent_consensus_hash TEXT NOT NULL,
-        parent_block_hash TEXT NOT NULL,
-
-        -- confirming child that reported it
-        child_burn_block_height INT NOT NULL,
-        child_consensus_hash TEXT NOT NULL,
-        child_block_hash TEXT NOT NULL,
-
-        -- poison info
-        fork_seq INT NOT NULL,          -- sequence number of the stream fork
-        address TEXT NOT NULL,          -- principal that sent the poison-microblock tx (burn address if auto-detected)
-        tx BLOB,                        -- PoisonMicroblock transaction (may be None if auto-detected)
-
-        -- internal use
-        parent_index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
-
-        PRIMARY KEY(parent_index_block_hash,child_burn_block_height,fork_seq)
-    );
-    "#,
-    r#"
     -- users who supported miners
     CREATE TABLE user_supporters(
         address TEXT NOT NULL,
@@ -528,6 +490,61 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         mainnet INTEGER NOT NULL,
         chain_id INTEGER NOT NULL
     )"#,
+    r#"
+    -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
+    CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
+                                     consensus_hash TEXT NOT NULL,          -- this is the hash of the burn chain block that holds the parent anchored block's block-commit
+                                     index_block_hash TEXT NOT NULL,        -- this is the anchored block's index hash
+                                     microblock_hash TEXT NOT NULL,
+                                     parent_hash TEXT NOT NULL,             -- previous microblock
+                                     index_microblock_hash TEXT NOT NULL,   -- this is the hash of consensus_hash and microblock_hash
+                                     sequence INT NOT NULL,
+                                     processed INT NOT NULL,
+                                     orphaned INT NOT NULL,
+                                     PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
+    );
+    "#,
+    r#"
+    -- Staging microblocks data
+    CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
+                                          block_data BLOB NOT NULL,
+                                          PRIMARY KEY(block_hash)
+    );
+    "#,
+    r#"
+    -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
+    CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
+                                parent_anchored_block_hash TEXT NOT NULL,
+                                consensus_hash TEXT NOT NULL,
+                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                parent_consensus_hash TEXT NOT NULL,
+                                parent_microblock_hash TEXT NOT NULL,
+                                parent_microblock_seq INT NOT NULL,
+                                microblock_pubkey_hash TEXT NOT NULL,
+                                height INT NOT NULL,
+                                attachable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
+                                orphaned INT NOT NULL,              -- set to 1 if this block can never be attached
+                                processed INT NOT NULL,
+                                commit_burn INT NOT NULL,
+                                sortition_burn INT NOT NULL,
+                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and block header
+                                download_time INT NOT NULL,               -- how long the block was in-flight
+                                arrival_time INT NOT NULL,                -- when this block was stored
+                                processed_time INT NOT NULL,              -- when this block was processed
+                                PRIMARY KEY(anchored_block_hash,consensus_hash)
+    );
+    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
+    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
+    "#,
+    r#"
+    -- users who burned in support of a block
+    CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
+                                           consensus_hash TEXT NOT NULL,
+                                           address TEXT NOT NULL,
+                                           burn_amount INT NOT NULL,
+                                           vtxindex INT NOT NULL
+    );
+    "#,
 ];
 
 #[cfg(test)]
@@ -544,7 +561,7 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION : u128 = 5;
 
 impl StacksChainState {
-    fn instantiate_headers_db(
+    fn instantiate_db(
         mainnet: bool,
         chain_id: u32,
         marf_path: &str,
@@ -574,7 +591,7 @@ impl StacksChainState {
         Ok(marf)
     }
 
-    fn open_headers_db(
+    fn open_db(
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
@@ -583,7 +600,7 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_headers_db(mainnet, chain_id, index_path)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
             let marf = StacksChainState::open_index(index_path)?;
             // sanity check
@@ -760,7 +777,7 @@ impl StacksChainState {
 
         {
             // add a block header entry for the boot code
-            let mut headers_tx = chainstate.headers_tx_begin()?;
+            let mut tx = chainstate.index_tx_begin()?;
             let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -773,8 +790,8 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
-            let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+            tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
+            let first_root_hash = tx.put_indexed_all(&vec![], &vec![])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -786,12 +803,12 @@ impl StacksChainState {
                 StacksHeaderInfo::genesis_block_header_info(first_root_hash, initial_liquid_ustx);
 
             StacksChainState::insert_stacks_block_header(
-                &mut headers_tx,
+                &mut tx,
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::zero(),
             )?;
-            headers_tx.commit()?;
+            tx.commit()?;
         }
 
         debug!("Finish install boot code");
@@ -896,34 +913,28 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        blocks_path.push("staging.db");
-        let blocks_db_path = blocks_path
+        let mut state_path = path.clone();
+
+        state_path.push("vm");
+        StacksChainState::mkdirs(&state_path)?;
+
+        state_path.push("clarity");
+        let clarity_state_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut headers_path = path.clone();
-
-        headers_path.push("vm");
-        StacksChainState::mkdirs(&headers_path)?;
-
-        headers_path.push("clarity");
-        let clarity_state_index_root = headers_path
+        state_path.push("marf");
+        let clarity_state_index_marf = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        headers_path.push("marf");
-        let clarity_state_index_marf = headers_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
+        state_path.pop();
+        state_path.pop();
 
-        headers_path.pop();
-        headers_path.pop();
-
-        headers_path.push("index");
-        let header_index_root = headers_path
+        state_path.push("index");
+        let header_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
@@ -933,9 +944,8 @@ impl StacksChainState {
             Err(_) => false,
         };
 
-        let headers_state_index =
-            StacksChainState::open_headers_db(mainnet, chain_id, &header_index_root)?;
-        let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
+        let state_index =
+            StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
@@ -952,8 +962,7 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
-            blocks_db: blocks_db,
-            headers_state_index: headers_state_index,
+            state_index: state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
@@ -985,14 +994,15 @@ impl StacksChainState {
     }
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
-    pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        Ok(StacksDBTx::new(&mut self.headers_state_index, ()))
+    /// Does not create a Clarity instance.
+    pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
+        Ok(StacksDBTx::new(&mut self.state_index, ()))
     }
 
-    /// Begin a transaction against our staging block index DB.
-    pub fn blocks_tx_begin<'a>(&'a mut self) -> Result<BlocksDBTx<'a>, Error> {
-        let tx = tx_begin_immediate(&mut self.blocks_db)?;
-        Ok(BlocksDBTx::new(tx, self.blocks_path.clone()))
+    /// Begin a transaction against the underlying DB
+    /// Does not create a Clarity instance, and does not affect the MARF.
+    pub fn db_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, Error> {
+        self.state_index.storage_tx().map_err(Error::DBError)
     }
 
     /// Simultaneously begin a transaction against both the headers and blocks.
@@ -1001,18 +1011,11 @@ impl StacksChainState {
         &'a mut self,
     ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
-
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
-        let headers_tx = StacksDBTx::new(&mut self.headers_state_index, ());
-        let blocks_tx = BlocksDBTx::new(blocks_inner_tx, blocks_path);
+        let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx {
-            config: config,
-            headers_tx: headers_tx,
-            blocks_tx: blocks_tx,
-        };
+        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
 
         Ok((chainstate_tx, clarity_instance))
     }
@@ -1028,7 +1031,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             burn_dbconn,
             contract,
             code,
@@ -1046,7 +1049,7 @@ impl StacksChainState {
         self.clarity_state
             .eval_read_only(
                 parent_id_bhh,
-                self.headers_state_index.sqlite_conn(),
+                self.state_index.sqlite_conn(),
                 burn_dbconn,
                 contract,
                 code,
@@ -1054,8 +1057,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn headers_db(&self) -> &DBConn {
-        self.headers_state_index.sqlite_conn()
+    pub fn db(&self) -> &DBConn {
+        self.state_index.sqlite_conn()
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
@@ -1071,7 +1074,7 @@ impl StacksChainState {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            chainstate_tx.headers_tx.deref().deref(),
+            chainstate_tx.deref().deref(),
             clarity_instance,
             burn_dbconn,
             parent_consensus_hash,
@@ -1094,7 +1097,7 @@ impl StacksChainState {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             &mut self.clarity_state,
             burn_dbconn,
             parent_consensus_hash,
@@ -1118,7 +1121,7 @@ impl StacksChainState {
     ) -> ClarityReadOnlyConnection<'a> {
         self.clarity_state.read_only_connection(
             &index_block,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             burn_dbconn,
         )
     }
@@ -1152,7 +1155,7 @@ impl StacksChainState {
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
             let mut conn = unconfirmed_state.clarity_inst.read_only_connection(
                 &unconfirmed_state.unconfirmed_chain_tip,
-                self.headers_db(),
+                self.db(),
                 burn_dbconn,
             );
             let result = to_do(&mut conn);
@@ -1211,7 +1214,7 @@ impl StacksChainState {
     }
 
     /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
-    pub fn begin_unconfirmed<'a>(
+    pub fn chainstate_begin_unconfirmed<'a>(
         conf: DBConfig,
         headers_db: &'a dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
@@ -1222,6 +1225,28 @@ impl StacksChainState {
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
+        }
+    }
+
+    /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
+    pub fn begin_unconfirmed<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB
+    ) -> Option<ClarityTx<'a>> {
+        let conf = self.config();
+        if let Some(ref mut unconfirmed) = self.unconfirmed_state {
+            Some(
+                StacksChainState::chainstate_begin_unconfirmed(
+                    conf,
+                    self.state_index.sqlite_conn(),
+                    &mut unconfirmed.clarity_inst,
+                    burn_dbconn,
+                    &unconfirmed.confirmed_chain_tip
+                )
+            )
+        }
+        else {
+            None
         }
     }
 
@@ -1236,8 +1261,8 @@ impl StacksChainState {
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a> {
-        // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        // mix consensus hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -1291,37 +1316,27 @@ impl StacksChainState {
         }
     }
 
-    /// See if a microblock public key hash was used in this fork already
-    pub fn has_microblock_pubkey_hash<'a>(
-        headers_tx: &mut StacksDBTx<'a>,
-        tip_consensus_hash: &ConsensusHash,
-        tip_header: &StacksBlockHeader,
-        pubkey_hash: &Hash160,
-    ) -> Result<bool, Error> {
-        // we cannot have used this microblock public key hash before in this fork.
-        // (this restriction is required to ensure that a poison microblock transaction can only apply to
-        // a single epoch)
-        let parent_hash = StacksChainState::get_index_hash(tip_consensus_hash, tip_header);
-        match headers_tx
-            .get_indexed(
-                &parent_hash,
-                &format!("chainstate::pubkey_hash::{}", pubkey_hash),
-            )
-            .map_err(Error::DBError)?
-        {
-            Some(_) => {
-                // pubkey hash was seen before
-                debug!(
-                    "Public key hash {} already used (index hash {})",
-                    pubkey_hash, &parent_hash
-                );
-                return Ok(true);
-            }
-            None => {
-                // pubkey hash was never before seen
-                return Ok(false);
-            }
-        }
+    /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
+    pub fn insert_microblock_pubkey_hash(clarity_tx: &mut ClarityTx, height: u32, mblock_pubkey_hash: &Hash160) -> Result<(), Error> {
+        clarity_tx.connection().as_transaction(|tx| {
+            tx.with_clarity_db(|ref mut db| {
+                db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
+                    .expect("FATAL: failed to store microblock public key hash to Clarity DB");
+                Ok(())
+            })
+        }).expect("FATAL: failed to store microblock public key hash");
+        Ok(())
+    }
+
+    /// Get the block height at which a microblock public key hash was used, if any
+    pub fn has_microblock_pubkey_hash(clarity_tx: &mut ClarityTx, mblock_pubkey_hash: &Hash160) -> Result<Option<u32>, Error> {
+        let height_opt = clarity_tx
+            .connection()
+            .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
+                let height_opt = db.get_microblock_pubkey_hash_height(mblock_pubkey_hash);
+                Ok(height_opt)
+            }).expect("FATAL: failed to query microblock public key hash");
+        Ok(height_opt)
     }
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
@@ -1340,6 +1355,7 @@ impl StacksChainState {
         user_burns: &Vec<StagingUserBurnSupport>,
         total_liquid_ustx: u128,
         anchor_block_cost: &ExecutionCost,
+        anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1356,12 +1372,6 @@ impl StacksChainState {
         );
 
         let parent_hash = StacksChainState::get_index_hash(parent_consensus_hash, parent_tip);
-        let indexed_keys = vec![format!(
-            "chainstate::pubkey_hash::{}",
-            new_tip.microblock_pubkey_hash
-        )];
-
-        let indexed_values = vec!["1".to_string()];
 
         // store each indexed field
         test_debug!(
@@ -1371,7 +1381,7 @@ impl StacksChainState {
         );
         headers_tx
             .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
-        let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)?;
+        let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
             &parent_hash,
@@ -1388,6 +1398,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             total_liquid_ustx,
+            anchored_block_size: anchor_block_size
         };
 
         StacksChainState::insert_stacks_block_header(
