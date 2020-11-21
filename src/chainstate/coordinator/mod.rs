@@ -187,7 +187,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
         let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-            chainstate.headers_db(),
+            chainstate.db(),
             block_id,
         )?
         .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
@@ -300,8 +300,16 @@ impl<'a, T: BlockEventDispatcher>
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    if let Err(e) = inst.handle_new_stacks_block() {
-                        warn!("Error processing new stacks block: {:?}", e);
+                    match comms.kludgy_clarity_db_lock() {
+                        Ok(_) => {
+                            if let Err(e) = inst.handle_new_stacks_block() {
+                                warn!("Error processing new stacks block: {:?}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}", &e);
+                            panic!();
+                        }
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
@@ -397,7 +405,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.headers_db(),
+                &chain_state.db(),
                 &consensus_hash,
                 &stacks_block_hash,
             )?;
