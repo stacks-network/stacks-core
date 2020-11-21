@@ -16,8 +16,7 @@
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc, Condvar, Mutex, RwLock,
-    LockResult, TryLockResult, MutexGuard
+    Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockResult,
 };
 use std::time::{Duration, Instant};
 use std::{process, thread};
@@ -197,7 +196,7 @@ impl CoordinatorChannels {
         }
         return true;
     }
-    
+
     /// TODO: remove before mainnet
     pub fn kludgy_clarity_db_lock(&self) -> LockResult<MutexGuard<'_, ()>> {
         self.kludgy_temporary_clarity_db_lock.lock()

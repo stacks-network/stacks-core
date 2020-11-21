@@ -23,11 +23,11 @@ use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleTypeSignature, TypeSignature, Value, NONE, TupleData
-};
 use vm::representations::ClarityName;
+use vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
+};
 
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
@@ -37,12 +37,12 @@ use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::{StacksAddress, StacksBlockId};
 
 use util::db::{DBConn, FromRow};
-use util::hash::{Sha256Sum, Sha512Trunc256Sum, Hash160, to_hex};
+use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::costs::CostOverflowingMath;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, SimmedBlock,
-    STXBalanceSnapshot
+    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
+    STXBalanceSnapshot, SimmedBlock,
 };
 use vm::database::RollbackWrapper;
 use vm::database::{ClarityBackingStore, MarfedKV};
@@ -668,27 +668,42 @@ impl<'a> ClarityDatabase<'a> {
         format!("microblock-poison::{}", height)
     }
 
-    pub fn insert_microblock_pubkey_hash_height(&mut self, pubkey_hash: &Hash160, height: u32) -> Result<()> {
+    pub fn insert_microblock_pubkey_hash_height(
+        &mut self,
+        pubkey_hash: &Hash160,
+        height: u32,
+    ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
         let value = format!("{}", &height);
         self.put(&key, &value);
         Ok(())
     }
 
-    pub fn insert_microblock_poison(&mut self, height: u32, reporter: &StandardPrincipalData, seq: u16) -> Result<()> {
+    pub fn insert_microblock_poison(
+        &mut self,
+        height: u32,
+        reporter: &StandardPrincipalData,
+        seq: u16,
+    ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
         let value = Value::Tuple(
-            TupleData::from_data(
-                vec![
-                    (ClarityName::try_from("reporter").expect("BUG: valid string representation"), Value::Principal(PrincipalData::Standard(reporter.clone()))),
-                    (ClarityName::try_from("sequence").expect("BUG: valid string representation"), Value::UInt(seq as u128)),
-                ]
-            )
-            .expect("BUG: valid tuple representation")
+            TupleData::from_data(vec![
+                (
+                    ClarityName::try_from("reporter").expect("BUG: valid string representation"),
+                    Value::Principal(PrincipalData::Standard(reporter.clone())),
+                ),
+                (
+                    ClarityName::try_from("sequence").expect("BUG: valid string representation"),
+                    Value::UInt(seq as u128),
+                ),
+            ])
+            .expect("BUG: valid tuple representation"),
         );
         let mut value_bytes = vec![];
-        value.serialize_write(&mut value_bytes).expect("BUG: valid tuple representation did not serialize");
-        
+        value
+            .serialize_write(&mut value_bytes)
+            .expect("BUG: valid tuple representation did not serialize");
+
         let value_str = to_hex(&value_bytes);
         self.put(&key, &value_str);
         Ok(())
@@ -696,31 +711,42 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_microblock_pubkey_hash_height(&mut self, pubkey_hash: &Hash160) -> Option<u32> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        self.get(&key)
-            .map(|height_str: String| height_str.parse::<u32>().expect("BUG: inserted non-u32 as height of microblock pubkey hash"))
+        self.get(&key).map(|height_str: String| {
+            height_str
+                .parse::<u32>()
+                .expect("BUG: inserted non-u32 as height of microblock pubkey hash")
+        })
     }
 
     /// Returns (who-reported-the-poison-microblock, sequence-of-microblock-fork)
-    pub fn get_microblock_poison_report(&mut self, height: u32) -> Option<(StandardPrincipalData, u16)> {
+    pub fn get_microblock_poison_report(
+        &mut self,
+        height: u32,
+    ) -> Option<(StandardPrincipalData, u16)> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
-        self.get(&key)
-            .map(|reporter_hex_str: String| {
-                let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str).expect("BUG: failed to decode serialized poison-microblock reporter");
-                let tuple_data = reporter_value.expect_tuple();
-                let reporter_value = tuple_data.get("reporter").expect("BUG: poison-microblock report has no 'reporter'").to_owned();
-                let seq_value = tuple_data.get("sequence").expect("BUG: poison-microblock report has no 'sequence'").to_owned();
+        self.get(&key).map(|reporter_hex_str: String| {
+            let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str)
+                .expect("BUG: failed to decode serialized poison-microblock reporter");
+            let tuple_data = reporter_value.expect_tuple();
+            let reporter_value = tuple_data
+                .get("reporter")
+                .expect("BUG: poison-microblock report has no 'reporter'")
+                .to_owned();
+            let seq_value = tuple_data
+                .get("sequence")
+                .expect("BUG: poison-microblock report has no 'sequence'")
+                .to_owned();
 
-                let reporter_principal = reporter_value.expect_principal();
-                let seq_u128 = seq_value.expect_u128();
+            let reporter_principal = reporter_value.expect_principal();
+            let seq_u128 = seq_value.expect_u128();
 
-                let seq : u16 = seq_u128.try_into().expect("BUG: seq exceeds u16 max");
-                if let PrincipalData::Standard(principal_data) = reporter_principal {
-                    (principal_data, seq)
-                }
-                else {
-                    panic!("BUG: poison-microblock report principal is not a standard principal");
-                }
-            })
+            let seq: u16 = seq_u128.try_into().expect("BUG: seq exceeds u16 max");
+            if let PrincipalData::Standard(principal_data) = reporter_principal {
+                (principal_data, seq)
+            } else {
+                panic!("BUG: poison-microblock report principal is not a standard principal");
+            }
+        })
     }
 }
 
@@ -1176,7 +1202,10 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
     }
 
-    pub fn get_stx_balance_snapshot<'conn>(&'conn mut self, principal: &PrincipalData) -> STXBalanceSnapshot<'a, 'conn> {
+    pub fn get_stx_balance_snapshot<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+    ) -> STXBalanceSnapshot<'a, 'conn> {
         let stx_balance = self.get_account_stx_balance(principal);
         let cur_burn_height = self.get_current_burnchain_block_height() as u64;
 
@@ -1191,8 +1220,11 @@ impl<'a> ClarityDatabase<'a> {
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
-    
-    pub fn get_stx_balance_snapshot_genesis<'conn>(&'conn mut self, principal: &PrincipalData) -> STXBalanceSnapshot<'a, 'conn> {
+
+    pub fn get_stx_balance_snapshot_genesis<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+    ) -> STXBalanceSnapshot<'a, 'conn> {
         let stx_balance = self.get_account_stx_balance(principal);
         let cur_burn_height = 0;
 

@@ -61,7 +61,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{
     db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBTx, IndexDBConn,
+    FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 use util::hash::to_hex;
@@ -185,7 +185,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             total_liquid_ustx,
-            anchored_block_size: 0
+            anchored_block_size: 0,
         }
     }
 
@@ -344,12 +344,16 @@ impl<'a> ClarityTx<'a> {
 pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub blocks_path: String,
-    pub tx: StacksDBTx<'a>
+    pub tx: StacksDBTx<'a>,
 }
 
 impl<'a> ChainstateTx<'a> {
     pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
-        ChainstateTx { config, blocks_path, tx }
+        ChainstateTx {
+            config,
+            blocks_path,
+            tx,
+        }
     }
 
     pub fn get_blocks_path(&self) -> &String {
@@ -359,7 +363,7 @@ impl<'a> ChainstateTx<'a> {
     pub fn commit(self) -> Result<(), db_error> {
         self.tx.commit()
     }
-    
+
     pub fn get_config(&self) -> &DBConfig {
         &self.config
     }
@@ -408,19 +412,19 @@ impl<'a> DerefMut for ChainstateTx<'a> {
 /// Opaque structure for streaming block and microblock data from disk
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
-    index_block_hash: StacksBlockId,    // index block hash of the block to download
-    rowid: Option<i64>,                 // used when reading a blob out of staging
-    offset: u64,                        // offset into whatever is being read (the blob, or the file in the chunk store)
-    total_bytes: u64,                   // total number of bytes read.
+    index_block_hash: StacksBlockId, // index block hash of the block to download
+    rowid: Option<i64>,              // used when reading a blob out of staging
+    offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
+    total_bytes: u64, // total number of bytes read.
 
     // used only for microblocks
     is_microblock: bool,
     microblock_hash: BlockHeaderHash,
     parent_index_block_hash: StacksBlockId,
-    seq: u16,       // only used for unconfirmed microblocks
+    seq: u16, // only used for unconfirmed microblocks
     unconfirmed: bool,
     num_mblocks_buf: [u8; 4],
-    num_mblocks_ptr: usize
+    num_mblocks_ptr: usize,
 }
 
 const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
@@ -587,7 +591,7 @@ pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
 
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
-pub const POISON_MICROBLOCK_COMMISSION_FRACTION : u128 = 5;
+pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
@@ -991,8 +995,7 @@ impl StacksChainState {
             Err(_) => true,
         };
 
-        let state_index =
-            StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
+        let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
@@ -1282,21 +1285,18 @@ impl StacksChainState {
     /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
-        burn_dbconn: &'a dyn BurnStateDB
+        burn_dbconn: &'a dyn BurnStateDB,
     ) -> Option<ClarityTx<'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
-            Some(
-                StacksChainState::chainstate_begin_unconfirmed(
-                    conf,
-                    self.state_index.sqlite_conn(),
-                    &mut unconfirmed.clarity_inst,
-                    burn_dbconn,
-                    &unconfirmed.confirmed_chain_tip
-                )
-            )
-        }
-        else {
+            Some(StacksChainState::chainstate_begin_unconfirmed(
+                conf,
+                self.state_index.sqlite_conn(),
+                &mut unconfirmed.clarity_inst,
+                burn_dbconn,
+                &unconfirmed.confirmed_chain_tip,
+            ))
+        } else {
             None
         }
     }
@@ -1368,25 +1368,36 @@ impl StacksChainState {
     }
 
     /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
-    pub fn insert_microblock_pubkey_hash(clarity_tx: &mut ClarityTx, height: u32, mblock_pubkey_hash: &Hash160) -> Result<(), Error> {
-        clarity_tx.connection().as_transaction(|tx| {
-            tx.with_clarity_db(|ref mut db| {
-                db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
-                    .expect("FATAL: failed to store microblock public key hash to Clarity DB");
-                Ok(())
+    pub fn insert_microblock_pubkey_hash(
+        clarity_tx: &mut ClarityTx,
+        height: u32,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<(), Error> {
+        clarity_tx
+            .connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|ref mut db| {
+                    db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
+                        .expect("FATAL: failed to store microblock public key hash to Clarity DB");
+                    Ok(())
+                })
             })
-        }).expect("FATAL: failed to store microblock public key hash");
+            .expect("FATAL: failed to store microblock public key hash");
         Ok(())
     }
 
     /// Get the block height at which a microblock public key hash was used, if any
-    pub fn has_microblock_pubkey_hash(clarity_tx: &mut ClarityTx, mblock_pubkey_hash: &Hash160) -> Result<Option<u32>, Error> {
+    pub fn has_microblock_pubkey_hash(
+        clarity_tx: &mut ClarityTx,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<Option<u32>, Error> {
         let height_opt = clarity_tx
             .connection()
             .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
                 let height_opt = db.get_microblock_pubkey_hash_height(mblock_pubkey_hash);
                 Ok(height_opt)
-            }).expect("FATAL: failed to query microblock public key hash");
+            })
+            .expect("FATAL: failed to query microblock public key hash");
         Ok(height_opt)
     }
 
@@ -1449,7 +1460,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             total_liquid_ustx,
-            anchored_block_size: anchor_block_size
+            anchored_block_size: anchor_block_size,
         };
 
         StacksChainState::insert_stacks_block_header(

@@ -530,11 +530,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         snapshot.set_balance(balance);
                         snapshot.save();
 
-                        println!(
-                            "{} credited: {} uSTX",
-                            principal,
-                            total_balance
-                        );
+                        println!("{} credited: {} uSTX", principal, total_balance);
                     }
                     db.commit();
                 };

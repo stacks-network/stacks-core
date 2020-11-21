@@ -1625,9 +1625,10 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
-        eval_all, execute, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
-        types::PrincipalData
+        eval_all, execute,
+        types::PrincipalData,
+        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
+        Value,
     };
 
     struct DocHeadersDB {}
@@ -1775,7 +1776,10 @@ mod test {
             env.execute_in_env(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
                 |e| {
-                    let mut snapshot = e.global_context.database.get_stx_balance_snapshot_genesis(&docs_principal_id);
+                    let mut snapshot = e
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot_genesis(&docs_principal_id);
                     snapshot.set_balance(balance);
                     snapshot.save();
                     Ok(())

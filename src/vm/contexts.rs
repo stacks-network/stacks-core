@@ -973,7 +973,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     pub fn handle_poison_microblock(
         &mut self,
         mblock_header_1: &StacksMicroblockHeader,
-        mblock_header_2: &StacksMicroblockHeader
+        mblock_header_2: &StacksMicroblockHeader,
     ) -> Result<Value> {
         self.global_context.begin();
         let result = handle_poison_microblock(self, mblock_header_1, mblock_header_2);
@@ -981,7 +981,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             Ok(ret) => {
                 self.global_context.commit()?;
                 Ok(ret)
-            },
+            }
             Err(e) => {
                 self.global_context.roll_back();
                 Err(e)

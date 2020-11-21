@@ -74,7 +74,10 @@ pub fn special_stx_balance(
 
     if let Value::Principal(ref principal) = owner {
         let balance = {
-            let snapshot = env.global_context.database.get_stx_balance_snapshot(principal);
+            let snapshot = env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
             snapshot.get_available_balance()
         };
         Ok(Value::UInt(balance))
@@ -108,7 +111,7 @@ pub fn stx_transfer_consolidated(
     {
         return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
     }
-    
+
     // loading from/to principals and balances
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;

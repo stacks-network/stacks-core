@@ -965,11 +965,8 @@ impl PeerNetwork {
                 &index_block_hash
             );
             return Ok(false);
-        } else if StacksChainState::has_staging_block(
-            &chainstate.db(),
-            consensus_hash,
-            block_hash,
-        )? {
+        } else if StacksChainState::has_staging_block(&chainstate.db(), consensus_hash, block_hash)?
+        {
             test_debug!(
                 "{:?}: Block already stored (but not processed): {}/{} ({})",
                 _local_peer,
@@ -1170,7 +1167,7 @@ impl PeerNetwork {
                             inv_state,
                             sortdb,
                             &consensus_hash,
-                            &block_hash
+                            &block_hash,
                         )?,
                         None => vec![],
                     };
@@ -1925,7 +1922,8 @@ impl PeerNetwork {
                 ));
 
                 assert!(
-                    request_key.parent_block_header.is_some() && request_key.parent_consensus_hash.is_some(),
+                    request_key.parent_block_header.is_some()
+                        && request_key.parent_consensus_hash.is_some(),
                     "BUG: requested a microblock but didn't set the child block header"
                 );
                 let parent_block_header = request_key.parent_block_header.unwrap();
@@ -2274,23 +2272,23 @@ impl PeerNetwork {
 pub mod test {
     use super::*;
     use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::*;
+    use chainstate::stacks::miner::test::*;
     use chainstate::stacks::*;
     use net::codec::*;
     use net::inv::*;
     use net::relay::*;
     use net::test::*;
     use net::*;
-    use std::collections::HashMap;
-    use util::sleep_ms;
-    use util::test::*;
-    use util::strings::*;
-    use util::hash::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::burn::operations::*;
     use rand::Rng;
-    use vm::representations::*;
+    use std::collections::HashMap;
     use std::convert::TryFrom;
+    use util::hash::*;
+    use util::sleep_ms;
+    use util::strings::*;
+    use util::test::*;
     use vm::costs::ExecutionCost;
+    use vm::representations::*;
 
     fn get_peer_availability(
         peer: &mut TestPeer,
@@ -3259,7 +3257,7 @@ pub mod test {
         endpoint_thread_1.join().unwrap();
         endpoint_thread_2.join().unwrap();
     }
-    
+
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_descendants() {
@@ -3287,7 +3285,7 @@ pub mod test {
                     // [tenure-1] <- [mblock] <- [mblock] <- [mblock] <- [mblock] <- ...
                     //             \           \           \           \
                     //              \           \           \           \
-                    //               [tenure-2]  [tenure-3]  [tenure-4]  [tenure-5]  ... 
+                    //               [tenure-2]  [tenure-3]  [tenure-4]  [tenure-5]  ...
                     //
                     let mut block_data = vec![];
                     let mut microblock_stream = vec![];
@@ -3299,17 +3297,34 @@ pub mod test {
 
                             // extend to 10 microblocks
                             while microblocks.len() != num_blocks {
-                                let next_microblock_payload = TransactionPayload::SmartContract(
-                                    TransactionSmartContract {
-                                        name: ContractName::try_from(format!("hello-world-{}", thread_rng().gen::<u64>())).expect("FATAL: valid name"),
-                                        code_body: StacksString::from_str("(begin (print \"hello world\"))").expect("FATAL: valid code")
-                                    }
-                                );
+                                let next_microblock_payload =
+                                    TransactionPayload::SmartContract(TransactionSmartContract {
+                                        name: ContractName::try_from(format!(
+                                            "hello-world-{}",
+                                            thread_rng().gen::<u64>()
+                                        ))
+                                        .expect("FATAL: valid name"),
+                                        code_body: StacksString::from_str(
+                                            "(begin (print \"hello world\"))",
+                                        )
+                                        .expect("FATAL: valid code"),
+                                    });
                                 let mut mblock = microblocks.last().unwrap().clone();
-                                let last_nonce = mblock.txs.last().as_ref().unwrap().auth().get_origin_nonce();
+                                let last_nonce = mblock
+                                    .txs
+                                    .last()
+                                    .as_ref()
+                                    .unwrap()
+                                    .auth()
+                                    .get_origin_nonce();
                                 let prev_block = mblock.block_hash();
 
-                                let signed_tx = sign_standard_singlesig_tx(next_microblock_payload, &peers[1].miner.privks[0], last_nonce + 1, 0);
+                                let signed_tx = sign_standard_singlesig_tx(
+                                    next_microblock_payload,
+                                    &peers[1].miner.privks[0],
+                                    last_nonce + 1,
+                                    0,
+                                );
                                 let txids = vec![signed_tx.txid().as_bytes().to_vec()];
                                 let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
                                 let tx_merkle_root = merkle_tree.root();
@@ -3318,7 +3333,10 @@ pub mod test {
                                 mblock.header.tx_merkle_root = tx_merkle_root;
                                 mblock.header.prev_block = prev_block;
                                 mblock.header.sequence += 1;
-                                mblock.header.sign(peers[1].miner.microblock_privks.last().as_ref().unwrap()).unwrap();
+                                mblock
+                                    .header
+                                    .sign(peers[1].miner.microblock_privks.last().as_ref().unwrap())
+                                    .unwrap();
 
                                 microblocks.push(mblock);
                             }
@@ -3326,7 +3344,11 @@ pub mod test {
                             let (_, burn_header_hash, consensus_hash) =
                                 peers[1].next_burnchain_block(burn_ops.clone());
 
-                            peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
+                            peers[1].process_stacks_epoch(
+                                &stacks_block,
+                                &consensus_hash,
+                                &microblocks,
+                            );
 
                             TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
@@ -3345,13 +3367,13 @@ pub mod test {
                                 Some(stacks_block),
                                 Some(microblocks),
                             ));
-                        }
-                        else {
+                        } else {
                             test_debug!("Build child block {}", i);
-                            let tip =
-                                SortitionDB::get_canonical_burn_chain_tip(&peers[1].sortdb.as_ref().unwrap().conn())
-                                    .unwrap();
-                            
+                            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                                &peers[1].sortdb.as_ref().unwrap().conn(),
+                            )
+                            .unwrap();
+
                             let chainstate_path = peers[1].chainstate_path.clone();
 
                             let (mut burn_ops, stacks_block, _) = peers[1].make_tenure(
@@ -3361,42 +3383,50 @@ pub mod test {
                                  vrf_proof,
                                  ref parent_opt,
                                  ref parent_microblock_header_opt| {
-                                    let mut parent_tip = StacksChainState::get_anchored_block_header_info(
-                                        chainstate.db(),
-                                        &block_data[0].0,
-                                        &block_data[0].1.as_ref().unwrap().block_hash()
-                                    )
-                                    .unwrap()
-                                    .unwrap();
+                                    let mut parent_tip =
+                                        StacksChainState::get_anchored_block_header_info(
+                                            chainstate.db(),
+                                            &block_data[0].0,
+                                            &block_data[0].1.as_ref().unwrap().block_hash(),
+                                        )
+                                        .unwrap()
+                                        .unwrap();
 
-                                    parent_tip.microblock_tail = Some(microblock_stream[i-1].header.clone());
+                                    parent_tip.microblock_tail =
+                                        Some(microblock_stream[i - 1].header.clone());
 
-                                    let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
-                                    let coinbase_tx = make_coinbase_with_nonce(miner, i, (i + 2) as u64);
+                                    let mempool =
+                                        MemPoolDB::open(false, 0x80000000, &chainstate_path)
+                                            .unwrap();
+                                    let coinbase_tx =
+                                        make_coinbase_with_nonce(miner, i, (i + 2) as u64);
 
-                                    let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
-                                        chainstate,
-                                        &sortdb.index_conn(),
-                                        &mempool,
-                                        &parent_tip,
-                                        parent_tip.anchored_header.total_work.burn + 1000,
-                                        vrf_proof,
-                                        Hash160([i as u8; 20]),
-                                        &coinbase_tx,
-                                        ExecutionCost::max_value(),
-                                    )
-                                    .unwrap();
+                                    let (anchored_block, block_size, block_execution_cost) =
+                                        StacksBlockBuilder::build_anchored_block(
+                                            chainstate,
+                                            &sortdb.index_conn(),
+                                            &mempool,
+                                            &parent_tip,
+                                            parent_tip.anchored_header.total_work.burn + 1000,
+                                            vrf_proof,
+                                            Hash160([i as u8; 20]),
+                                            &coinbase_tx,
+                                            ExecutionCost::max_value(),
+                                        )
+                                        .unwrap();
                                     (anchored_block, vec![])
                                 },
                             );
 
                             for burn_op in burn_ops.iter_mut() {
-                                if let BlockstackOperationType::LeaderBlockCommit(ref mut op) = burn_op {
+                                if let BlockstackOperationType::LeaderBlockCommit(ref mut op) =
+                                    burn_op
+                                {
                                     op.parent_block_ptr = first_block_height;
                                     op.block_header_hash = stacks_block.block_hash();
                                 }
                             }
-                            
+
                             let (_, burn_header_hash, consensus_hash) =
                                 peers[1].next_burnchain_block(burn_ops.clone());
 
@@ -3414,7 +3444,7 @@ pub mod test {
                             block_data.push((
                                 sn.consensus_hash.clone(),
                                 Some(stacks_block),
-                                Some(vec![])
+                                Some(vec![]),
                             ));
                         }
                     }
@@ -3453,4 +3483,4 @@ pub mod test {
             );
         })
     }
-} 
+}

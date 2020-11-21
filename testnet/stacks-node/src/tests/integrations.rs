@@ -129,7 +129,7 @@ fn integration_test_get_info() {
 
     let rpc_bind = conf.node.rpc_bind.clone();
     let mut run_loop = RunLoop::new(conf);
-    
+
     {
         let mut http_opt = HTTP_BINDING.lock().unwrap();
         http_opt.replace(format!("http://{}", &rpc_bind));
@@ -153,7 +153,12 @@ fn integration_test_get_info() {
                 eprintln!("Tenure in 1 started!");
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
                     .unwrap();
             } else if round >= 2 {
                 // block-height > 2
@@ -664,7 +669,7 @@ fn contract_stx_transfer() {
     let num_rounds = 5;
 
     let mut run_loop = RunLoop::new(conf);
-    
+
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
@@ -689,7 +694,12 @@ fn contract_stx_transfer() {
                     make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, xfer_to_contract)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
                     .unwrap();
             } else if round == 2 {
                 // block-height > 2
@@ -697,7 +707,12 @@ fn contract_stx_transfer() {
                     make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
                     .unwrap();
             } else if round == 3 {
                 // try to publish again
@@ -734,7 +749,12 @@ fn contract_stx_transfer() {
                             .unwrap();
                     tenure
                         .mem_pool
-                        .submit(&mut chainstate_copy, &consensus_hash, &header_hash, xfer_to_contract)
+                        .submit(
+                            &mut chainstate_copy,
+                            &consensus_hash,
+                            &header_hash,
+                            xfer_to_contract,
+                        )
                         .unwrap();
                 }
                 // this one should fail:
@@ -744,7 +764,12 @@ fn contract_stx_transfer() {
                     StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
                 let result = match tenure
                     .mem_pool
-                    .submit(&mut chainstate_copy, &consensus_hash, &header_hash, xfer_to_contract)
+                    .submit(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
                     .unwrap_err()
                 {
                     MemPoolRejection::TooMuchChaining => true,
@@ -916,7 +941,7 @@ fn mine_contract_twice() {
     let num_rounds = 3;
 
     let mut run_loop = RunLoop::new(conf);
-    
+
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
@@ -988,7 +1013,7 @@ fn bad_contract_tx_rollback() {
     let num_rounds = 4;
 
     let mut run_loop = RunLoop::new(conf);
-    
+
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
@@ -1016,7 +1041,12 @@ fn bad_contract_tx_rollback() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, xfer_to_contract)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        xfer_to_contract,
+                    )
                     .unwrap();
             } else if round == 2 {
                 // block-height = 3
@@ -1027,14 +1057,24 @@ fn bad_contract_tx_rollback() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, xfer_to_contract)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        xfer_to_contract,
+                    )
                     .unwrap();
 
                 // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
                 let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 3000);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, xfer_to_contract)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        xfer_to_contract,
+                    )
                     .unwrap();
 
                 let publish_tx =
@@ -1175,7 +1215,7 @@ fn block_limit_runtime_test() {
     let num_rounds = 6;
 
     let mut run_loop = RunLoop::new(conf);
-    
+
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
@@ -1282,7 +1322,7 @@ fn mempool_errors() {
     }
 
     let mut run_loop = RunLoop::new(conf);
-    
+
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
@@ -1299,7 +1339,12 @@ fn mempool_errors() {
                 eprintln!("Tenure in 1 started!");
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
                     .unwrap();
             }
 

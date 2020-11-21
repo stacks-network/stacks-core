@@ -47,9 +47,9 @@ use chainstate::stacks::index::trie::Trie;
 
 use chainstate::stacks::index::Error;
 use std::ops::DerefMut;
+use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
-use util::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";

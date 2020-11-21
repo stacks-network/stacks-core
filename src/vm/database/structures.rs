@@ -18,9 +18,9 @@ use std::convert::TryInto;
 use std::io::Write;
 use util::hash::{hex_bytes, to_hex};
 use vm::contracts::Contract;
+use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE};
-use vm::database::ClarityDatabase;
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -123,7 +123,7 @@ pub struct STXBalanceSnapshot<'db, 'conn> {
     principal: PrincipalData,
     balance: STXBalance,
     burn_block_height: u64,
-    db_ref: &'conn mut ClarityDatabase<'db>
+    db_ref: &'conn mut ClarityDatabase<'db>,
 }
 
 #[derive(Debug)]
@@ -180,15 +180,20 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
 }
 
 impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
-    pub fn new(principal: &PrincipalData, balance: STXBalance, burn_height: u64, db_ref: &'conn mut ClarityDatabase<'db>) -> STXBalanceSnapshot<'db, 'conn> {
+    pub fn new(
+        principal: &PrincipalData,
+        balance: STXBalance,
+        burn_height: u64,
+        db_ref: &'conn mut ClarityDatabase<'db>,
+    ) -> STXBalanceSnapshot<'db, 'conn> {
         STXBalanceSnapshot {
             principal: principal.clone(),
             balance: balance,
             burn_block_height: burn_height,
-            db_ref: db_ref
+            db_ref: db_ref,
         }
     }
-    
+
     pub fn balance(&self) -> &STXBalance {
         &self.balance
     }
@@ -204,33 +209,37 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
-        let mut recipient_balance = self.db_ref.get(&recipient_key).unwrap_or(STXBalance::zero());
-        
+        let mut recipient_balance = self
+            .db_ref
+            .get(&recipient_key)
+            .unwrap_or(STXBalance::zero());
+
         self.debit(amount);
-        recipient_balance.amount_unlocked =
-            recipient_balance.amount_unlocked
+        recipient_balance.amount_unlocked = recipient_balance
+            .amount_unlocked
             .checked_add(amount)
             .expect("BUG: STX overflow");
 
         self.db_ref.put(&recipient_key, &recipient_balance);
         self.save()
     }
-    
+
     pub fn get_available_balance(&self) -> u128 {
         if self.has_unlockable_tokens() {
             self.balance.get_total_balance()
-        }
-        else {
+        } else {
             self.balance.amount_unlocked
         }
     }
-    
+
     pub fn has_locked_tokens(&self) -> bool {
-        self.balance.has_locked_tokens_at_burn_block(self.burn_block_height)
+        self.balance
+            .has_locked_tokens_at_burn_block(self.burn_block_height)
     }
 
     pub fn has_unlockable_tokens(&self) -> bool {
-        self.balance.has_unlockable_tokens_at_burn_block(self.burn_block_height)
+        self.balance
+            .has_unlockable_tokens_at_burn_block(self.burn_block_height)
     }
 
     pub fn can_transfer(&self, amount: u128) -> bool {
@@ -244,7 +253,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         self.balance.amount_unlocked = self
-            .balance.amount_unlocked
+            .balance
+            .amount_unlocked
             .checked_sub(amount)
             .expect("BUG: STX underflow");
     }
@@ -256,7 +266,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         self.balance.amount_unlocked = self
-            .balance.amount_unlocked
+            .balance
+            .amount_unlocked
             .checked_add(amount)
             .expect("BUG: STX overflow");
     }
@@ -264,12 +275,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     pub fn set_balance(&mut self, balance: STXBalance) {
         self.balance = balance;
     }
-    
-    pub fn lock_tokens(
-        &mut self,
-        amount_to_lock: u128,
-        unlock_burn_height: u64,
-    ) {
+
+    pub fn lock_tokens(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
         let unlocked = self.unlock_available_tokens_if_any();
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
@@ -290,21 +297,26 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         self.balance.unlock_height = unlock_burn_height;
         self.balance.amount_unlocked = self
-            .balance.amount_unlocked
+            .balance
+            .amount_unlocked
             .checked_sub(amount_to_lock)
             .expect("STX underflow");
 
         self.balance.amount_locked = amount_to_lock;
     }
-    
+
     fn unlock_available_tokens_if_any(&mut self) -> u128 {
-        if !self.balance.has_unlockable_tokens_at_burn_block(self.burn_block_height) {
+        if !self
+            .balance
+            .has_unlockable_tokens_at_burn_block(self.burn_block_height)
+        {
             return 0;
         }
 
         let unlocked = self.balance.amount_locked;
         self.balance.unlock_height = 0;
-        self.balance.amount_unlocked = self.balance
+        self.balance.amount_unlocked = self
+            .balance
             .amount_unlocked
             .checked_add(unlocked)
             .expect("STX overflow");
@@ -336,8 +348,7 @@ impl STXBalance {
     pub fn get_available_balance_at_burn_block(&self, burn_block_height: u64) -> u128 {
         if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
             self.get_total_balance()
-        }
-        else {
+        } else {
             self.amount_unlocked
         }
     }
@@ -345,8 +356,7 @@ impl STXBalance {
     pub fn get_locked_balance_at_burn_block(&self, burn_block_height: u64) -> (u128, u64) {
         if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
             (0, 0)
-        }
-        else {
+        } else {
             (self.amount_locked, self.unlock_height)
         }
     }

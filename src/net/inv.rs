@@ -2180,7 +2180,11 @@ impl PeerNetwork {
             ) as u16,
         };
 
-        test_debug!("{:?}: self-requesting {:?}", &self.local_peer, &getblocksinv);
+        test_debug!(
+            "{:?}: self-requesting {:?}",
+            &self.local_peer,
+            &getblocksinv
+        );
 
         let blocks_inv = ConversationP2P::make_getblocksinv_response(
             &self.local_peer,
@@ -3898,8 +3902,7 @@ mod test {
                 assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
                 if i > 0 {
                     assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-                }
-                else {
+                } else {
                     assert!(!peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
                 }
             }
@@ -4133,8 +4136,7 @@ mod test {
                 assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
                 if i > 0 {
                     assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-                }
-                else {
+                } else {
                     assert!(!peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
                 }
             }

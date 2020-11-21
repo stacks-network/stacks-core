@@ -193,7 +193,7 @@ impl StacksTransactionReceipt {
     pub fn from_poison_microblock(
         tx: StacksTransaction,
         result: Value,
-        cost: ExecutionCost
+        cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -202,7 +202,7 @@ impl StacksTransactionReceipt {
             result: result,
             stx_burned: 0,
             contract_analysis: None,
-            execution_cost: cost
+            execution_cost: cost,
         }
     }
 }
@@ -332,8 +332,9 @@ impl StacksChainState {
         let cur_burn_block_height = clarity_tx
             .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height());
 
-        let consolidated_balance =
-            payer_account.stx_balance.get_available_balance_at_burn_block(cur_burn_block_height as u64);
+        let consolidated_balance = payer_account
+            .stx_balance
+            .get_available_balance_at_burn_block(cur_burn_block_height as u64);
 
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);
@@ -843,15 +844,17 @@ impl StacksChainState {
                 }
 
                 let cost_before = clarity_tx.cost_so_far();
-                let res = clarity_tx.run_poison_microblock(&origin_account.principal, mblock_header_1, mblock_header_2)?;
+                let res = clarity_tx.run_poison_microblock(
+                    &origin_account.principal,
+                    mblock_header_1,
+                    mblock_header_2,
+                )?;
                 let mut cost = clarity_tx.cost_so_far();
-                cost.sub(&cost_before).expect("BUG: running poison microblock tx has negative cost");
+                cost.sub(&cost_before)
+                    .expect("BUG: running poison microblock tx has negative cost");
 
-                let receipt = StacksTransactionReceipt::from_poison_microblock(
-                    tx.clone(),
-                    res,
-                    cost
-                );
+                let receipt =
+                    StacksTransactionReceipt::from_poison_microblock(tx.clone(), res, cost);
 
                 Ok(receipt)
             }
@@ -6705,7 +6708,12 @@ pub mod test {
         };
     }
 
-    fn make_signed_microblock(block_privk: &StacksPrivateKey, tx_privk: &StacksPrivateKey, parent_block: BlockHeaderHash, seq: u16) -> StacksMicroblock {
+    fn make_signed_microblock(
+        block_privk: &StacksPrivateKey,
+        tx_privk: &StacksPrivateKey,
+        parent_block: BlockHeaderHash,
+        seq: u16,
+    ) -> StacksMicroblock {
         // make transaction
         let contract = r#"
         (define-public (send-stx (amount uint) (recipient principal))
@@ -6747,9 +6755,9 @@ pub mod test {
                 sequence: seq,
                 prev_block: parent_block,
                 tx_merkle_root: tx_merkle_root,
-                signature: MessageSignature([0u8; 65])
+                signature: MessageSignature([0u8; 65]),
             },
-            txs: txs
+            txs: txs,
         };
         mblock.sign(block_privk).unwrap();
         mblock
@@ -6774,18 +6782,22 @@ pub mod test {
         );
 
         let block_privk = StacksPrivateKey::from_hex(
-            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01"
+            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
         )
         .unwrap();
-        
-        let block_pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
-        
+
+        let block_pubkh =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
+
         let reporter_privk = StacksPrivateKey::from_hex(
             "e606e944014b2a9788d0e3c8defaf6bc44b1e3ab881aaba32faa6e32002b7e1f01",
         )
         .unwrap();
-        let reporter_addr = TransactionAuth::from_p2pkh(&reporter_privk).unwrap().origin().address_testnet();
-        
+        let reporter_addr = TransactionAuth::from_p2pkh(&reporter_privk)
+            .unwrap()
+            .origin()
+            .address_testnet();
+
         let mut conn = chainstate.block_begin(
             &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -6795,31 +6807,36 @@ pub mod test {
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
-        
-        let height_opt = StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
+
+        let height_opt =
+            StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
         assert_eq!(height_opt.unwrap(), 1);
 
         // make poison
-        let mblock_1 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
-        let mblock_2 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
+        let mblock_1 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
+        let mblock_2 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
         assert!(mblock_1 != mblock_2);
 
         // report poison (in the same block)
         let mut tx_poison_microblock = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&reporter_privk).unwrap(),
-            TransactionPayload::PoisonMicroblock(mblock_1.header.clone(), mblock_2.header.clone())
+            TransactionPayload::PoisonMicroblock(mblock_1.header.clone(), mblock_2.header.clone()),
         );
-        
+
         tx_poison_microblock.chain_id = 0x80000000;
         tx_poison_microblock.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock);
         signer.sign_origin(&reporter_privk).unwrap();
         let signed_tx_poison_microblock = signer.get_tx().unwrap();
 
         // process it!
-        let (fee, receipt) = StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock, false).unwrap();
+        let (fee, receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock, false)
+                .unwrap();
 
         // there must be a poison record for this microblock, from the reporter, for the microblock
         // sequence.
@@ -6829,10 +6846,26 @@ pub mod test {
         // result must encode poison information
         let result_data = receipt.result.expect_tuple();
 
-        let height = result_data.get("block_height").unwrap().to_owned().expect_u128();
-        let mblock_pubkh = result_data.get("microblock_pubkey_hash").unwrap().to_owned().expect_buff(20);
-        let reporter = result_data.get("reporter").unwrap().to_owned().expect_principal();
-        let seq = result_data.get("sequence").unwrap().to_owned().expect_u128();
+        let height = result_data
+            .get("block_height")
+            .unwrap()
+            .to_owned()
+            .expect_u128();
+        let mblock_pubkh = result_data
+            .get("microblock_pubkey_hash")
+            .unwrap()
+            .to_owned()
+            .expect_buff(20);
+        let reporter = result_data
+            .get("reporter")
+            .unwrap()
+            .to_owned()
+            .expect_principal();
+        let seq = result_data
+            .get("sequence")
+            .unwrap()
+            .to_owned()
+            .expect_u128();
 
         assert_eq!(height, 1);
         assert_eq!(mblock_pubkh, block_pubkh.0.to_vec());
@@ -6841,7 +6874,7 @@ pub mod test {
 
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_poison_microblock_invalid_transaction() {
         let privk = StacksPrivateKey::from_hex(
@@ -6861,18 +6894,22 @@ pub mod test {
         );
 
         let block_privk = StacksPrivateKey::from_hex(
-            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01"
+            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
         )
         .unwrap();
-        
-        let block_pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
-        
+
+        let block_pubkh =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
+
         let reporter_privk = StacksPrivateKey::from_hex(
             "e606e944014b2a9788d0e3c8defaf6bc44b1e3ab881aaba32faa6e32002b7e1f01",
         )
         .unwrap();
-        let reporter_addr = TransactionAuth::from_p2pkh(&reporter_privk).unwrap().origin().address_testnet();
-        
+        let reporter_addr = TransactionAuth::from_p2pkh(&reporter_privk)
+            .unwrap()
+            .origin()
+            .address_testnet();
+
         let mut conn = chainstate.block_begin(
             &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -6882,8 +6919,9 @@ pub mod test {
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
-        
-        let height_opt = StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
+
+        let height_opt =
+            StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
         assert_eq!(height_opt.unwrap(), 1);
 
         // make poison, but for an unknown microblock fork
@@ -6895,27 +6933,31 @@ pub mod test {
         let mut tx_poison_microblock = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&reporter_privk).unwrap(),
-            TransactionPayload::PoisonMicroblock(mblock_1.header.clone(), mblock_2.header.clone())
+            TransactionPayload::PoisonMicroblock(mblock_1.header.clone(), mblock_2.header.clone()),
         );
-        
+
         tx_poison_microblock.chain_id = 0x80000000;
         tx_poison_microblock.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock);
         signer.sign_origin(&reporter_privk).unwrap();
         let signed_tx_poison_microblock = signer.get_tx().unwrap();
 
         // should fail to process -- the transaction is invalid if it doesn't point to a known
         // microblock pubkey hash.
-        let err = StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock, false).unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Interpreter(::vm::errors::InterpreterError::InvalidPoisonMicroblockTransaction(_)))) = err {
-        }
-        else {
+        let err =
+            StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock, false)
+                .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Interpreter(
+            ::vm::errors::InterpreterError::InvalidPoisonMicroblockTransaction(_),
+        ))) = err
+        {
+        } else {
             assert!(false);
         }
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_poison_microblock_multiple_same_block() {
         let privk = StacksPrivateKey::from_hex(
@@ -6935,12 +6977,13 @@ pub mod test {
         );
 
         let block_privk = StacksPrivateKey::from_hex(
-            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01"
+            "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
         )
         .unwrap();
-        
-        let block_pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
-        
+
+        let block_pubkh =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_privk));
+
         let reporter_privk_1 = StacksPrivateKey::from_hex(
             "e606e944014b2a9788d0e3c8defaf6bc44b1e3ab881aaba32faa6e32002b7e1f01",
         )
@@ -6949,9 +6992,15 @@ pub mod test {
             "ca7ba28b9604418413a16d74e7dbe5c3e0012281183f590940bab0208c40faee01",
         )
         .unwrap();
-        let reporter_addr_1 = TransactionAuth::from_p2pkh(&reporter_privk_1).unwrap().origin().address_testnet();
-        let reporter_addr_2 = TransactionAuth::from_p2pkh(&reporter_privk_2).unwrap().origin().address_testnet();
-        
+        let reporter_addr_1 = TransactionAuth::from_p2pkh(&reporter_privk_1)
+            .unwrap()
+            .origin()
+            .address_testnet();
+        let reporter_addr_2 = TransactionAuth::from_p2pkh(&reporter_privk_2)
+            .unwrap()
+            .origin()
+            .address_testnet();
+
         let mut conn = chainstate.block_begin(
             &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -6961,58 +7010,73 @@ pub mod test {
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
-        
-        let height_opt = StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
+
+        let height_opt =
+            StacksChainState::has_microblock_pubkey_hash(&mut conn, &block_pubkh).unwrap();
         assert_eq!(height_opt.unwrap(), 1);
 
         // make two sets of poisons
-        let mblock_1_1 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
-        let mblock_1_2 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
+        let mblock_1_1 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
+        let mblock_1_2 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x11; 32]), 123);
         assert!(mblock_1_1 != mblock_1_2);
 
         // report poison (in the same block)
         let mut tx_poison_microblock_1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&reporter_privk_1).unwrap(),
-            TransactionPayload::PoisonMicroblock(mblock_1_1.header.clone(), mblock_1_2.header.clone())
+            TransactionPayload::PoisonMicroblock(
+                mblock_1_1.header.clone(),
+                mblock_1_2.header.clone(),
+            ),
         );
-        
+
         tx_poison_microblock_1.chain_id = 0x80000000;
         tx_poison_microblock_1.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock_1);
         signer.sign_origin(&reporter_privk_1).unwrap();
         let signed_tx_poison_microblock_1 = signer.get_tx().unwrap();
-        
+
         // make two sets of poisons
-        let mblock_2_1 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x10; 32]), 122);
-        let mblock_2_2 = make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x10; 32]), 122);
+        let mblock_2_1 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x10; 32]), 122);
+        let mblock_2_2 =
+            make_signed_microblock(&block_privk, &privk, BlockHeaderHash([0x10; 32]), 122);
         assert!(mblock_2_1 != mblock_2_2);
 
         // report poison (in the same block)
         let mut tx_poison_microblock_2 = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&reporter_privk_2).unwrap(),
-            TransactionPayload::PoisonMicroblock(mblock_2_1.header.clone(), mblock_2_2.header.clone())
+            TransactionPayload::PoisonMicroblock(
+                mblock_2_1.header.clone(),
+                mblock_2_2.header.clone(),
+            ),
         );
-        
+
         tx_poison_microblock_2.chain_id = 0x80000000;
         tx_poison_microblock_2.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock_2);
         signer.sign_origin(&reporter_privk_2).unwrap();
         let signed_tx_poison_microblock_2 = signer.get_tx().unwrap();
 
         // process it!
-        let (fee, receipt) = StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock_1, false).unwrap();
+        let (fee, receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock_1, false)
+                .unwrap();
 
         // there must be a poison record for this microblock, from the reporter, for the microblock
         // sequence.
         let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
         assert_eq!(report_opt.unwrap(), (reporter_addr_1, 123));
-        
+
         // process the second one!
-        let (fee, receipt) = StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock_2, false).unwrap();
+        let (fee, receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock_2, false)
+                .unwrap();
 
         // there must be a poison record for this microblock, from the reporter, for the microblock
         // sequence.  Moreover, since the fork was earlier in the stream, the second reporter gets
@@ -7023,10 +7087,26 @@ pub mod test {
         // result must encode poison information
         let result_data = receipt.result.expect_tuple();
 
-        let height = result_data.get("block_height").unwrap().to_owned().expect_u128();
-        let mblock_pubkh = result_data.get("microblock_pubkey_hash").unwrap().to_owned().expect_buff(20);
-        let reporter = result_data.get("reporter").unwrap().to_owned().expect_principal();
-        let seq = result_data.get("sequence").unwrap().to_owned().expect_u128();
+        let height = result_data
+            .get("block_height")
+            .unwrap()
+            .to_owned()
+            .expect_u128();
+        let mblock_pubkh = result_data
+            .get("microblock_pubkey_hash")
+            .unwrap()
+            .to_owned()
+            .expect_buff(20);
+        let reporter = result_data
+            .get("reporter")
+            .unwrap()
+            .to_owned()
+            .expect_principal();
+        let seq = result_data
+            .get("sequence")
+            .unwrap()
+            .to_owned()
+            .expect_u128();
 
         assert_eq!(height, 1);
         assert_eq!(mblock_pubkh, block_pubkh.0.to_vec());

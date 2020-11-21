@@ -292,12 +292,12 @@ fn should_succeed_mining_valid_txs() {
 
     let num_rounds = 6;
     let mut run_loop = RunLoop::new(conf.clone());
-    
+
     // Use tenure's hook for submitting transactions
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
         let header_hash = chain_tip.block.block_hash();
         let consensus_hash = chain_tip.metadata.consensus_hash;
-        
+
         let mut chainstate_copy = tenure.open_chainstate();
 
         match round {

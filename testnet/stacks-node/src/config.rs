@@ -352,11 +352,11 @@ impl Config {
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
-                    microblock_frequency:
-                        node.microblock_frequency
+                    microblock_frequency: node
+                        .microblock_frequency
                         .unwrap_or(default_node_config.microblock_frequency),
-                    max_microblocks:
-                        node.max_microblocks
+                    max_microblocks: node
+                        .max_microblocks
                         .unwrap_or(default_node_config.max_microblocks),
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks

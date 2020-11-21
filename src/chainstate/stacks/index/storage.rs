@@ -1141,7 +1141,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             }
         }
     }
-    
+
     pub fn sqlite_tx_mut(&mut self) -> &mut Transaction<'a> {
         match &mut self.0.db {
             SqliteConnection::Tx(ref mut tx) => tx,
@@ -1369,11 +1369,11 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // opening a different Trie than the one we're extending
-        self.data.cur_block_id = Some(trie_sql::get_block_identifier(&self.db, bhh)
-                                      .map_err(|e| {
-                                          warn!("Failed to load identifier for block {}", &bhh);
-                                          e
-                                        })?);
+        self.data.cur_block_id =
+            Some(trie_sql::get_block_identifier(&self.db, bhh).map_err(|e| {
+                warn!("Failed to load identifier for block {}", &bhh);
+                e
+            })?);
         self.data.cur_block = bhh.clone();
 
         Ok(())

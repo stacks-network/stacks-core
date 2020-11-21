@@ -411,15 +411,18 @@ fn microblock_integration_test() {
     // put it into a microblock
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
-        let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
+        let tip_hash =
+            StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
         let privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
             StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
-        chainstate.reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash).unwrap();
-        
+        chainstate
+            .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
+            .unwrap();
+
         make_microblock(
             &privk,
             &mut chainstate,
@@ -556,10 +559,18 @@ fn microblock_integration_test() {
     // limited by chaining
     for next_nonce in 2..5 {
         // verify that the microblock miner can automatically pick up transactions
-        debug!("Try to send unconfirmed tx from {} to {}", &spender_addr, &recipient);
-        let unconfirmed_tx_bytes =
-            make_stacks_transfer_mblock_only(&spender_sk, next_nonce, 1000, &recipient.into(), 1000);
-        
+        debug!(
+            "Try to send unconfirmed tx from {} to {}",
+            &spender_addr, &recipient
+        );
+        let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+            &spender_sk,
+            next_nonce,
+            1000,
+            &recipient.into(),
+            1000,
+        );
+
         let path = format!("{}/v2/transactions", &http_origin);
         let res = client
             .post(&path)
@@ -585,7 +596,10 @@ fn microblock_integration_test() {
         // wait at least two p2p refreshes
         // so it can produce the microblock
         for i in 0..11 {
-            debug!("wait {} more seconds for microblock miner to find our transaction...", 11 - i);
+            debug!(
+                "wait {} more seconds for microblock miner to find our transaction...",
+                11 - i
+            );
             sleep_ms(1000);
         }
 
@@ -613,7 +627,10 @@ fn microblock_integration_test() {
 
         // advanced!
         assert_eq!(res.nonce, next_nonce + 1);
-        assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), (96300 - 2000 * (next_nonce - 1)) as u128);
+        assert_eq!(
+            u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+            (96300 - 2000 * (next_nonce - 1)) as u128
+        );
     }
 
     channel.stop_chains_coordinator();
@@ -701,10 +718,10 @@ fn size_check_integration_test() {
 
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
     // let's query the miner's account nonce:
 
     eprintln!("Miner account: {}", miner_account);

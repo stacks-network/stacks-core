@@ -65,10 +65,7 @@ pub struct MemPoolAdmitter {
 }
 
 impl MemPoolAdmitter {
-    pub fn new(
-        cur_block: BlockHeaderHash,
-        cur_consensus_hash: ConsensusHash,
-    ) -> MemPoolAdmitter {
+    pub fn new(cur_block: BlockHeaderHash, cur_consensus_hash: ConsensusHash) -> MemPoolAdmitter {
         MemPoolAdmitter {
             cur_block,
             cur_consensus_hash,
@@ -340,10 +337,7 @@ impl MemPoolDB {
 
         let mut path = PathBuf::from(chainstate.root_path.clone());
 
-        let admitter = MemPoolAdmitter::new(
-            BlockHeaderHash([0u8; 32]),
-            ConsensusHash([0u8; 20]),
-        );
+        let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
         path.push("mempool.db");
         let db_path = path
@@ -921,9 +915,7 @@ impl MemPoolDB {
             block_hash
         );
 
-        let height = match chainstate
-            .get_stacks_block_height(consensus_hash, block_hash)
-        {
+        let height = match chainstate.get_stacks_block_height(consensus_hash, block_hash) {
             Ok(Some(h)) => h,
             Ok(None) => {
                 if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
@@ -1001,7 +993,14 @@ impl MemPoolDB {
         tx: StacksTransaction,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(&mut mempool_tx, chainstate, consensus_hash, block_hash, tx, true)?;
+        MemPoolDB::tx_submit(
+            &mut mempool_tx,
+            chainstate,
+            consensus_hash,
+            block_hash,
+            tx,
+            true,
+        )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
     }
@@ -1018,7 +1017,14 @@ impl MemPoolDB {
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(&mut mempool_tx, chainstate, consensus_hash, block_hash, tx, false)?;
+        MemPoolDB::tx_submit(
+            &mut mempool_tx,
+            chainstate,
+            consensus_hash,
+            block_hash,
+            tx,
+            false,
+        )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
     }

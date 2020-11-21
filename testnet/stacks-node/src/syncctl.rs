@@ -297,12 +297,9 @@ impl PoxSyncWatchdog {
             return 1.0;
         }
 
-        let block_wait_times = StacksChainState::measure_block_wait_time(
-            &chainstate.db(),
-            start_height,
-            end_height,
-        )
-        .expect("BUG: failed to query chainstate block-processing times");
+        let block_wait_times =
+            StacksChainState::measure_block_wait_time(&chainstate.db(), start_height, end_height)
+                .expect("BUG: failed to query chainstate block-processing times");
 
         PoxSyncWatchdog::hilo_filter_avg(&block_wait_times)
     }

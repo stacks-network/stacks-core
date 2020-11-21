@@ -505,11 +505,13 @@ impl Relayer {
             Ok(Some((_, sn))) => {
                 debug!(
                     "Parent of {}/{} is {}/{}",
-                    consensus_hash, block.block_hash(),
-                    sn.consensus_hash, sn.winning_stacks_block_hash
+                    consensus_hash,
+                    block.block_hash(),
+                    sn.consensus_hash,
+                    sn.winning_stacks_block_hash
                 );
                 sn
-            },
+            }
             Ok(None) => {
                 debug!(
                     "Received block with unknown parent snapshot: {}/{}",
@@ -824,7 +826,10 @@ impl Relayer {
                     };
                 let index_block_hash = mblock_data.index_anchor_block.clone();
                 for mblock in mblock_data.microblocks.iter() {
-                    let need_relay = !chainstate.has_descendant_microblock_indexed(&index_block_hash, &mblock.block_hash())?;
+                    let need_relay = !chainstate.has_descendant_microblock_indexed(
+                        &index_block_hash,
+                        &mblock.block_hash(),
+                    )?;
                     match chainstate.preprocess_streamed_microblock(
                         &consensus_hash,
                         &anchored_block_hash,
@@ -1022,17 +1027,16 @@ impl Relayer {
         chainstate: &StacksChainState,
         mempool: &mut MemPoolDB,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let chain_height = 
-            match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => tip.height,
-                None => {
-                    debug!(
-                        "No Stacks chain tip; dropping {} transaction(s)",
-                        network_result.pushed_transactions.len()
-                    );
-                    return Ok(vec![]);
-                }
-            };
+        let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
+            Some(tip) => tip.height,
+            None => {
+                debug!(
+                    "No Stacks chain tip; dropping {} transaction(s)",
+                    network_result.pushed_transactions.len()
+                );
+                return Ok(vec![]);
+            }
+        };
 
         let mut ret = vec![];
 
@@ -2794,7 +2798,16 @@ mod test {
                             // push blocks and microblocks in order, and push a
                             // transaction that can only be validated once the
                             // block and microblocks are processed.
-                            let ((block_consensus_hash, block, microblocks_consensus_hash, microblocks_block_hash, microblocks), idx) = {
+                            let (
+                                (
+                                    block_consensus_hash,
+                                    block,
+                                    microblocks_consensus_hash,
+                                    microblocks_block_hash,
+                                    microblocks,
+                                ),
+                                idx,
+                            ) = {
                                 let block_data = blocks_and_microblocks.borrow();
                                 let mut idx = blocks_idx.borrow_mut();
 
@@ -2809,7 +2822,16 @@ mod test {
 
                                 let block = block_data[*idx].1.clone();
                                 let block_consensus_hash = block_data[*idx].0.clone();
-                                ((block_consensus_hash, block, microblocks_consensus_hash, microblocks_block_hash, microblocks), *idx)
+                                (
+                                    (
+                                        block_consensus_hash,
+                                        block,
+                                        microblocks_consensus_hash,
+                                        microblocks_block_hash,
+                                        microblocks,
+                                    ),
+                                    *idx,
+                                )
                             };
 
                             if !done_flag {
@@ -2829,7 +2851,7 @@ mod test {
                                     microblocks_block_hash,
                                     microblocks,
                                 );
-                                
+
                                 test_debug!(
                                     "Push block {}/{} and microblocks (idx = {})",
                                     &block_consensus_hash,
@@ -2921,8 +2943,10 @@ mod test {
             }
 
             // peer 1 should have 1 tx per chain tip
-            for ((consensus_hash, block, _), sent_tx) in
-                blocks_and_microblocks.iter().skip(1).zip(expected_txs.iter())
+            for ((consensus_hash, block, _), sent_tx) in blocks_and_microblocks
+                .iter()
+                .skip(1)
+                .zip(expected_txs.iter())
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
@@ -3073,7 +3097,8 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
+                        peer.network.antientropy_last_burnchain_tip =
+                            BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let done_flag = *done.borrow();
@@ -3200,7 +3225,11 @@ mod test {
                         let mut expected_txs = sent_txs.borrow_mut();
                         expected_txs.push(tx.clone());
 
-                        test_debug!("Broadcast {}/{} and its microblocks", &consensus_hash, &block.block_hash());
+                        test_debug!(
+                            "Broadcast {}/{} and its microblocks",
+                            &consensus_hash,
+                            &block.block_hash()
+                        );
                         // next block
                         broadcast_block(&mut peers[0], vec![], consensus_hash.clone(), block);
                         broadcast_microblocks(
@@ -3380,7 +3409,8 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
+                        peer.network.antientropy_last_burnchain_tip =
+                            BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let tip_opt = peers[1]
@@ -3502,7 +3532,8 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
+                        peer.network.antientropy_last_burnchain_tip =
+                            BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let mut i = idx.borrow_mut();

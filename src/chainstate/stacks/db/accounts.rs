@@ -166,7 +166,7 @@ impl StacksChainState {
         clarity_tx
             .with_clarity_db(|ref mut db| {
                 let mut snapshot = db.get_stx_balance_snapshot(principal);
-                
+
                 // last line of defense: if we don't have sufficient funds, panic.
                 // This should be checked by the block validation logic.
                 if !snapshot.can_transfer(amount as u128) {
@@ -199,12 +199,8 @@ impl StacksChainState {
 
                 let new_balance = snapshot.get_available_balance();
                 snapshot.save();
-                
-                info!(
-                    "{} credited: {} uSTX",
-                    principal,
-                    new_balance
-                );
+
+                info!("{} credited: {} uSTX", principal, new_balance);
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
@@ -225,11 +221,7 @@ impl StacksChainState {
                 snapshot.set_balance(balance);
                 snapshot.save();
 
-                info!(
-                    "{} credited (genesis): {} uSTX",
-                    principal,
-                    total_balance
-                );
+                info!("{} credited (genesis): {} uSTX", principal, total_balance);
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
@@ -268,10 +260,13 @@ impl StacksChainState {
             return Err(Error::PoxInsufficientBalance);
         }
         snapshot.lock_tokens(lock_amount, unlock_burn_height);
-        
+
         debug!(
             "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            snapshot.balance().amount_locked, snapshot.balance().amount_unlocked, unlock_burn_height, principal
+            snapshot.balance().amount_locked,
+            snapshot.balance().amount_unlocked,
+            unlock_burn_height,
+            principal
         );
 
         snapshot.save();
@@ -387,7 +382,10 @@ impl StacksChainState {
 
     /// Find the reported poison-microblock data for this block
     /// Returns None if there are no forks.
-    pub fn get_poison_microblock_report<T: ClarityConnection>(clarity_tx: &mut T, height: u64) -> Result<Option<(StacksAddress, u16)>, Error> {
+    pub fn get_poison_microblock_report<T: ClarityConnection>(
+        clarity_tx: &mut T,
+        height: u64,
+    ) -> Result<Option<(StacksAddress, u16)>, Error> {
         let principal_seq_opt = clarity_tx
             .with_clarity_db_readonly(|ref mut db| {
                 Ok(db.get_microblock_poison_report(height as u32))
@@ -425,7 +423,7 @@ impl StacksChainState {
         );
         Ok(rows)
     }
-    
+
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
     pub fn get_scheduled_block_rewards<'a>(
         tx: &mut StacksDBTx<'a>,
@@ -495,7 +493,6 @@ impl StacksChainState {
         users: &Vec<MinerPaymentSchedule>,
         poison_reporter_opt: Option<&StacksAddress>,
     ) -> MinerReward {
-
         ////////////////////// coinbase reward total /////////////////////////////////
         let (this_burn_total, other_burn_total) = {
             if participant.address == miner.address {
@@ -547,33 +544,38 @@ impl StacksChainState {
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
         // destroyed if this happens.
-        let (recipient, coinbase_reward) = 
-            if let Some(reporter_address) = poison_reporter_opt {
-                if participant.address == miner.address {
-                    // the poison-reporter, not the miner, gets a (fraction of the) reward
-                    debug!("{:?} will recieve poison-microblock commission {}", &reporter_address.to_string(), StacksChainState::poison_microblock_commission(coinbase_reward));
-                    (reporter_address.clone(), StacksChainState::poison_microblock_commission(coinbase_reward))
-                }
-                else {
-                    // users that helped a miner that reported a poison-microblock get nothing
-                    (StacksAddress::burn_address(mainnet), coinbase_reward)
-                }
+        let (recipient, coinbase_reward) = if let Some(reporter_address) = poison_reporter_opt {
+            if participant.address == miner.address {
+                // the poison-reporter, not the miner, gets a (fraction of the) reward
+                debug!(
+                    "{:?} will recieve poison-microblock commission {}",
+                    &reporter_address.to_string(),
+                    StacksChainState::poison_microblock_commission(coinbase_reward)
+                );
+                (
+                    reporter_address.clone(),
+                    StacksChainState::poison_microblock_commission(coinbase_reward),
+                )
+            } else {
+                // users that helped a miner that reported a poison-microblock get nothing
+                (StacksAddress::burn_address(mainnet), coinbase_reward)
             }
-            else {
-                // no poison microblock reported
-                (participant.address, coinbase_reward)
-            };
+        } else {
+            // no poison microblock reported
+            (participant.address, coinbase_reward)
+        };
 
         // TODO: missing transaction fee calculation
         let tx_fees_anchored = 0;
         let tx_fees_streamed_produced = 0;
         let tx_fees_streamed_confirmed = 0;
-        debug!("{}: {} coinbase, {} anchored fees, {} streamed fees, {} confirmed fees",
-               &recipient.to_string(),
-               coinbase_reward,
-               tx_fees_anchored,
-               tx_fees_streamed_produced,
-               tx_fees_streamed_confirmed
+        debug!(
+            "{}: {} coinbase, {} anchored fees, {} streamed fees, {} confirmed fees",
+            &recipient.to_string(),
+            coinbase_reward,
+            tx_fees_anchored,
+            tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed
         );
 
         // ("bad miner! no coinbase!")
@@ -593,14 +595,14 @@ impl StacksChainState {
     pub fn find_mature_miner_rewards<'a>(
         clarity_tx: &mut ClarityTx<'a>,
         tip: &StacksHeaderInfo,
-        mut latest_matured_miners: Vec<MinerPaymentSchedule>
+        mut latest_matured_miners: Vec<MinerPaymentSchedule>,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
         if tip.block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
-        
+
         let reward_height = tip.block_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
@@ -608,33 +610,50 @@ impl StacksChainState {
         assert!(latest_matured_miners[0].miner);
 
         let users = latest_matured_miners.split_off(1);
-        let miner = latest_matured_miners.pop().expect("BUG: no matured miners despite prior check");
-        
+        let miner = latest_matured_miners
+            .pop()
+            .expect("BUG: no matured miners despite prior check");
+
         let reward_info = MinerRewardInfo {
             from_stacks_block_hash: miner.block_hash.clone(),
-            from_block_consensus_hash: miner.consensus_hash.clone()
+            from_block_consensus_hash: miner.consensus_hash.clone(),
         };
-        
+
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
-        let poison_recipient_opt = StacksChainState::get_poison_microblock_report(clarity_tx, reward_height)?
-            .map(|(reporter, _)| reporter);
+        let poison_recipient_opt =
+            StacksChainState::get_poison_microblock_report(clarity_tx, reward_height)?
+                .map(|(reporter, _)| reporter);
 
         if let Some(ref _poison_reporter) = poison_recipient_opt.as_ref() {
-            test_debug!("Poison-microblock reporter {} at height {}", &_poison_reporter.to_string(), reward_height);
-        }
-        else {
+            test_debug!(
+                "Poison-microblock reporter {} at height {}",
+                &_poison_reporter.to_string(),
+                reward_height
+            );
+        } else {
             test_debug!("No poison-microblock report at height {}", reward_height);
         }
 
         // calculate miner reward
-        let miner_reward =
-            StacksChainState::calculate_miner_reward(mainnet, &miner, &miner, &users, poison_recipient_opt.as_ref());
+        let miner_reward = StacksChainState::calculate_miner_reward(
+            mainnet,
+            &miner,
+            &miner,
+            &users,
+            poison_recipient_opt.as_ref(),
+        );
 
         // calculate reward for each user-support-burn
         let mut user_rewards = vec![];
         for user_reward in users.iter() {
-            let reward = StacksChainState::calculate_miner_reward(mainnet, user_reward, &miner, &users, poison_recipient_opt.as_ref());
+            let reward = StacksChainState::calculate_miner_reward(
+                mainnet,
+                user_reward,
+                &miner,
+                &users,
+                poison_recipient_opt.as_ref(),
+            );
             user_rewards.push(reward);
         }
 
@@ -767,7 +786,7 @@ mod test {
             &user_burns,
             new_tip.total_liquid_ustx,
             &ExecutionCost::zero(),
-            123
+            123,
         )
         .unwrap();
         tx.commit().unwrap();
@@ -891,11 +910,14 @@ mod test {
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
             let payments_0 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
+                    .unwrap();
             let payments_1 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
+                    .unwrap();
             let payments_2 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
+                    .unwrap();
 
             let mut expected_user_support = user_reward.clone();
             expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
@@ -1012,7 +1034,13 @@ mod test {
                 .unwrap();
         let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
 
-        let miner_reward = StacksChainState::calculate_miner_reward(false, &participant, &participant, &vec![], None);
+        let miner_reward = StacksChainState::calculate_miner_reward(
+            false,
+            &participant,
+            &participant,
+            &vec![],
+            None,
+        );
 
         // miner should have received the entire coinbase
         assert_eq!(miner_reward.coinbase, 500);
@@ -1032,9 +1060,21 @@ mod test {
 
         let miner = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
         let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
-        
-        let reward_miner_1 = StacksChainState::calculate_miner_reward(false, &miner, &miner, &vec![user.clone()], None);
-        let reward_user_1 = StacksChainState::calculate_miner_reward(false, &user, &miner, &vec![user.clone()], None);
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(
+            false,
+            &miner,
+            &miner,
+            &vec![user.clone()],
+            None,
+        );
+        let reward_user_1 = StacksChainState::calculate_miner_reward(
+            false,
+            &user,
+            &miner,
+            &vec![user.clone()],
+            None,
+        );
 
         // miner should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);

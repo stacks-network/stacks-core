@@ -60,7 +60,7 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
-    InvalidPoisonMicroblockTransaction(String)
+    InvalidPoisonMicroblockTransaction(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

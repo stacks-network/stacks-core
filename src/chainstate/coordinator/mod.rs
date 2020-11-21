@@ -328,9 +328,12 @@ impl<'a, T: BlockEventDispatcher>
                             if let Err(e) = inst.handle_new_stacks_block() {
                                 warn!("Error processing new stacks block: {:?}", e);
                             }
-                        },
+                        }
                         Err(e) => {
-                            error!("FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}", &e);
+                            error!(
+                                "FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}",
+                                &e
+                            );
                             panic!();
                         }
                     }

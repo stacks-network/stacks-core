@@ -143,7 +143,11 @@ impl UnconfirmedState {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq)
                     || (last_mblock.is_none() && mblock.header.sequence != 0)
                 {
-                    debug!("Skip {} at {} (already represented)", &mblock.block_hash(), mblock.header.sequence);
+                    debug!(
+                        "Skip {} at {} (already represented)",
+                        &mblock.block_hash(),
+                        mblock.header.sequence
+                    );
                     continue;
                 }
 
@@ -151,7 +155,10 @@ impl UnconfirmedState {
                 let mblock_hash = mblock.block_hash();
                 let mblock_header = mblock.header.clone();
 
-                debug!("Apply microblock {} ({}) to unconfirmed state", &mblock_hash, mblock.header.sequence);
+                debug!(
+                    "Apply microblock {} ({}) to unconfirmed state",
+                    &mblock_hash, mblock.header.sequence
+                );
 
                 let (stx_fees, stx_burns, mut receipts) =
                     match StacksChainState::process_microblocks_transactions(
@@ -178,7 +185,8 @@ impl UnconfirmedState {
                     let mut total = 0;
                     for tx in mblock.txs.iter() {
                         let mut bytes = vec![];
-                        tx.consensus_serialize(&mut bytes).expect("BUG: failed to serialize valid microblock");
+                        tx.consensus_serialize(&mut bytes)
+                            .expect("BUG: failed to serialize valid microblock");
                         total += bytes.len();
                     }
                     total as u64
@@ -266,8 +274,7 @@ impl StacksChainState {
         anchored_block_id: StacksBlockId,
     ) -> Result<(UnconfirmedState, u128, u128, Vec<StacksTransactionReceipt>), Error> {
         debug!("Make new unconfirmed state off of {}", &anchored_block_id);
-        let mut unconfirmed_state =
-            UnconfirmedState::new(self, anchored_block_id)?;
+        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
         Ok((unconfirmed_state, fees, burns, receipts))
     }
@@ -320,7 +327,10 @@ impl StacksChainState {
             );
             let res = unconfirmed_state.refresh(self, burn_dbconn);
             if res.is_ok() {
-                debug!("Unconfirmed chain tip is {}", &unconfirmed_state.unconfirmed_chain_tip);
+                debug!(
+                    "Unconfirmed chain tip is {}",
+                    &unconfirmed_state.unconfirmed_chain_tip
+                );
             }
             res
         } else {
@@ -346,18 +356,27 @@ impl StacksChainState {
         let unconfirmed_state_opt = self.unconfirmed_state.take();
         if let Some(unconfirmed_state) = unconfirmed_state_opt {
             if unconfirmed_state.confirmed_chain_tip == canonical_tip {
-                debug!("Unconfirmed chain tip is {}", &unconfirmed_state.unconfirmed_chain_tip);
+                debug!(
+                    "Unconfirmed chain tip is {}",
+                    &unconfirmed_state.unconfirmed_chain_tip
+                );
                 self.unconfirmed_state = Some(unconfirmed_state);
                 Ok(())
             } else {
                 let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-                debug!("New switched-over unconfirmed chain tip is {}", &new_unconfirmed_state.unconfirmed_chain_tip);
+                debug!(
+                    "New switched-over unconfirmed chain tip is {}",
+                    &new_unconfirmed_state.unconfirmed_chain_tip
+                );
                 self.unconfirmed_state = Some(new_unconfirmed_state);
                 Ok(())
             }
         } else {
             let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-            debug!("New initially-loaded unconfirmed chain tip is {}", &new_unconfirmed_state.unconfirmed_chain_tip);
+            debug!(
+                "New initially-loaded unconfirmed chain tip is {}",
+                &new_unconfirmed_state.unconfirmed_chain_tip
+            );
             self.unconfirmed_state = Some(new_unconfirmed_state);
             Ok(())
         }
@@ -450,8 +469,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db())
-                            .unwrap(),
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -675,8 +693,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db())
-                            .unwrap(),
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
