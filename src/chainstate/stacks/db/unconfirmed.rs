@@ -45,35 +45,31 @@ pub struct UnconfirmedState {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
     pub clarity_inst: ClarityInstance,
+    pub considered: HashSet<Txid>,
+    pub cost_so_far: ExecutionCost,
+    pub bytes_so_far: u64,
 
-    last_mblock: Option<BlockHeaderHash>,
-    last_mblock_seq: u16,
+    pub last_mblock: Option<StacksMicroblockHeader>,
+    pub last_mblock_seq: u16,
 }
 
 impl UnconfirmedState {
     pub fn new(
         chainstate: &StacksChainState,
         tip: StacksBlockId,
-        cost_so_far: ExecutionCost,
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let mut microblock_budget = chainstate.block_limit.clone();
-        microblock_budget.sub(&cost_so_far).map_err(|_e| {
-            Error::CostOverflowError(
-                chainstate.block_limit.clone(),
-                cost_so_far.clone(),
-                cost_so_far.clone(),
-            )
-        })?;
-
-        let clarity_instance = ClarityInstance::new(marf, microblock_budget);
+        let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
+            considered: HashSet::new(),
+            cost_so_far: ExecutionCost::zero(),
+            bytes_so_far: 0,
 
             last_mblock: None,
             last_mblock_seq: 0,
@@ -92,6 +88,9 @@ impl UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
+            considered: HashSet::new(),
+            cost_so_far: ExecutionCost::zero(),
+            bytes_so_far: 0,
 
             last_mblock: None,
             last_mblock_seq: u16::max_value(),
@@ -127,11 +126,14 @@ impl UnconfirmedState {
         let mut total_fees = 0;
         let mut total_burns = 0;
         let mut all_receipts = vec![];
+        let mut all_txs = HashSet::new();
+        let new_cost;
+        let mut new_bytes = 0;
 
         {
-            let mut clarity_tx = StacksChainState::begin_unconfirmed(
+            let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                chainstate.headers_db(),
+                chainstate.db(),
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
@@ -141,16 +143,20 @@ impl UnconfirmedState {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq)
                     || (last_mblock.is_none() && mblock.header.sequence != 0)
                 {
+                    debug!("Skip {} at {} (already represented)", &mblock.block_hash(), mblock.header.sequence);
                     continue;
                 }
 
                 let seq = mblock.header.sequence;
                 let mblock_hash = mblock.block_hash();
+                let mblock_header = mblock.header.clone();
+
+                debug!("Apply microblock {} ({}) to unconfirmed state", &mblock_hash, mblock.header.sequence);
 
                 let (stx_fees, stx_burns, mut receipts) =
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
-                        &vec![mblock],
+                        &vec![mblock.clone()],
                     ) {
                         Ok(x) => x,
                         Err((Error::InvalidStacksMicroblock(msg, _), hdr)) => {
@@ -166,15 +172,32 @@ impl UnconfirmedState {
                 total_burns += stx_burns;
                 all_receipts.append(&mut receipts);
 
-                last_mblock = Some(mblock_hash);
+                last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
+                new_bytes = {
+                    let mut total = 0;
+                    for tx in mblock.txs.iter() {
+                        let mut bytes = vec![];
+                        tx.consensus_serialize(&mut bytes).expect("BUG: failed to serialize valid microblock");
+                        total += bytes.len();
+                    }
+                    total as u64
+                };
+
+                for tx in mblock.txs {
+                    all_txs.insert(tx.txid());
+                }
             }
 
+            new_cost = clarity_tx.cost_so_far();
             clarity_tx.commit_unconfirmed();
         };
 
         self.last_mblock = last_mblock;
         self.last_mblock_seq = last_mblock_seq;
+        self.considered.extend(all_txs);
+        self.cost_so_far = new_cost;
+        self.bytes_so_far += new_bytes;
 
         Ok((total_fees, total_burns, all_receipts))
     }
@@ -193,7 +216,7 @@ impl UnconfirmedState {
             };
 
         StacksChainState::load_descendant_staging_microblock_stream(
-            &chainstate.blocks_db,
+            &chainstate.db(),
             &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
             0,
             u16::max_value(),
@@ -225,7 +248,7 @@ impl StacksChainState {
             "Drop unconfirmed state off of {}",
             &unconfirmed.confirmed_chain_tip
         );
-        let clarity_tx = StacksChainState::begin_unconfirmed(
+        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
             self.config(),
             &NULL_HEADER_DB,
             &mut unconfirmed.clarity_inst,
@@ -241,10 +264,10 @@ impl StacksChainState {
         &self,
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
-        anchored_block_cost: ExecutionCost,
     ) -> Result<(UnconfirmedState, u128, u128, Vec<StacksTransactionReceipt>), Error> {
+        debug!("Make new unconfirmed state off of {}", &anchored_block_id);
         let mut unconfirmed_state =
-            UnconfirmedState::new(self, anchored_block_id, anchored_block_cost)?;
+            UnconfirmedState::new(self, anchored_block_id)?;
         let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
         Ok((unconfirmed_state, fees, burns, receipts))
     }
@@ -274,13 +297,9 @@ impl StacksChainState {
             }
         }
 
-        let block_cost =
-            StacksChainState::get_stacks_block_anchored_cost(self.headers_db(), &canonical_tip)?
-                .ok_or_else(|| Error::NoSuchBlockError)?;
-
         // tip changed, or we don't have unconfirmed state yet
         let (new_unconfirmed_state, fees, burns, receipts) =
-            self.make_unconfirmed_state(burn_dbconn, canonical_tip, block_cost)?;
+            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
@@ -299,7 +318,11 @@ impl StacksChainState {
                 "Refresh unconfirmed state off of {}",
                 &unconfirmed_state.confirmed_chain_tip
             );
-            unconfirmed_state.refresh(self, burn_dbconn)
+            let res = unconfirmed_state.refresh(self, burn_dbconn);
+            if res.is_ok() {
+                debug!("Unconfirmed chain tip is {}", &unconfirmed_state.unconfirmed_chain_tip);
+            }
+            res
         } else {
             warn!("No unconfirmed state instantiated");
             Ok((0, 0, vec![]))
@@ -323,15 +346,18 @@ impl StacksChainState {
         let unconfirmed_state_opt = self.unconfirmed_state.take();
         if let Some(unconfirmed_state) = unconfirmed_state_opt {
             if unconfirmed_state.confirmed_chain_tip == canonical_tip {
+                debug!("Unconfirmed chain tip is {}", &unconfirmed_state.unconfirmed_chain_tip);
                 self.unconfirmed_state = Some(unconfirmed_state);
                 Ok(())
             } else {
                 let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
+                debug!("New switched-over unconfirmed chain tip is {}", &new_unconfirmed_state.unconfirmed_chain_tip);
                 self.unconfirmed_state = Some(new_unconfirmed_state);
                 Ok(())
             }
         } else {
             let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
+            debug!("New initially-loaded unconfirmed chain tip is {}", &new_unconfirmed_state.unconfirmed_chain_tip);
             self.unconfirmed_state = Some(new_unconfirmed_state);
             Ok(())
         }
@@ -424,7 +450,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.headers_db())
+                        None => StacksChainState::get_genesis_header_info(chainstate.db())
                             .unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
@@ -437,7 +463,7 @@ mod test {
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
                             StacksChainState::get_anchored_block_header_info(
-                                chainstate.headers_db(),
+                                chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
                             )
@@ -487,8 +513,6 @@ mod test {
                         consensus_hash.clone(),
                         peer.chainstate(),
                         &sort_iconn,
-                        anchor_cost.clone(),
-                        anchor_size,
                     )
                     .unwrap();
 
@@ -518,16 +542,15 @@ mod test {
                     signer.sign_origin(&privk).unwrap();
 
                     let signed_tx = signer.get_tx().unwrap();
+                    let signed_tx_len = {
+                        let mut bytes = vec![];
+                        signed_tx.consensus_serialize(&mut bytes).unwrap();
+                        bytes.len() as u64
+                    };
 
                     let microblock = microblock_builder
                         .mine_next_microblock_from_txs(
-                            vec![MemPoolTxInfo::from_tx(
-                                signed_tx,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tenure_id as u64,
-                            )],
+                            vec![(signed_tx, signed_tx_len)],
                             &microblock_privkey,
                         )
                         .unwrap();
@@ -652,7 +675,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.headers_db())
+                        None => StacksChainState::get_genesis_header_info(chainstate.db())
                             .unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
@@ -665,7 +688,7 @@ mod test {
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
                             StacksChainState::get_anchored_block_header_info(
-                                chainstate.headers_db(),
+                                chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
                             )
@@ -714,8 +737,6 @@ mod test {
                     consensus_hash.clone(),
                     peer.chainstate(),
                     &sort_iconn,
-                    anchor_cost.clone(),
-                    anchor_size,
                 )
                 .unwrap();
                 let mut microblocks = vec![];
@@ -754,13 +775,9 @@ mod test {
                     let signed_mempool_txs = signed_txs
                         .into_iter()
                         .map(|tx| {
-                            MemPoolTxInfo::from_tx(
-                                tx,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tenure_id as u64,
-                            )
+                            let mut bytes = vec![];
+                            tx.consensus_serialize(&mut bytes).unwrap();
+                            (tx, bytes.len() as u64)
                         })
                         .collect();
 
