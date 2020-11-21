@@ -165,7 +165,7 @@ impl PoxSyncWatchdog {
     fn count_attachable_stacks_blocks(&mut self) -> Result<u64, String> {
         // number of staging blocks that have arrived since the last sortition
         let cnt = StacksChainState::count_attachable_staging_blocks(
-            &self.chainstate.blocks_db,
+            &self.chainstate.db(),
             self.max_staging,
             self.last_attachable_query,
         )
@@ -181,7 +181,7 @@ impl PoxSyncWatchdog {
     fn count_processed_stacks_blocks(&mut self) -> Result<u64, String> {
         // number of staging blocks that have arrived since the last sortition
         let cnt = StacksChainState::count_processed_staging_blocks(
-            &self.chainstate.blocks_db,
+            &self.chainstate.db(),
             self.max_staging,
             self.last_processed_query,
         )
@@ -298,7 +298,7 @@ impl PoxSyncWatchdog {
         }
 
         let block_wait_times = StacksChainState::measure_block_wait_time(
-            &chainstate.blocks_db,
+            &chainstate.db(),
             start_height,
             end_height,
         )
@@ -329,7 +329,7 @@ impl PoxSyncWatchdog {
         }
 
         let block_download_times = StacksChainState::measure_block_download_time(
-            &chainstate.blocks_db,
+            &chainstate.db(),
             start_height,
             end_height,
         )
