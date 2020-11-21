@@ -470,7 +470,7 @@ fn main() {
 
         let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
         let all_stacks_blocks =
-            StacksChainState::get_all_staging_block_headers(&old_chainstate.blocks_db).unwrap();
+            StacksChainState::get_all_staging_block_headers(&old_chainstate.db()).unwrap();
 
         // order block hashes by arrival index
         let mut stacks_blocks_arrival_indexes = vec![];
