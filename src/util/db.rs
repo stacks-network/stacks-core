@@ -474,6 +474,12 @@ impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     }
 }
 
+impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
+    fn deref_mut(&mut self) -> &mut DBTx<'a> {
+        self.tx_mut()
+    }
+}
+
 pub fn tx_busy_handler(run_count: i32) -> bool {
     let mut sleep_count = 10;
     if run_count > 0 {
@@ -608,6 +614,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     pub fn tx(&self) -> &DBTx<'a> {
         self.index().sqlite_tx()
+    }
+
+    pub fn tx_mut(&mut self) -> &mut DBTx<'a> {
+        self.index_mut().sqlite_tx_mut()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {
