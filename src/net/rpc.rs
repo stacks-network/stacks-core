@@ -642,7 +642,7 @@ impl ConversationHttp {
             }
         }
 
-        match chainstate.get_tail_microblock_index_hash(index_anchor_block_hash) {
+        match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
             Err(e) => {
                 return ConversationHttp::handle_server_error(http, fd, response_metadata, format!("Failed to serve confirmed microblock stream {:?}: {:?}", req, &e));
             }
@@ -776,7 +776,7 @@ impl ConversationHttp {
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
                 let (balance, balance_proof) = clarity_db
                     .get_with_proof::<STXBalance>(&key)
                     .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
@@ -793,8 +793,8 @@ impl ConversationHttp {
                     .unwrap_or_else(|| (0, "".into()));
                 let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
-                let unlocked = balance.get_available_balance_at_block(block_height);
-                let (locked, unlock_height) = balance.get_locked_balance_at_block(block_height);
+                let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
+                let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(burn_block_height);
 
                 let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                 let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
@@ -1164,6 +1164,7 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
@@ -1177,7 +1178,7 @@ impl ConversationHttp {
                 false,
             )
         } else {
-            match mempool.submit(&consensus_hash, &block_hash, tx) {
+            match mempool.submit(chainstate, &consensus_hash, &block_hash, tx) {
                 Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
                     true,
@@ -1510,6 +1511,7 @@ impl ConversationHttp {
                             &mut self.connection.protocol,
                             &mut reply,
                             &req,
+                            chainstate,
                             tip.consensus_hash,
                             tip.anchored_block_hash,
                             mempool,
@@ -2325,6 +2327,11 @@ mod test {
         let mut tx_signer = StacksTransactionSigner::new(&tx_cc);
         tx_signer.sign_origin(&privk1).unwrap();
         let tx_cc_signed = tx_signer.get_tx().unwrap();
+        let tx_cc_len = {
+            let mut bytes = vec![];
+            tx_cc_signed.consensus_serialize(&mut bytes).unwrap();
+            bytes.len() as u64
+        };
 
         // make an unconfirmed contract
         let unconfirmed_contract = "(define-read-only (ro-test) (ok 1))";
@@ -2345,6 +2352,11 @@ mod test {
         let mut tx_signer = StacksTransactionSigner::new(&tx_unconfirmed_contract);
         tx_signer.sign_origin(&privk1).unwrap();
         let tx_unconfirmed_contract_signed = tx_signer.get_tx().unwrap();
+        let tx_unconfirmed_contract_len = {
+            let mut bytes = vec![];
+            tx_unconfirmed_contract_signed.consensus_serialize(&mut bytes).unwrap();
+            bytes.len() as u64
+        };
 
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
@@ -2359,7 +2371,7 @@ mod test {
             |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
@@ -2371,7 +2383,7 @@ mod test {
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(
-                            chainstate.headers_db(),
+                            chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
                         )
@@ -2419,27 +2431,13 @@ mod test {
                     consensus_hash.clone(),
                     peer_1.chainstate(),
                     &sort_iconn,
-                    anchor_cost.clone(),
-                    anchor_size,
                 )
                 .unwrap();
                 let microblock = microblock_builder
                     .mine_next_microblock_from_txs(
                         vec![
-                            MemPoolTxInfo::from_tx(
-                                tx_cc_signed,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tip.block_height,
-                            ),
-                            MemPoolTxInfo::from_tx(
-                                tx_unconfirmed_contract_signed,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tip.block_height,
-                            ),
+                            (tx_cc_signed, tx_cc_len),
+                            (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len)
                         ],
                         &microblock_privkey,
                     )
