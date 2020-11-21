@@ -33,25 +33,11 @@ use vm::types::*;
 use util::db::Error as db_error;
 use util::db::*;
 
-use vm::get_stx_balance_snapshot;
-
-impl StacksAccount {
-    pub fn get_available_balance_at_block(&self, burn_block_height: u64) -> u128 {
-        self.stx_balance
-            .get_available_balance_at_block(burn_block_height)
-    }
-
-    pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
-        self.stx_balance.has_locked_tokens(burn_block_height)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
     pub address: StacksAddress,
     pub coinbase: u128,
-    pub tx_fees_anchored_shared: u128,
-    pub tx_fees_anchored_exclusive: u128,
+    pub tx_fees_anchored: u128,
     pub tx_fees_streamed_produced: u128,
     pub tx_fees_streamed_confirmed: u128,
     pub vtxindex: u32, // will be 0 for the reward to the miner, and >0 for user burn supports
@@ -113,53 +99,12 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     }
 }
 
-impl FromRow<MicroblockStreamPoison> for MicroblockStreamPoison {
-    fn from_row<'a>(row: &'a Row) -> Result<MicroblockStreamPoison, db_error> {
-        let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
-        let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
-        let child_consensus_hash = ConsensusHash::from_column(row, "child_consensus_hash")?;
-        let child_block_hash = BlockHeaderHash::from_column(row, "child_block_hash")?;
-        let child_burn_block_height = u64::from_column(row, "child_burn_block_height")?;
-        let fork_seq : u16 = row.get("fork_seq");
-
-        let address_str : Option<String> = row.get("address");
-        let address = address_str
-            .and_then(|s| StacksAddress::from_string(&s))
-            .ok_or(db_error::ParseError)?;
-
-        let tx_bytes : Option<Vec<u8>> = row.get("tx");
-        let tx = match tx_bytes {
-            Some(tx_str) => {
-                let tx = StacksTransaction::consensus_deserialize(&mut &tx_str[..])
-                    .map_err(|_e| db_error::ParseError)?;
-                Some(tx)
-            }
-            None => None
-        };
-        
-        let parent_index_block_hash = StacksBlockId::from_column(row, "parent_index_block_hash")?;
-
-        Ok(MicroblockStreamPoison {
-            parent_consensus_hash,
-            parent_block_hash,
-            child_consensus_hash,
-            child_block_hash,
-            child_burn_block_height,
-            fork_seq,
-            address: Some(address),
-            tx,
-            parent_index_block_hash
-        })
-    }
-}
-
 impl MinerReward {
     pub fn empty_miner(address: &StacksAddress) -> MinerReward {
         MinerReward {
             address: address.clone(),
             coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
+            tx_fees_anchored: 0,
             tx_fees_streamed_produced: 0,
             tx_fees_streamed_confirmed: 0,
             vtxindex: 0,
@@ -170,8 +115,7 @@ impl MinerReward {
         MinerReward {
             address: address.clone(),
             coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
+            tx_fees_anchored: 0,
             tx_fees_streamed_produced: 0,
             tx_fees_streamed_confirmed: 0,
             vtxindex: vtxindex,
@@ -180,38 +124,9 @@ impl MinerReward {
 
     pub fn total(&self) -> u128 {
         self.coinbase
-            + self.tx_fees_anchored_shared
-            + self.tx_fees_anchored_exclusive
+            + self.tx_fees_anchored
             + self.tx_fees_streamed_produced
             + self.tx_fees_streamed_confirmed
-    }
-}
-
-impl MicroblockStreamPoison {
-    /// Create a new poison record based on the node's internal detection of a forked microblock
-    /// stream.  No one will receive credit for it.
-    pub fn from_internal_poison_microblock_payload(parent_ch: ConsensusHash, parent_bh: BlockHeaderHash, child_ch: ConsensusHash, child_bh: BlockHeaderHash, child_burn_height: u64, payload: &TransactionPayload) -> Option<MicroblockStreamPoison> {
-        if let TransactionPayload::PoisonMicroblock(ref h1, ref h2) = payload {
-            assert_eq!(h1.sequence, h2.sequence);
-            assert_eq!(h1.prev_block, parent_bh);
-            assert_eq!(h2.prev_block, parent_bh);
-
-            let parent_block_id = StacksBlockHeader::make_index_block_hash(&parent_ch, &parent_bh);
-            Some(MicroblockStreamPoison {
-                parent_consensus_hash: parent_ch,
-                parent_block_hash: parent_bh,
-                child_consensus_hash: child_ch,
-                child_block_hash: child_bh,
-                child_burn_block_height: child_burn_height,
-                fork_seq: h1.sequence,
-                address: None,
-                tx: None,
-                parent_index_block_hash: parent_block_id
-            })
-        }
-        else {
-            None
-        }
     }
 }
 
@@ -272,24 +187,21 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
-
+                let mut snapshot = db.get_stx_balance_snapshot(principal);
+                
                 // last line of defense: if we don't have sufficient funds, panic.
                 // This should be checked by the block validation logic.
-                if !balance.can_transfer(amount as u128, block_height) {
+                if !snapshot.can_transfer(amount as u128) {
                     panic!(
                         "Tried to debit {} from account {} (which only has {})",
                         amount,
                         principal,
-                        balance.get_available_balance_at_block(block_height)
+                        snapshot.get_available_balance()
                     );
                 }
 
-                balance
-                    .debit(amount as u128, block_height)
-                    .expect("STX underflow");
-                db.set_account_stx_balance(principal, &balance);
-
+                snapshot.debit(amount as u128);
+                snapshot.save();
                 Ok(())
             })
             .expect("FATAL: failed to debit account")
@@ -304,15 +216,16 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
-                balance
-                    .credit(amount as u128, block_height)
-                    .expect("STX overflow");
-                db.set_account_stx_balance(principal, &balance);
+                let mut snapshot = db.get_stx_balance_snapshot(principal);
+                snapshot.credit(amount as u128);
+
+                let new_balance = snapshot.get_available_balance();
+                snapshot.save();
+                
                 info!(
                     "{} credited: {} uSTX",
                     principal,
-                    balance.get_available_balance_at_block(block_height)
+                    new_balance
                 );
                 Ok(())
             })
@@ -328,11 +241,16 @@ impl StacksChainState {
         clarity_tx
             .with_clarity_db(|ref mut db| {
                 let balance = STXBalance::initial(amount as u128);
-                db.set_account_stx_balance(principal, &balance);
+                let total_balance = balance.get_total_balance();
+
+                let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
+                snapshot.set_balance(balance);
+                snapshot.save();
+
                 info!(
                     "{} credited (genesis): {} uSTX",
                     principal,
-                    balance.get_total_balance()
+                    total_balance
                 );
                 Ok(())
             })
@@ -364,29 +282,21 @@ impl StacksChainState {
         assert!(unlock_burn_height > 0);
         assert!(lock_amount > 0);
 
-        // consolidate if we need to, since the last tx sent could have been for a PoX lockup.
-        let mut balance = db.get_account_stx_balance(principal);
-        let cur_burn_height = db.get_current_burnchain_block_height() as u64;
-
-        if balance.has_locked_tokens(cur_burn_height) {
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+        if snapshot.has_locked_tokens() {
             return Err(Error::PoxAlreadyLocked);
         }
-
-        if !balance.can_transfer(lock_amount, cur_burn_height) {
+        if !snapshot.can_transfer(lock_amount) {
             return Err(Error::PoxInsufficientBalance);
         }
-
-        balance
-            .lock_tokens(lock_amount, unlock_burn_height, cur_burn_height)
-            .expect("Unable to lock tokens");
-        // set the locks
+        snapshot.lock_tokens(lock_amount, unlock_burn_height);
+        
         debug!(
             "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            balance.amount_locked, balance.amount_unlocked, unlock_burn_height, principal
+            snapshot.balance().amount_locked, snapshot.balance().amount_unlocked, unlock_burn_height, principal
         );
 
-        db.set_account_stx_balance(principal, &balance);
-
+        snapshot.save();
         Ok(())
     }
 
@@ -497,83 +407,20 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Add a poison microblock stream record
-    fn insert_microblock_stream_poison_record<'a>(
-        tx: &mut StacksDBTx<'a>,
-        poison: &MicroblockStreamPoison
-    ) -> Result<(), Error> {
-        // NOTE: do insert-or-replace because the block-processing logic may detect and mark the presence of
-        // a forked stream before it gets around to processing a reporter's PoisonMicroblock
-        // transaction.
-        let sql = "INSERT OR REPLACE INTO stream_poisons ( \
-            parent_consensus_hash, \
-            parent_block_hash, \
-            child_consensus_hash, \
-            child_block_hash, \
-            child_burn_block_height, \
-            fork_seq, \
-            address, \
-            tx, \
-            parent_index_block_hash, \
-            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)";
-
-        let args : &[&dyn ToSql] = &[
-            &poison.parent_consensus_hash,
-            &poison.parent_block_hash,
-            &poison.child_consensus_hash,
-            &poison.child_block_hash,
-            &u64_to_sql(poison.child_burn_block_height)?,
-            &poison.fork_seq,
-            &poison.address.map(|addr| format!("{:?}", &addr)),
-            &poison.tx.as_ref().map(|tx| {
-                let mut buf = vec![];
-                tx.consensus_serialize(&mut buf).expect("FATAL: failed to serialize poison microblock tx");
-                buf
-            }),
-            &poison.parent_index_block_hash
-        ];
-
-        tx.execute(sql, args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
-    }
-
-    /// Process a poison-microblock transaction.
-    /// Return the earliest-known fork record for this stream.
-    pub fn process_poison_microblock<'a>(
-        tx: &mut StacksDBTx<'a>,
-        payload: &TransactionPayload,
-        parent_consensus_hash: &ConsensusHash,
-        parent_block_hash: &BlockHeaderHash,
-        child_consensus_hash: &ConsensusHash,
-        child_block_hash: &BlockHeaderHash,
-        child_burn_height: u64,
-        reporter: Option<&StacksAddress>
-    ) -> Result<MicroblockStreamPoison, Error> {
-        let poison = MicroblockStreamPoison::from_internal_poison_microblock_payload(parent_consensus_hash.clone(), parent_block_hash.clone(), child_consensus_hash.clone(), child_block_hash.clone(), child_burn_height, payload)
-            .expect("BUG: invalid poison-microblock transaction");
-
-        StacksChainState::insert_microblock_stream_poison_record(tx, &poison)?;
-
-        // NOTE: may be different from what we inserted
-        Ok(StacksChainState::get_microblock_poison_info(tx, &StacksBlockHeader::make_index_block_hash(parent_consensus_hash, parent_block_hash))?
-            .expect("BUG: did not query any poisoned microblock stream info after inserting a record"))
-    }
-
-    /// Get the forked sequence and optional recipient address of a microblock stream poison
-    /// record.  Finds the lowest confirmed burn block height and sequence number of
-    /// all reported forks (i.e. oldest fork point discovered).
+    /// Find the reported poison-microblock data for this block
     /// Returns None if there are no forks.
-    pub fn get_microblock_poison_info(conn: &DBConn, parent_index_block_hash: &StacksBlockId) -> Result<Option<MicroblockStreamPoison>, Error> {
-        let sql = "SELECT * FROM stream_poisons WHERE parent_index_block_hash = ?1 ORDER BY child_burn_block_height ASC, fork_seq ASC LIMIT 1";
-        let args : &[&dyn ToSql] = &[parent_index_block_hash];
-        let mut rows = query_rows::<MicroblockStreamPoison, _>(conn, &sql, args)?;
-        Ok(rows.pop())
+    pub fn get_poison_microblock_report<T: ClarityConnection>(clarity_tx: &mut T, height: u64) -> Result<Option<(StacksAddress, u16)>, Error> {
+        let principal_seq_opt = clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
+                Ok(db.get_microblock_poison_report(height as u32))
+            })
+            .map_err(Error::ClarityError)?;
+
+        Ok(principal_seq_opt.map(|(principal, seq)| (principal.into(), seq)))
     }
 
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
-    pub fn get_scheduled_block_rewards_in_fork<'a>(
+    pub fn get_scheduled_block_rewards_in_fork_at_height<'a>(
         tx: &mut StacksDBTx<'a>,
         tip: &StacksHeaderInfo,
         block_height: u64,
@@ -600,18 +447,18 @@ impl StacksChainState {
         );
         Ok(rows)
     }
-
-    /// Get all scheduled miner rewards for a given index hash
-    pub fn get_scheduled_block_rewards(
-        conn: &DBConn,
-        index_block_hash: &StacksBlockId,
+    
+    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
+    pub fn get_scheduled_block_rewards<'a>(
+        tx: &mut StacksDBTx<'a>,
+        tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        let qry =
-            "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[index_block_hash];
-        let rows =
-            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
-        Ok(rows)
+        if tip.block_height < MINER_REWARD_MATURITY {
+            return Ok(vec![]);
+        }
+
+        let block_height = tip.block_height - MINER_REWARD_MATURITY;
+        StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
     /// Get the miner info at a particular burn/stacks block
@@ -651,13 +498,13 @@ impl StacksChainState {
 
     /// What's the commission for reporting a poison microblock stream?
     fn poison_microblock_commission(coinbase: u128) -> u128 {
-        coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION / 100
+        (coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION) / 100
     }
 
     /// Calculate a block mining participant's coinbase reward, given the block's miner and list of
     /// user-burn-supporters.
     ///
-    /// If poison_opt is not None, then the returned MinerReward will reward the _poison reporter_,
+    /// If poison_reporter_opt is not None, then the returned MinerReward will reward the _poison reporter_,
     /// not the miner, for reporting the microblock stream fork.
     ///
     /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
@@ -668,7 +515,7 @@ impl StacksChainState {
         participant: &MinerPaymentSchedule,
         miner: &MinerPaymentSchedule,
         users: &Vec<MinerPaymentSchedule>,
-        poison_opt: Option<&MicroblockStreamPoison>
+        poison_reporter_opt: Option<&StacksAddress>,
     ) -> MinerReward {
 
         ////////////////////// coinbase reward total /////////////////////////////////
@@ -723,10 +570,11 @@ impl StacksChainState {
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
         // destroyed if this happens.
         let (recipient, coinbase_reward) = 
-            if let Some(poison) = poison_opt {
+            if let Some(reporter_address) = poison_reporter_opt {
                 if participant.address == miner.address {
                     // the poison-reporter, not the miner, gets a (fraction of the) reward
-                    (poison.address.unwrap_or(StacksAddress::burn_address(mainnet)).to_owned(), StacksChainState::poison_microblock_commission(coinbase_reward))
+                    debug!("{:?} will recieve poison-microblock commission {}", &reporter_address.to_string(), StacksChainState::poison_microblock_commission(coinbase_reward));
+                    (reporter_address.clone(), StacksChainState::poison_microblock_commission(coinbase_reward))
                 }
                 else {
                     // users that helped a miner that reported a poison-microblock get nothing
@@ -739,15 +587,24 @@ impl StacksChainState {
             };
 
         // TODO: missing transaction fee calculation
-        // TODO: if slashed due to poison-microblock detection, then no fees go to the miner
+        let tx_fees_anchored = 0;
+        let tx_fees_streamed_produced = 0;
+        let tx_fees_streamed_confirmed = 0;
+        debug!("{}: {} coinbase, {} anchored fees, {} streamed fees, {} confirmed fees",
+               &recipient.to_string(),
+               coinbase_reward,
+               tx_fees_anchored,
+               tx_fees_streamed_produced,
+               tx_fees_streamed_confirmed
+        );
+
         // ("bad miner! no coinbase!")
         let miner_reward = MinerReward {
             address: recipient,
             coinbase: coinbase_reward,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
+            tx_fees_anchored: tx_fees_anchored,
+            tx_fees_streamed_produced: tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
             vtxindex: miner.vtxindex,
         };
         miner_reward
@@ -756,35 +613,37 @@ impl StacksChainState {
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners.
     pub fn find_mature_miner_rewards<'a>(
-        mainnet: bool,
-        tx: &mut StacksDBTx<'a>,
+        clarity_tx: &mut ClarityTx<'a>,
         tip: &StacksHeaderInfo,
+        mut latest_matured_miners: Vec<MinerPaymentSchedule>
     ) -> Result<Option<(MinerReward, Vec<MinerReward>)>, Error> {
+        let mainnet = clarity_tx.config.mainnet;
         if tip.block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
+        
+        let reward_height = tip.block_height - MINER_REWARD_MATURITY;
 
-        let mut latest_matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(
-            tx,
-            tip,
-            tip.block_height - MINER_REWARD_MATURITY,
-        )?;
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
+
         let users = latest_matured_miners.split_off(1);
         let miner = latest_matured_miners.pop().expect("BUG: no matured miners despite prior check");
         
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &miner.consensus_hash,
-            &miner.block_hash
-        );
-
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
-        let poison_recipient_opt = StacksChainState::get_microblock_poison_info(tx, &index_block_hash)?;
+        let poison_recipient_opt = StacksChainState::get_poison_microblock_report(clarity_tx, reward_height)?
+            .map(|(reporter, _)| reporter);
+
+        if let Some(ref _poison_reporter) = poison_recipient_opt.as_ref() {
+            test_debug!("Poison-microblock reporter {} at height {}", &_poison_reporter.to_string(), reward_height);
+        }
+        else {
+            test_debug!("No poison-microblock report at height {}", reward_height);
+        }
 
         // calculate miner reward
         let miner_reward =
@@ -910,7 +769,7 @@ mod test {
             user_burn.consensus_hash = new_tip.consensus_hash.clone();
         }
 
-        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let mut tx = chainstate.index_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(
             &mut tx,
             &parent_header_info.anchored_header,
@@ -925,6 +784,7 @@ mod test {
             &user_burns,
             new_tip.total_liquid_ustx,
             &ExecutionCost::zero(),
+            123
         )
         .unwrap();
         tx.commit().unwrap();
@@ -960,7 +820,7 @@ mod test {
         let mut user_supports = vec![user_support];
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
                 &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0),
@@ -978,7 +838,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
 
@@ -991,7 +851,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
@@ -1046,13 +906,13 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let payments_0 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 0).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0).unwrap();
             let payments_1 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 1).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1).unwrap();
             let payments_2 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2).unwrap();
 
             let mut expected_user_support = user_reward.clone();
             expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
@@ -1067,6 +927,7 @@ mod test {
         };
     }
 
+    /*
     #[test]
     fn find_mature_miner_rewards() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "find_mature_miner_rewards");
@@ -1080,7 +941,6 @@ mod test {
         let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
         let mut matured_miners = (make_dummy_miner_payment_schedule(&miner_1, 0, 0, 0, 0, 0), vec![]);
-        let mut expected_scheduled_payments = vec![];
 
         for i in 0..(MINER_REWARD_MATURITY + 1) {
             let mut miner_reward = make_dummy_miner_payment_schedule(
@@ -1106,8 +966,6 @@ mod test {
                 matured_miners = (miner_reward.clone(), vec![user_reward.clone()]);
             }
 
-            expected_scheduled_payments.push((miner_reward.clone(), vec![user_reward.clone()]));
-
             let mut user_supports = vec![user_support];
 
             let next_tip = advance_tip(
@@ -1118,9 +976,9 @@ mod test {
             );
 
             if i < MINER_REWARD_MATURITY {
-                let mut tx = chainstate.headers_tx_begin().unwrap();
+                let mut tx = chainstate.chainstate_tx_begin().unwrap();
                 let rewards_opt =
-                    StacksChainState::find_mature_miner_rewards(false, &mut tx, &parent_tip)
+                    StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, vec![])
                         .unwrap();
                 assert!(rewards_opt.is_none()); // not mature yet
             }
@@ -1128,7 +986,7 @@ mod test {
             parent_tip = next_tip;
         }
 
-        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let mut tx = chainstate.chainstate_tx_begin().unwrap().0;
 
         test_debug!("parent tip = {:?}", &parent_tip);
         let miner_reward = StacksChainState::calculate_miner_reward(
@@ -1150,14 +1008,19 @@ mod test {
             user_rewards.push(rw);
         }
 
+        let mut matured_rewards = vec![];
+        matured_rewards.push(miner_reward.clone());
+        matured_rewards.append(&mut user_rewards.clone());
+
         let rewards_opt =
-            StacksChainState::find_mature_miner_rewards(false, &mut tx, &parent_tip).unwrap();
+            StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, &matured_rewards).unwrap();
         assert!(rewards_opt.is_some());
 
         let rewards = rewards_opt.unwrap();
         assert_eq!(rewards.0, miner_reward);
         assert_eq!(rewards.1, user_rewards);
     }
+    */
 
     #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users() {
@@ -1170,8 +1033,7 @@ mod test {
 
         // miner should have received the entire coinbase
         assert_eq!(miner_reward.coinbase, 500);
-        assert_eq!(miner_reward.tx_fees_anchored_shared, 0);
-        assert_eq!(miner_reward.tx_fees_anchored_exclusive, 0);
+        assert_eq!(miner_reward.tx_fees_anchored, 0);
         assert_eq!(miner_reward.tx_fees_streamed_produced, 0);
         assert_eq!(miner_reward.tx_fees_streamed_confirmed, 0);
     }
@@ -1193,15 +1055,13 @@ mod test {
 
         // miner should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1238,15 +1098,13 @@ mod test {
 
         // miner should have received 1/4 the coinbase, and miner should have received only shared
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 1000);        // same miner, so they get everything
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 1000);        // same miner, so they get everything
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1296,22 +1154,19 @@ mod test {
 
         // if miner 1 won, then it should have received 1/4 the coinbase, and miner should have received only shared tx fees
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 500);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 500);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // miner 2 didn't mine this block
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, 500);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_2.tx_fees_anchored, 500);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1371,22 +1226,19 @@ mod test {
 
         // miner 1 should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // miner 2 didn't win this block, so it gets no coinbase
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1446,22 +1298,19 @@ mod test {
 
         // miner 1 produced this block with the help from users 3x as interested, so it gets 1/4 of the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 240);                  // produced half of the microblocks, should get half the 2/5 of the reward
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 240);                 // confirmed half of the microblocks, should get half of the 3/5 reward
 
         // miner 2 didn't produce this block, so no coinbase
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 200);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 300);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
