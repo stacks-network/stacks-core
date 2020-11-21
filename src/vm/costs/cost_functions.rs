@@ -316,4 +316,12 @@ pub const NFT_OWNER: SimpleCostSpecification = SimpleCostSpecification {
     read_length: Constant(1),
 };
 
+pub const POISON_MICROBLOCK: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(1),
+    write_count: Constant(1),
+    runtime: Constant(1),
+    read_count: Constant(1),
+    read_length: Constant(1)
+};
+
 pub const TYPE_CHECK_COST: TypeCheckCost = TypeCheckCost {};
