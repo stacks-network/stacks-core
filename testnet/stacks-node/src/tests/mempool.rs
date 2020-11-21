@@ -101,6 +101,7 @@ fn mempool_setup_chainstate() {
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+            let mut chainstate_copy = tenure.open_chainstate();
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let header_hash = chain_tip.block.block_hash();
             let consensus_hash = chain_tip.metadata.consensus_hash;
@@ -112,14 +113,14 @@ fn mempool_setup_chainstate() {
                     make_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&consensus_hash, &header_hash, publish_tx1)
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx1)
                     .unwrap();
 
                 let publish_tx2 =
                     make_contract_publish(&contract_sk, 1, 100, "trait-contract", TRAIT_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&consensus_hash, &header_hash, publish_tx2)
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx2)
                     .unwrap();
 
                 let publish_tx3 = make_contract_publish(
@@ -131,7 +132,7 @@ fn mempool_setup_chainstate() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&consensus_hash, &header_hash, publish_tx3)
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx3)
                     .unwrap();
 
                 let publish_tx4 = make_contract_publish(
@@ -143,7 +144,7 @@ fn mempool_setup_chainstate() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&consensus_hash, &header_hash, publish_tx4)
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx4)
                     .unwrap();
 
                 let publish_tx4 = make_contract_publish(
@@ -155,7 +156,7 @@ fn mempool_setup_chainstate() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&consensus_hash, &header_hash, publish_tx4)
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx4)
                     .unwrap();
             }
         });
