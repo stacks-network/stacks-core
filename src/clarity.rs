@@ -524,11 +524,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.begin();
                     for (principal, amount) in allocations.iter() {
                         let balance = STXBalance::initial(*amount as u128);
-                        db.set_account_stx_balance(principal, &balance);
+                        let total_balance = balance.get_total_balance();
+
+                        let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
+                        snapshot.set_balance(balance);
+                        snapshot.save();
+
                         println!(
                             "{} credited: {} uSTX",
                             principal,
-                            balance.get_total_balance()
+                            total_balance
                         );
                     }
                     db.commit();
