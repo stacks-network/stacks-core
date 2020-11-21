@@ -908,7 +908,7 @@ impl StacksBlockBuilder {
             latest_matured_miners
         )?;
 
-        self.miner_payouts = matured_miner_rewards_opt;
+        self.miner_payouts = matured_miner_rewards_opt.map(|(miner, users, _)| (miner, users));
 
         test_debug!(
             "Miner {}: Apply {} parent microblocks",

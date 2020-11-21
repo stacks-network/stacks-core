@@ -1214,7 +1214,20 @@ impl InitializedNeonNode {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
+        let microblock_secret_key = if attempt > 1 {
+            match keychain.get_microblock_key() {
+                Some(k) => k,
+                None => {
+                    error!(
+                        "Failed to obtain microblock key for mining attempt";
+                        "attempt" => %attempt
+                    );
+                    return None;
+                }
+            }
+        } else {
+            keychain.rotate_microblock_keypair(burn_block.block_height)
+        };
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 

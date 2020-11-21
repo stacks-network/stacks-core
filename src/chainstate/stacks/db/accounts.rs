@@ -100,28 +100,6 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl MinerReward {
-    pub fn empty_miner(address: &StacksAddress) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: 0,
-        }
-    }
-
-    pub fn empty_user(address: &StacksAddress, vtxindex: u32) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: vtxindex,
-        }
-    }
-
     pub fn total(&self) -> u128 {
         self.coinbase
             + self.tx_fees_anchored
@@ -616,7 +594,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>
-    ) -> Result<Option<(MinerReward, Vec<MinerReward>)>, Error> {
+    ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
         if tip.block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
@@ -629,9 +607,13 @@ impl StacksChainState {
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
-
         let users = latest_matured_miners.split_off(1);
         let miner = latest_matured_miners.pop().expect("BUG: no matured miners despite prior check");
+        
+        let reward_info = MinerRewardInfo {
+            from_stacks_block_hash: miner.block_hash.clone(),
+            from_block_consensus_hash: miner.consensus_hash.clone()
+        };
         
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
@@ -655,7 +637,8 @@ impl StacksChainState {
             let reward = StacksChainState::calculate_miner_reward(mainnet, user_reward, &miner, &users, poison_recipient_opt.as_ref());
             user_rewards.push(reward);
         }
-        Ok(Some((miner_reward, user_rewards)))
+
+        Ok(Some((miner_reward, user_rewards, reward_info)))
     }
 }
 

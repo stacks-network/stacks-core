@@ -545,7 +545,7 @@ const PRINT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(print expr)",
-    description: "The `print` function evaluates and returns its input expression. On Blockstack Core
+    description: "The `print` function evaluates and returns its input expression. On Stacks Core
 nodes configured for development (as opposed to production mining nodes), this function prints the resulting value to `STDOUT` (standard output).",
     example: "(print (+ 1 2 3)) ;; Returns 6",
 };

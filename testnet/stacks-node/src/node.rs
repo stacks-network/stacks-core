@@ -475,7 +475,9 @@ impl Node {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
+        let microblock_secret_key = self
+            .keychain
+            .rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
@@ -647,8 +649,13 @@ impl Node {
             receipts,
         };
 
-        self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash, Txid([0; 32]));
+        self.event_dispatcher.process_chain_tip(
+            &chain_tip,
+            &parent_index_hash,
+            Txid([0; 32]),
+            vec![],
+            None,
+        );
 
         self.chain_tip = Some(chain_tip.clone());
 

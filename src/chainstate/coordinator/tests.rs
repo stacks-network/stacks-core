@@ -24,7 +24,9 @@ use util::hash::Hash160;
 use burnchains::{db::*, *};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionId};
 use chainstate::burn::*;
-use chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use chainstate::stacks::db::{
+    accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
+};
 use chainstate::stacks::index::TrieHash;
 use core;
 use monitoring::increment_stx_blocks_processed_counter;
@@ -229,6 +231,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _receipts: Vec<StacksTransactionReceipt>,
         _parent: &StacksBlockId,
         _winner_txid: Txid,
+        _rewards: Vec<MinerReward>,
+        _rewards_info: Option<MinerRewardInfo>,
     ) {
         assert!(
             false,
@@ -236,7 +240,16 @@ impl BlockEventDispatcher for NullEventDispatcher {
         );
     }
 
-    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {}
+    fn announce_burn_block(
+        &self,
+        _burn_block: &BurnchainHeaderHash,
+        _burn_block_height: u64,
+        _rewards: Vec<(StacksAddress, u64)>,
+        _burns: u64,
+    ) {
+    }
+
+    fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {}
 }
 
 pub fn make_coordinator<'a>(

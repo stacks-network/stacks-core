@@ -13,12 +13,13 @@ use http_types::{Method, Request, Url};
 
 use serde_json::json;
 
-use stacks::burnchains::Txid;
+use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::stacks::events::{
     FTEventType, NFTEventType, STXEventType, StacksTransactionEvent,
 };
-use stacks::chainstate::stacks::StacksBlockId;
-use stacks::chainstate::stacks::StacksTransaction;
+use stacks::chainstate::stacks::{
+    db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
+};
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -37,6 +38,7 @@ const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
+pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 
 impl EventObserver {
@@ -113,6 +115,30 @@ impl EventObserver {
         serde_json::Value::Array(raw_txs)
     }
 
+    fn make_new_burn_block_payload(
+        burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
+        rewards: Vec<(StacksAddress, u64)>,
+        burns: u64,
+    ) -> serde_json::Value {
+        let reward_recipients = rewards
+            .into_iter()
+            .map(|(stx_addr, amt)| {
+                json!({
+                    "recipient": stx_addr.to_b58(),
+                    "amt": amt,
+                })
+            })
+            .collect();
+
+        json!({
+            "burn_block_hash": format!("0x{}", burn_block),
+            "burn_block_height": burn_block_height,
+            "reward_recipients": serde_json::Value::Array(reward_recipients),
+            "burn_amount": burns
+        })
+    }
+
     fn make_new_block_txs_payload(
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
@@ -167,18 +193,25 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
+    fn send_new_burn_block(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
+    }
+
     fn send(
         &self,
-        filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>,
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
         boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
         winner_txid: &Txid,
+        mature_rewards: &serde_json::Value,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
-            .map(|(committed, txid, event)| event.json_serialize(txid, *committed))
+            .map(|(event_index, (committed, txid, event))| {
+                event.json_serialize(*event_index, txid, *committed)
+            })
             .collect();
 
         let mut tx_index: u32 = 0;
@@ -210,6 +243,7 @@ impl EventObserver {
             "parent_block_hash": format!("0x{}", chain_tip.block.header.parent_block),
             "parent_index_block_hash": format!("0x{}", parent_index_hash),
             "parent_microblock": format!("0x{}", chain_tip.block.header.parent_microblock),
+            "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
         });
@@ -224,6 +258,7 @@ pub struct EventDispatcher {
     registered_observers: Vec<EventObserver>,
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    burn_block_observers_lookup: HashSet<u16>,
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
@@ -238,13 +273,31 @@ impl BlockEventDispatcher for EventDispatcher {
         receipts: Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
+        mature_rewards: Vec<MinerReward>,
+        mature_rewards_info: Option<MinerRewardInfo>,
     ) {
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts,
         };
-        self.process_chain_tip(&chain_tip, parent, winner_txid)
+        self.process_chain_tip(
+            &chain_tip,
+            parent,
+            winner_txid,
+            mature_rewards,
+            mature_rewards_info,
+        )
+    }
+
+    fn announce_burn_block(
+        &self,
+        burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
+        rewards: Vec<(StacksAddress, u64)>,
+        burns: u64,
+    ) {
+        self.process_burn_block(burn_block, burn_block_height, rewards, burns)
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -260,8 +313,42 @@ impl EventDispatcher {
             assets_observers_lookup: HashMap::new(),
             stx_observers_lookup: HashSet::new(),
             any_event_observers_lookup: HashSet::new(),
+            burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
             boot_receipts: vec![],
+        }
+    }
+
+    pub fn process_burn_block(
+        &self,
+        burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
+        rewards: Vec<(StacksAddress, u64)>,
+        burns: u64,
+    ) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.burn_block_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = EventObserver::make_new_burn_block_payload(
+            burn_block,
+            burn_block_height,
+            rewards,
+            burns,
+        );
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_burn_block(&payload);
         }
     }
 
@@ -270,6 +357,8 @@ impl EventDispatcher {
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
         winner_txid: Txid,
+        mature_rewards: Vec<MinerReward>,
+        mature_rewards_info: Option<MinerRewardInfo>,
     ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
@@ -345,19 +434,44 @@ impl EventDispatcher {
             }
         }
 
-        for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            let filtered_events: Vec<_> = filtered_events_ids
-                .iter()
-                .map(|event_id| &events[*event_id])
-                .collect();
+        if dispatch_matrix.len() > 0 {
+            let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
+                mature_rewards
+                    .iter()
+                    .map(|reward| {
+                        json!({
+                            "recipient": reward.address.to_string(),
+                            "coinbase_amount": reward.coinbase.to_string(),
+                            "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
+                            "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
+                            "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
+                            "from_stacks_block_hash": format!("0x{}", &rewards_info.from_stacks_block_hash),
+                            "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&rewards_info.from_block_consensus_hash,
+                                                                                            &rewards_info.from_stacks_block_hash)),
+                        })
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
 
-            self.registered_observers[observer_id].send(
-                filtered_events,
-                chain_tip,
-                parent_index_hash,
-                boot_receipts,
-                &winner_txid,
-            );
+            let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
+
+            for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
+                let filtered_events: Vec<_> = filtered_events_ids
+                    .iter()
+                    .map(|event_id| (*event_id, &events[*event_id]))
+                    .collect();
+
+                self.registered_observers[observer_id].send(
+                    filtered_events,
+                    chain_tip,
+                    parent_index_hash,
+                    boot_receipts,
+                    &winner_txid,
+                    &mature_rewards,
+                );
+            }
         }
     }
 
@@ -425,6 +539,9 @@ impl EventDispatcher {
                             v.insert(observer_indexes);
                         }
                     };
+                }
+                EventKeyType::BurnchainBlocks => {
+                    self.burn_block_observers_lookup.insert(observer_index);
                 }
                 EventKeyType::MemPoolTransactions => {
                     self.mempool_observers_lookup.insert(observer_index);
