@@ -1203,7 +1203,7 @@ mod tests {
 
         MemPoolDB::try_add_tx(
             &mut mempool_tx,
-            &chainstate,
+            &mut chainstate,
             &b_1.0,
             &b_1.1,
             txid,
@@ -1232,7 +1232,7 @@ mod tests {
 
         let err_resp = MemPoolDB::try_add_tx(
             &mut mempool_tx,
-            &chainstate,
+            &mut chainstate,
             &b_2.0,
             &b_2.1,
             txid,
@@ -1257,7 +1257,7 @@ mod tests {
 
     #[test]
     fn mempool_db_load_store_replace_tx() {
-        let _chainstate =
+        let mut chainstate =
             instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
         let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -1306,7 +1306,7 @@ mod tests {
 
             MemPoolDB::try_add_tx(
                 &mut mempool_tx,
-                &chainstate,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,
@@ -1368,7 +1368,7 @@ mod tests {
 
             MemPoolDB::try_add_tx(
                 &mut mempool_tx,
-                &chainstate,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,
@@ -1433,7 +1433,7 @@ mod tests {
 
             assert!(match MemPoolDB::try_add_tx(
                 &mut mempool_tx,
-                &chainstate,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,

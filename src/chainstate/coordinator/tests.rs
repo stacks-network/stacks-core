@@ -1459,7 +1459,7 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked, stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_block(burn_height as u64),
+                    stacker_balance.get_available_balance_at_burn_block(burn_height as u64),
                     balance as u128,
                     "No lock should be active"
                 );
