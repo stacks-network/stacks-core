@@ -49,6 +49,7 @@ use chainstate::stacks::index::Error;
 use std::ops::DerefMut;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
+use util::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -158,6 +159,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
     pub fn sqlite_tx(&self) -> &Transaction<'a> {
         self.storage.sqlite_tx()
+    }
+
+    pub fn sqlite_tx_mut(&mut self) -> &mut Transaction<'a> {
+        self.storage.sqlite_tx_mut()
     }
 
     /// Reopen this MARF transaction with readonly storage.
@@ -1320,6 +1325,11 @@ impl<T: MarfTrieId> MARF<T> {
     #[cfg(test)]
     pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<T> {
         self.storage.transaction().unwrap()
+    }
+
+    /// Make a raw transaction to the underlying storage
+    pub fn storage_tx<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+        self.storage.sqlite_tx()
     }
 
     /// Reopen storage read-only
