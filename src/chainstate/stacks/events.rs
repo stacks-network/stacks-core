@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use super::StacksAddress;
 use burnchains::Txid;
 use chainstate::stacks::StacksTransaction;
@@ -9,8 +25,29 @@ use vm::types::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum TransactionOrigin {
+    Stacks(StacksTransaction),
+    Burn(Txid),
+}
+
+impl From<StacksTransaction> for TransactionOrigin {
+    fn from(o: StacksTransaction) -> TransactionOrigin {
+        TransactionOrigin::Stacks(o)
+    }
+}
+
+impl TransactionOrigin {
+    pub fn txid(&self) -> Txid {
+        match self {
+            TransactionOrigin::Burn(txid) => txid.clone(),
+            TransactionOrigin::Stacks(tx) => tx.txid(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionReceipt {
-    pub transaction: StacksTransaction,
+    pub transaction: TransactionOrigin,
     pub events: Vec<StacksTransactionEvent>,
     pub post_condition_aborted: bool,
     pub result: Value,
@@ -28,58 +65,72 @@ pub enum StacksTransactionEvent {
 }
 
 impl StacksTransactionEvent {
-    pub fn json_serialize(&self, txid: &Txid, committed: bool) -> serde_json::Value {
+    pub fn json_serialize(
+        &self,
+        event_index: usize,
+        txid: &Txid,
+        committed: bool,
+    ) -> serde_json::Value {
         match self {
             StacksTransactionEvent::SmartContractEvent(event_data) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "contract_event",
                 "contract_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_transfer_event",
                 "stx_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_mint_event",
                 "stx_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_burn_event",
                 "stx_burn_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "stx_lock_event",
                 "stx_lock_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "nft_transfer_event",
                 "nft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "nft_mint_event",
                 "nft_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "ft_transfer_event",
                 "ft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
                 "committed": committed,
                 "type": "ft_mint_event",
                 "ft_mint_event": event_data.json_serialize()
@@ -144,6 +195,7 @@ impl STXMintEventData {
 pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
+    pub locked_address: PrincipalData,
 }
 
 impl STXLockEventData {
@@ -151,6 +203,7 @@ impl STXLockEventData {
         json!({
             "locked_amount": format!("{}",self.locked_amount),
             "unlock_height": format!("{}", self.unlock_height),
+            "locked_address": format!("{}", self.locked_address),
         })
     }
 }
@@ -164,7 +217,7 @@ pub struct STXBurnEventData {
 impl STXBurnEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "sender": format!("{}",self.sender),
+            "sender": format!("{}", self.sender),
             "amount": format!("{}", self.amount),
         })
     }

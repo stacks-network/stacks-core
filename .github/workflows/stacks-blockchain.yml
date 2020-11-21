@@ -44,6 +44,17 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+  
+  # Run net-tests
+  nettest:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run network relay tests
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
   # rustfmt checking
   rustfmt:
@@ -115,12 +126,12 @@ jobs:
           if [[ -z ${TAG} ]]; then
               REF=$(echo ${GITHUB_REF#refs/*/} | tr / -)
               if [[ "${REF}" == "master" ]]; then
-                  echo "::set-env name=STRETCH_TAG::latest-stretch"
+                  echo "STRETCH_TAG=latest-stretch" >> $GITHUB_ENV
               else
-                  echo "::set-env name=STRETCH_TAG::${REF}-stretch"
+                  echo "STRETCH_TAG=${REF}-stretch" >> $GITHUB_ENV
               fi
           else
-              echo "::set-env name=STRETCH_TAG::${TAG}-stretch"
+              echo "STRETCH_TAG=${TAG}-stretch" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.inputs.tag }}

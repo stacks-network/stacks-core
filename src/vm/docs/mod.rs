@@ -1,9 +1,27 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
-use vm::types::{FixedFunction, FunctionType};
+use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
+
+pub mod contracts;
 
 #[derive(Serialize)]
 struct ReferenceAPIs {
@@ -292,6 +310,55 @@ const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+pub fn get_input_type_string(function_type: &FunctionType) -> String {
+    match function_type {
+        FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
+        FunctionType::Fixed(FixedFunction { ref args, .. }) => {
+            let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
+            in_types.join(", ")
+        }
+        FunctionType::UnionArgs(ref in_types, _) => {
+            let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+            in_types.join(" | ")
+        }
+        FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
+        FunctionType::ArithmeticUnary => "int | uint".to_string(),
+        FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
+            "int, int | uint, uint".to_string()
+        }
+    }
+}
+
+pub fn get_output_type_string(function_type: &FunctionType) -> String {
+    match function_type {
+        FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
+        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
+        FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
+        FunctionType::ArithmeticVariadic
+        | FunctionType::ArithmeticUnary
+        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        FunctionType::ArithmeticComparison => "bool".to_string(),
+    }
+}
+
+pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
+    if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
+        let in_names: Vec<String> = args
+            .iter()
+            .map(|x| format!("{}", x.name.as_str()))
+            .collect();
+        let arg_examples = in_names.join(" ");
+        Some(format!(
+            "({}{}{})",
+            function_name,
+            if arg_examples.len() == 0 { "" } else { " " },
+            arg_examples
+        ))
+    } else {
+        None
+    }
+}
+
 fn make_for_simple_native(
     api: &SimpleFunctionAPI,
     function: &NativeFunctions,
@@ -301,32 +368,8 @@ fn make_for_simple_native(
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(&function)
         {
-            let input_type = match function_type {
-                FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
-                FunctionType::Fixed(FixedFunction { ref args, .. }) => {
-                    let in_types: Vec<String> =
-                        args.iter().map(|x| format!("{}", x.signature)).collect();
-                    in_types.join(", ")
-                }
-                FunctionType::UnionArgs(ref in_types, _) => {
-                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
-                    in_types.join(" | ")
-                }
-                FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
-                FunctionType::ArithmeticUnary => "int | uint".to_string(),
-                FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
-                    "int, int | uint, uint".to_string()
-                }
-            };
-            let output_type = match function_type {
-                FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
-                FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
-                FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
-                FunctionType::ArithmeticVariadic
-                | FunctionType::ArithmeticUnary
-                | FunctionType::ArithmeticBinary => "int | uint".to_string(),
-                FunctionType::ArithmeticComparison => "bool".to_string(),
-            };
+            let input_type = get_input_type_string(&function_type);
+            let output_type = get_output_type_string(&function_type);
             (input_type, output_type)
         } else {
             panic!(
@@ -502,7 +545,7 @@ const PRINT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(print expr)",
-    description: "The `print` function evaluates and returns its input expression. On Blockstack Core
+    description: "The `print` function evaluates and returns its input expression. On Stacks Core
 nodes configured for development (as opposed to production mining nodes), this function prints the resulting value to `STDOUT` (standard output).",
     example: "(print (+ 1 2 3)) ;; Returns 6",
 };
@@ -574,12 +617,15 @@ If a value did not exist for this key in the data map, the function returns `fal
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     input_type: "(key-name A), (key-name-2 B), ...",
     output_type: "(tuple (key-name A) (key-name-2 B) ...)",
-    signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
-    description: "The `tuple` function constructs a typed tuple from the supplied key and expression pairs.
+    signature: "(tuple (key0 expr0) (key1 expr1) ...)",
+    description: "The `tuple` special form constructs a typed tuple from the supplied key and expression pairs.
 A `get` function can use typed tuples as input to select specific values from a given tuple.
 Key names may not appear multiple times in the same tuple definition. Supplied expressions are evaluated and
-associated with the expressions' paired key name.",
-    example: "(tuple (name \"blockstack\") (id 1337))"
+associated with the expressions' paired key name.
+
+There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
+    example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
+    {name: \"blockstack\", id: 1337} ;; using curly brackets",
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {

@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stacks-blockchain.fullname" . }}
+  labels: {{- include "stacks-blockchain.labels" . | nindent 4 }}
+  {{- if .Values.config.annotations }}
+  annotations: {{ toYaml .Values.config.annotations | nindent 4 }}
+  {{- end }}
+data:
+{{- if .Values.config.raw }}
+  config.toml: {{- toYaml .Values.config.raw | indent 2 }}
+{{- else }}
+  {{- if and (empty .Values.config.node.seed) (.Values.config.node.miner) }}
+    {{- fail "Please enter a private key under config.node.seed" }}
+  {{- end }}
+  config.toml: |
+    [node]
+  {{- range $key, $val := .Values.config.node }}
+    {{- if regexMatch "^(?i)(true|false)$" ($val | toString) }}
+      {{- $key | nindent 4 }} = {{ $val }}
+    {{- else }}
+      {{- $key | nindent 4 }} = {{ $val | quote }}
+    {{- end }}
+  {{- end }}
+
+    [burnchain]
+  {{- range $key, $val := .Values.config.burnchain }}
+    {{- if regexMatch "^[0-9]+$" ($val | toString) }}
+      {{- $key | nindent 4 }} = {{ $val }}
+    {{- else }}
+      {{- $key | nindent 4 }} = {{ $val | quote }}
+    {{- end }}
+  {{- end }}
+  {{ range $key, $val := .Values.config.mstx_balance }}
+    [[mstx_balance]]
+    {{- range $inner_key, $inner_val := $val }}
+      {{- if regexMatch "^[0-9]+$" ($inner_val | toString) }}
+        {{- $inner_key | nindent 4 }} = {{ $inner_val }}
+      {{- else }}
+        {{- $inner_key | nindent 4 }} = {{ $inner_val | quote }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

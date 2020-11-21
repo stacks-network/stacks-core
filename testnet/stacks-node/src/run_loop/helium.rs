@@ -1,10 +1,10 @@
+use super::RunLoopCallbacks;
 use crate::burnchains::Error as BurnchainControllerError;
 use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
+use stacks::burnchains::BurnchainHeaderHash;
 use stacks::chainstate::stacks::db::ClarityTx;
-
-use super::RunLoopCallbacks;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -16,14 +16,14 @@ pub struct RunLoop {
 
 impl RunLoop {
     pub fn new(config: Config) -> Self {
-        RunLoop::new_with_boot_exec(config, |_| {})
+        RunLoop::new_with_boot_exec(config, Box::new(|_| {}))
     }
 
     /// Sets up a runloop and node, given a config.
-    pub fn new_with_boot_exec<F>(config: Config, boot_exec: F) -> Self
-    where
-        F: Fn(&mut ClarityTx) -> (),
-    {
+    pub fn new_with_boot_exec(
+        config: Config,
+        boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 
@@ -50,7 +50,7 @@ impl RunLoop {
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        let initial_state = burnchain.start()?;
+        let (initial_state, _) = burnchain.start(None)?;
 
         // Update each node with the genesis block.
         self.node.process_burnchain_state(&initial_state);
@@ -63,9 +63,14 @@ impl RunLoop {
         let mut round_index: u64 = 0;
 
         // Sync and update node with this new block.
-        let burnchain_tip = burnchain.sync()?;
+        let (burnchain_tip, _) = burnchain.sync(None)?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis(self.config.get_initial_liquid_ustx());
+        let mut chain_tip = ChainTip::genesis(
+            self.config.get_initial_liquid_ustx(),
+            &BurnchainHeaderHash::zero(),
+            0,
+            0,
+        );
 
         self.node.spawn_peer_server();
 
@@ -105,7 +110,8 @@ impl RunLoop {
             artifacts_from_1st_tenure.burn_fee,
         );
 
-        let mut burnchain_tip = burnchain.sync()?;
+        let (mut burnchain_tip, _) = burnchain.sync(None)?;
+
         self.callbacks
             .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 
@@ -174,7 +180,9 @@ impl RunLoop {
                 None => {}
             }
 
-            burnchain_tip = burnchain.sync()?;
+            let (new_burnchain_tip, _) = burnchain.sync(None)?;
+            burnchain_tip = new_burnchain_tip;
+
             self.callbacks
                 .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 

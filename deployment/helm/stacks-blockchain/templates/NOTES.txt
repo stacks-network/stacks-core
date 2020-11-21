@@ -1,0 +1,19 @@
+1. Get the stacks-blockchain node URL by running these commands:
+{{- if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "stacks-blockchain.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT/v2/info
+{{- else if contains "LoadBalancer" .Values.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "stacks-blockchain.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "stacks-blockchain.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.rpcPort | default .Values.node.rpcPort }}/v2/info
+{{- else if contains "ClusterIP" .Values.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "stacks-blockchain.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  echo "Visit http://127.0.0.1:{{ .Values.node.rpcPort | default 20443 }}/v2/info to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME {{ .Values.node.rpcPort | default 20443 }}:{{ .Values.node.rpcPort | default 20443 }} {{ .Values.node.p2pPort | default 20444 }}:{{ .Values.node.p2pPort |default 20444 }}
+{{- end }}
+
+2. Test a connection to the stacks-blockchain node by running the following command:
+      NOTE: The stacks-blockchain node may take up to 5 minutes to enter a communicable state once its pod enters the "Running" phase.
+  helm test --namespace {{ .Release.Namespace }} {{ include "stacks-blockchain.fullname" . }}

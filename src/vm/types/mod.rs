@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 pub mod serialization;
 pub mod signatures;
 
@@ -9,7 +25,9 @@ use std::{cmp, fmt};
 use regex::Regex;
 
 use address::c32;
+use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS;
 use util::hash;
+
 use vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -82,6 +100,16 @@ impl QualifiedContractIdentifier {
         Self {
             issuer: StandardPrincipalData::transient(),
             name,
+        }
+    }
+
+    pub fn boot_contract(contract_name: &str) -> QualifiedContractIdentifier {
+        QualifiedContractIdentifier {
+            issuer: STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone().into(),
+            name: contract_name
+                .to_string()
+                .try_into()
+                .expect("BUG: Bad contract name supplied for a boot contract"),
         }
     }
 
@@ -710,7 +738,8 @@ impl Value {
         if let Value::UInt(inner) = self {
             inner
         } else {
-            panic!(format!("Value '{:?}' is not a u128", &self));
+            error!("Value '{:?}' is not a u128", &self);
+            panic!();
         }
     }
 
@@ -718,31 +747,45 @@ impl Value {
         if let Value::Int(inner) = self {
             inner
         } else {
-            panic!(format!("Value '{:?}' is not an i128", &self));
+            error!("Value '{:?}' is not an i128", &self);
+            panic!();
         }
     }
 
     pub fn expect_buff(self, sz: usize) -> Vec<u8> {
         if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
-            if buffdata.data.len() == sz {
+            if buffdata.data.len() <= sz {
                 buffdata.data
             } else {
-                panic!(format!(
+                error!(
                     "Value buffer has len {}, expected {}",
                     buffdata.data.len(),
                     sz
-                ));
+                );
+                panic!();
             }
         } else {
-            panic!(format!("Value '{:?}' is not a buff", &self));
+            error!("Value '{:?}' is not a buff", &self);
+            panic!();
         }
+    }
+
+    pub fn expect_buff_padded(self, sz: usize, pad: u8) -> Vec<u8> {
+        let mut data = self.expect_buff(sz);
+        if sz > data.len() {
+            for _ in data.len()..sz {
+                data.push(pad)
+            }
+        }
+        data
     }
 
     pub fn expect_bool(self) -> bool {
         if let Value::Bool(b) = self {
             b
         } else {
-            panic!(format!("Value '{:?}' is not a bool", &self));
+            error!("Value '{:?}' is not a bool", &self);
+            panic!();
         }
     }
 
@@ -750,7 +793,8 @@ impl Value {
         if let Value::Tuple(data) = self {
             data
         } else {
-            panic!(format!("Value '{:?}' is not a tuple", &self));
+            error!("Value '{:?}' is not a tuple", &self);
+            panic!();
         }
     }
 
@@ -761,7 +805,8 @@ impl Value {
                 None => None,
             }
         } else {
-            panic!(format!("Value '{:?}' is not an optional", &self));
+            error!("Value '{:?}' is not an optional", &self);
+            panic!();
         }
     }
 
@@ -769,7 +814,8 @@ impl Value {
         if let Value::Principal(p) = self {
             p
         } else {
-            panic!(format!("Value '{:?}' is not a principal", &self));
+            error!("Value '{:?}' is not a principal", &self);
+            panic!();
         }
     }
 
@@ -781,7 +827,8 @@ impl Value {
                 Err(*res_data.data)
             }
         } else {
-            panic!("FATAL: not a response");
+            error!("Value '{:?}' is not a response", &self);
+            panic!();
         }
     }
 
@@ -790,10 +837,12 @@ impl Value {
             if res_data.committed {
                 *res_data.data
             } else {
-                panic!("FATAL: not a (ok ..)");
+                error!("Value is not a (ok ..)");
+                panic!();
             }
         } else {
-            panic!("FATAL: not a response");
+            error!("Value '{:?}' is not a response", &self);
+            panic!();
         }
     }
 
@@ -802,10 +851,12 @@ impl Value {
             if !res_data.committed {
                 *res_data.data
             } else {
-                panic!("FATAL: not a (err ..)");
+                error!("Value is not a (err ..)");
+                panic!();
             }
         } else {
-            panic!("FATAL: not a response");
+            error!("Value '{:?}' is not a response", &self);
+            panic!();
         }
     }
 }
@@ -1252,5 +1303,32 @@ mod test {
             ),
             "(tuple (a 2))"
         );
+    }
+
+    #[test]
+    fn expect_buff() {
+        let buff = Value::Sequence(SequenceData::Buffer(BuffData {
+            data: vec![1, 2, 3, 4, 5],
+        }));
+        assert_eq!(buff.clone().expect_buff(5), vec![1, 2, 3, 4, 5]);
+        assert_eq!(buff.clone().expect_buff(6), vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            buff.clone().expect_buff_padded(6, 0),
+            vec![1, 2, 3, 4, 5, 0]
+        );
+        assert_eq!(buff.clone().expect_buff(10), vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            buff.clone().expect_buff_padded(10, 1),
+            vec![1, 2, 3, 4, 5, 1, 1, 1, 1, 1]
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn expect_buff_too_small() {
+        let buff = Value::Sequence(SequenceData::Buffer(BuffData {
+            data: vec![1, 2, 3, 4, 5],
+        }));
+        let _ = buff.expect_buff(4);
     }
 }

@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use super::{ClarityBackingStore, ClarityDeserializable, MarfedKV};
 use chainstate::{
     burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof, stacks::StacksBlockId,
@@ -101,6 +117,7 @@ pub struct RollbackWrapper<'a> {
     //  TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
     //   to indicate a given contexts "start depth".
     stack: Vec<RollbackContext>,
+    query_pending_data: bool,
 }
 
 // This is used for preserving rollback data longer
@@ -170,6 +187,7 @@ impl<'a> RollbackWrapper<'a> {
             lookup_map: HashMap::new(),
             metadata_lookup_map: HashMap::new(),
             stack: Vec::new(),
+            query_pending_data: true,
         }
     }
 
@@ -182,6 +200,7 @@ impl<'a> RollbackWrapper<'a> {
             lookup_map: log.lookup_map,
             metadata_lookup_map: log.metadata_lookup_map,
             stack: log.stack,
+            query_pending_data: true,
         }
     }
 
@@ -281,7 +300,17 @@ impl<'a> RollbackWrapper<'a> {
         )
     }
 
-    pub fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    ///
+    /// `query_pending_data` indicates whether the rollback wrapper should query the rollback
+    ///    wrapper's pending data on reads. This is set to `false` during (at-block ...) closures,
+    ///    and `true` otherwise.
+    ///
+    pub fn set_block_hash(
+        &mut self,
+        bhh: StacksBlockId,
+        query_pending_data: bool,
+    ) -> Result<StacksBlockId> {
+        self.query_pending_data = query_pending_data;
         self.store.set_block_hash(bhh)
     }
 
@@ -304,11 +333,14 @@ impl<'a> RollbackWrapper<'a> {
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
-        let lookup_result = self
-            .lookup_map
-            .get(key)
-            .and_then(|x| x.last())
-            .map(|x| T::deserialize(x));
+        let lookup_result = if self.query_pending_data {
+            self.lookup_map
+                .get(key)
+                .and_then(|x| x.last())
+                .map(|x| T::deserialize(x))
+        } else {
+            None
+        };
 
         lookup_result.or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
     }
@@ -318,11 +350,14 @@ impl<'a> RollbackWrapper<'a> {
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
-        let lookup_result = self
-            .lookup_map
-            .get(key)
-            .and_then(|x| x.last())
-            .map(|x| Value::deserialize(x, expected));
+        let lookup_result = if self.query_pending_data {
+            self.lookup_map
+                .get(key)
+                .and_then(|x| x.last())
+                .map(|x| Value::deserialize(x, expected))
+        } else {
+            None
+        };
 
         lookup_result.or_else(|| {
             self.store
@@ -384,10 +419,13 @@ impl<'a> RollbackWrapper<'a> {
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
         //  (&A, &B) into &(A, B).
         let metadata_key = (contract.clone(), key.to_string());
-        let lookup_result = self
-            .metadata_lookup_map
-            .get(&metadata_key)
-            .and_then(|x| x.last().cloned());
+        let lookup_result = if self.query_pending_data {
+            self.metadata_lookup_map
+                .get(&metadata_key)
+                .and_then(|x| x.last().cloned())
+        } else {
+            None
+        };
 
         match lookup_result {
             Some(x) => Ok(Some(x)),
@@ -399,7 +437,7 @@ impl<'a> RollbackWrapper<'a> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
-        if self.lookup_map.contains_key(key) {
+        if self.query_pending_data && self.lookup_map.contains_key(key) {
             true
         } else {
             self.store.has_entry(key)

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
@@ -440,7 +437,6 @@ impl BlocksInvData {
         bitvec
     }
 
-    #[cfg(test)]
     pub fn has_ith_block(&self, block_index: u16) -> bool {
         if block_index >= self.bitlen {
             return false;
@@ -451,7 +447,6 @@ impl BlocksInvData {
         (self.block_bitvec[idx as usize] & (1 << bit)) != 0
     }
 
-    #[cfg(test)]
     pub fn has_ith_microblock_stream(&self, block_index: u16) -> bool {
         if block_index >= self.bitlen {
             return false;
@@ -660,7 +655,7 @@ impl NeighborAddress {
         NeighborAddress {
             addrbytes: n.addr.addrbytes.clone(),
             port: n.addr.port,
-            public_key_hash: Hash160::from_data(&n.public_key.to_bytes_compressed()[..]),
+            public_key_hash: Hash160::from_node_public_key(&n.public_key),
         }
     }
 }
@@ -1252,14 +1247,22 @@ impl StacksMessage {
         our_seq: u32,
         our_addr: &NeighborAddress,
     ) -> Result<(), net_error> {
-        while self.relayers.len() >= (MAX_RELAYERS_LEN as usize) {
-            // remove (old) nodes at the front
-            self.relayers.remove(0);
+        if self.relayers.len() >= MAX_RELAYERS_LEN as usize {
+            warn!(
+                "Message {:?} has too many relayers; will not sign",
+                self.payload.get_message_description()
+            );
+            return Err(net_error::InvalidMessage);
         }
 
         // don't sign if signed more than once
         for relayer in &self.relayers {
             if relayer.peer.public_key_hash == our_addr.public_key_hash {
+                warn!(
+                    "Message {:?} already signed by {}",
+                    self.payload.get_message_description(),
+                    &our_addr.public_key_hash
+                );
                 return Err(net_error::InvalidMessage);
             }
         }

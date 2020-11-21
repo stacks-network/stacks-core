@@ -12,7 +12,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::util::get_epoch_time_secs;
@@ -34,12 +35,7 @@ impl MocknetController {
 
     fn new(config: Config) -> Self {
         debug!("Opening Burnchain at {}", &config.get_burn_db_path());
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            &"regtest".to_string(),
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&config.get_burn_db_path());
 
         Self {
             config: config,
@@ -88,11 +84,14 @@ impl BurnchainController for MocknetController {
         }
     }
 
-    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+    fn start(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
-            &BurnchainHeaderHash([0u8; 32]),
+            &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
             true,
         ) {
@@ -110,20 +109,24 @@ impl BurnchainController for MocknetController {
             received_at: Instant::now(),
         };
         self.chain_tip = Some(genesis_state.clone());
-
-        Ok(genesis_state)
+        let block_height = genesis_state.block_snapshot.block_height;
+        Ok((genesis_state, block_height))
     }
 
     fn submit_operation(
         &mut self,
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
+        _attempt: u64,
     ) -> bool {
         self.queued_operations.push_back(operation);
         true
     }
 
-    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+    fn sync(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
@@ -153,6 +156,7 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                        sunset_burn: 0,
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,
                         parent_block_ptr: payload.parent_block_ptr,
@@ -182,6 +186,24 @@ impl BurnchainController for MocknetController {
                         vtxindex: vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
+                    })
+                }
+                BlockstackOperationType::PreStackStx(payload) => {
+                    BlockstackOperationType::PreStackStx(PreStackStxOp {
+                        txid,
+                        vtxindex,
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::StackStx(payload) => {
+                    BlockstackOperationType::StackStx(StackStxOp {
+                        txid,
+                        vtxindex,
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
                     })
                 }
             };
@@ -229,7 +251,8 @@ impl BurnchainController for MocknetController {
         };
         self.chain_tip = Some(new_state.clone());
 
-        Ok(new_state)
+        let block_height = new_state.block_snapshot.block_height;
+        Ok((new_state, block_height))
     }
 
     #[cfg(test)]

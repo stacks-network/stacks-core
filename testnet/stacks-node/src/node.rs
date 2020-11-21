@@ -9,10 +9,13 @@ use std::{thread, thread::JoinHandle, time};
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
@@ -24,12 +27,12 @@ use stacks::net::{
     db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
 };
 
+use stacks::chainstate::stacks::index::TrieHash;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
-
-use stacks::chainstate::stacks::index::TrieHash;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -42,11 +45,19 @@ pub struct ChainTip {
 }
 
 impl ChainTip {
-    pub fn genesis(initial_liquid_ustx: u128) -> ChainTip {
+    pub fn genesis(
+        initial_liquid_ustx: u128,
+        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_height: u64,
+        first_burnchain_block_timestamp: u64,
+    ) -> ChainTip {
         ChainTip {
-            metadata: StacksHeaderInfo::genesis_block_header_info(
+            metadata: StacksHeaderInfo::genesis(
                 TrieHash([0u8; 32]),
                 initial_liquid_ustx,
+                first_burnchain_block_hash,
+                first_burnchain_block_height as u32,
+                first_burnchain_block_timestamp,
             ),
             block: StacksBlock::genesis_block(),
             receipts: vec![],
@@ -135,10 +146,7 @@ fn spawn_peer(
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, boot_block_exec: F) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
 
         let initial_balances = config
@@ -147,12 +155,19 @@ impl Node {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: Some(boot_block_exec),
+        };
+
         let chain_state_result = StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&mut boot_data),
             config.block_limit.clone(),
         );
 
@@ -251,12 +266,7 @@ impl Node {
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
-        let burnchain = Burnchain::new(
-            &self.config.get_burn_db_path(),
-            &self.config.burnchain.chain,
-            "regtest",
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
             let ic = sortdb.index_conn();
@@ -302,7 +312,7 @@ impl Node {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -316,6 +326,22 @@ impl Node {
             Some(&initial_neighbors),
         )
         .unwrap();
+
+        println!("DENY NEIGHBORS {:?}", &self.config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in self.config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -358,7 +384,7 @@ impl Node {
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
-        burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
+        burnchain_controller.submit_operation(key_reg_op, &mut op_signer, 1);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -392,8 +418,10 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
+                BlockstackOperationType::PreStackStx(_)
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::UserBurnSupport(_) => {
+                    // no-op, ops are not supported / produced at this point.
                 }
             }
         }
@@ -458,11 +486,18 @@ impl Node {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
+        let microblock_secret_key = self
+            .keychain
+            .rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(self.config.get_initial_liquid_ustx()),
+            true => ChainTip::genesis(
+                self.config.get_initial_liquid_ustx(),
+                &BurnchainHeaderHash::zero(),
+                0,
+                0,
+            ),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),
@@ -520,7 +555,7 @@ impl Node {
             );
 
             let mut op_signer = self.keychain.generate_op_signer();
-            burnchain_controller.submit_operation(op, &mut op_signer);
+            burnchain_controller.submit_operation(op, &mut op_signer, 1);
         }
     }
 
@@ -559,6 +594,7 @@ impl Node {
                     consensus_hash,
                     &anchored_block,
                     &parent_consensus_hash,
+                    0,
                 )
                 .unwrap();
 
@@ -629,8 +665,13 @@ impl Node {
             receipts,
         };
 
-        self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash);
+        self.event_dispatcher.process_chain_tip(
+            &chain_tip,
+            &parent_index_hash,
+            Txid([0; 32]),
+            vec![],
+            None,
+        );
 
         self.chain_tip = Some(chain_tip.clone());
 
@@ -661,7 +702,7 @@ impl Node {
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 
@@ -691,7 +732,10 @@ impl Node {
             ),
         };
 
+        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash,
             burn_fee,
             input: self.keychain.get_burnchain_signer(),
@@ -703,9 +747,9 @@ impl Node {
             parent_vtxindex,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
-            commit_outs: vec![],
+            commit_outs,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 

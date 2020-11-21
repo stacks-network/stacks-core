@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use vm::analysis;
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
@@ -748,7 +764,7 @@ impl<'a> ClarityTransactionConnection<'a> {
     /// Execute a contract call in the current block.
     ///  If an error occurs while processing the transaction, it's modifications will be rolled back.
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
+    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn run_contract_call<F>(
         &mut self,

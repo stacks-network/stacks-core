@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::db::{blocks::MemPoolRejection, ClarityTx, StacksChainState};
@@ -39,6 +36,7 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use net::StacksPublicKeyBuffer;
 
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
 
@@ -51,7 +49,7 @@ use util::vrf::*;
 use core::mempool::*;
 use core::*;
 
-use vm::database::BurnStateDB;
+use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 ///
 ///    Independent structure for building microblocks:
@@ -121,7 +119,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         miner_key: &Secp256k1PrivateKey,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(miner_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine);
         }
@@ -389,7 +387,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
             miner_id,
@@ -445,7 +443,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::first_pubkey_hash(
             miner_id,
@@ -530,6 +528,8 @@ impl StacksBlockBuilder {
                     }
                     _ => e,
                 })?;
+
+            debug!("Include tx {}", tx.txid());
 
             // save
             self.txs.push(tx.clone());
@@ -671,8 +671,9 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {}, parent block {}, state root = {}",
+            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
             block.block_hash(),
+            block.txs.len(),
             &self.header.parent_block,
             state_root_hash
         );
@@ -738,12 +739,13 @@ impl StacksBlockBuilder {
     pub fn epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'a SortitionDBConn,
     ) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
             StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip, None)?
+                .map(|(rewards, _)| rewards)
         };
 
         self.miner_payouts = matured_miner_rewards_opt;
@@ -753,11 +755,11 @@ impl StacksBlockBuilder {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        test_debug!(
-            "\n\nMiner {} epoch begin off of {}/{}\n",
-            self.miner_id,
-            self.chain_tip.consensus_hash,
-            self.header.parent_block
+        debug!(
+            "\n\nMiner epoch begin";
+            "miner" => %self.miner_id,
+            "chain_tip" => %format!("{}/{}", self.chain_tip.consensus_hash,
+                                    self.header.parent_block)
         );
 
         if let Some(ref _payout) = self.miner_payouts {
@@ -778,6 +780,9 @@ impl StacksBlockBuilder {
             Some(mblocks) => mblocks,
             None => vec![],
         };
+
+        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
         let mut tx = chainstate.block_begin(
             burn_dbconn,
@@ -821,6 +826,8 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
+        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
+
         Ok(tx)
     }
 
@@ -854,7 +861,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &dyn BurnStateDB,
+        burn_dbconn: &SortitionDBConn,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
@@ -864,7 +871,7 @@ impl StacksBlockBuilder {
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
-                    test_debug!("Included {}", &tx.txid());
+                    debug!("Included {}", &tx.txid());
                 }
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.
@@ -935,7 +942,7 @@ impl StacksBlockBuilder {
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &dyn BurnStateDB,
+        burn_dbconn: &SortitionDBConn,
         mempool: &MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -1070,8 +1077,7 @@ pub mod test {
     use address::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
@@ -1788,6 +1794,7 @@ pub mod test {
                 &commit_snapshot.consensus_hash,
                 &stacks_block,
                 &parent_block_consensus_hash,
+                5,
             )
             .unwrap();
 
@@ -4949,7 +4956,7 @@ pub mod test {
             microblocks.push(microblock);
         }
 
-        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}",
+        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}", 
                     stacks_block.block_hash(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
 
         (stacks_block, microblocks)

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::error;
 use std::fmt;
@@ -291,7 +288,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(())
     }
 
-    /// Walk through the bufferred TrieNodes and dump them to f.
+    /// Walk through the buffered TrieNodes and dump them to f.
     fn dump_traverse<F: Write + Seek>(
         &mut self,
         f: &mut F,
@@ -921,7 +918,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
-        // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
+        // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
         // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
@@ -1591,7 +1588,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             }
         }
 
-        panic!("Tried to write to another Trie besides the currently-bufferred one.  This should never happen -- only flush() can write to disk!");
+        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
     }
 
     pub fn write_node<N: TrieNode + std::fmt::Debug>(
@@ -1653,19 +1650,19 @@ pub mod test {
     fn node_cmp(n1: &TrieNodeType, n2: &TrieNodeType) -> bool {
         match (n1, n2) {
             (TrieNodeType::Leaf(ref data1), TrieNodeType::Leaf(ref data2)) => {
-                (data1.path == data2.path && data1.data == data2.data)
+                data1.path == data2.path && data1.data == data2.data
             }
             (TrieNodeType::Node4(ref data1), TrieNodeType::Node4(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node16(ref data1), TrieNodeType::Node16(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node48(ref data1), TrieNodeType::Node48(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node256(ref data1), TrieNodeType::Node256(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (_, _) => false,
         }

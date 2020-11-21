@@ -1,21 +1,19 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
 use std::mem;
 
 use net::asn::ASEntry4;
@@ -82,7 +80,7 @@ use chainstate::burn::db::sortdb::{BlockHeaderCache, PoxId, SortitionDB, Sortiti
 
 use chainstate::stacks::db::StacksChainState;
 
-use chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 
 use util::get_epoch_time_secs;
 use util::log;
@@ -201,6 +199,7 @@ pub enum PeerNetworkWorkState {
     GetPublicIP,
     BlockInvSync,
     BlockDownload,
+    AntiEntropy,
     Prune,
 }
 
@@ -229,7 +228,7 @@ pub struct PeerNetwork {
     handles: VecDeque<NetworkHandleServer>,
 
     // network I/O
-    network: Option<NetworkState>,
+    pub network: Option<NetworkState>,
     p2p_network_handle: usize,
     http_network_handle: usize,
 
@@ -248,6 +247,7 @@ pub struct PeerNetwork {
     pub walk_count: u64,
     pub walk_attempts: u64,
     pub walk_retries: u64,
+    pub walk_resets: u64,
     pub walk_total_step_count: u64,
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
@@ -288,6 +288,30 @@ pub struct PeerNetwork {
     public_ip_learned_at: u64,
     public_ip_reply_handle: Option<ReplyHandleP2P>,
     public_ip_retries: u64,
+
+    // how many loops of the state-machine have occured?
+    // Used to coordinate with the chain synchronization logic to ensure that the node has at least
+    // begun to download blocks after fetching the next reward cycles' sortitions.
+    pub num_state_machine_passes: u64,
+
+    // how many inv syncs have we done?
+    pub num_inv_sync_passes: u64,
+
+    // how many downloader passes have we done?
+    pub num_downloader_passes: u64,
+
+    // to whom did we send a block or microblock stream as part of our anti-entropy protocol, and
+    // when did we send it?
+    antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
+    antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
+    antientropy_last_burnchain_tip: BurnchainHeaderHash,
+
+    // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
+    // can't process yet, but might be able to process on the next chain view update
+    pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
+
+    // fault injection -- force disconnects
+    fault_last_disconnect: u64,
 }
 
 impl PeerNetwork {
@@ -309,6 +333,14 @@ impl PeerNetwork {
         let pub_ip = connection_opts.public_ip_address.clone();
         let pub_ip_learned = pub_ip.is_none();
         local_peer.public_ip_address = pub_ip.clone();
+
+        if connection_opts.disable_inbound_handshakes {
+            debug!("{:?}: disable inbound handshakes", &local_peer);
+        }
+        if connection_opts.disable_inbound_walks {
+            debug!("{:?}: disable inbound neighbor walks", &local_peer);
+        }
+
         PeerNetwork {
             local_peer: local_peer,
             peer_version: peer_version,
@@ -339,6 +371,7 @@ impl PeerNetwork {
             walk_deadline: 0,
             walk_attempts: 0,
             walk_retries: 0,
+            walk_resets: 0,
             walk_count: 0,
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
@@ -371,6 +404,18 @@ impl PeerNetwork {
             public_ip_confirmed: false,
             public_ip_reply_handle: None,
             public_ip_retries: 0,
+
+            num_state_machine_passes: 0,
+            num_inv_sync_passes: 0,
+            num_downloader_passes: 0,
+
+            antientropy_blocks: HashMap::new(),
+            antientropy_microblocks: HashMap::new(),
+            antientropy_last_burnchain_tip: BurnchainHeaderHash([0u8; 32]),
+
+            pending_messages: HashMap::new(),
+
+            fault_last_disconnect: 0,
         }
     }
 
@@ -569,15 +614,37 @@ impl PeerNetwork {
         message_payload: StacksMessageType,
     ) -> () {
         debug!(
-            "{:?}: Will broadcast '{}' to up to {} neighbors",
+            "{:?}: Will broadcast '{}' to up to {} neighbors; relayed by {:?}",
             &self.local_peer,
             message_payload.get_message_description(),
-            neighbor_keys.len()
+            neighbor_keys.len(),
+            &relay_hints
         );
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
+                    // safety check -- don't send to someone who has already been a relayer
+                    let mut do_relay = true;
+                    if let Some(pubkey) = convo.ref_public_key() {
+                        let pubkey_hash = Hash160::from_node_public_key(pubkey);
+                        for rhint in relay_hints.iter() {
+                            if rhint.peer.public_key_hash == pubkey_hash {
+                                do_relay = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !do_relay {
+                        debug!(
+                            "{:?}: Do not broadcast '{}' to {:?}: it has already relayed it",
+                            &self.local_peer,
+                            message_payload.get_message_description(),
+                            &nk
+                        );
+                        continue;
+                    }
+
                     match convo.sign_and_forward(
                         &self.local_peer,
                         &self.chain_view,
@@ -725,11 +792,40 @@ impl PeerNetwork {
         Ok(next_event_id)
     }
 
+    /// Given a list of neighbors keys, find the _set_ of neighbor keys that represent unique
+    /// connections.  This is used by the broadcast logic to ensure that we only send a message to
+    /// a peer once, even if we have both an inbound and outbound connection to it.
+    fn coalesce_neighbors(&self, neighbors: Vec<NeighborKey>) -> Vec<NeighborKey> {
+        let mut seen = HashSet::new();
+        let mut unique = HashSet::new();
+        for nk in neighbors.into_iter() {
+            if seen.contains(&nk) {
+                continue;
+            }
+
+            unique.insert(nk.clone());
+
+            // don't include its reciprocal connection
+            if let Some(event_id) = self.events.get(&nk) {
+                if let Some(other_event_id) = self.find_reciprocal_event(*event_id) {
+                    if let Some(other_convo) = self.peers.get(&other_event_id) {
+                        let other_nk = other_convo.to_neighbor_key();
+                        seen.insert(other_nk);
+                        seen.insert(nk);
+                    }
+                }
+            }
+        }
+        unique.into_iter().collect::<Vec<NeighborKey>>()
+    }
+
     /// Sample the available connections to broadcast on.
     /// Up to MAX_BROADCAST_OUTBOUND_PEERS outbound connections will be used.
     /// Up to MAX_BROADCAST_INBOUND_PEERS inbound connections will be used.
     /// The outbound will be sampled according to their AS distribution
-    /// The inbound will be sampled according to how rarely they send duplicate messages
+    /// The inbound will be sampled according to how rarely they send duplicate messages.
+    /// The final set of message recipients will be coalesced -- if we have an inbound and outbound
+    /// connection to the same neighbor, only one connection will be used.
     fn sample_broadcast_peers<R: RelayPayload>(
         &self,
         relay_hints: &Vec<RelayData>,
@@ -740,6 +836,9 @@ impl PeerNetwork {
         let mut inbound_neighbors = vec![];
 
         for (_, convo) in self.peers.iter() {
+            if !convo.is_authenticated() {
+                continue;
+            }
             let nk = convo.to_neighbor_key();
             if convo.is_outbound() {
                 outbound_neighbors.push(nk);
@@ -757,24 +856,25 @@ impl PeerNetwork {
             RELAY_DUPLICATE_INFERENCE_WARMUP,
         );
 
+        let mut relay_pubkhs = HashSet::new();
+        for rhint in relay_hints {
+            relay_pubkhs.insert(rhint.peer.public_key_hash.clone());
+        }
+
         // don't send a message to anyone who sent this message to us
         for (_, convo) in self.peers.iter() {
             if let Some(pubkey) = convo.ref_public_key() {
-                let pubkey_hash = Hash160::from_data(&pubkey.to_bytes());
-                for rhint in relay_hints {
-                    if rhint.peer.public_key_hash == pubkey_hash {
-                        // don't send to this peer
-                        let nk = convo.to_neighbor_key();
-
-                        test_debug!(
-                            "{:?}: Do not forward {} to {:?}, since it already saw this message",
-                            &self.local_peer,
-                            payload.get_id(),
-                            &nk
-                        );
-                        outbound_dist.remove(&nk);
-                        inbound_dist.remove(&nk);
-                    }
+                let pubkey_hash = Hash160::from_node_public_key(pubkey);
+                if relay_pubkhs.contains(&pubkey_hash) {
+                    let nk = convo.to_neighbor_key();
+                    debug!(
+                        "{:?}: Do not forward {} to {:?}, since it already saw this message",
+                        &self.local_peer,
+                        payload.get_id(),
+                        &nk
+                    );
+                    outbound_dist.remove(&nk);
+                    inbound_dist.remove(&nk);
                 }
             }
         }
@@ -807,18 +907,21 @@ impl PeerNetwork {
         );
 
         outbound_sample.append(&mut inbound_sample);
-        Ok(outbound_sample)
+        let ret = self.coalesce_neighbors(outbound_sample);
+
+        debug!("All recipients (out of {}): {:?}", ret.len(), &ret);
+        Ok(ret)
     }
 
     /// Dispatch a single request from another thread.
-    fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
+    pub fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
         match request {
             NetworkRequest::Ban(neighbor_keys) => {
                 for neighbor_key in neighbor_keys.iter() {
-                    test_debug!("Request to ban {:?}", neighbor_key);
+                    debug!("Request to ban {:?}", neighbor_key);
                     match self.events.get(neighbor_key) {
                         Some(event_id) => {
-                            test_debug!("Will ban {:?} (event {})", neighbor_key, event_id);
+                            debug!("Will ban {:?} (event {})", neighbor_key, event_id);
                             self.bans.insert(*event_id);
                         }
                         None => {}
@@ -1047,16 +1150,19 @@ impl PeerNetwork {
     }
 
     /// Is a node with the given public key hash registered?
-    /// Return the event ID if so
-    pub fn get_pubkey_event(&self, pubkh: &Hash160) -> Option<usize> {
-        for (_, convo) in self.peers.iter() {
-            if let Some(convo_pubkh) = convo.get_public_key_hash() {
-                if convo_pubkh == *pubkh {
-                    return Some(convo.conn_id);
+    /// Return the event IDs if so
+    pub fn get_pubkey_events(&self, pubkh: &Hash160) -> Vec<usize> {
+        let mut ret = vec![];
+        for (event_id, convo) in self.peers.iter() {
+            if convo.is_authenticated() {
+                if let Some(convo_pubkh) = convo.get_public_key_hash() {
+                    if convo_pubkh == *pubkh {
+                        ret.push(*event_id);
+                    }
                 }
             }
         }
-        None
+        ret
     }
 
     /// Find the neighbor key bound to an event ID
@@ -1075,7 +1181,7 @@ impl PeerNetwork {
     }
 
     /// Is this neighbor key the same as the one that represents our p2p bind address?
-    fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
+    pub fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
         self.bind_nk.network_id == neighbor_key.network_id
             && self.bind_nk.addrbytes == neighbor_key.addrbytes
             && self.bind_nk.port == neighbor_key.port
@@ -1135,22 +1241,37 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Check to see if we can register a peer with a given public key
+    /// Check to see if we can register a peer with a given public key in a given direction
     pub fn can_register_peer_with_pubkey(
         &mut self,
         nk: &NeighborKey,
         outbound: bool,
         pubkh: &Hash160,
     ) -> Result<(), net_error> {
+        // can't talk to myself
+        let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+            &self.local_peer.private_key,
+        ));
+        if pubkh == &my_pubkey_hash {
+            return Err(net_error::ConnectionCycle);
+        }
+
         self.can_register_peer(nk, outbound).and_then(|_| {
-            if let Some(event_id) = self.get_pubkey_event(pubkh) {
-                let nk = self
-                    .get_event_neighbor_key(event_id)
-                    .ok_or(net_error::PeerNotConnected)?;
-                Err(net_error::AlreadyConnected(event_id, nk))
-            } else {
-                Ok(())
+            let other_events = self.get_pubkey_events(pubkh);
+            if other_events.len() > 0 {
+                for event_id in other_events.into_iter() {
+                    if let Some(convo) = self.peers.get(&event_id) {
+                        // only care if we're trying to connect in the same direction
+                        if outbound == convo.is_outbound() {
+                            let nk = self
+                                .get_event_neighbor_key(event_id)
+                                .ok_or(net_error::PeerNotConnected)?;
+                            return Err(net_error::AlreadyConnected(event_id, nk));
+                        }
+                    }
+                }
             }
+            return Ok(());
         })
     }
 
@@ -1321,6 +1442,7 @@ impl PeerNetwork {
 
         self.relay_handles.remove(&event_id);
         self.peers.remove(&event_id);
+        self.pending_messages.remove(&event_id);
     }
 
     /// Deregister by neighbor key
@@ -1359,7 +1481,7 @@ impl PeerNetwork {
         match self.events.get(&peer_key) {
             None => {
                 // not connected
-                info!("Could not sign for peer {:?}: not connected", peer_key);
+                debug!("Could not sign for peer {:?}: not connected", peer_key);
                 Err(net_error::PeerNotConnected)
             }
             Some(event_id) => match self.peers.get_mut(&event_id) {
@@ -1904,7 +2026,7 @@ impl PeerNetwork {
     }
 
     /// Update the state of our neighbor walk.
-    /// Return true if we finish.
+    /// Return true if we finish, and true if we're throttled
     fn do_network_neighbor_walk(&mut self) -> Result<bool, net_error> {
         if cfg!(test) && self.connection_opts.disable_neighbor_walk {
             test_debug!("neighbor walk is disabled");
@@ -2006,6 +2128,18 @@ impl PeerNetwork {
         return Ok(true);
     }
 
+    /// Disconnect from all peers
+    fn disconnect_all(&mut self) -> () {
+        let mut all_event_ids = vec![];
+        for (eid, _) in self.peers.iter() {
+            all_event_ids.push(*eid);
+        }
+
+        for eid in all_event_ids.into_iter() {
+            self.deregister_peer(eid);
+        }
+    }
+
     /// Learn this peer's public IP address.
     /// If it was given to us directly, then we can just skip this step.
     /// Once learned, we'll confirm it by trying to self-connect.
@@ -2054,15 +2188,8 @@ impl PeerNetwork {
                             Some((data.addrbytes, self.bind_nk.port));
 
                         if old_ip != self.local_peer.public_ip_address {
-                            let mut all_event_ids = vec![];
-                            for (eid, _) in self.peers.iter() {
-                                all_event_ids.push(*eid);
-                            }
-
                             info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
-                            for eid in all_event_ids.into_iter() {
-                                self.deregister_peer(eid);
-                            }
+                            self.disconnect_all();
                         }
                         return Ok(true);
                     }
@@ -2199,10 +2326,10 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<bool, net_error> {
+    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<(bool, bool), net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
-            return Ok(true);
+            return Ok((true, false));
         }
 
         if self.inv_state.is_none() {
@@ -2210,7 +2337,7 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, broken_neighbors, dead_neighbors) = self.sync_inventories(sortdb)?;
+        let (done, throttled, broken_neighbors, dead_neighbors) = self.sync_inventories(sortdb)?;
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
@@ -2222,7 +2349,7 @@ impl PeerNetwork {
             self.deregister_neighbor(&dead);
         }
 
-        Ok(done)
+        Ok((done, throttled))
     }
 
     /// Download blocks, and add them to our network result.
@@ -2244,6 +2371,7 @@ impl PeerNetwork {
 
         let (
             done,
+            at_chain_tip,
             old_pox_id,
             mut blocks,
             mut microblocks,
@@ -2261,14 +2389,14 @@ impl PeerNetwork {
             let mut block_set = HashSet::new();
             let mut microblock_set = HashSet::new();
 
-            for (_, block) in network_result.blocks.iter() {
+            for (_, block, _) in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
                     test_debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
 
-            for (_, mblocks) in network_result.confirmed_microblocks.iter() {
+            for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
                         test_debug!("Duplicate microblock {}", mblock.block_hash());
@@ -2297,7 +2425,401 @@ impl PeerNetwork {
             self.deregister_and_ban_neighbor(&broken_neighbor);
         }
 
-        Ok(done)
+        if done && at_chain_tip {
+            self.num_downloader_passes += 1;
+        }
+
+        Ok(done && at_chain_tip)
+    }
+
+    /// Find the next block to push
+    fn find_next_push_block(
+        &mut self,
+        nk: &NeighborKey,
+        reward_cycle: u64,
+        height: u64,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        local_blocks_inv: &BlocksInvData,
+        block_stats: &NeighborBlockStats,
+    ) -> Result<Option<(ConsensusHash, StacksBlock)>, net_error> {
+        let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+        if !local_blocks_inv.has_ith_block((height - start_block_height) as u16) {
+            return Ok(None);
+        }
+        if block_stats.inv.get_block_height() >= height && !block_stats.inv.has_ith_block(height) {
+            let ancestor_sn = match self.get_ancestor_sortition_snapshot(sortdb, height) {
+                Ok(sn) => sn,
+                Err(e) => {
+                    debug!(
+                        "{:?}: Failed to query ancestor block height {}: {:?}",
+                        &self.local_peer, height, &e
+                    );
+                    return Ok(None);
+                }
+            };
+
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &ancestor_sn.consensus_hash,
+                &ancestor_sn.winning_stacks_block_hash,
+            );
+            let block = match StacksChainState::load_block(
+                &chainstate.blocks_path,
+                &ancestor_sn.consensus_hash,
+                &ancestor_sn.winning_stacks_block_hash,
+            )? {
+                Some(block) => block,
+                None => {
+                    debug!(
+                        "{:?}: No such block {}",
+                        &self.local_peer, &index_block_hash
+                    );
+                    return Ok(None);
+                }
+            };
+
+            debug!(
+                "{:?}: Peer {:?} is missing Stacks block {} from height {}, which we have",
+                &self.local_peer, nk, &index_block_hash, height
+            );
+            return Ok(Some((ancestor_sn.consensus_hash, block)));
+        } else {
+            return Ok(None);
+        }
+    }
+
+    /// Find the next confirmed microblock stream to push.
+    fn find_next_push_microblocks(
+        &mut self,
+        nk: &NeighborKey,
+        reward_cycle: u64,
+        height: u64,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        local_blocks_inv: &BlocksInvData,
+        block_stats: &NeighborBlockStats,
+    ) -> Result<Option<(StacksBlockId, Vec<StacksMicroblock>)>, net_error> {
+        let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+        if !local_blocks_inv.has_ith_microblock_stream((height - start_block_height) as u16) {
+            return Ok(None);
+        }
+        if block_stats.inv.get_block_height() >= height
+            && !block_stats.inv.has_ith_microblock_stream(height)
+        {
+            let ancestor_sn = match self.get_ancestor_sortition_snapshot(sortdb, height) {
+                Ok(sn) => sn,
+                Err(e) => {
+                    debug!(
+                        "{:?}: Failed to query ancestor block height {}: {:?}",
+                        &self.local_peer, height, &e
+                    );
+                    return Ok(None);
+                }
+            };
+
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &ancestor_sn.consensus_hash,
+                &ancestor_sn.winning_stacks_block_hash,
+            );
+
+            // TODO: this is getting rewritten once PoisonMicroblocks are fully materialized
+            let microblocks = match StacksChainState::load_staging_microblock_stream(
+                &chainstate.blocks_db,
+                &chainstate.blocks_path,
+                &ancestor_sn.consensus_hash,
+                &ancestor_sn.winning_stacks_block_hash,
+                u16::max_value(),
+            )? {
+                Some(mblocks) => mblocks,
+                None => {
+                    debug!(
+                        "{:?}: Failed to load microblock stream off of {}",
+                        &self.local_peer, &index_block_hash
+                    );
+                    return Ok(None);
+                }
+            };
+
+            debug!(
+                "{:?}: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
+                &self.local_peer, nk, &index_block_hash, height
+            );
+            return Ok(Some((index_block_hash, microblocks)));
+        } else {
+            return Ok(None);
+        }
+    }
+
+    /// Push any blocks and microblock streams that we're holding onto out to our neighbors, if we have no public inbound
+    /// connections.
+    fn try_push_local_data(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> Result<(), net_error> {
+        // only run anti-entropy once our burnchain view changes
+        if self.chain_view.burn_block_hash == self.antientropy_last_burnchain_tip {
+            return Ok(());
+        }
+        self.antientropy_last_burnchain_tip = self.chain_view.burn_block_hash;
+
+        let num_public_inbound = self.count_public_inbound();
+        debug!(
+            "{:?}: Number of public inbound neighbors: {}",
+            &self.local_peer, num_public_inbound
+        );
+
+        if num_public_inbound > 0 {
+            return Ok(());
+        }
+
+        if self.relay_handles.len() as u64
+            > self.connection_opts.max_block_push + self.connection_opts.max_microblock_push
+        {
+            // overwhelmed
+            debug!(
+                "{:?}: too many relay handles ({}), skipping anti-entropy",
+                &self.local_peer,
+                self.relay_handles.len()
+            );
+            return Ok(());
+        }
+
+        if self.inv_state.is_none() {
+            // nothing to do
+            return Ok(());
+        }
+
+        let mut total_blocks_to_broadcast = 0;
+        let mut total_microblocks_to_broadcast = 0;
+        let mut lowest_reward_cycle_with_missing_block = HashMap::new();
+        let mut neighbor_keys = vec![];
+        for (nk, _) in self.events.iter() {
+            neighbor_keys.push(nk.clone());
+        }
+
+        debug!(
+            "{:?}: Run anti-entropy protocol for {} neighbors",
+            &self.local_peer,
+            &neighbor_keys.len()
+        );
+        if neighbor_keys.len() == 0 {
+            return Ok(());
+        }
+
+        for reward_cycle in (0..(self.pox_id.len() as u64)).rev() {
+            let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
+            {
+                Ok(inv) => inv,
+                Err(e) => {
+                    debug!(
+                        "{:?}: Failed to load local blocks inventory for reward cycle {}: {:?}",
+                        &self.local_peer, reward_cycle, &e
+                    );
+                    continue;
+                }
+            };
+
+            debug!(
+                "{:?}: Local blocks inventory for reward cycle {} is {:?}",
+                &self.local_peer, reward_cycle, &local_blocks_inv
+            );
+
+            let mut blocks_to_broadcast = HashMap::new();
+            let mut microblocks_to_broadcast = HashMap::new();
+
+            let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+            for nk in neighbor_keys.iter() {
+                if total_blocks_to_broadcast >= self.connection_opts.max_block_push
+                    && total_microblocks_to_broadcast >= self.connection_opts.max_microblock_push
+                {
+                    break;
+                }
+                let (blocks, microblocks) = match self.with_neighbor_blocks_inv(
+                    nk,
+                    |ref mut network, ref mut block_stats| {
+                        let mut local_blocks = vec![];
+                        let mut local_microblocks = vec![];
+
+                        for height in start_block_height
+                            ..network
+                                .burnchain
+                                .reward_cycle_to_block_height(reward_cycle + 1)
+                        {
+                            if total_blocks_to_broadcast < network.connection_opts.max_block_push
+                                && local_blocks.len() < BLOCKS_PUSHED_MAX as usize
+                            {
+                                if let Some((consensus_hash, block)) = network
+                                    .find_next_push_block(
+                                        nk,
+                                        reward_cycle,
+                                        height,
+                                        sortdb,
+                                        chainstate,
+                                        &local_blocks_inv,
+                                        block_stats,
+                                    )?
+                                {
+                                    let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                                        &consensus_hash,
+                                        &block.block_hash(),
+                                    );
+
+                                    // have we recently tried to push this out yet?
+                                    if let Some(ref mut push_set) =
+                                        network.antientropy_blocks.get_mut(nk)
+                                    {
+                                        if let Some(ts) = push_set.get(&index_block_hash) {
+                                            if *ts
+                                                < get_epoch_time_secs()
+                                                    + network.connection_opts.antientropy_retry
+                                            {
+                                                // tried pushing this block recently
+                                                continue;
+                                            }
+                                        } else {
+                                            push_set
+                                                .insert(index_block_hash, get_epoch_time_secs());
+                                        }
+                                    } else {
+                                        let mut pushed = HashMap::new();
+                                        pushed.insert(index_block_hash, get_epoch_time_secs());
+                                        network.antientropy_blocks.insert(nk.clone(), pushed);
+                                    }
+
+                                    local_blocks.push((consensus_hash, block));
+
+                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                        lowest_reward_cycle_with_missing_block
+                                            .insert(nk.clone(), reward_cycle);
+                                    }
+
+                                    total_blocks_to_broadcast += 1;
+                                }
+                            }
+
+                            if total_microblocks_to_broadcast
+                                < network.connection_opts.max_microblock_push
+                            {
+                                if let Some((index_block_hash, microblocks)) = network
+                                    .find_next_push_microblocks(
+                                        nk,
+                                        reward_cycle,
+                                        height,
+                                        sortdb,
+                                        chainstate,
+                                        &local_blocks_inv,
+                                        block_stats,
+                                    )?
+                                {
+                                    // have we recently tried to push this out yet?
+                                    if let Some(ref mut push_set) =
+                                        network.antientropy_microblocks.get_mut(nk)
+                                    {
+                                        if let Some(ts) = push_set.get(&index_block_hash) {
+                                            if *ts
+                                                < get_epoch_time_secs()
+                                                    + network.connection_opts.antientropy_retry
+                                            {
+                                                // tried pushing this microblock stream recently
+                                                continue;
+                                            }
+                                        } else {
+                                            push_set.insert(
+                                                index_block_hash.clone(),
+                                                get_epoch_time_secs(),
+                                            );
+                                        }
+                                    } else {
+                                        let mut pushed = HashMap::new();
+                                        pushed.insert(index_block_hash, get_epoch_time_secs());
+                                        network.antientropy_microblocks.insert(nk.clone(), pushed);
+                                    }
+
+                                    local_microblocks.push((index_block_hash, microblocks));
+
+                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                        lowest_reward_cycle_with_missing_block
+                                            .insert(nk.clone(), reward_cycle);
+                                    }
+
+                                    total_microblocks_to_broadcast += 1;
+                                }
+                            }
+                        }
+                        Ok((local_blocks, local_microblocks))
+                    },
+                ) {
+                    Ok(x) => x,
+                    Err(net_error::PeerNotConnected) => {
+                        continue;
+                    }
+                    Err(e) => {
+                        debug!(
+                            "{:?}: Failed to push blocks to {:?}: {:?}",
+                            &self.local_peer, &nk, &e
+                        );
+                        return Err(e);
+                    }
+                };
+
+                blocks_to_broadcast.insert(nk.clone(), blocks);
+                microblocks_to_broadcast.insert(nk.clone(), microblocks);
+            }
+
+            for (nk, blocks) in blocks_to_broadcast.into_iter() {
+                let num_blocks = blocks.len();
+                if num_blocks == 0 {
+                    continue;
+                }
+
+                let blocks_data = BlocksData { blocks: blocks };
+                self.broadcast_message(
+                    vec![nk.clone()],
+                    vec![],
+                    StacksMessageType::Blocks(blocks_data),
+                );
+            }
+
+            for (nk, microblock_datas) in microblocks_to_broadcast.into_iter() {
+                for (anchor_block_id, microblocks) in microblock_datas.into_iter() {
+                    let num_microblocks = microblocks.len();
+                    if num_microblocks == 0 {
+                        continue;
+                    }
+                    let microblocks_data = MicroblocksData {
+                        index_anchor_block: anchor_block_id.clone(),
+                        microblocks: microblocks,
+                    };
+                    self.broadcast_message(
+                        vec![nk.clone()],
+                        vec![],
+                        StacksMessageType::Microblocks(microblocks_data),
+                    );
+                }
+            }
+        }
+
+        // invalidate inventories at and after the affected reward cycles, so we're forced to go
+        // and re-download them (once our block has been received).  This prevents this code from
+        // DDoS'ing remote nodes to death with blocks over and over again, and it prevents this
+        // code from doing needless extra work for remote nodes that always report 0 for their
+        // inventory statuses.
+        for (nk, reward_cycle) in lowest_reward_cycle_with_missing_block.into_iter() {
+            debug!(
+                "{:?}: Invalidate inventory for {:?} at and after reward cycle {}",
+                &self.local_peer, &nk, reward_cycle
+            );
+            PeerNetwork::with_inv_state(self, |network, inv_state| {
+                if let Some(block_stats) = inv_state.block_stats.get_mut(&nk) {
+                    block_stats
+                        .inv
+                        .truncate_pox_inventory(&network.burnchain, reward_cycle);
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 
     /// Do the actual work in the state machine.
@@ -2341,7 +2863,8 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    if self.do_network_inv_sync(sortdb)? {
+                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb)?;
+                    if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
                             self.work_state = PeerNetworkWorkState::BlockDownload;
@@ -2359,6 +2882,14 @@ impl PeerNetwork {
                                 }
                             }
                         }
+
+                        if !inv_throttled {
+                            self.num_inv_sync_passes += 1;
+                            debug!(
+                                "{:?}: Finished full inventory state-machine pass ({})",
+                                &self.local_peer, self.num_inv_sync_passes
+                            );
+                        }
                     }
                 }
                 PeerNetworkWorkState::BlockDownload => {
@@ -2372,7 +2903,7 @@ impl PeerNetwork {
                                 network_result,
                             )? {
                                 // advance work state
-                                self.work_state = PeerNetworkWorkState::Prune;
+                                self.work_state = PeerNetworkWorkState::AntiEntropy;
                             }
                         }
                         None => {
@@ -2381,9 +2912,22 @@ impl PeerNetwork {
                                 "{:?}: no DNS client provided; skipping block download",
                                 &self.local_peer
                             );
-                            self.work_state = PeerNetworkWorkState::Prune;
+                            self.work_state = PeerNetworkWorkState::AntiEntropy;
                         }
                     }
+                }
+                PeerNetworkWorkState::AntiEntropy => {
+                    match self.try_push_local_data(sortdb, chainstate) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            debug!(
+                                "{:?}: Failed to push local data: {:?}",
+                                &self.local_peer, &e
+                            );
+                        }
+                    };
+
+                    self.work_state = PeerNetworkWorkState::Prune;
                 }
                 PeerNetworkWorkState::Prune => {
                     // did one pass
@@ -2406,6 +2950,14 @@ impl PeerNetwork {
                 // only break early if we can't make progress
                 break;
             }
+        }
+
+        if did_cycle {
+            self.num_state_machine_passes += 1;
+            debug!(
+                "{:?}: Finished full p2p state-machine pass ({})",
+                &self.local_peer, self.num_state_machine_passes
+            );
         }
 
         Ok(do_prune)
@@ -2525,7 +3077,7 @@ impl PeerNetwork {
         outbound_neighbor_key: &NeighborKey,
         consensus_hash: &ConsensusHash,
         microblocks: bool,
-    ) -> Option<u64> {
+    ) -> Result<Option<u64>, net_error> {
         let block_sortition_height = match self.inv_state {
             Some(ref mut inv) => {
                 let res = if microblocks {
@@ -2547,9 +3099,23 @@ impl PeerNetwork {
                 match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        debug!("Ignore {} from {} -- we either do not recognize consensus hash {}, or already know the inventory for it", 
-                               if microblocks { "streamed microblocks" } else { "blocks" }, outbound_neighbor_key, consensus_hash);
-                        return None;
+                        debug!(
+                            "{:?}: We already know the inventory state in {} for {}",
+                            &self.local_peer, outbound_neighbor_key, consensus_hash
+                        );
+                        return Ok(None);
+                    }
+                    Err(net_error::NotFoundError) => {
+                        // is this remote node simply ahead of us?
+                        if let Some(convo) = self.peers.get(&event_id) {
+                            if self.chain_view.burn_block_height < convo.burnchain_tip_height {
+                                debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", &self.local_peer, consensus_hash, outbound_neighbor_key);
+                                return Err(net_error::NotFoundError);
+                            }
+                        }
+                        // not ahead of us -- it's a bad consensus hash
+                        debug!("{:?}: Unrecognized consensus hash {}; assuming that {} has a different chain view", &self.local_peer, consensus_hash, outbound_neighbor_key);
+                        return Ok(None);
                     }
                     Err(net_error::InvalidMessage) => {
                         // punish this peer
@@ -2567,37 +3133,122 @@ impl PeerNetwork {
                         if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
                             self.bans.insert(*outbound_event_id);
                         }
-                        return None;
+                        return Ok(None);
                     }
                     Err(e) => {
                         warn!(
                             "Failed to update inv state for {:?}: {:?}",
                             &outbound_neighbor_key, &e
                         );
-                        return None;
+                        return Ok(None);
                     }
                 }
             }
             None => {
-                return None;
+                return Ok(None);
             }
         };
-        Some(block_sortition_height)
+        Ok(Some(block_sortition_height))
+    }
+
+    /// Buffer a message for re-processing once the burnchain view updates
+    fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) -> () {
+        if let Some(msgs) = self.pending_messages.get_mut(&event_id) {
+            // check limits:
+            // at most 1 BlocksAvailable
+            // at most 1 MicroblocksAvailable
+            // at most 1 BlocksData
+            // at most $self.connection_opts.max_buffered_microblocks MicroblocksDatas
+            let mut blocks_available = 0;
+            let mut microblocks_available = 0;
+            let mut blocks_data = 0;
+            let mut microblocks_data = 0;
+            for msg in msgs.iter() {
+                match &msg.payload {
+                    StacksMessageType::BlocksAvailable(_) => {
+                        blocks_available += 1;
+                    }
+                    StacksMessageType::MicroblocksAvailable(_) => {
+                        microblocks_available += 1;
+                    }
+                    StacksMessageType::Blocks(_) => {
+                        blocks_data += 1;
+                    }
+                    StacksMessageType::Microblocks(_) => {
+                        microblocks_data += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            if let StacksMessageType::BlocksAvailable(_) = &msg.payload {
+                if blocks_available >= self.connection_opts.max_buffered_blocks_available {
+                    debug!(
+                        "{:?}: Drop BlocksAvailable from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, blocks_available
+                    );
+                    return;
+                }
+            }
+            if let StacksMessageType::MicroblocksAvailable(_) = &msg.payload {
+                if microblocks_available >= self.connection_opts.max_buffered_microblocks_available
+                {
+                    debug!(
+                        "{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, microblocks_available
+                    );
+                    return;
+                }
+            }
+            if let StacksMessageType::Blocks(_) = &msg.payload {
+                if blocks_data >= self.connection_opts.max_buffered_blocks {
+                    debug!(
+                        "{:?}: Drop BlocksData from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, blocks_data
+                    );
+                    return;
+                }
+            }
+            if let StacksMessageType::Microblocks(_) = &msg.payload {
+                if microblocks_data >= self.connection_opts.max_buffered_microblocks {
+                    debug!(
+                        "{:?}: Drop MicroblocksData from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, microblocks_data
+                    );
+                    return;
+                }
+            }
+            msgs.push(msg);
+            debug!(
+                "{:?}: Event {} has {} messages buffered",
+                &self.local_peer,
+                event_id,
+                msgs.len()
+            );
+        } else {
+            self.pending_messages.insert(event_id, vec![msg]);
+            debug!(
+                "{:?}: Event {} has 1 messages buffered",
+                &self.local_peer, event_id
+            );
+        }
     }
 
     /// Handle unsolicited BlocksAvailable.
     /// Update our inv for this peer.
     /// Mask errors.
+    /// Return whether or not we need to buffer this message
     fn handle_unsolicited_BlocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
         event_id: usize,
         new_blocks: &BlocksAvailableData,
-    ) -> () {
+        buffer: bool,
+    ) -> bool {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
             Some(onk) => onk,
             None => {
-                return;
+                return false;
             }
         };
 
@@ -2608,7 +3259,8 @@ impl PeerNetwork {
             new_blocks.available.len()
         );
 
-        for (consensus_hash, _) in new_blocks.available.iter() {
+        let mut to_buffer = false;
+        for (consensus_hash, block_hash) in new_blocks.available.iter() {
             let block_sortition_height = match self.handle_unsolicited_inv_update(
                 sortdb,
                 event_id,
@@ -2616,8 +3268,22 @@ impl PeerNetwork {
                 consensus_hash,
                 false,
             ) {
-                Some(bsh) => bsh,
-                None => {
+                Ok(Some(bsh)) => bsh,
+                Ok(None) => {
+                    continue;
+                }
+                Err(net_error::NotFoundError) => {
+                    if buffer {
+                        debug!("{:?}: Will buffer BlocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
+                        to_buffer = true;
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    info!(
+                        "{:?}: Failed to handle BlocksAvailable({}/{}) from {}: {:?}",
+                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
+                    );
                     continue;
                 }
             };
@@ -2630,21 +3296,25 @@ impl PeerNetwork {
                 None => {}
             }
         }
+
+        to_buffer
     }
 
     /// Handle unsolicited MicroblocksAvailable.
     /// Update our inv for this peer.
     /// Mask errors.
+    /// Return whether or not we need to buffer this message
     fn handle_unsolicited_MicroblocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
         event_id: usize,
         new_mblocks: &BlocksAvailableData,
-    ) -> () {
+        buffer: bool,
+    ) -> bool {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
             Some(onk) => onk,
             None => {
-                return;
+                return false;
             }
         };
 
@@ -2655,7 +3325,9 @@ impl PeerNetwork {
             new_mblocks.available.len()
         );
 
-        for (consensus_hash, _) in new_mblocks.available.iter() {
+        let mut to_buffer = false;
+
+        for (consensus_hash, block_hash) in new_mblocks.available.iter() {
             let mblock_sortition_height = match self.handle_unsolicited_inv_update(
                 sortdb,
                 event_id,
@@ -2663,8 +3335,22 @@ impl PeerNetwork {
                 consensus_hash,
                 true,
             ) {
-                Some(bsh) => bsh,
-                None => {
+                Ok(Some(bsh)) => bsh,
+                Ok(None) => {
+                    continue;
+                }
+                Err(net_error::NotFoundError) => {
+                    if buffer {
+                        debug!("{:?}: Will buffer MicroblocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
+                        to_buffer = true;
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    info!(
+                        "{:?}: Failed to handle MicroblocksAvailable({}/{}) from {}: {:?}",
+                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
+                    );
                     continue;
                 }
             };
@@ -2677,59 +3363,98 @@ impl PeerNetwork {
                 None => {}
             }
         }
+        to_buffer
     }
 
     /// Handle unsolicited BlocksData.
-    /// Don't (yet) validate the data, but do update our inv for the peer that sent it.
+    /// Don't (yet) validate the data, but do update our inv for the peer that sent it, if we have
+    /// an outbound connection to that peer.  Accept the blocks data either way if it corresponds
+    /// to a winning sortition -- this will cause the blocks data to be fed into the relayer, which
+    /// will then decide whether or not it needs to be stored and/or forwarded.
     /// Mask errors.
     fn handle_unsolicited_BlocksData(
         &mut self,
         sortdb: &SortitionDB,
         event_id: usize,
         new_blocks: &BlocksData,
-    ) -> () {
-        let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
-            Some(onk) => onk,
+        buffer: bool,
+    ) -> bool {
+        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
+            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
             None => {
-                return;
+                test_debug!(
+                    "{:?}: No such neighbor event={}",
+                    &self.local_peer,
+                    event_id
+                );
+                return false;
             }
         };
+
+        if !remote_is_authenticated {
+            // drop -- a correct peer will have authenticated before sending this message
+            test_debug!(
+                "{:?}: Drop unauthenticated BlocksData from {:?}",
+                &self.local_peer,
+                &remote_neighbor_key
+            );
+            return false;
+        }
+
+        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
 
         debug!(
             "{:?}: Process BlocksData from {:?} with {} entries",
             &self.local_peer,
-            outbound_neighbor_key,
+            outbound_neighbor_key_opt
+                .as_ref()
+                .unwrap_or(&remote_neighbor_key),
             new_blocks.blocks.len()
         );
+
+        let mut to_buffer = false;
 
         for (consensus_hash, block) in new_blocks.blocks.iter() {
             let sn =
                 match SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash) {
                     Ok(Some(sn)) => sn,
                     Ok(None) => {
-                        // ignore
+                        if buffer {
+                            debug!(
+                                "{:?}: Will buffer BlocksData({}/{}) ({})",
+                                &self.local_peer,
+                                &consensus_hash,
+                                &block.block_hash(),
+                                StacksBlockHeader::make_index_block_hash(
+                                    &consensus_hash,
+                                    &block.block_hash()
+                                )
+                            );
+                            to_buffer = true;
+                        }
                         continue;
                     }
                     Err(e) => {
-                        warn!(
-                            "Failed to query block snapshot for {}: {:?}",
-                            consensus_hash, &e
+                        info!(
+                            "{:?}: Failed to query block snapshot for {}: {:?}",
+                            &self.local_peer, consensus_hash, &e
                         );
                         continue;
                     }
                 };
 
             if !sn.pox_valid {
-                warn!(
-                    "Failed to query snapshot for {}: not on valid PoX fork",
-                    consensus_hash
+                info!(
+                    "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
+                    &self.local_peer, consensus_hash
                 );
                 continue;
             }
 
             if sn.winning_stacks_block_hash != block.block_hash() {
                 info!(
-                    "Ignoring block {} -- winning block was {} (sortition: {})",
+                    "{:?}: Ignoring block {} -- winning block was {} (sortition: {})",
+                    &self.local_peer,
                     block.block_hash(),
                     sn.winning_stacks_block_hash,
                     sn.sortition
@@ -2737,26 +3462,165 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(
-                sortdb,
-                event_id,
-                &outbound_neighbor_key,
-                &sn.consensus_hash,
-                false,
+            // only bother updating the inventory for this event's peer if we have an outbound
+            // connection to it.
+            if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
+                let _ = self.handle_unsolicited_inv_update(
+                    sortdb,
+                    event_id,
+                    &outbound_neighbor_key,
+                    &sn.consensus_hash,
+                    false,
+                );
+            }
+        }
+
+        to_buffer
+    }
+
+    /// Handle unsolicited MicroblocksData.
+    /// Returns whether or not to buffer (if buffer is true)
+    /// Returns whether or not to pass to the relayer (if buffer is false).
+    fn handle_unsolicited_MicroblocksData(
+        &mut self,
+        chainstate: &StacksChainState,
+        event_id: usize,
+        new_microblocks: &MicroblocksData,
+        buffer: bool,
+    ) -> bool {
+        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
+            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
+            None => {
+                test_debug!(
+                    "{:?}: No such neighbor event={}",
+                    &self.local_peer,
+                    event_id
+                );
+                return false;
+            }
+        };
+
+        if !remote_is_authenticated {
+            // drop -- a correct peer will have authenticated before sending this message
+            test_debug!(
+                "{:?}: Drop unauthenticated MicroblocksData from {:?}",
+                &self.local_peer,
+                &remote_neighbor_key
             );
+            return false;
+        }
+
+        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
+
+        debug!(
+            "{:?}: Process MicroblocksData from {:?} for {} with {} entries",
+            &self.local_peer,
+            outbound_neighbor_key_opt
+                .as_ref()
+                .unwrap_or(&remote_neighbor_key),
+            &new_microblocks.index_anchor_block,
+            new_microblocks.microblocks.len()
+        );
+
+        // do we have the associated anchored block?
+        match chainstate.get_block_header_hashes(&new_microblocks.index_anchor_block) {
+            Ok(Some(_)) => {
+                // yup; can process now
+                debug!("{:?}: have microblock parent anchored block {}, so can process its microblocks", &self.local_peer, &new_microblocks.index_anchor_block);
+                !buffer
+            }
+            Ok(None) => {
+                if buffer {
+                    debug!(
+                        "{:?}: Will buffer MicroblocksData({})",
+                        &self.local_peer, &new_microblocks.index_anchor_block
+                    );
+                    true
+                } else {
+                    debug!(
+                        "{:?}: Will drop MicroblocksData({})",
+                        &self.local_peer, &new_microblocks.index_anchor_block
+                    );
+                    false
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "{:?}: Failed to get header hashes for {:?}: {:?}",
+                    &self.local_peer, &new_microblocks.index_anchor_block, &e
+                );
+                false
+            }
+        }
+    }
+
+    /// Returns (true, x) if we should buffer the message and try again
+    /// Returns (x, true) if the relayer should receive the message
+    fn handle_unsolicited_message(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        event_id: usize,
+        payload: &StacksMessageType,
+        buffer: bool,
+    ) -> (bool, bool) {
+        match payload {
+            // Update our inv state for this peer, but only do so if we have an
+            // outbound connection to it and it's authenticated (we don't synchronize inv
+            // state with inbound peers).  Since we will have received this message
+            // from an _inbound_ conversation, we need to find the reciprocal _outbound_
+            // conversation and use _that_ conversation's neighbor key to identify
+            // which inventory we need to update.
+            StacksMessageType::BlocksAvailable(ref new_blocks) => {
+                let to_buffer =
+                    self.handle_unsolicited_BlocksAvailable(sortdb, event_id, new_blocks, buffer);
+                (to_buffer, false)
+            }
+            StacksMessageType::MicroblocksAvailable(ref new_mblocks) => {
+                let to_buffer = self.handle_unsolicited_MicroblocksAvailable(
+                    sortdb,
+                    event_id,
+                    new_mblocks,
+                    buffer,
+                );
+                (to_buffer, false)
+            }
+            StacksMessageType::Blocks(ref new_blocks) => {
+                // update inv state for this peer
+                let to_buffer =
+                    self.handle_unsolicited_BlocksData(sortdb, event_id, new_blocks, buffer);
+
+                // forward to relayer for processing
+                (to_buffer, true)
+            }
+            StacksMessageType::Microblocks(ref new_mblocks) => {
+                let to_buffer = self.handle_unsolicited_MicroblocksData(
+                    chainstate,
+                    event_id,
+                    new_mblocks,
+                    buffer,
+                );
+
+                // only forward to the relayer if we don't need to buffer it.
+                (to_buffer, true)
+            }
+            _ => (false, true),
         }
     }
 
     /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
     /// Return messages that we couldn't handle here, but key them by neighbor, not event.
     /// Drop invalid messages.
+    /// If buffer is true, then re-try handling this message once the burnchain view advances.
     fn handle_unsolicited_messages(
         &mut self,
         sortdb: &SortitionDB,
-        mut unsolicited: HashMap<usize, Vec<StacksMessage>>,
+        chainstate: &StacksChainState,
+        unsolicited: HashMap<usize, Vec<StacksMessage>>,
+        buffer: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        for (event_id, messages) in unsolicited.drain() {
+        for (event_id, messages) in unsolicited.into_iter() {
             let neighbor_key = match self.peers.get(&event_id) {
                 Some(convo) => convo.to_neighbor_key(),
                 None => {
@@ -2764,37 +3628,36 @@ impl PeerNetwork {
                     continue;
                 }
             };
-            for message in messages {
-                match message.payload {
-                    // Update our inv state for this peer, but only do so if we have an
-                    // outbound connection to it and it's authenticated (we don't synchronize inv
-                    // state with inbound peers).  Since we will have received this message
-                    // from an _inbound_ conversation, we need to find the reciprocal _outbound_
-                    // conversation and use _that_ conversation's neighbor key to identify
-                    // which inventory we need to update.
-                    StacksMessageType::BlocksAvailable(ref new_blocks) => {
-                        self.handle_unsolicited_BlocksAvailable(sortdb, event_id, new_blocks);
-                    }
-                    StacksMessageType::MicroblocksAvailable(ref new_mblocks) => {
-                        self.handle_unsolicited_MicroblocksAvailable(sortdb, event_id, new_mblocks);
-                    }
-                    StacksMessageType::Blocks(ref new_blocks) => {
-                        // update inv state for this peer
-                        self.handle_unsolicited_BlocksData(sortdb, event_id, new_blocks);
-
-                        // forward to relayer for processing
-                        if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
-                            msgs.push(message);
-                        } else {
-                            unhandled.insert(neighbor_key.clone(), vec![message]);
-                        }
-                    }
-                    _ => {
-                        if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
-                            msgs.push(message);
-                        } else {
-                            unhandled.insert(neighbor_key.clone(), vec![message]);
-                        }
+            for message in messages.into_iter() {
+                if !buffer {
+                    debug!(
+                        "{:?}: Re-try handling buffered message {} from {:?}",
+                        &self.local_peer,
+                        &message.payload.get_message_description(),
+                        &neighbor_key
+                    );
+                }
+                let (to_buffer, relay) = self.handle_unsolicited_message(
+                    sortdb,
+                    chainstate,
+                    event_id,
+                    &message.payload,
+                    buffer,
+                );
+                if buffer && to_buffer {
+                    self.buffer_data_message(event_id, message);
+                } else if relay {
+                    // forward to relayer for processing
+                    debug!(
+                        "{:?}: Will forward message {} from {:?} to relayer",
+                        &self.local_peer,
+                        &message.payload.get_message_description(),
+                        &neighbor_key
+                    );
+                    if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
+                        msgs.push(message);
+                    } else {
+                        unhandled.insert(neighbor_key.clone(), vec![message]);
                     }
                 }
             }
@@ -2833,9 +3696,9 @@ impl PeerNetwork {
             self.walk_pingbacks.remove(&naddr);
         }
 
-        let my_pubkey_hash = Hash160::from_data(
-            &Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes()[..],
-        );
+        let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+            &self.local_peer.private_key,
+        ));
 
         // add new pingbacks
         for event_id in event_ids.into_iter() {
@@ -2907,10 +3770,34 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Are we in the process of downloading blocks?
+    /// Count up the number of inbound neighbors that have public IP addresses (i.e. that we have
+    /// outbound connections to) and report it.
+    /// If we're NAT'ed, then this value will be 0.
+    pub fn count_public_inbound(&self) -> usize {
+        let mut num_public_inbound = 0;
+        for (event_id, convo) in self.peers.iter() {
+            if convo.is_outbound() {
+                continue;
+            }
+
+            // convo is inbound
+            // does it have a reciprocal outbound event?
+            if self.find_reciprocal_event(*event_id).is_some() {
+                num_public_inbound += 1;
+            }
+        }
+        num_public_inbound
+    }
+
+    /// Do we need to call .run() again, shortly, to advance the downloader state?
     pub fn has_more_downloads(&self) -> bool {
-        if let Some(ref dl) = self.block_downloader {
-            !dl.is_download_idle() || dl.is_initial_download()
+        if self.work_state == PeerNetworkWorkState::BlockDownload {
+            if let Some(ref dl) = self.block_downloader {
+                (!dl.is_download_idle() || dl.is_initial_download())
+                    && dl.num_requests_inflight() == 0
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -2931,9 +3818,14 @@ impl PeerNetwork {
     }
 
     /// Refresh view of burnchain, if needed
-    pub fn refresh_burnchain_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
+    pub fn refresh_burnchain_view(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+        let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
         if sn.block_height > self.chain_view.burn_block_height {
             debug!(
                 "{:?}: load chain view for burn block {}",
@@ -2948,8 +3840,12 @@ impl PeerNetwork {
             self.hint_sync_invs();
             self.hint_download_rescan();
             self.chain_view = new_chain_view;
+
+            // try processing previously-buffered messages (best-effort)
+            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            ret = self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
         }
-        Ok(())
+        Ok(ret)
     }
 
     /// Update p2p networking state.
@@ -2975,7 +3871,8 @@ impl PeerNetwork {
         self.refresh_local_peer()?;
 
         // update burnchain view
-        self.refresh_burnchain_view(sortdb)?;
+        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
+        network_result.consume_unsolicited(unsolicited_buffered_messages);
 
         // update PoX view
         self.refresh_sortition_view(sortdb)?;
@@ -2999,7 +3896,8 @@ impl PeerNetwork {
             );
             self.deregister_peer(error_event);
         }
-        let unhandled_messages = self.handle_unsolicited_messages(sortdb, unsolicited_messages)?;
+        let unhandled_messages =
+            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, true)?;
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -3073,6 +3971,18 @@ impl PeerNetwork {
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
 
+        // fault injection -- periodically disconnect from everyone
+        if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
+            if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
+                debug!(
+                    "{:?}: Fault injection: forcing disconnect",
+                    &self.local_peer
+                );
+                self.disconnect_all();
+                self.fault_last_disconnect = get_epoch_time_secs();
+            }
+        }
+
         Ok(())
     }
 
@@ -3112,7 +4022,8 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut result = NetworkResult::new();
+        let mut result =
+            NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
@@ -3158,6 +4069,9 @@ mod test {
     use util::log;
     use util::sleep_ms;
     use util::test::*;
+
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
 
     use rand;
     use rand::RngCore;
@@ -3216,6 +4130,7 @@ mod test {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 50,
+            first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
         };
 
@@ -3412,7 +4327,7 @@ mod test {
 
             let mut p2p = make_test_p2p_network(&vec![]);
 
-            let ping = StacksMessage::new(
+            let txn = StacksMessage::new(
                 p2p.peer_version,
                 p2p.local_peer.network_id,
                 p2p.chain_view.burn_block_height,

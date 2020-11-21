@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
@@ -48,11 +64,11 @@ fn parse_pox_stacking_result(
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_api_contract_call(
     global_context: &mut GlobalContext,
-    sender_opt: Option<&PrincipalData>,
+    _sender_opt: Option<&PrincipalData>,
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
-    if function_name == "stack-stx" {
+    if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
             boot_code_id("pox"),
@@ -60,26 +76,13 @@ fn handle_pox_api_contract_call(
             value
         );
 
-        // sender is required
-        let sender = match sender_opt {
-            None => {
-                return Err(RuntimeErrorType::NoSenderInContext.into());
-            }
-            Some(sender) => (*sender).clone(),
-        };
-
         match parse_pox_stacking_result(value) {
             Ok((stacker, locked_amount, unlock_height)) => {
-                assert_eq!(
-                    stacker, sender,
-                    "BUG: tx-sender is not contract-call origin!"
-                );
-
                 // if this fails, then there's a bug in the contract (since it already does
                 // the necessary checks)
                 match StacksChainState::pox_lock(
                     &mut global_context.database,
-                    &sender,
+                    &stacker,
                     locked_amount,
                     unlock_height as u64,
                 ) {
@@ -89,6 +92,7 @@ fn handle_pox_api_contract_call(
                                 STXEventType::STXLockEvent(STXLockEventData {
                                     locked_amount,
                                     unlock_height,
+                                    locked_address: stacker,
                                 }),
                             ));
                         }
@@ -96,7 +100,7 @@ fn handle_pox_api_contract_call(
                     Err(e) => {
                         panic!(
                             "FATAL: failed to lock {} from {} until {}: '{:?}'",
-                            locked_amount, sender, unlock_height, &e
+                            locked_amount, stacker, unlock_height, &e
                         );
                     }
                 }

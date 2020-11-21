@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(unused_imports)]
 #![allow(dead_code)]
@@ -26,6 +23,9 @@
 #[macro_use]
 extern crate blockstack_lib;
 extern crate rusqlite;
+
+#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+extern crate slog;
 
 use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
@@ -41,6 +41,7 @@ use blockstack_lib::util::log;
 use blockstack_lib::burnchains::BurnchainHeaderHash;
 use blockstack_lib::chainstate::burn::BlockHeaderHash;
 use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
@@ -57,8 +58,6 @@ use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
 fn main() {
-    log::set_loglevel(log::LOG_INFO).unwrap();
-
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
@@ -346,6 +345,14 @@ fn main() {
         return;
     }
 
+    if argv[1] == "docgen_boot" {
+        println!(
+            "{}",
+            vm::docs::contracts::make_json_boot_contracts_reference()
+        );
+        return;
+    }
+
     if argv[1] == "local" {
         clarity::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
         return;
@@ -403,7 +410,7 @@ fn main() {
         let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
 
         // initial argon balances -- see testnet/stacks-node/conf/argon-follower-conf.toml
-        let initial_argon_balances = vec![
+        let initial_balances = vec![
             (
                 StacksAddress::from_string("STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6")
                     .unwrap()
@@ -438,26 +445,34 @@ fn main() {
             read_count: 5_0_000,
             runtime: 1_00_000_000,
         };
-
-        let burnchain = Burnchain::new(&burnchain_db_path, "bitcoin", "regtest").unwrap();
+        let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let first_burnchain_block_height = burnchain.first_block_height;
+        let first_burnchain_block_hash = burnchain.first_block_hash;
         let indexer: BitcoinIndexer = burnchain.make_indexer().unwrap();
         let (mut new_sortition_db, _) = burnchain.connect_db(&indexer, true).unwrap();
 
         let old_burnchaindb = BurnchainDB::connect(
             &old_burnchaindb_path,
-            burnchain.first_block_height,
-            &burnchain.first_block_hash,
+            first_burnchain_block_height,
+            &first_burnchain_block_hash,
             FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
             true,
         )
         .unwrap();
 
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: None,
+            first_burnchain_block_hash,
+            first_burnchain_block_height: first_burnchain_block_height as u32,
+            first_burnchain_block_timestamp: 0,
+        };
+
         let (mut new_chainstate, _) = StacksChainState::open_and_exec(
             false,
             0x80000000,
             new_chainstate_path,
-            Some(initial_argon_balances),
-            |_| {},
+            Some(&mut boot_data),
             argon_block_limit,
         )
         .unwrap();
@@ -617,6 +632,7 @@ fn main() {
                                     &mut new_chainstate,
                                     &new_snapshot.consensus_hash,
                                     &stacks_block,
+                                    0,
                                 )
                                 .unwrap();
                             } else {
@@ -680,27 +696,4 @@ fn main() {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
     }
-
-    let blockchain = &argv[1];
-    let network = &argv[2];
-    let working_dir = &argv[3];
-
-    match (blockchain.as_str(), network.as_str()) {
-        ("bitcoin", "mainnet") | ("bitcoin", "testnet") | ("bitcoin", "regtest") => {
-            let block_height_res = core::sync_burnchain_bitcoin(&working_dir, &network);
-            match block_height_res {
-                Err(e) => {
-                    eprintln!("Failed to sync {} {}: {:?}", blockchain, network, e);
-                    process::exit(1);
-                }
-                Ok(height) => {
-                    println!("Synchronized state to block {}", height);
-                }
-            }
-        }
-        (_, _) => {
-            eprintln!("Unrecognized blockchain and/or network");
-            process::exit(1);
-        }
-    };
 }

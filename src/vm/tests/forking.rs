@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, MarfedKV, NULL_BURN_STATE_DB, NULL_HEADER_DB};
@@ -28,6 +44,76 @@ fn test_forking_simple() {
         |x| {
             branched_execution(x, false);
         },
+    );
+}
+
+#[test]
+fn test_at_block_mutations() {
+    // test how at-block works when a mutation has occurred
+    fn initialize(owned_env: &mut OwnedEnvironment) {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let contract =
+            "(define-data-var datum int 1)
+             (define-public (working)
+               (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum))))
+             (define-public (broken)
+               (begin
+                 (var-set datum 10)
+                 ;; this should return 1, not 10!
+                 (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum)))))";
+
+        eprintln!("Initializing contract...");
+        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+    }
+
+    fn branch(
+        owned_env: &mut OwnedEnvironment,
+        expected_value: i128,
+        to_exec: &str,
+    ) -> Result<Value> {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let p1 = execute(p1_str);
+        eprintln!("Branched execution...");
+
+        {
+            let mut env = owned_env.get_exec_environment(None);
+            let command = format!("(var-get datum)");
+            let value = env.eval_read_only(&c, &command).unwrap();
+            assert_eq!(value, Value::Int(expected_value));
+        }
+
+        owned_env
+            .execute_transaction(p1, c, to_exec, &vec![])
+            .map(|(x, _, _)| x)
+    }
+
+    with_separate_forks_environment(
+        initialize,
+        |x| {
+            assert_eq!(
+                branch(x, 1, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 1, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 10, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            // make this test fail: this assertion _should_ be
+            //  true, but at-block is broken. when a context
+            //  switches to an at-block context, _any_ of the db
+            //  wrapping that the Clarity VM does needs to be
+            //  ignored.
+            assert_eq!(
+                branch(x, 10, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+        },
+        |_x| {},
+        |_x| {},
     );
 }
 

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // This module is concerned with the implementation of the BitcoinIndexer
 // structure and its methods and traits.
@@ -177,6 +174,7 @@ pub struct BitcoinTxInput {
     pub keys: Vec<BitcoinPublicKey>,
     pub num_required: usize,
     pub in_type: BitcoinInputType,
+    pub tx_ref: (Txid, u32),
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -185,6 +183,8 @@ pub struct BitcoinTransaction {
     pub vtxindex: u32,
     pub opcode: u8,
     pub data: Vec<u8>,
+    /// how much BTC was sent to the data output
+    pub data_amt: u64,
     pub inputs: Vec<BitcoinTxInput>,
     pub outputs: Vec<BitcoinTxOutput>,
 }

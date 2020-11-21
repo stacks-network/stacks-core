@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 
@@ -55,7 +71,7 @@ pub fn get_stx_balance_snapshot(
 ) -> (STXBalance, u64) {
     let stx_balance = db.get_account_stx_balance(principal);
     let cur_burn_height = db.get_current_burnchain_block_height() as u64;
-    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})",
+    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})", 
         principal,
         stx_balance.amount_unlocked,
         stx_balance.amount_locked,

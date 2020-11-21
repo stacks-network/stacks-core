@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::tuples;
@@ -303,7 +319,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
-        if let Some(result) = self.try_native_function_check(function_name, args) {
+        if let Some(mut result) = self.try_native_function_check(function_name, args) {
+            if let Err(ref mut check_err) = result {
+                check_err.set_expressions(expression);
+            }
             result
         } else {
             let is_function_read_only = self

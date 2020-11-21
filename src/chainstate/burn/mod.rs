@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -37,6 +34,7 @@ use burnchains::Txid;
 use util::hash::{to_hex, Hash160};
 use util::vrf::VRFProof;
 
+use rand::seq::index::sample;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -113,6 +111,8 @@ pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
     UserBurnSupport = '_' as u8,
+    StackStx = 'x' as u8,
+    PreStackStx = 'p' as u8,
 }
 
 // a burnchain block snapshot
@@ -182,12 +182,22 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Choose 1 index from the range [0, max).
-    pub fn choose(&self, max: u32) -> u32 {
+    /// Choose two indices (without replacement) from the range [0, max).
+    pub fn choose_two(&self, max: u32) -> Vec<u32> {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
-        let index: u32 = rng.gen_range(0, max);
-        assert!(index < max);
-        index
+        if max < 2 {
+            return (0..max).collect();
+        }
+        let first = rng.gen_range(0, max);
+        let try_second = rng.gen_range(0, max - 1);
+        let second = if first == try_second {
+            // "swap" try_second with max
+            max - 1
+        } else {
+            try_second
+        };
+
+        vec![first, second]
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256

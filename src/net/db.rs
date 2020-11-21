@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
 
@@ -39,6 +36,8 @@ use util::log;
 use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+
+use util::db::tx_busy_handler;
 
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
@@ -151,7 +150,9 @@ impl LocalPeer {
         key_expire: u64,
         data_url: UrlString,
     ) -> LocalPeer {
-        let pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
+        let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
+        pkey.set_compress_public(true);
+
         let mut rng = thread_rng();
         let mut my_nonce = [0u8; 32];
 
@@ -184,9 +185,9 @@ impl LocalPeer {
         NeighborAddress {
             addrbytes: self.addrbytes.clone(),
             port: self.port,
-            public_key_hash: Hash160::from_data(
-                &StacksPublicKey::from_private(&self.private_key).to_bytes(),
-            ),
+            public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &self.private_key,
+            )),
         }
     }
 }
@@ -255,7 +256,8 @@ impl FromRow<Neighbor> for Neighbor {
         let network_id: u32 = row.get("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
         let port: u16 = row.get("port");
-        let public_key: Secp256k1PublicKey = Secp256k1PublicKey::from_column(row, "public_key")?;
+        let mut public_key: Secp256k1PublicKey =
+            Secp256k1PublicKey::from_column(row, "public_key")?;
         let expire_block_height = u64::from_column(row, "expire_block_height")?;
         let last_contact_time = u64::from_column(row, "last_contact_time")?;
         let asn: u32 = row.get("asn");
@@ -264,6 +266,8 @@ impl FromRow<Neighbor> for Neighbor {
         let denied: i64 = row.get("denied");
         let in_degree: u32 = row.get("in_degree");
         let out_degree: u32 = row.get("out_degree");
+
+        public_key.set_compressed(true);
 
         Ok(Neighbor {
             addr: NeighborKey {
@@ -528,6 +532,7 @@ impl PeerDB {
         let conn =
             Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
 
+        conn.busy_handler(Some(tx_busy_handler))?;
         let mut db = PeerDB {
             conn: conn,
             readwrite: readwrite,

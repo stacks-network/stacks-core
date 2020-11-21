@@ -191,10 +191,10 @@ Address validity is determined according to two different rules:
    descendant of the anchor block*, all of the miner's commitment
    funds must be burnt.
 2. If a miner is building off a descendant of the anchor block, the
-   miner must send commitment funds to 5 addresses from the reward
+   miner must send commitment funds to 2 addresses from the reward
    set, chosen as follows:
     * Use the verifiable random function (also used by sortition) to
-      choose 5 addresses from the reward set. These 5 addresses are
+      choose 2 addresses from the reward set. These 2 addresses are
       the reward addresses for this block.
     * Once addresses have been chosen for a block, these addresses are
       removed from the reward set, so that future blocks in the reward
@@ -217,24 +217,25 @@ addresses for a reward cycle, then each miner commitment would have
 
 ## Adjusting Reward Threshold Based on Participation
 
-Each reward cycle may transfer miner funds to up to 5000 Bitcoin
-addresses. To ensure that this number of addresses is sufficient to
-cover the pool of participants (given 100% participation of liquid
-STX), the threshold for participation must be 0.02% (1/5000th) of the
-liquid supply of STX. However, if participation is _lower_ than 100%,
-the reward pool could admit lower STX holders. The Stacking protocol
-specifies **2 operating levels**:
+Each reward cycle may transfer miner funds to up to 4000 Bitcoin
+addresses (2 addresses in a 2000 burn block cycle). To ensure that
+this number of addresses is sufficient to cover the pool of
+participants (given 100% participation of liquid STX), the threshold
+for participation must be 0.025% (1/4000th) of the liquid supply of
+STX. However, if participation is _lower_ than 100%, the reward pool
+could admit lower STX holders. The Stacking protocol specifies **2
+operating levels**:
 
 * **25%** If fewer than `0.25 * STX_LIQUID_SUPPLY` STX participate in
   a reward cycle, participant wallets controlling `x` STX may include
-  `floor(x / (0.00005*STX_LIQUID_SUPPLY))` addresses in the reward set.
-  That is, the minimum participation threshold is 1/20,000th of the liquid
+  `floor(x / (0.0000625*STX_LIQUID_SUPPLY))` addresses in the reward set.
+  That is, the minimum participation threshold is 1/16,000th of the liquid
   supply.
 * **25%-100%** If between `0.25 * STX_LIQUID_SUPPLY` and `1.0 *
   STX_LIQUID_SUPPLY` STX participate in a reward cycle, the reward
   threshold is optimized in order to maximize the number of slots that
   are filled. That is, the minimum threshold `T` for participation will be
-  roughly 1/5,000th of the participating STX (adjusted in increments
+  roughly 1/4,000th of the participating STX (adjusted in increments
   of 10,000 STX). Participant wallets controlling `x` STX may
   include `floor(x / T)` addresses in the
   reward set.
@@ -489,7 +490,6 @@ Due to the costs of remaining vigilent, this proposal recomments _R = 0.25_.
 At the time of this writing, this is higher than any single STX allocation, but
 not so high that large-scale cooperation is needed to stop a mining cartel.
 
-
 # Bitcoin Wire Formats
 
 Supporting PoX in the Stacks blockchain requires modifications to the
@@ -517,10 +517,68 @@ the second through nth outputs:
        The order of these addresses does not matter. Each of these outputs must receive the
        same amount of BTC.
     c. If the number of remaining addresses in the reward set N is less than M, then the leader
-       block commit transaction must burn BTC:
-          i. If N > 0, then the (N+2)nd output must be a burn output, and it must burn
-             (M-N) * (the amount of BTC transfered to each of the first N outputs)
-         ii. If N == 0, then the 2nd output must be a burn output, and the amount burned
-             by this output will be counted as the amount committed to by the block commit.
-2. Otherwise, the 2nd output must be a burn output, and the amount burned by this output will be
-   counted as the amount committed to by the block commit.
+       block commit transaction must burn BTC by including (M-N) burn outputs.
+2. Otherwise, the second through (M+1)th output must be burn addresses, and the amount burned by
+   these outputs will be counted as the amount committed to by the block commit.
+
+In addition, during the sunset phase (i.e., between the 100,000th and 500,000th burn block in the chain),
+the miner must include a _sunset burn_ output. This is an M+1 indexed output that includes the burn amount
+required to fulfill the sunset burn ratio, and must be sent to the burn address:
+
+```
+sunset_burn_amount = (total_block_commit_amount) * (reward_cycle_start_height - 100,000) / (400,000)
+```
+
+Where `total_block_commit_amount` is equal to the sum of outputs [1, M+1].
+
+After the sunset phase _ends_ (i.e., blocks >= 500,000th burn block), block commits are _only_ burns, with
+a single burn output at index 1.
+
+## Stacking Operations on Bitcoin
+
+As described above, PoX allows stackers to submit `stack-stx` operations on Bitcoin as well as on
+the Stacks blockchain. Any such operations must be evaluated by miners before beginning execution of
+any anchor block following those operations.
+
+In order to submit on the Bitcoin chain, stackers must submit two Bitcoin transactions:
+
+* `PreStackStxOp`: this operation prepares the Stacks blockchain node to validate the subsequent
+  StackStxOp.
+* `StackStxOp`: this operation executes the `stack-stx` operation.
+
+The wire formats for the above two operations are as follows:
+
+### PreStackStxOp
+
+This operation includes an `OP_RETURN` output for the first Bitcoin output that looks as follows:
+
+```
+            0      2  3
+            |------|--|
+             magic  op 
+```
+
+Where `op = p` (ascii encoded).
+
+Then, the second Bitcoin output _must_ be Stacker address that will be used in a `StackStxOp`. This
+address must be a standard address type parseable by the stacks-blockchain node.
+
+### StackStxOp
+
+The first input to the Bitcoin operation _must_ consume a UTXO that is
+the second output of a `PreStackStxOp`. This validates that the `StackStxOp` was signed
+by the appropriate Stacker address.
+
+This operation includes an `OP_RETURN` output for the first Bitcoin output:
+
+```
+            0      2  3                             19        20
+            |------|--|-----------------------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)
+```
+
+Where `op = x` (ascii encoded).
+
+Where the unsigned integers are big-endian encoded.
+
+The second Bitcoin output will be used as the reward address for any stacking rewards.

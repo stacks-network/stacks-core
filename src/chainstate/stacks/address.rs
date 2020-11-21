@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -36,15 +33,15 @@ use chainstate::stacks::STACKS_ADDRESS_ENCODED_SIZE;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 
-use burnchains::Address;
-use burnchains::PublicKey;
+use burnchains::{Address, BurnchainSigner, PublicKey};
 
+use address::b58;
 use address::c32::c32_address_decode;
 
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
+use std::cmp::{Ord, Ordering};
 
 use burnchains::bitcoin::address::{
     address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
@@ -53,8 +50,10 @@ use burnchains::bitcoin::address::{
 
 use vm::types::{PrincipalData, StandardPrincipalData};
 
-use chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -82,11 +81,34 @@ impl From<StandardPrincipalData> for StacksAddress {
     }
 }
 
+impl PartialOrd for StacksAddress {
+    fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for StacksAddress {
+    fn cmp(&self, other: &StacksAddress) -> Ordering {
+        match self.version.cmp(&other.version) {
+            Ordering::Equal => self.bytes.cmp(&other.bytes),
+            inequality => inequality,
+        }
+    }
+}
+
 impl StacksAddress {
     pub fn new(version: u8, hash: Hash160) -> StacksAddress {
         StacksAddress {
             version,
             bytes: hash,
+        }
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        match self.version {
+            C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => true,
+            C32_ADDRESS_VERSION_TESTNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => false,
+            _ => false,
         }
     }
 
@@ -99,6 +121,26 @@ impl StacksAddress {
             },
             bytes: Hash160([0u8; 20]),
         }
+    }
+
+    pub fn from_burnchain_signer(o: &BurnchainSigner, mainnet: bool) -> Option<StacksAddress> {
+        let version = if mainnet {
+            match &o.hash_mode {
+                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                AddressHashMode::SerializeP2SH
+                | AddressHashMode::SerializeP2WPKH
+                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+            }
+        } else {
+            match &o.hash_mode {
+                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                AddressHashMode::SerializeP2SH
+                | AddressHashMode::SerializeP2WPKH
+                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+            }
+        };
+
+        StacksAddress::from_public_keys(version, &o.hash_mode, o.num_sigs, &o.public_keys)
     }
 
     /// Generate an address from a given address hash mode, signature threshold, and list of public
@@ -153,6 +195,16 @@ impl StacksAddress {
             version: version,
             bytes: addr.bytes.clone(),
         }
+    }
+
+    pub fn to_b58(self) -> String {
+        let StacksAddress { version, bytes } = self;
+        let btc_version = to_b52_version_byte(version)
+            // fallback to version
+            .unwrap_or(version);
+        let mut all_bytes = vec![btc_version];
+        all_bytes.extend(bytes.0.iter());
+        b58::check_encode_slice(&all_bytes)
     }
 
     /// Convert to PrincipalData::Standard(StandardPrincipalData)
