@@ -26,6 +26,7 @@ use vm::costs::{cost_functions, CostErrors, CostTracker, ExecutionCost, LimitedC
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::functions::handle_contract_call_special_cases;
+use vm::functions::handle_poison_microblock;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
@@ -38,6 +39,7 @@ use vm::{eval, is_reserved};
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::stacks::events::*;
 use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::StacksMicroblockHeader;
 
 use serde::Serialize;
 
@@ -533,23 +535,29 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
+    pub fn handle_poison_microblock(
+        &mut self,
+        sender: &PrincipalData,
+        mblock_hdr_1: &StacksMicroblockHeader,
+        mblock_hdr_2: &StacksMicroblockHeader,
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+        self.execute_in_env(Value::Principal(sender.clone()), |exec_env| {
+            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
+        })
+    }
+
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env(recipient.clone().into(), |env| {
-            let mut balance = env
+            let mut snapshot = env
                 .global_context
                 .database
-                .get_account_stx_balance(recipient);
-            let block_height = env
-                .global_context
-                .database
-                .get_current_burnchain_block_height();
-            balance
-                .credit(amount, block_height as u64)
-                .expect("ERROR: Failed to credit balance");
-            env.global_context
-                .database
-                .set_account_stx_balance(recipient, &balance);
+                .get_stx_balance_snapshot(&recipient);
+
+            let mut balance = snapshot.balance().clone();
+            balance.amount_unlocked += amount;
+            snapshot.set_balance(balance);
+            snapshot.save();
             Ok(())
         })
         .unwrap();
@@ -953,6 +961,26 @@ impl<'a, 'b> Environment<'a, 'b> {
                     self.global_context.roll_back();
                     Err(InterpreterError::InsufficientBalance.into())
                 }
+            },
+            Err(e) => {
+                self.global_context.roll_back();
+                Err(e)
+            }
+        }
+    }
+
+    /// Top-level poison-microblock handler
+    pub fn handle_poison_microblock(
+        &mut self,
+        mblock_header_1: &StacksMicroblockHeader,
+        mblock_header_2: &StacksMicroblockHeader
+    ) -> Result<Value> {
+        self.global_context.begin();
+        let result = handle_poison_microblock(self, mblock_header_1, mblock_header_2);
+        match result {
+            Ok(ret) => {
+                self.global_context.commit()?;
+                Ok(ret)
             },
             Err(e) => {
                 self.global_context.roll_back();
