@@ -24,7 +24,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::{Error as MarfError, MARFValue, MarfTrieId, TrieHash};
 use chainstate::stacks::StacksBlockId;
 use std::convert::TryInto;
-use util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
+use util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum, Hash160};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
@@ -34,6 +34,8 @@ use vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use vm::types::QualifiedContractIdentifier;
+
+use util::db::IndexDBConn;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -406,6 +408,13 @@ impl MarfedKV {
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
         format!("clarity-contract::{}", contract)
     }
+    
+    pub fn index_conn<'a, C>(&'a self, context: C) -> IndexDBConn<'a, C, StacksBlockId> {
+        IndexDBConn {
+            index: &self.marf,
+            context: context
+        }
+    }
 }
 
 impl ClarityBackingStore for MarfedKV {
@@ -440,16 +449,25 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        self.marf
-            .get_block_height_of(&self.chain_tip, &self.chain_tip)
-            .expect("Unexpected MARF failure.")
-            .expect("Failed to obtain current block height.")
+        match self.marf.get_block_height_of(&self.chain_tip, &self.chain_tip) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                let msg = format!("Failed to obtain current block height of {} (got None)", &self.chain_tip);
+                error!("{}", &msg);
+                panic!("{}", &msg);
+            }
+            Err(e) => {
+                let msg = format!("Unexpected MARF failure: Failed to get current block height of {}: {:?}", &self.chain_tip, &e);
+                error!("{}", &msg);
+                panic!("{}", &msg);
+            }
+        }
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.marf
             .get_bhh_at_height(&self.chain_tip, block_height)
-            .expect("Unexpected MARF failure.")
+            .expect(&format!("Unexpected MARF failure: failed to get block at height {} off of {}.", block_height, &self.chain_tip))
             .map(|x| StacksBlockId(x.to_bytes()))
     }
 
