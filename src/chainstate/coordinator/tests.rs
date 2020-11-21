@@ -468,7 +468,7 @@ fn make_stacks_block_with_recipients(
         &parent_block, &parents_sortition.sortition_id
     );
     let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
-        state.headers_db(),
+        state.db(),
         &parents_sortition.consensus_hash,
         parent_block,
     )
