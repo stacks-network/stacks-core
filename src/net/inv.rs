@@ -2175,10 +2175,12 @@ impl PeerNetwork {
         let getblocksinv = GetBlocksInv {
             consensus_hash: ancestor_sn.consensus_hash,
             num_blocks: cmp::min(
-                tip_sn.block_height.saturating_sub(ancestor_sn.block_height),
+                tip_sn.block_height.saturating_sub(ancestor_sn.block_height) + 1,
                 self.burnchain.pox_constants.reward_cycle_length as u64,
             ) as u16,
         };
+
+        test_debug!("{:?}: self-requesting {:?}", &self.local_peer, &getblocksinv);
 
         let blocks_inv = ConversationP2P::make_getblocksinv_response(
             &self.local_peer,
