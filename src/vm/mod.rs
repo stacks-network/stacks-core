@@ -149,16 +149,15 @@ pub fn apply(
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
-        env.call_stack.insert(&identifier, track_recursion);
-
         let mut used_memory = 0;
         let mut evaluated_args = vec![];
+        env.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
             let arg_value = match eval(arg_x, env, context) {
                 Ok(x) => x,
                 Err(e) => {
                     env.drop_memory(used_memory);
-                    env.call_stack.remove(&identifier, track_recursion)?;
+                    env.call_stack.decr_apply_depth();
                     return Err(e);
                 }
             };
@@ -167,13 +166,16 @@ pub fn apply(
                 Ok(_x) => {}
                 Err(e) => {
                     env.drop_memory(used_memory);
-                    env.call_stack.remove(&identifier, track_recursion)?;
+                    env.call_stack.decr_apply_depth();
                     return Err(Error::from(e));
                 }
             };
             used_memory += arg_value.get_memory_use();
             evaluated_args.push(arg_value);
         }
+        env.call_stack.decr_apply_depth();
+
+        env.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
                 let arg_size = evaluated_args.len();
