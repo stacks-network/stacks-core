@@ -21,7 +21,6 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::BurnchainStateTransitionOps;

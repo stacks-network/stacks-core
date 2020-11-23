@@ -205,6 +205,9 @@ impl RunLoop {
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
 
         thread::spawn(move || {
+            let mut boot_data =
+                ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
+
             ChainsCoordinator::run(
                 chain_state_db,
                 coordinator_burnchain_config,
