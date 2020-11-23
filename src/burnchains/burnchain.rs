@@ -547,8 +547,8 @@ impl Burnchain {
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let first_block_header_hash = self.first_block_hash;
-        let first_block_header_timestamp = self.first_block_timestamp as u64;
+        let first_block_header_hash = indexer.get_first_block_header_hash()?;
+        let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
 
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
