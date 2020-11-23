@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod analysis_db;
+pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 pub mod errors;
 pub mod read_only_checker;
