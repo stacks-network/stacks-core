@@ -188,7 +188,7 @@ fn rotate_vrf_and_register(
     keychain: &mut Keychain,
     burn_block: &BlockSnapshot,
     btc_controller: &mut BitcoinRegtestController,
-) {
+) -> bool {
     let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
     let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
     let op = inner_generate_leader_key_register_op(
@@ -198,7 +198,7 @@ fn rotate_vrf_and_register(
     );
 
     let mut one_off_signer = keychain.generate_op_signer();
-    btc_controller.submit_operation(op, &mut one_off_signer, 1);
+    btc_controller.submit_operation(op, &mut one_off_signer, 1)
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
@@ -407,6 +407,7 @@ fn spawn_miner_relayer(
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
     let _relayer_handle = thread::spawn(move || {
+        let mut did_register_key = false;
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -600,8 +601,11 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    debug!("Relayer: Register key");
-                    rotate_vrf_and_register(
+                    if did_register_key {
+                        debug!("Relayer: Received RegisterKey directive - ignoring");
+                        continue;
+                    }
+                    did_register_key = rotate_vrf_and_register(
                         &mut keychain,
                         last_burn_block,
                         &mut bitcoin_controller,
@@ -1026,11 +1030,25 @@ impl InitializedNeonNode {
         ) {
             Some(vrfp) => vrfp,
             None => {
-                error!(
-                    "Failed to generate proof with {:?}",
-                    &registered_key.vrf_public_key
-                );
-                return None;
+                // Try to recover a key registered in a former session.
+                // registered_key.block_height gives us a pointer to the height of the block
+                // holding the key register op, but the VRF was derived using the height of one 
+                // of the parents blocks.
+                let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 1);
+                let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 2);
+                match keychain.generate_proof(
+                    &registered_key.vrf_public_key,
+                    burn_block.sortition_hash.as_bytes(),
+                ) {
+                    Some(vrfp) => vrfp,
+                    None => {
+                        error!(
+                            "Failed to generate proof with {:?}",
+                            &registered_key.vrf_public_key
+                        );
+                        return None;
+                    }
+                }
             }
         };
 

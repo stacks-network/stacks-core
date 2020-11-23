@@ -127,7 +127,7 @@ impl RunLoop {
         };
 
         let burnchain_config = burnchain.get_burnchain();
-        let mut target_burnchain_block_height = burnchain_config.first_block_height;
+        let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
 
         match burnchain.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
