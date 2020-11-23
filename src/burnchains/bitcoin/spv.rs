@@ -440,11 +440,6 @@ impl SpvClient {
             &header.nonce,
             &u64_to_sql(height)?,
         ];
-        println!(
-            "INSERTING {} AT BLOCK_HEIGHT {}",
-            header.bitcoin_hash(),
-            height
-        );
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
             .and_then(|_x| Ok(()))
