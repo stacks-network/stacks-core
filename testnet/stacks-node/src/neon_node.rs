@@ -1032,7 +1032,7 @@ impl InitializedNeonNode {
             None => {
                 // Try to recover a key registered in a former session.
                 // registered_key.block_height gives us a pointer to the height of the block
-                // holding the key register op, but the VRF was derived using the height of one 
+                // holding the key register op, but the VRF was derived using the height of one
                 // of the parents blocks.
                 let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 1);
                 let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 2);
