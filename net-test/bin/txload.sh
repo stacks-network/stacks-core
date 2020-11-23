@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 FEE_RATE=300
-MAX_CHAINING=5
+MAX_CHAINING=25
 CONFIRMATIONS=1
 
 exit_error() {
