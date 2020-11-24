@@ -15,7 +15,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
-use super::GenesisData;
+use super::genesis::GenesisData;
 use super::neon_node::TESTNET_PEER_VERSION;
 use super::node::TESTNET_CHAIN_ID;
 
