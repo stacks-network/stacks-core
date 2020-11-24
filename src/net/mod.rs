@@ -1764,7 +1764,7 @@ impl NetworkResult {
     }
 }
 
-pub trait Requestable {
+pub trait Requestable: std::fmt::Display {
     fn get_url(&self) -> &UrlString;
 
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType;

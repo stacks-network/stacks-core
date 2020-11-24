@@ -1743,7 +1743,7 @@ impl PeerNetwork {
     /// create the HTTP request.  Pops requests off the front of request_keys, and returns once it successfully
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
-    pub fn begin_request<T: Requestable + std::fmt::Display>(
+    pub fn begin_request<T: Requestable>(
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
