@@ -912,6 +912,18 @@ fn test_lets() {
 }
 
 #[test]
+fn test_2053_stacked_user_funcs() {
+    let test = "
+(define-read-only (identity (n int)) n)
+(begin (identity (identity 1)))
+";
+
+    let expectation = Value::Int(1);
+
+    assert_eq!(expectation, execute(test));
+}
+
+#[test]
 fn test_asserts() {
     let tests = [
         "(begin (asserts! (is-eq 1 1) (err 0)) (ok 1))",
