@@ -263,7 +263,7 @@ impl RunLoop {
             });
         }
 
-        let mut block_height = burnchain_tip.block_snapshot.block_height;
+        let mut block_height = 1.max(burnchain_config.first_block_height);
 
         let mut burnchain_height = block_height;
 
