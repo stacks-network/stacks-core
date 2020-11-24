@@ -3346,7 +3346,7 @@ impl<'a> SortitionHandleTx<'a> {
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
-                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid) \
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid, accumulated_coinbase_ustx) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(db_error::SqliteError)?;
 
@@ -4266,6 +4266,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -4505,6 +4506,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -4770,6 +4772,7 @@ mod tests {
         .unwrap();
 
         let mut first_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height - 2,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -4804,6 +4807,7 @@ mod tests {
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -4852,6 +4856,7 @@ mod tests {
         };
 
         let snapshot_without_sortition = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height - 1,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -5420,6 +5425,7 @@ mod tests {
             for i in 0..256 {
                 let snapshot_row = if i % 3 == 0 {
                     BlockSnapshot {
+                        accumulated_coinbase_ustx: 0,
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
@@ -5494,6 +5500,7 @@ mod tests {
                     total_burn += 1;
                     total_sortitions += 1;
                     BlockSnapshot {
+                        accumulated_coinbase_ustx: 0,
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
@@ -5784,6 +5791,7 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
+                accumulated_coinbase_ustx: 0,
                 pox_valid: true,
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),

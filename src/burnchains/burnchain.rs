@@ -1867,6 +1867,7 @@ pub mod tests {
         let block_prev_chs_121 =
             vec![ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()];
         let mut block_121_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
@@ -1911,6 +1912,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
@@ -1962,6 +1964,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
@@ -2073,6 +2076,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2094,6 +2098,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2114,6 +2119,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2159,6 +2165,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
 
             let mut block_124_snapshot = BlockSnapshot {
+                accumulated_coinbase_ustx: 0,
                 pox_valid: true,
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
@@ -2222,6 +2229,7 @@ pub mod tests {
                         None,
                         PoxId::stubbed(),
                         None,
+                        0,
                     )
                     .unwrap();
                 tx.commit().unwrap();
@@ -2618,6 +2626,7 @@ pub mod tests {
                         None,
                         PoxId::stubbed(),
                         None,
+                        0,
                     )
                     .unwrap();
                 tx.commit().unwrap();

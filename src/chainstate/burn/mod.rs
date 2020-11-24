@@ -413,6 +413,7 @@ mod tests {
             burn_block_hashes.push(prev_snapshot.sortition_id.clone());
             for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i,
                     burn_header_timestamp: get_epoch_time_secs(),

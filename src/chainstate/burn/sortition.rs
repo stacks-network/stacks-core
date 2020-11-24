@@ -441,6 +441,7 @@ mod test {
             burn_dist,
             txids,
             total_burn,
+            0,
         )
     }
 
