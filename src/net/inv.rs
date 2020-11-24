@@ -55,7 +55,6 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::BlockSnapshot;
 
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::StacksBlockHeader;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -73,7 +72,7 @@ use std::io::Write;
 
 use std::convert::TryFrom;
 
-use util::hash::{to_hex, MerkleHashFunc};
+use util::hash::to_hex;
 use util::log;
 
 /// This module is responsible for synchronizing block inventories with other peers
@@ -2085,7 +2084,7 @@ impl PeerNetwork {
     }
 
     /// Get the list of outbound neighbors we can sync with
-    pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
+    fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers
@@ -2123,7 +2122,6 @@ impl PeerNetwork {
             &self.local_peer,
             cur_neighbors.len()
         );
-
         self.inv_state = Some(InvState::new(
             sortdb.first_block_height,
             self.connection_opts.timeout,
