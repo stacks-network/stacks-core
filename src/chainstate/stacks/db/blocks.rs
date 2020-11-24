@@ -1186,6 +1186,19 @@ impl StacksChainState {
                     }
                 };
 
+            if processed_only {
+                if !StacksChainState::has_processed_microblocks_indexed(
+                    blocks_conn,
+                    &StacksBlockHeader::make_index_block_hash(
+                        parent_consensus_hash,
+                        &microblock.block_hash(),
+                    ),
+                )? {
+                    test_debug!("Microblock {} is not processed", &microblock.block_hash());
+                    return Ok(None);
+                }
+            }
+
             test_debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
@@ -2291,13 +2304,12 @@ impl StacksChainState {
     /// Do we have a particular microblock stream given its indexed tail microblock hash?
     /// Used by the RPC endpoint to determine if we can serve back a stream of microblocks.
     pub fn has_processed_microblocks_indexed(
-        &self,
+        conn: &DBConn,
         index_microblock_hash: &StacksBlockId,
     ) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_microblock_hash = ?1 AND processed = 1 AND orphaned = 0";
         let args: &[&dyn ToSql] = &[index_microblock_hash];
-        let res = self
-            .db()
+        let res = conn
             .query_row(&sql, args, |_r| ())
             .optional()
             .expect("DB CORRUPTION: block header DB corrupted!")
@@ -5572,9 +5584,11 @@ pub mod test {
         assert!(chainstate
             .has_microblocks_indexed(&parent_index_block_hash)
             .unwrap());
-        assert!(chainstate
-            .has_processed_microblocks_indexed(&parent_microblock_index_hash)
-            .unwrap());
+        assert!(StacksChainState::has_processed_microblocks_indexed(
+            chainstate.db(),
+            &parent_microblock_index_hash
+        )
+        .unwrap());
     }
 
     fn process_next_orphaned_staging_block(chainstate: &mut StacksChainState) -> bool {

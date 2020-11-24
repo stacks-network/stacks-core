@@ -570,6 +570,17 @@ impl StacksBlockBuilder {
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
 
+    /// Set the block header's public key hash
+    pub fn set_microblock_pubkey_hash(&mut self, pubkh: Hash160) -> bool {
+        if self.anchored_done {
+            // too late
+            return false;
+        }
+
+        self.header.microblock_pubkey_hash = pubkh;
+        return true;
+    }
+
     /// Reset measured costs and fees
     pub fn reset_costs(&mut self) -> () {
         self.total_anchored_fees = 0;
@@ -4669,10 +4680,15 @@ pub mod test {
         burnchain_height: usize,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
     ) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let mut pubkh_bytes = [0u8; 20];
+        pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
+        assert!(builder.set_microblock_pubkey_hash(Hash160(pubkh_bytes)));
+
         let miner_account = StacksChainState::get_account(
             clarity_tx,
             &miner.origin_address().unwrap().to_account_principal(),
         );
+
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
@@ -4682,12 +4698,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_coinbase_signed)
             .unwrap();
 
-        let mut stacks_block = builder.mine_anchored_block(clarity_tx);
-
-        let mut pubkh_bytes = [0u8; 20];
-        pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
-
-        stacks_block.header.microblock_pubkey_hash = Hash160(pubkh_bytes);
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!(
             "Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}",
@@ -4705,6 +4716,10 @@ pub mod test {
         burnchain_height: usize,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
     ) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let mut pubkh_bytes = [0u8; 20];
+        pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
+        assert!(builder.set_microblock_pubkey_hash(Hash160(pubkh_bytes)));
+
         let miner_account = StacksChainState::get_account(
             clarity_tx,
             &miner.origin_address().unwrap().to_account_principal(),
@@ -4718,12 +4733,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_coinbase_signed)
             .unwrap();
 
-        let mut stacks_block = builder.mine_anchored_block(clarity_tx);
-
-        let mut pubkh_bytes = [0u8; 20];
-        pubkh_bytes[0..8].copy_from_slice(&stacks_block.header.total_work.work.to_be_bytes());
-
-        stacks_block.header.microblock_pubkey_hash = Hash160(pubkh_bytes);
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!(
             "Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}",
@@ -7367,6 +7377,11 @@ pub mod test {
                                 // produce the microblock stream for the parent, which this tenure's anchor
                                 // block will confirm.
                                 let sort_ic = sortdb.index_conn();
+
+                                chainstate
+                                    .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                                    .unwrap();
+
                                 let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash.clone(), parent_consensus_hash.clone(), chainstate, &sort_ic).unwrap();
 
                                 let mut microblocks = vec![];
@@ -7686,6 +7701,11 @@ pub mod test {
                                 // produce the microblock stream for the parent, which this tenure's anchor
                                 // block will confirm.
                                 let sort_ic = sortdb.index_conn();
+
+                                chainstate
+                                    .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                                    .unwrap();
+
                                 let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash.clone(), parent_consensus_hash.clone(), chainstate, &sort_ic).unwrap();
 
                                 let mut microblocks = vec![];

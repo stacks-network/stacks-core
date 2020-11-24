@@ -518,6 +518,11 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+            );
+
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
@@ -525,6 +530,11 @@ mod test {
             let microblocks = {
                 let sortdb = peer.sortdb.take().unwrap();
                 let sort_iconn = sortdb.index_conn();
+
+                peer.chainstate()
+                    .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
+                    .unwrap();
+
                 let microblock = {
                     let mut microblock_builder = StacksMicroblockBuilder::new(
                         stacks_block.block_hash(),
@@ -592,10 +602,6 @@ mod test {
 
             // process microblock stream to generate unconfirmed state
             let sortdb = peer.sortdb.take().unwrap();
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
             peer.chainstate()
                 .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
                 .unwrap();
@@ -742,6 +748,11 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+            );
+
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
@@ -749,6 +760,10 @@ mod test {
             let sortdb = peer.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb.index_conn();
+                peer.chainstate()
+                    .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+                    .unwrap();
+
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
                     consensus_hash.clone(),
@@ -819,10 +834,6 @@ mod test {
 
                 // process microblock stream to generate unconfirmed state
                 let sortdb = peer.sortdb.take().unwrap();
-                let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &stacks_block.block_hash(),
-                );
                 peer.chainstate()
                     .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
                     .unwrap();

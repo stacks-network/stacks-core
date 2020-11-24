@@ -126,13 +126,7 @@ pub struct STXBalanceSnapshot<'db, 'conn> {
     db_ref: &'conn mut ClarityDatabase<'db>,
 }
 
-#[derive(Debug)]
-pub enum STXBalanceError {
-    Overflow,
-    Underflow,
-}
-
-type Result<T> = std::result::Result<T, STXBalanceError>;
+type Result<T> = std::result::Result<T, Error>;
 
 impl ClaritySerializable for STXBalance {
     fn serialize(&self) -> String {
@@ -203,9 +197,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         self.db_ref.put(&key, &self.balance)
     }
 
-    pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) {
+    pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
         if !self.can_transfer(amount) {
-            panic!("FATAL: tried to transfer more STX than we have");
+            return Err(InterpreterError::InsufficientBalance.into());
         }
 
         let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
@@ -214,14 +208,16 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .get(&recipient_key)
             .unwrap_or(STXBalance::zero());
 
-        self.debit(amount);
-        recipient_balance.amount_unlocked = recipient_balance
-            .amount_unlocked
-            .checked_add(amount)
-            .expect("BUG: STX overflow");
+        recipient_balance.amount_unlocked =
+            recipient_balance
+                .amount_unlocked
+                .checked_add(amount)
+                .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
+        self.debit(amount);
         self.db_ref.put(&recipient_key, &recipient_balance);
-        self.save()
+        self.save();
+        Ok(())
     }
 
     pub fn get_available_balance(&self) -> u128 {

@@ -126,7 +126,7 @@ pub fn stx_transfer_consolidated(
         return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
     }
 
-    sender_snapshot.transfer_to(to, amount);
+    sender_snapshot.transfer_to(to, amount)?;
 
     env.global_context.log_stx_transfer(&from, amount)?;
     env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;

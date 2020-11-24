@@ -751,7 +751,10 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this processed microblock stream?
-        match chainstate.has_processed_microblocks_indexed(tail_index_microblock_hash) {
+        match StacksChainState::has_processed_microblocks_indexed(
+            chainstate.db(),
+            tail_index_microblock_hash,
+        ) {
             Ok(false) => {
                 // nope
                 return ConversationHttp::handle_notfound(
