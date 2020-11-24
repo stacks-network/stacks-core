@@ -332,14 +332,8 @@ impl SpvClient {
 
     /// Report how many block headers we have downloaded to the given path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
-        match query_row::<u64, _>(
-            &self.headers_db,
-            "SELECT MAX(height) FROM headers",
-            NO_PARAMS,
-        )? {
-            Some(max) => Ok(max + 1),
-            None => Ok(0),
-        }
+        let max = self.get_highest_header_height()?;
+        Ok(max + 1)
     }
 
     /// Report how many block headers we have downloaded to the given path.
