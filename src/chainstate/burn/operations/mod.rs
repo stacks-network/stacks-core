@@ -184,8 +184,15 @@ pub struct LeaderBlockCommitOp {
     pub key_vtxindex: u16,    // offset in the block where the leader key can be found
     pub memo: Vec<u8>,        // extra unused byte
 
-    pub burn_fee: u64, // how many burn tokens (e.g. satoshis) were destroyed to produce this block
-    pub input: BurnchainSigner, // burn chain keys that must match the key registration
+    /// how many burn tokens (e.g. satoshis) were committed to produce this block
+    pub burn_fee: u64,
+    /// the input transaction, used in mining commitment smoothing
+    pub input: (Txid, u32),
+
+    /// the apparent sender of the transaction. note: this
+    ///  is *not* authenticated, and should be used only
+    ///  for informational purposes (e.g., log messages)
+    pub apparent_sender: BurnchainSigner,
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<StacksAddress>,
