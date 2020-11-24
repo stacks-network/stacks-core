@@ -245,6 +245,15 @@ impl BurnchainTransaction {
         }
     }
 
+    pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc
+                .inputs
+                .get(input)
+                .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
+        }
+    }
+
     pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
         match self {
             BurnchainTransaction::Bitcoin(ref btc) => {
@@ -942,12 +951,13 @@ pub mod test {
             fork_snapshot: Option<&BlockSnapshot>,
             parent_block_snapshot: Option<&BlockSnapshot>,
         ) -> LeaderBlockCommitOp {
+            let input = (Txid([0; 32]), 0);
             let pubks = miner
                 .privks
                 .iter()
                 .map(|ref pk| StacksPublicKey::from_private(pk))
                 .collect();
-            let input = BurnchainSigner {
+            let apparent_sender = BurnchainSigner {
                 hash_mode: miner.hash_mode.clone(),
                 num_sigs: miner.num_sigs as usize,
                 public_keys: pubks,
@@ -990,6 +1000,7 @@ pub mod test {
                         leader_key.vtxindex as u16,
                         burn_fee,
                         &input,
+                        &apparent_sender,
                     );
                     txop
                 }
@@ -1002,6 +1013,7 @@ pub mod test {
                         leader_key,
                         burn_fee,
                         &input,
+                        &apparent_sender,
                     );
                     txop
                 }
