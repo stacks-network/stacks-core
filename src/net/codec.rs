@@ -878,18 +878,6 @@ impl StacksMessageCodec for RelayData {
     }
 }
 
-impl StacksMessageCodec for Attachment {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.content)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Attachment, net_error> {
-        let content: Vec<u8> = read_next(fd)?;
-        Ok(Attachment { content })
-    }
-}
-
 impl StacksMessageType {
     pub fn get_message_id(&self) -> StacksMessageID {
         match *self {
