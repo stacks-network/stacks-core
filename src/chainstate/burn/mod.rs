@@ -139,6 +139,10 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
     pub pox_valid: bool,
+    /// the amount of accumulated coinbase ustx that
+    ///   will accrue to the first sortition winner elected _after_
+    ///   this block.
+    pub accumulated_coinbase_ustx: u128,
 }
 
 impl BlockHeaderHash {

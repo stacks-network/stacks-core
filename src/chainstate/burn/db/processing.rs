@@ -133,6 +133,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
@@ -196,6 +197,7 @@ impl<'a> SortitionHandleTx<'a> {
             &state_transition.burn_dist,
             &txids,
             total_burn,
+            initial_mining_bonus_ustx,
         )
         .map_err(|e| {
             error!(
@@ -248,6 +250,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         debug!(
             "BEGIN({}) block ({},{}) with sortition_id: {}",
@@ -286,6 +289,7 @@ impl<'a> SortitionHandleTx<'a> {
                 next_pox_info,
                 parent_pox,
                 reward_set_info,
+                initial_mining_bonus_ustx,
             )
             .map_err(|e| {
                 error!(
@@ -310,6 +314,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         assert_eq!(
             parent_snapshot.block_height + 1,
@@ -328,6 +333,7 @@ impl<'a> SortitionHandleTx<'a> {
             next_pox_info,
             parent_pox,
             reward_set_info,
+            initial_mining_bonus_ustx,
         )?;
         Ok(new_snapshot)
     }

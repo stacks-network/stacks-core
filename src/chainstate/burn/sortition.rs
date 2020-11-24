@@ -32,7 +32,7 @@ use chainstate::burn::operations::{
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
 
 use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::{db::StacksChainState, StacksBlockId};
 
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -81,6 +81,7 @@ impl BlockSnapshot {
             //  but if we do, we need to update a lot of test cases.
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
             pox_valid: true,
+            accumulated_coinbase_ustx: 0,
         }
     }
 
@@ -186,6 +187,7 @@ impl BlockSnapshot {
         burn_total: u64,
         sortition_hash: &SortitionHash,
         txids: &Vec<Txid>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
@@ -206,6 +208,14 @@ impl BlockSnapshot {
         )?;
 
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
+
+        let missed_coinbase =
+            StacksChainState::get_coinbase_reward(block_height, first_block_height);
+
+        let accumulated_coinbase_ustx = parent_snapshot
+            .accumulated_coinbase_ustx
+            .saturating_add(initial_mining_bonus_ustx)
+            .saturating_add(missed_coinbase);
 
         Ok(BlockSnapshot {
             block_height: block_height,
@@ -231,6 +241,7 @@ impl BlockSnapshot {
                 .clone(),
             sortition_id: sortition_id.clone(),
             pox_valid: true,
+            accumulated_coinbase_ustx,
         })
     }
 
@@ -254,6 +265,7 @@ impl BlockSnapshot {
         burn_dist: &[BurnSamplePoint],
         txids: &Vec<Txid>,
         block_burn_total: Option<u64>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<BlockSnapshot, db_error> {
         assert_eq!(
             parent_snapshot.burn_header_hash,
@@ -282,6 +294,7 @@ impl BlockSnapshot {
                 last_burn_total,
                 &next_sortition_hash,
                 &txids,
+                initial_mining_bonus_ustx,
             )
         };
 
@@ -383,6 +396,7 @@ impl BlockSnapshot {
                 .clone(),
             sortition_id: my_sortition_id.clone(),
             pox_valid: true,
+            accumulated_coinbase_ustx: initial_mining_bonus_ustx,
         })
     }
 }

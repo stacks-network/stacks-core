@@ -3304,35 +3304,47 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Get the coinbase at this block height, in microSTX
-    fn get_coinbase_reward(block_height: u64) -> u128 {
+    /// Get the coinbase at this burn block height, in microSTX
+    pub fn get_coinbase_reward(burn_block_height: u64, first_burn_block_height: u64) -> u128 {
         /*
-        From the token whitepaper:
+        From https://forum.stacks.org/t/pox-consensus-and-stx-future-supply
 
         """
+
+        1000 STX for years 0-4
+        500 STX for years 4-8
+        250 STX for years 8-12
+        125 STX in perpetuity
+
+
+        From the Token Whitepaper:
+
         We expect that once native mining goes live, approximately 4383 blocks will be pro-
-        cessed per month, or approximately 52,596 blocks will be processed per year. With our
-        design for the adaptive mint and burn mechanism, min mint is equal to 500 tokens per
-        block for the first approximately five years (or 262,980 blocks), 400 tokens per block for
-        the next approximately five years, and then 300 tokens per block for all years thereafter.
-        During these times, a minimum of 500 tokens, 400 tokens, and 300 tokens, respectively,
-        will be released per block regardless of Stacks tokens burned on the network.
+        cessed per month, or approximately 52,596 blocks will be processed per year.
+
         """
         */
+        let effective_ht = burn_block_height - first_burn_block_height;
         let blocks_per_year = 52596;
-        if block_height < blocks_per_year * 5 {
-            500 * 1_000_000
-        } else if block_height < blocks_per_year * 10 {
-            400 * 1_000_000
+        let stx_reward = if effective_ht < blocks_per_year * 4 {
+            1000
+        } else if effective_ht < blocks_per_year * 8 {
+            500
+        } else if effective_ht < blocks_per_year * 12 {
+            250
         } else {
-            300 * 1_000_000
-        }
+            125
+        };
+
+        stx_reward * (MICROSTACKS_PER_STACKS as u128)
     }
 
     /// Create the block reward.
-    /// TODO: calculate how full the block was.
-    /// TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
-    /// rate, times the fraction of the block's total utilization.
+    /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
+    ///    accumulated rewards from missed sortitions or initial mining rewards.
+    // TODO: calculate how full the block was.
+    // TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
+    // rate, times the fraction of the block's total utilization.
     fn make_scheduled_miner_reward(
         mainnet: bool,
         parent_block_hash: &BlockHeaderHash,
@@ -3346,6 +3358,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         fill: u64,
+        coinbase_reward_ustx: u128,
     ) -> Result<MinerPaymentSchedule, Error> {
         let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock(
             "No coinbase transaction".to_string(),
@@ -3363,7 +3376,7 @@ impl StacksChainState {
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
-            coinbase: StacksChainState::get_coinbase_reward(block_height),
+            coinbase: coinbase_reward_ustx,
             tx_fees_anchored: tx_fees,
             tx_fees_streamed: streamed_fees,
             stx_burns: stx_burns,
@@ -4181,6 +4194,24 @@ impl StacksChainState {
             // good to go!
             clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
 
+            // figure out if there any accumulated rewards
+            //   getting the snapshot that preceded the snapshot that elected this block.
+            let sortition_tip = burn_dbconn.context.chain_tip.clone();
+            let accumulated_rewards = if let Some(parent_snapshot) =
+                burn_dbconn.get_block_snapshot(&parent_burn_hash, &sortition_tip)?
+            {
+                parent_snapshot.accumulated_coinbase_ustx
+            } else {
+                0
+            };
+
+            let coinbase_at_block = StacksChainState::get_coinbase_reward(
+                chain_tip_burn_header_height as u64,
+                burn_dbconn.context.first_block_height,
+            );
+
+            let total_coinbase = coinbase_at_block + accumulated_rewards;
+
             // calculate reward for this block's miner
             let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(
                 mainnet,
@@ -4195,6 +4226,7 @@ impl StacksChainState {
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
                 0xffffffffffffffff,
+                total_coinbase,
             ) // TODO: calculate total compute budget and scale up
             .expect("FATAL: parsed and processed a block without a coinbase");
 

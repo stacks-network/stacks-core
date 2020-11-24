@@ -86,8 +86,7 @@ use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
 use std::collections::HashMap;
 
-use core::FIRST_BURNCHAIN_BLOCK_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
+use core::{FIRST_BURNCHAIN_BLOCK_HASH, FIRST_STACKS_BLOCK_HASH, INITIAL_MINING_BONUS_WINDOW};
 
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
@@ -154,6 +153,11 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
         let pox_valid = row.get("pox_valid");
 
+        let accumulated_coinbase_ustx_str: String = row.get("accumulated_coinbase_ustx");
+        let accumulated_coinbase_ustx = accumulated_coinbase_ustx_str
+            .parse::<u128>()
+            .expect("DB CORRUPTION: failed to parse stored value");
+
         let total_burn = total_burn_str
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -183,6 +187,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
             sortition_id,
             pox_valid,
+            accumulated_coinbase_ustx,
         };
         Ok(snapshot)
     }
@@ -402,6 +407,8 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         canonical_stacks_tip_consensus_hash TEXT NOT NULL,   -- burn hash of highest known Stacks fork's tip block in this burn chain fork
 
         pox_valid INTEGER NOT NULL,
+
+        accumulated_coinbase_ustx TEXT NOT NULL,
 
         PRIMARY KEY(sortition_id)
     );"#,
@@ -651,6 +658,14 @@ impl db_keys {
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
+    }
+
+    pub fn initial_mining_bonus_remaining() -> &'static str {
+        "sortition_db::initial_mining::remaining"
+    }
+
+    pub fn initial_mining_bonus_per_block() -> &'static str {
+        "sortition_db::initial_mining::per_block"
     }
 
     pub fn sortition_id_for_bhh(bhh: &BurnchainHeaderHash) -> String {
@@ -2443,6 +2458,22 @@ impl SortitionDB {
             sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
         };
 
+        // Get any initial mining bonus which would be due to the winner of this block.
+        let bonus_remaining = sortition_db_handle
+            .get_indexed(&parent_sort_id, db_keys::initial_mining_bonus_remaining())?
+            .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB"))
+            .unwrap_or(0);
+
+        let initial_mining_bonus = if bonus_remaining > 0 {
+            let mining_bonus_per_block = sortition_db_handle
+                .get_indexed(&parent_sort_id, db_keys::initial_mining_bonus_per_block())?
+                .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB"))
+                .expect("BUG: initial mining bonus amount written, but not the per block amount.");
+            cmp::min(bonus_remaining, mining_bonus_per_block)
+        } else {
+            0
+        };
+
         let new_snapshot = sortition_db_handle.process_block_txs(
             &parent_snapshot,
             burn_header,
@@ -2451,6 +2482,7 @@ impl SortitionDB {
             next_pox_info,
             parent_pox,
             reward_set_info.as_ref(),
+            initial_mining_bonus,
         )?;
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
@@ -3287,8 +3319,6 @@ impl<'a> SortitionHandleTx<'a> {
             snapshot.num_sortitions
         );
 
-        let total_burn_str = format!("{}", snapshot.total_burn);
-
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(snapshot.block_height)?,
             &snapshot.burn_header_hash,
@@ -3296,7 +3326,7 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.parent_burn_header_hash,
             &snapshot.consensus_hash,
             &snapshot.ops_hash,
-            &total_burn_str,
+            &snapshot.total_burn.to_string(),
             &snapshot.sortition,
             &snapshot.sortition_hash,
             &snapshot.winning_block_txid,
@@ -3311,12 +3341,13 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.sortition_id,
             &snapshot.pox_valid,
+            &snapshot.accumulated_coinbase_ustx.to_string(),
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -3380,6 +3411,32 @@ impl<'a> SortitionHandleTx<'a> {
                 &snapshot.winning_stacks_block_hash,
             ));
             values.push(snapshot.sortition_id.to_hex());
+
+            // is this the first ever snapshot with a sortition winner? if so, compute
+            //   and store the initial mining bonuses
+            if parent_snapshot.total_burn == 0 {
+                let blocks_without_winners =
+                    snapshot.block_height - self.context.first_block_height;
+                let mut total_initial_mining_reward = 0;
+                for burn_block_height in self.context.first_block_height..snapshot.block_height {
+                    total_initial_mining_reward += StacksChainState::get_coinbase_reward(
+                        burn_block_height,
+                        self.context.first_block_height,
+                    );
+                }
+                let per_block_reward =
+                    total_initial_mining_reward / INITIAL_MINING_BONUS_WINDOW as u128;
+
+                info!("First sortition winner chosen";
+                      "blocks_without_winners" => %blocks_without_winners,
+                      "initial_mining_per_block_reward" => %per_block_reward,
+                      "initial_mining_bonus_block_window" => %INITIAL_MINING_BONUS_WINDOW);
+                keys.push(db_keys::initial_mining_bonus_per_block().into());
+                values.push(per_block_reward.to_string());
+
+                keys.push(db_keys::initial_mining_bonus_remaining().into());
+                values.push(total_initial_mining_reward.to_string());
+            }
         }
 
         // if this is the start of a reward cycle, store the new PoX keys
