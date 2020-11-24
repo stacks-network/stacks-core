@@ -1767,7 +1767,7 @@ impl NetworkResult {
 pub trait Requestable {
     fn get_url(&self) -> &UrlString;
 
-    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
 }
 
 #[cfg(test)]

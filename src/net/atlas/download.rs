@@ -781,7 +781,7 @@ impl Requestable for AttachmentsInventoryRequest {
         &self.url
     }
 
-    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         let mut pages_indexes = HashSet::new();
         for page in self.pages.iter() {
             pages_indexes.insert(*page);
@@ -844,7 +844,7 @@ impl Requestable for AttachmentRequest {
         url
     }
 
-    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         HttpRequestType::GetAttachment(HttpRequestMetadata::from_host(peer_host), self.content_hash)
     }
 }

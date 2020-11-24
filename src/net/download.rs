@@ -167,7 +167,7 @@ impl Requestable for BlockRequestKey {
         &self.data_url
     }
 
-    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         match self.kind {
             BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
                 HttpRequestMetadata::from_host(peer_host),
@@ -1767,7 +1767,7 @@ impl PeerNetwork {
                         };
 
                         for addr in sockaddrs.iter() {
-                            let request = requestable.get_request_type(peerhost.clone());
+                            let request = requestable.make_request_type(peerhost.clone());
                             match network.connect_or_send_http_request(
                                 requestable.get_url().clone(),
                                 addr.clone(),

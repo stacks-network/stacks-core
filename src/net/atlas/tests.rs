@@ -577,7 +577,7 @@ fn test_downloader_context_attachment_inventories_requests() {
 
     let mut request_queue = context.get_prioritized_attachments_inventory_requests();
     let request = request_queue.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:30443");
     assert_eq!(
         request_type.request_path(),
@@ -585,7 +585,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     );
 
     let request = request_queue.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:20443");
     assert_eq!(
         request_type.request_path(),
@@ -593,7 +593,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     );
 
     let request = request_queue.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:40443");
     assert_eq!(
         request_type.request_path(),
@@ -660,7 +660,7 @@ fn test_downloader_context_attachment_requests() {
     let mut attachments_requests = context.get_prioritized_attachments_requests();
 
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     // Attachment 4 is the rarest resource
     assert_eq!(
         request_type.request_path(),
@@ -670,7 +670,7 @@ fn test_downloader_context_attachment_requests() {
     assert_eq!(request.get_url(), &peer_url_3);
 
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     // Attachment 1 is the 2nd rarest resource
     assert_eq!(
         request_type.request_path(),
@@ -682,11 +682,11 @@ fn test_downloader_context_attachment_requests() {
     // The 2 last requests can be served by Peer 1, 2 and 3, but will be served in random
     // order by Peer 1 (best score).
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     assert_eq!(request.get_url(), &peer_url_1);
 
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.get_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost.clone());
     assert_eq!(request.get_url(), &peer_url_1);
 }
 
