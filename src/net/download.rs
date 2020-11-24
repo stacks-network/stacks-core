@@ -1380,10 +1380,10 @@ impl PeerNetwork {
     }
 
     /// Prioritize block requests -- ask for the rarest blocks first
-    fn prioritize_requests<T: Copy>(requests: &HashMap<T, VecDeque<BlockRequestKey>>) -> Vec<T> {
+    fn prioritize_requests(requests: &HashMap<u64, VecDeque<BlockRequestKey>>) -> Vec<u64> {
         let mut ordered = vec![];
-        for (key, requests) in requests.iter() {
-            ordered.push((*key, requests.len()));
+        for (block_height, requests) in requests.iter() {
+            ordered.push((*block_height, requests.len()));
         }
         ordered.sort_by(|(_, ref l1), (_, ref l2)| l1.cmp(l2));
         ordered.iter().map(|(ref h, _)| *h).collect()
@@ -1817,7 +1817,7 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests::<u64>(&downloader.blocks_to_try);
+            let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
@@ -1864,7 +1864,7 @@ impl PeerNetwork {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut priority =
-                PeerNetwork::prioritize_requests::<u64>(&downloader.microblocks_to_try);
+                PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
