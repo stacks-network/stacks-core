@@ -121,7 +121,7 @@ pub const BLOCK_REREQUEST_INTERVAL: u64 = 30;
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub enum BlockRequestKeyKind {
     Block,
-    ConfirmedMicroblock,
+    ConfirmedMicroblockStream,
 }
 
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
@@ -173,7 +173,7 @@ impl Requestable for BlockRequestKey {
                 HttpRequestMetadata::from_host(peer_host),
                 self.index_block_hash,
             ),
-            BlockRequestKeyKind::ConfirmedMicroblock => HttpRequestType::GetMicroblocksConfirmed(
+            BlockRequestKeyKind::ConfirmedMicroblockStream => HttpRequestType::GetMicroblocksConfirmed(
                 HttpRequestMetadata::from_host(peer_host),
                 self.index_block_hash,
             ),
@@ -1337,7 +1337,7 @@ impl PeerNetwork {
                     child_block_header.clone(),
                     (i as u64) + start_sortition_height,
                     if microblocks {
-                        BlockRequestKeyKind::ConfirmedMicroblock
+                        BlockRequestKeyKind::ConfirmedMicroblockStream
                     } else {
                         BlockRequestKeyKind::Block
                     },
