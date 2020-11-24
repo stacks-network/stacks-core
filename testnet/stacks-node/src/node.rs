@@ -413,7 +413,7 @@ impl Node {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
-                        if op.input == self.keychain.get_burnchain_signer() {
+                        if op.apparent_sender == self.keychain.get_burnchain_signer() {
                             won_sortition = true;
                         }
                     }
@@ -738,7 +738,8 @@ impl Node {
             sunset_burn: 0,
             block_header_hash,
             burn_fee,
-            input: self.keychain.get_burnchain_signer(),
+            input: (Txid([0; 32]), 0),
+            apparent_sender: self.keychain.get_burnchain_signer(),
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
             memo: vec![],

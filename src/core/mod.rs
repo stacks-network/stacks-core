@@ -37,6 +37,8 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
+pub const MINING_COMMITMENT_WINDOW: u8 = 6;
+
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
