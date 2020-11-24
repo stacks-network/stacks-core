@@ -408,6 +408,7 @@ fn spawn_miner_relayer(
 
     let _relayer_handle = thread::spawn(move || {
         let mut did_register_key = false;
+        let mut key_registered_at_block = 0;
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -601,7 +602,8 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    if did_register_key {
+                    // Ensure that we're submitting this one time per block.
+                    if did_register_key && key_registered_at_block == last_burn_block.block_height {
                         debug!("Relayer: Received RegisterKey directive - ignoring");
                         continue;
                     }
@@ -610,6 +612,9 @@ fn spawn_miner_relayer(
                         last_burn_block,
                         &mut bitcoin_controller,
                     );
+                    if did_register_key {
+                        key_registered_at_block = last_burn_block.block_height;
+                    }
                     bump_processed_counter(&blocks_processed);
                 }
             }
