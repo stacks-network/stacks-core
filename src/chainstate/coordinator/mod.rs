@@ -633,6 +633,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             Ok(_) => {}
                             Err(e) => {
                                 error!("Error dispatching attachments {}", e);
+                                panic!();
                             }
                         };
                     }
