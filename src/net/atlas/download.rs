@@ -862,7 +862,6 @@ pub struct AttachmentsBatch {
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<(u32, u32), Hash160>>,
-    pub attachments_instances_count: u64,
     pub retry_count: u64,
 }
 
@@ -873,7 +872,6 @@ impl AttachmentsBatch {
             consensus_hash: ConsensusHash::empty(),
             block_header_hash: BlockHeaderHash([0u8; 32]),
             attachments_instances: HashMap::new(),
-            attachments_instances_count: 0,
             retry_count: 0,
         }
     }
@@ -889,7 +887,6 @@ impl AttachmentsBatch {
             assert_eq!(self.block_header_hash, attachment.block_header_hash);
         }
 
-        self.attachments_instances_count += 1;
         let inner_key = (attachment.page_index, attachment.position_in_page);
         match self
             .attachments_instances
@@ -913,7 +910,7 @@ impl AttachmentsBatch {
     }
 
     pub fn has_fully_succeed(&self) -> bool {
-        self.attachments_instances_count == 0
+        self.attachments_instances_count() == 0
     }
 
     pub fn get_missing_pages_for_contract_id(
@@ -951,14 +948,18 @@ impl AttachmentsBatch {
             }
             for key in keys {
                 missing_attachments.remove(&key);
-                self.attachments_instances_count =
-                    self.attachments_instances_count.saturating_sub(1);
             }
         }
     }
 
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
         StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
+    }
+
+    pub fn attachments_instances_count(&self) -> usize {
+        self.attachments_instances
+            .values()
+            .fold(0, |count, a| count + a.len())
     }
 }
 
@@ -968,8 +969,8 @@ impl Ord for AttachmentsBatch {
             .retry_count
             .cmp(&self.retry_count)
             .then_with(|| {
-                self.attachments_instances_count
-                    .cmp(&other.attachments_instances_count)
+                self.attachments_instances_count()
+                    .cmp(&other.attachments_instances_count())
             })
             .then_with(|| other.block_height.cmp(&self.block_height))
     }

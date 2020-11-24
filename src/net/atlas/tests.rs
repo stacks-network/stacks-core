@@ -453,7 +453,7 @@ fn test_attachments_batch_constructs() {
 
     let default_contract_id = QualifiedContractIdentifier::transient();
 
-    assert_eq!(attachments_batch.attachments_instances_count, 5);
+    assert_eq!(attachments_batch.attachments_instances_count(), 5);
     assert_eq!(
         attachments_batch
             .get_missing_pages_for_contract_id(&default_contract_id)
@@ -462,7 +462,7 @@ fn test_attachments_batch_constructs() {
     );
 
     attachments_batch.resolve_attachment(&attachment_instance_5.content_hash);
-    assert_eq!(attachments_batch.attachments_instances_count, 4);
+    assert_eq!(attachments_batch.attachments_instances_count(), 4);
     assert_eq!(
         attachments_batch
             .get_missing_pages_for_contract_id(&default_contract_id)
@@ -472,7 +472,7 @@ fn test_attachments_batch_constructs() {
 
     // should be idempotent
     attachments_batch.resolve_attachment(&attachment_instance_5.content_hash);
-    assert_eq!(attachments_batch.attachments_instances_count, 4);
+    assert_eq!(attachments_batch.attachments_instances_count(), 4);
 
     attachments_batch.resolve_attachment(&attachment_instance_2.content_hash);
     attachments_batch.resolve_attachment(&attachment_instance_3.content_hash);
@@ -527,7 +527,7 @@ fn test_attachments_batch_pages() {
 
     let default_contract_id = QualifiedContractIdentifier::transient();
 
-    assert_eq!(attachments_batch.attachments_instances_count, 10);
+    assert_eq!(attachments_batch.attachments_instances_count(), 10);
     assert_eq!(
         attachments_batch
             .get_missing_pages_for_contract_id(&default_contract_id)

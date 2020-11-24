@@ -2084,7 +2084,7 @@ impl PeerNetwork {
     }
 
     /// Get the list of outbound neighbors we can sync with
-    fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
+    pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers
