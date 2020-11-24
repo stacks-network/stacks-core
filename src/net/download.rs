@@ -355,10 +355,7 @@ impl BlockDownloader {
             if url_str.len() == 0 {
                 continue;
             }
-            let url = match url_str.parse_to_block_url() {
-                Ok(url) => url, // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
-                Err(_) => continue,
-            };
+            let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
             let port = match url.port_or_known_default() {
                 Some(p) => p,
                 None => {
