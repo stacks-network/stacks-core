@@ -12,7 +12,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::util::get_epoch_time_secs;
@@ -34,12 +35,7 @@ impl MocknetController {
 
     fn new(config: Config) -> Self {
         debug!("Opening Burnchain at {}", &config.get_burn_db_path());
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            &"regtest".to_string(),
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&config.get_burn_db_path());
 
         Self {
             config: config,
@@ -95,7 +91,7 @@ impl BurnchainController for MocknetController {
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
-            &BurnchainHeaderHash([0u8; 32]),
+            &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
             true,
         ) {
@@ -160,6 +156,7 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                        sunset_burn: 0,
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,
                         parent_block_ptr: payload.parent_block_ptr,
@@ -168,6 +165,7 @@ impl BurnchainController for MocknetController {
                         key_vtxindex: payload.key_vtxindex,
                         memo: payload.memo,
                         burn_fee: payload.burn_fee,
+                        apparent_sender: payload.apparent_sender,
                         input: payload.input,
                         commit_outs: payload.commit_outs,
                         txid,
@@ -189,6 +187,24 @@ impl BurnchainController for MocknetController {
                         vtxindex: vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
+                    })
+                }
+                BlockstackOperationType::PreStackStx(payload) => {
+                    BlockstackOperationType::PreStackStx(PreStackStxOp {
+                        txid,
+                        vtxindex,
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::StackStx(payload) => {
+                    BlockstackOperationType::StackStx(StackStxOp {
+                        txid,
+                        vtxindex,
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
                     })
                 }
             };

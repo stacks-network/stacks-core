@@ -1370,6 +1370,7 @@ mod test {
         };
 
         let mut block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: header.block_hash(),
             new_seed: VRFSeed::from_proof(&header.proof),
             parent_block_ptr: 0,
@@ -1380,7 +1381,8 @@ mod test {
             commit_outs: vec![],
 
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )

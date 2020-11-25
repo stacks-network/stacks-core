@@ -36,6 +36,7 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use net::StacksPublicKeyBuffer;
 
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
 
@@ -48,7 +49,7 @@ use util::vrf::*;
 use core::mempool::*;
 use core::*;
 
-use vm::database::BurnStateDB;
+use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 ///
 ///    Independent structure for building microblocks:
@@ -738,7 +739,7 @@ impl StacksBlockBuilder {
     pub fn epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'a SortitionDBConn,
     ) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
@@ -754,11 +755,11 @@ impl StacksBlockBuilder {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        test_debug!(
-            "\n\nMiner {} epoch begin off of {}/{}\n",
-            self.miner_id,
-            self.chain_tip.consensus_hash,
-            self.header.parent_block
+        debug!(
+            "\n\nMiner epoch begin";
+            "miner" => %self.miner_id,
+            "chain_tip" => %format!("{}/{}", self.chain_tip.consensus_hash,
+                                    self.header.parent_block)
         );
 
         if let Some(ref _payout) = self.miner_payouts {
@@ -779,6 +780,9 @@ impl StacksBlockBuilder {
             Some(mblocks) => mblocks,
             None => vec![],
         };
+
+        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
         let mut tx = chainstate.block_begin(
             burn_dbconn,
@@ -822,6 +826,8 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
+        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
+
         Ok(tx)
     }
 
@@ -855,7 +861,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &dyn BurnStateDB,
+        burn_dbconn: &SortitionDBConn,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
@@ -936,7 +942,7 @@ impl StacksBlockBuilder {
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &dyn BurnStateDB,
+        burn_dbconn: &SortitionDBConn,
         mempool: &MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -1071,8 +1077,7 @@ pub mod test {
     use address::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::*;
     use chainstate::stacks::db::test::*;

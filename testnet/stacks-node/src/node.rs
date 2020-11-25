@@ -13,7 +13,9 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
@@ -43,11 +45,19 @@ pub struct ChainTip {
 }
 
 impl ChainTip {
-    pub fn genesis(initial_liquid_ustx: u128) -> ChainTip {
+    pub fn genesis(
+        initial_liquid_ustx: u128,
+        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_height: u64,
+        first_burnchain_block_timestamp: u64,
+    ) -> ChainTip {
         ChainTip {
-            metadata: StacksHeaderInfo::genesis_block_header_info(
+            metadata: StacksHeaderInfo::genesis(
                 TrieHash([0u8; 32]),
                 initial_liquid_ustx,
+                first_burnchain_block_hash,
+                first_burnchain_block_height as u32,
+                first_burnchain_block_timestamp,
             ),
             block: StacksBlock::genesis_block(),
             receipts: vec![],
@@ -136,10 +146,7 @@ fn spawn_peer(
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, boot_block_exec: F) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
 
         let initial_balances = config
@@ -148,12 +155,19 @@ impl Node {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: Some(boot_block_exec),
+        };
+
         let chain_state_result = StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&mut boot_data),
             config.block_limit.clone(),
         );
 
@@ -252,12 +266,7 @@ impl Node {
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
-        let burnchain = Burnchain::new(
-            &self.config.get_burn_db_path(),
-            &self.config.burnchain.chain,
-            "regtest",
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
             let ic = sortdb.index_conn();
@@ -404,13 +413,15 @@ impl Node {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
-                        if op.input == self.keychain.get_burnchain_signer() {
+                        if op.apparent_sender == self.keychain.get_burnchain_signer() {
                             won_sortition = true;
                         }
                     }
                 }
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
+                BlockstackOperationType::PreStackStx(_)
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::UserBurnSupport(_) => {
+                    // no-op, ops are not supported / produced at this point.
                 }
             }
         }
@@ -481,7 +492,12 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(self.config.get_initial_liquid_ustx()),
+            true => ChainTip::genesis(
+                self.config.get_initial_liquid_ustx(),
+                &BurnchainHeaderHash::zero(),
+                0,
+                0,
+            ),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),
@@ -686,7 +702,7 @@ impl Node {
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 
@@ -719,9 +735,11 @@ impl Node {
         let commit_outs = RewardSetInfo::into_commit_outs(None, false);
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash,
             burn_fee,
-            input: self.keychain.get_burnchain_signer(),
+            input: (Txid([0; 32]), 0),
+            apparent_sender: self.keychain.get_burnchain_signer(),
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
             memo: vec![],
@@ -732,7 +750,7 @@ impl Node {
             txid: Txid([0u8; 32]),
             commit_outs,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 

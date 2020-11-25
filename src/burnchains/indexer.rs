@@ -56,7 +56,11 @@ pub trait BurnchainBlockParser {
 pub trait BurnchainIndexer {
     type P: BurnchainBlockParser + Send + Sync;
 
-    fn init(working_dir: &String, network_name: &String) -> Result<Self, burnchain_error>
+    fn init(
+        working_dir: &String,
+        network_name: &String,
+        first_block_height: u64,
+    ) -> Result<Self, burnchain_error>
     where
         Self: Sized;
     fn connect(&mut self) -> Result<(), burnchain_error>;
@@ -67,6 +71,7 @@ pub trait BurnchainIndexer {
 
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self) -> Result<u64, burnchain_error>;
+    fn get_highest_header_height(&self) -> Result<u64, burnchain_error>;
     fn find_chain_reorg(&mut self) -> Result<u64, burnchain_error>;
     fn sync_headers(
         &mut self,

@@ -7,7 +7,12 @@ use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
-use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::coordinator::{
+    BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+};
+use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use std::cmp;
 use std::thread;
 
@@ -93,7 +98,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt,
+            burnchain_opt.clone(),
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -121,7 +126,9 @@ impl RunLoop {
             false
         };
 
-        let mut target_burnchain_block_height = 1;
+        let burnchain_config = burnchain.get_burnchain();
+        let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
+
         match burnchain.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
             Err(e) => {
@@ -147,27 +154,66 @@ impl RunLoop {
         }
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
-        let burnchain_config = burnchain.get_burnchain();
+
         let chainstate_path = self.config.get_chainstate_path();
         let coordinator_burnchain_config = burnchain_config.clone();
 
+        let first_block_height = burnchain_config.first_block_height as u128;
+        let pox_prepare_length = burnchain_config.pox_constants.prepare_length as u128;
+        let pox_reward_cycle_length = burnchain_config.pox_constants.reward_cycle_length as u128;
+        let pox_rejection_fraction = burnchain_config.pox_constants.pox_rejection_fraction as u128;
+
+        let boot_block = Box::new(move |clarity_tx: &mut ClarityTx| {
+            let contract = QualifiedContractIdentifier::parse(&format!(
+                "{}.pox",
+                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
+            ))
+            .expect("Failed to construct boot code contract address");
+            let sender = PrincipalData::from(contract.clone());
+            let params = vec![
+                Value::UInt(first_block_height),
+                Value::UInt(pox_prepare_length),
+                Value::UInt(pox_reward_cycle_length),
+                Value::UInt(pox_rejection_fraction),
+            ];
+
+            clarity_tx.connection().as_transaction(|conn| {
+                conn.run_contract_call(
+                    &sender,
+                    &contract,
+                    "set-burnchain-parameters",
+                    &params,
+                    |_, _| false,
+                )
+                .expect("Failed to set burnchain parameters in PoX contract");
+            });
+        });
+        let mut boot_data = ChainStateBootData::new(
+            &coordinator_burnchain_config,
+            initial_balances,
+            Some(boot_block),
+        );
+
+        let (chain_state_db, receipts) = StacksChainState::open_and_exec(
+            mainnet,
+            chainid,
+            &chainstate_path,
+            Some(&mut boot_data),
+            block_limit,
+        )
+        .unwrap();
+        coordinator_dispatcher.dispatch_boot_receipts(receipts);
+
         thread::spawn(move || {
             ChainsCoordinator::run(
-                &chainstate_path,
+                chain_state_db,
                 coordinator_burnchain_config,
-                mainnet,
-                chainid,
-                Some(initial_balances),
-                block_limit,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
-                |_| {},
             );
         });
 
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
-
-        let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         let chainstate_path = self.config.get_chainstate_path();
         let mut pox_watchdog = PoxSyncWatchdog::new(
@@ -185,7 +231,7 @@ impl RunLoop {
             self.config.clone(),
             event_dispatcher,
             burnchain_config.clone(),
-            |_| {},
+            Box::new(|_| {}),
         );
         let mut node = if is_miner {
             node.into_initialized_leader_node(
@@ -217,10 +263,12 @@ impl RunLoop {
             });
         }
 
-        let mut burnchain_height = 1;
+        let mut block_height = 1.max(burnchain_config.first_block_height);
+
+        let mut burnchain_height = block_height;
 
         // prepare to fetch the first reward cycle!
-        target_burnchain_block_height = pox_constants.reward_cycle_length as u64;
+        target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
 
         loop {
             // wait for the p2p state-machine to do at least one pass
