@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -17,7 +17,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksBlockId;
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -181,7 +181,7 @@ fn inner_generate_leader_key_register_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
     })
 }
 
@@ -189,7 +189,7 @@ fn rotate_vrf_and_register(
     keychain: &mut Keychain,
     burn_block: &BlockSnapshot,
     btc_controller: &mut BitcoinRegtestController,
-) {
+) -> bool {
     let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
     let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
     let op = inner_generate_leader_key_register_op(
@@ -199,28 +199,29 @@ fn rotate_vrf_and_register(
     );
 
     let mut one_off_signer = keychain.generate_op_signer();
-    btc_controller.submit_operation(op, &mut one_off_signer, 1);
+    btc_controller.submit_operation(op, &mut one_off_signer, 1)
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
 fn inner_generate_block_commit_op(
-    input: BurnchainSigner,
+    sender: BurnchainSigner,
     block_header_hash: BlockHeaderHash,
     burn_fee: u64,
     key: &RegisteredKey,
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    recipients: Option<RewardSetInfo>,
+    commit_outs: Vec<StacksAddress>,
+    sunset_burn: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
-    let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
-
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+        sunset_burn,
         block_header_hash,
         burn_fee,
-        input,
+        input: (Txid([0; 32]), 0),
+        apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
         key_vtxindex: key.op_vtxindex as u16,
         memo: vec![],
@@ -230,7 +231,7 @@ fn inner_generate_block_commit_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
         commit_outs,
     })
 }
@@ -418,6 +419,8 @@ fn spawn_miner_relayer(
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
     let _relayer_handle = thread::spawn(move || {
+        let mut did_register_key = false;
+        let mut key_registered_at_block = 0;
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -616,12 +619,19 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    debug!("Relayer: Register key");
-                    rotate_vrf_and_register(
+                    // Ensure that we're submitting this one time per block.
+                    if did_register_key && key_registered_at_block == last_burn_block.block_height {
+                        debug!("Relayer: Received RegisterKey directive - ignoring");
+                        continue;
+                    }
+                    did_register_key = rotate_vrf_and_register(
                         &mut keychain,
                         last_burn_block,
                         &mut bitcoin_controller,
                     );
+                    if did_register_key {
+                        key_registered_at_block = last_burn_block.block_height;
+                    }
                     bump_processed_counter(&blocks_processed);
                 }
             }
@@ -994,7 +1004,17 @@ impl InitializedNeonNode {
             )
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
-            let chain_tip = ChainTip::genesis(config.get_initial_liquid_ustx());
+            let (network, _) = config.burnchain.get_bitcoin_network();
+            let burnchain_params =
+                BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                    .expect("Bitcoin network unsupported");
+
+            let chain_tip = ChainTip::genesis(
+                config.get_initial_liquid_ustx(),
+                &burnchain_params.first_block_hash,
+                burnchain_params.first_block_height.into(),
+                burnchain_params.first_block_timestamp.into(),
+            );
 
             (
                 chain_tip.metadata,
@@ -1036,11 +1056,24 @@ impl InitializedNeonNode {
         ) {
             Some(vrfp) => vrfp,
             None => {
-                error!(
-                    "Failed to generate proof with {:?}",
-                    &registered_key.vrf_public_key
-                );
-                return None;
+                // Try to recover a key registered in a former session.
+                // registered_key.block_height gives us a pointer to the height of the block
+                // holding the key register op, but the VRF was derived using the height of one
+                // of the parents blocks.
+                let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 1);
+                match keychain.generate_proof(
+                    &registered_key.vrf_public_key,
+                    burn_block.sortition_hash.as_bytes(),
+                ) {
+                    Some(vrfp) => vrfp,
+                    None => {
+                        error!(
+                            "Failed to generate proof with {:?}",
+                            &registered_key.vrf_public_key
+                        );
+                        return None;
+                    }
+                }
             }
         };
 
@@ -1053,7 +1086,20 @@ impl InitializedNeonNode {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
+        let microblock_secret_key = if attempt > 1 {
+            match keychain.get_microblock_key() {
+                Some(k) => k,
+                None => {
+                    error!(
+                        "Failed to obtain microblock key for mining attempt";
+                        "attempt" => %attempt
+                    );
+                    return None;
+                }
+            }
+        } else {
+            keychain.rotate_microblock_keypair(burn_block.block_height)
+        };
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
@@ -1104,18 +1150,29 @@ impl InitializedNeonNode {
                 return None;
             }
         };
+
+        let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
+        let rest_commit = burn_fee_cap - sunset_burn;
+
+        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end {
+            RewardSetInfo::into_commit_outs(recipients, false)
+        } else {
+            vec![StacksAddress::burn_address(false)]
+        };
+
         // let's commit
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            burn_fee_cap,
+            rest_commit,
             &registered_key,
             parent_block_burn_height
                 .try_into()
                 .expect("Could not convert parent block height into u32"),
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
-            recipients,
+            commit_outs,
+            sunset_burn,
         );
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
@@ -1138,9 +1195,8 @@ impl InitializedNeonNode {
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
-    ) -> (Option<BlockSnapshot>, bool) {
+    ) -> Option<BlockSnapshot> {
         let mut last_sortitioned_block = None;
-        let mut won_sortition = false;
 
         let ic = sortdb.index_conn();
 
@@ -1160,21 +1216,16 @@ impl InitializedNeonNode {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.input.to_testnet_address(),
+                    op.apparent_sender.to_testnet_address(),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
-                // Release current registered key if leader won the sortition
-                // This will trigger a new registration
-                if op.input == self.burnchain_signer {
-                    won_sortition = true;
-                }
             } else {
                 if self.is_miner {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.input.to_testnet_address(),
+                        op.apparent_sender.to_testnet_address(),
                         &op.block_header_hash
                     );
                 }
@@ -1208,21 +1259,18 @@ impl InitializedNeonNode {
         // no-op on UserBurnSupport ops are not supported / produced at this point.
         self.last_burn_block = Some(block_snapshot);
 
-        (last_sortitioned_block.map(|x| x.0), won_sortition)
+        last_sortitioned_block.map(|x| x.0)
     }
 }
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(
+    pub fn new(
         config: Config,
         mut event_dispatcher: EventDispatcher,
         burnchain: Burnchain,
-        boot_block_exec: F,
-    ) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
             .initial_balances
@@ -1230,13 +1278,15 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
+
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,

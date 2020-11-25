@@ -14,25 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
-    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError, Txid,
+    Address, Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError, Txid,
 };
 use chainstate::burn::{
     db::sortdb::{PoxId, SortitionDB, SortitionId},
     operations::leader_block_commit::RewardSetInfo,
+    operations::BlockstackOperationType,
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::{boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS},
-    db::{ClarityTx, StacksChainState, StacksHeaderInfo},
-    events::StacksTransactionEvent,
-    events::StacksTransactionReceipt,
+    boot::{boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR},
+    db::{
+        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
+        StacksHeaderInfo,
+    },
+    events::{StacksTransactionReceipt, StacksTransactionEvent, TransactionOrigin},
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     TransactionPayload,
 };
@@ -112,6 +115,20 @@ pub trait BlockEventDispatcher {
         receipts: Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
+        matured_rewards: Vec<MinerReward>,
+        matured_rewards_info: Option<MinerRewardInfo>,
+    );
+
+    /// called whenever a burn block is about to be
+    ///  processed for sortition. note, in the event
+    ///  of PoX forks, this will be called _multiple_
+    ///  times for the same burnchain header hash.
+    fn announce_burn_block(
+        &self,
+        burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
+        rewards: Vec<(StacksAddress, u64)>,
+        burns: u64,
     );
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
@@ -224,19 +241,13 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 impl<'a, T: BlockEventDispatcher>
     ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider>
 {
-    pub fn run<F>(
-        chain_state_path: &str,
+    pub fn run(
+        chain_state_db: StacksChainState,
         burnchain: Burnchain,
-        stacks_mainnet: bool,
-        stacks_chain_id: u32,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
-        block_limit: ExecutionCost,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
-        boot_block_exec: F,
     ) where
-        F: FnOnce(&mut ClarityTx),
         T: BlockEventDispatcher,
     {
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
@@ -245,41 +256,6 @@ impl<'a, T: BlockEventDispatcher>
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let (chain_state_db, receipts) = StacksChainState::open_and_exec(
-            stacks_mainnet,
-            stacks_chain_id,
-            chain_state_path,
-            initial_balances,
-            |clarity_tx| {
-                let burnchain = burnchain.clone();
-                let contract = QualifiedContractIdentifier::parse(&format!(
-                    "{}.pox",
-                    STACKS_BOOT_CODE_CONTRACT_ADDRESS
-                ))
-                .expect("Failed to construct boot code contract address");
-                let sender = PrincipalData::from(contract.clone());
-
-                clarity_tx.connection().as_transaction(|conn| {
-                    conn.run_contract_call(
-                        &sender,
-                        &contract,
-                        "set-burnchain-parameters",
-                        &[
-                            Value::UInt(burnchain.first_block_height as u128),
-                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
-                        ],
-                        |_, _| false,
-                    )
-                    .expect("Failed to set burnchain parameters in PoX contract");
-                });
-                boot_block_exec(clarity_tx)
-            },
-            block_limit,
-        )
-        .unwrap();
-        dispatcher.dispatch_boot_receipts(receipts);
 
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
@@ -339,12 +315,19 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let (chain_state_db, _) =
-            StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
-
+        let (chain_state_db, _) = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &format!("{}/chainstate/", path),
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap();
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
@@ -382,7 +365,11 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         provider,
     )?;
     sort_db
-        .get_next_block_recipients(sortition_tip, reward_cycle_info.as_ref())
+        .get_next_block_recipients(
+            sortition_tip,
+            reward_cycle_info.as_ref(),
+            burnchain.pox_constants.sunset_end,
+        )
         .map_err(|e| Error::from(e))
 }
 
@@ -401,6 +388,12 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
     if burnchain.is_reward_cycle_start(burn_height) {
+        if burn_height >= burnchain.pox_constants.sunset_end {
+            return Ok(Some(RewardCycleInfo {
+                anchor_status: PoxAnchorBlockStatus::NotSelected,
+            }));
+        }
+
         info!("Beginning reward cycle. block_height={}", burn_height);
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
@@ -436,6 +429,38 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     } else {
         Ok(None)
     }
+}
+
+fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
+    dispatcher: &T,
+    burn_header: &BurnchainBlockHeader,
+    ops: &[BlockstackOperationType],
+) {
+    let mut reward_recipients: HashMap<_, u64> = HashMap::new();
+    let mut burn_amt = 0;
+    for op in ops.iter() {
+        if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
+            let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
+            for addr in commit.commit_outs.iter() {
+                if addr.is_burn() {
+                    burn_amt += amt_per_address;
+                } else {
+                    if let Some(prior_amt) = reward_recipients.get_mut(addr) {
+                        *prior_amt += amt_per_address;
+                    } else {
+                        reward_recipients.insert(addr.clone(), amt_per_address);
+                    }
+                }
+            }
+        }
+    }
+    let reward_recipients_vec = reward_recipients.into_iter().collect();
+    dispatcher.announce_burn_block(
+        &burn_header.block_hash,
+        burn_header.block_height,
+        reward_recipients_vec,
+        burn_amt,
+    );
 }
 
 impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
@@ -486,6 +511,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
         for unprocessed_block in sortitions_to_process.drain(..) {
             let BurnchainBlockData { header, ops } = unprocessed_block;
+
+            if let Some(dispatcher) = self.dispatcher {
+                dispatcher_announce_burn_ops(dispatcher, &header, &ops);
+            }
 
             let sortition_tip_snapshot = SortitionDB::get_block_snapshot(
                 self.sortition_db.conn(),
@@ -603,8 +632,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
                     let mut attachments_instances = HashSet::new();
                     for receipt in block_receipt.tx_receipts.iter() {
-                        if let TransactionPayload::ContractCall(ref contract_call) =
-                            receipt.transaction.payload
+                        if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
+                            if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload
                         {
                             let contract_id = contract_call.to_clarity_contract_id();
                             if self.atlas_config.contracts.contains(&contract_id) {
@@ -625,6 +654,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                         }
                                     }
                                 }
+                            }
                             }
                         }
                     }
@@ -670,6 +700,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             block_receipt.tx_receipts,
                             &parent,
                             winner_txid,
+                            block_receipt.matured_rewards,
+                            block_receipt.matured_rewards_info,
                         );
                     }
 

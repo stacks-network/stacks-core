@@ -27,8 +27,7 @@ use core::*;
 use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
 
@@ -96,7 +95,7 @@ impl BlockSnapshot {
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
     /// winner.  Return the index into the distribution *if there is a sample to take*.
     fn sample_burn_distribution(
-        dist: &Vec<BurnSamplePoint>,
+        dist: &[BurnSamplePoint],
         VRF_seed: &VRFSeed,
         sortition_hash: &SortitionHash,
     ) -> Option<usize> {
@@ -139,7 +138,7 @@ impl BlockSnapshot {
         sort_tx: &mut SortitionHandleTx,
         block_header: &BurnchainBlockHeader,
         sortition_hash: &SortitionHash,
-        burn_dist: &Vec<BurnSamplePoint>,
+        burn_dist: &[BurnSamplePoint],
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let burn_block_height = block_header.block_height;
 
@@ -252,8 +251,9 @@ impl BlockSnapshot {
         my_pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
-        burn_dist: &Vec<BurnSamplePoint>,
+        burn_dist: &[BurnSamplePoint],
         txids: &Vec<Txid>,
+        block_burn_total: Option<u64>,
     ) -> Result<BlockSnapshot, db_error> {
         assert_eq!(
             parent_snapshot.burn_header_hash,
@@ -288,21 +288,24 @@ impl BlockSnapshot {
         if burn_dist.len() == 0 {
             // no burns happened
             debug!(
-                "No burns happened in block {} {:?}",
-                block_height, &block_hash
+                "No burns happened in block";
+                "burn_block_height" => %block_height.to_string(),
+                "burn_block_hash" => %block_hash.to_string(),
             );
+
             return make_snapshot_no_sortition();
         }
 
         // NOTE: this only counts burns from leader block commits and user burns that match them.
         // It ignores user burns that don't match any block.
-        let block_burn_total = match BurnSamplePoint::get_total_burns(burn_dist) {
+        let block_burn_total = match block_burn_total {
             Some(total) => {
                 if total == 0 {
                     // no one burned, so no sortition
                     debug!(
-                        "No transactions submitted burns in block {} {:?}",
-                        block_height, &block_hash
+                        "No transactions submitted burns in block";
+                        "burn_block_height" => %block_height.to_string(),
+                        "burn_block_hash" => %block_hash.to_string(),
                     );
                     return make_snapshot_no_sortition();
                 } else {
@@ -403,6 +406,30 @@ mod test {
 
     use address::*;
 
+    fn test_make_snapshot(
+        sort_tx: &mut SortitionHandleTx,
+        burnchain: &Burnchain,
+        my_sortition_id: &SortitionId,
+        my_pox_id: &PoxId,
+        parent_snapshot: &BlockSnapshot,
+        block_header: &BurnchainBlockHeader,
+        burn_dist: &[BurnSamplePoint],
+        txids: &Vec<Txid>,
+    ) -> Result<BlockSnapshot, db_error> {
+        let total_burn = BurnSamplePoint::get_total_burns(burn_dist);
+        BlockSnapshot::make_snapshot(
+            sort_tx,
+            burnchain,
+            my_sortition_id,
+            my_pox_id,
+            parent_snapshot,
+            block_header,
+            burn_dist,
+            txids,
+            total_burn,
+        )
+    }
+
     #[test]
     fn make_snapshot_no_sortition() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -420,6 +447,7 @@ mod test {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
+            first_block_timestamp: 0,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
         };
@@ -443,7 +471,7 @@ mod test {
             let pox_id = PoxId::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = BlockSnapshot::make_snapshot(
+            let sn = test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,
@@ -483,20 +511,13 @@ mod test {
                 &VRFSeed::initial(),
                 &key,
                 0,
+                &(Txid([0; 32]), 0),
                 &BurnchainSigner::new_p2pkh(
                     &StacksPublicKey::from_hex(
                         "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
                     )
                     .unwrap(),
                 ),
-            ),
-            key: LeaderKeyRegisterOp::new(
-                &StacksAddress::new(0, Hash160([0u8; 20])),
-                &VRFPublicKey::from_bytes(
-                    &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                        .unwrap(),
-                )
-                .unwrap(),
             ),
             user_burns: vec![],
         };
@@ -505,7 +526,7 @@ mod test {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let pox_id = PoxId::stubbed();
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = BlockSnapshot::make_snapshot(
+            let sn = test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,

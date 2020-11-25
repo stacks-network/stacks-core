@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PoxConstants};
+use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -66,7 +66,16 @@ mod test_observer {
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    }
+
+    async fn handle_burn_block(
+        burn_block: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut blocks = BURN_BLOCKS.lock().unwrap();
+        blocks.push(burn_block);
+        Ok(warp::http::StatusCode::OK)
     }
 
     async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
@@ -96,6 +105,10 @@ mod test_observer {
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_burn_blocks() -> Vec<serde_json::Value> {
+        BURN_BLOCKS.lock().unwrap().clone()
+    }
+
     async fn serve() {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
@@ -105,8 +118,13 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mempool_txs);
+        let new_burn_blocks = warp::path!("new_burn_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_burn_block);
+
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs))
+        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks))
             .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
             .await
     }
@@ -179,8 +197,9 @@ fn find_microblock_privkey(
     max_tries: u64,
 ) -> Option<StacksPrivateKey> {
     let mut keychain = Keychain::default(conf.node.seed.clone());
-    for _ in 0..max_tries {
-        let privk = keychain.rotate_microblock_keypair();
+    for ix in 0..max_tries {
+        // the first rotation occurs at 203.
+        let privk = keychain.rotate_microblock_keypair(203 + ix);
         let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
@@ -474,6 +493,20 @@ fn microblock_integration_test() {
     );
     assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
 
+    let burn_blocks_observed = test_observer::get_burn_blocks();
+    let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
+        .into_iter()
+        .filter(|block| block.get("burn_amount").unwrap().as_u64().unwrap() > 0)
+        .collect();
+    assert!(
+        burn_blocks_with_burns.len() >= 3,
+        "Burn block sortitions {} should be >= 3",
+        burn_blocks_with_burns.len()
+    );
+    for burn_block in burn_blocks_with_burns {
+        eprintln!("{}", burn_block);
+    }
+
     let mut prior = None;
     for block in blocks_observed.iter() {
         let parent_index_hash = block
@@ -493,8 +526,6 @@ fn microblock_integration_test() {
         }
 
         // make sure we have a burn_block_hash, burn_block_height and miner_txid
-
-        eprintln!("{}", block);
 
         let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
 
@@ -767,12 +798,16 @@ fn pox_integration_test() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15, 239, 250);
     burnchain_config.pox_constants = pox_constants;
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -845,7 +880,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -903,7 +938,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -946,7 +981,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -991,6 +1026,7 @@ fn pox_integration_test() {
         "Should have received no outputs during PoX reward cycle"
     );
 
+    // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
     while sort_height < 239 {
@@ -999,7 +1035,7 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
-    // we should have received _three_ Bitcoin commitments, because our commitment was 3 * threshold
+    // we should have received _seven_ Bitcoin commitments, because our commitment was 7 * threshold
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
@@ -1021,7 +1057,73 @@ fn pox_integration_test() {
         "Should have received three outputs during PoX reward cycle"
     );
 
-    // okay, the threshold for participation should be
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 36);
+
+    // now let's mine into the sunset
+    while sort_height < 249 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 46);
+
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
+
+    // should receive more rewards during this cycle...
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(
+        utxos.len(),
+        14,
+        "Should have received more outputs during the sunsetting PoX reward cycle"
+    );
+
+    // and after sunset
+    while sort_height < 259 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
+
+    // should *not* receive more rewards during the after sunset cycle...
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(
+        utxos.len(),
+        14,
+        "Should have received no more outputs after sunset PoX reward cycle"
+    );
+
+    // should have progressed the chain, though!
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 56);
 
     channel.stop_chains_coordinator();
 }

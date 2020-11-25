@@ -10,6 +10,8 @@ use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::value::RawValue;
 
+use std::cmp;
+
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
@@ -22,15 +24,14 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::Burnchain;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
+use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::OUTPUTS_PER_COMMIT, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::deps::bitcoin::blockdata::opcodes;
@@ -73,12 +74,13 @@ impl BitcoinRegtestController {
     ) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
+        let (network, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(
             &config.burnchain.spv_headers_path,
             0,
             None,
-            config.burnchain.get_bitcoin_network().1,
+            network_id,
             true,
             false,
         );
@@ -86,6 +88,9 @@ impl BitcoinRegtestController {
             error!("Unable to init block headers: {}", err);
             panic!()
         }
+
+        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+            .expect("Bitcoin network unsupported");
 
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
@@ -98,7 +103,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -120,6 +125,10 @@ impl BitcoinRegtestController {
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
     pub fn new_dummy(config: Config) -> Self {
+        let (network, _) = config.burnchain.get_bitcoin_network();
+        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+            .expect("Bitcoin network unsupported");
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -131,7 +140,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -150,14 +159,14 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
-        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
+    fn default_burnchain(&self) -> Burnchain {
+        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
         match &self.burnchain_config {
-            Some(burnchain) => (burnchain.clone(), network_type),
+            Some(burnchain) => burnchain.clone(),
             None => {
                 let working_dir = self.config.get_burn_db_path();
                 match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-                    Ok(burnchain) => (burnchain, network_type),
+                    Ok(burnchain) => burnchain,
                     Err(e) => {
                         error!("Failed to instantiate burnchain: {}", e);
                         panic!()
@@ -168,13 +177,15 @@ impl BitcoinRegtestController {
     }
 
     pub fn get_pox_constants(&self) -> PoxConstants {
-        let (burnchain, _) = self.setup_burnchain();
+        let burnchain = self.get_burnchain();
         burnchain.pox_constants.clone()
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
-        let (burnchain, _) = self.setup_burnchain();
-        burnchain
+        match self.burnchain_config {
+            Some(ref burnchain) => burnchain.clone(),
+            None => self.default_burnchain(),
+        }
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
@@ -292,9 +303,8 @@ impl BitcoinRegtestController {
                         .expect("BUG: no data for the canonical chain tip");
 
                     let burnchain_height = burnchain_indexer
-                        .get_headers_height()
-                        .map_err(BurnchainControllerError::IndexerError)?
-                        - 1; // 1-indexed, so convert to 0-indexed height
+                        .get_highest_header_height()
+                        .map_err(BurnchainControllerError::IndexerError)?;
 
                     break (snapshot, burnchain_height, state_transition);
                 }
@@ -458,10 +468,16 @@ impl BitcoinRegtestController {
         };
 
         let utxos = if utxos.len() == 0 {
+            let (_, network) = self.config.burnchain.get_bitcoin_network();
             loop {
-                let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
-
-                sleep_ms(1000);
+                if let BitcoinNetworkType::Regtest = network {
+                    // Performing this operation on Mainnet / Testnet is very expensive, and can be longer than bitcoin block time.
+                    // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
+                    // reasonable to me.
+                    // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
+                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+                    sleep_ms(1000);
+                }
 
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
@@ -572,8 +588,14 @@ impl BitcoinRegtestController {
             buffer
         };
 
+        let sunset_burn = if payload.sunset_burn > 0 {
+            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
         let consensus_output = TxOut {
-            value: 0,
+            value: sunset_burn,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -582,17 +604,8 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        if OUTPUTS_PER_COMMIT < payload.commit_outs.len() {
-            error!("Generated block commit with more commit outputs than OUTPUTS_PER_COMMIT");
-            return None;
-        }
-
-        if OUTPUTS_PER_COMMIT != payload.commit_outs.len() {
-            error!("Generated block commit with wrong OUTPUTS_PER_COMMIT");
-            return None;
-        }
-        let value_per_transfer = payload.burn_fee / (OUTPUTS_PER_COMMIT as u64);
-        if value_per_transfer < 5500 {
+        let value_per_transfer = payload.burn_fee / (payload.commit_outs.len() as u64);
+        if value_per_transfer < DUST_UTXO_LIMIT {
             error!("Total burn fee not enough for number of outputs");
             return None;
         }
@@ -601,7 +614,13 @@ impl BitcoinRegtestController {
                 .push(commit_to.to_bitcoin_tx_out(value_per_transfer));
         }
 
-        self.finalize_tx(&mut tx, payload.burn_fee, utxos, signer, attempt)?;
+        self.finalize_tx(
+            &mut tx,
+            payload.burn_fee + sunset_burn,
+            utxos,
+            signer,
+            attempt,
+        )?;
 
         increment_btc_ops_sent_counter();
 
@@ -845,15 +864,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sortdb_mut(&mut self) -> &mut SortitionDB {
-        let network = "regtest".to_string();
-        let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network) {
-            Ok(burnchain) => burnchain,
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
-            }
-        };
+        let burnchain = self.get_burnchain();
 
         let (db, burnchain_db) = burnchain.open_db(true).unwrap();
         self.db = Some(db);
@@ -930,6 +941,8 @@ impl BurnchainController for BitcoinRegtestController {
             BlockstackOperationType::UserBurnSupport(payload) => {
                 self.build_user_burn_support_tx(payload, op_signer, attempt)
             }
+            BlockstackOperationType::PreStackStx(_payload) => unimplemented!(),
+            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
         };
 
         let transaction = match transaction {

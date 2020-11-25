@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
@@ -288,54 +289,61 @@ impl SpvClient {
         }
 
         for i in interval_start..interval_end {
-            let (bits, difficulty) = match self.get_target(i)? {
-                Some(x) => x,
-                None => {
-                    // out of headers
-                    return Ok(());
-                }
-            };
-
+            let mut headers = VecDeque::new();
             for block_height in
                 (i * BLOCK_DIFFICULTY_CHUNK_SIZE)..((i + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)
             {
-                match self.read_block_header(block_height)? {
-                    None => {
-                        // out of headers
-                        return Ok(());
-                    }
-                    Some(header_i) => {
-                        if header_i.header.bits != bits {
-                            error!("bits mismatch at block {} of {} (offset {} interval {} of {}-{}): {:08x} != {:08x}",
-                                   block_height, self.headers_path, block_height % BLOCK_DIFFICULTY_CHUNK_SIZE, i, interval_start, interval_end, header_i.header.bits, bits);
-                            return Err(btc_error::InvalidPoW);
-                        }
-                        let header_hash = header_i.header.bitcoin_hash().into_le();
-                        if difficulty <= header_hash {
-                            error!(
-                                "block {} hash {} has less work than difficulty {} in {}",
-                                block_height,
-                                header_i.header.bitcoin_hash(),
-                                difficulty,
-                                self.headers_path
-                            );
-                            return Err(btc_error::InvalidPoW);
-                        }
-                    }
+                let header_i = match self.read_block_header(block_height)? {
+                    None => return Ok(()),
+                    Some(res) => res.header,
                 };
+
+                let (bits, difficulty) =
+                    match self.get_target(block_height, &header_i, &headers, i)? {
+                        Some(x) => x,
+                        None => {
+                            // out of headers
+                            return Ok(());
+                        }
+                    };
+
+                if header_i.bits != bits {
+                    error!("bits mismatch at block {} of {} (offset {} interval {} of {}-{}): {:08x} != {:08x}",
+                            block_height, self.headers_path, block_height % BLOCK_DIFFICULTY_CHUNK_SIZE, i, interval_start, interval_end, header_i.bits, bits);
+                    return Err(btc_error::InvalidPoW);
+                }
+                let header_hash = header_i.bitcoin_hash().into_le();
+                if difficulty <= header_hash {
+                    error!(
+                        "block {} hash {} has less work than difficulty {} in {}",
+                        block_height,
+                        header_i.bitcoin_hash(),
+                        difficulty,
+                        self.headers_path
+                    );
+                    return Err(btc_error::InvalidPoW);
+                }
+
+                headers.push_front(header_i);
             }
         }
         return Ok(());
     }
 
-    /// Report how many block headers we have downloaded to the given path.
+    /// Report how many block headers (+ 1) we have downloaded to the given path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
+        let max = self.get_highest_header_height()?;
+        Ok(max + 1)
+    }
+
+    /// Report the highest heigth of the last header we got
+    pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
             "SELECT MAX(height) FROM headers",
             NO_PARAMS,
         )? {
-            Some(x) => Ok(x + 1),
+            Some(max) => Ok(max),
             None => Ok(0),
         }
     }
@@ -709,10 +717,23 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// Returns (new bits, new target)
-    pub fn get_target(&self, interval: u64) -> Result<Option<(u32, Uint256)>, btc_error> {
-        let max_target = if self.network_id == BitcoinNetworkType::Regtest {
-            // in regtest mode there's no difficulty adjustment active.
-            // it uses the highest possible difficulty -- represents nBits = 0x207fffff
+    pub fn get_target(
+        &self,
+        current_header_height: u64,
+        current_header: &BlockHeader,
+        headers_in_range: &VecDeque<BlockHeader>,
+        interval: u64,
+    ) -> Result<Option<(u32, Uint256)>, btc_error> {
+        if interval == 0 {
+            panic!(
+                "Invalid argument: interval must be positive (got {})",
+                interval
+            );
+        }
+
+        // In Regtest mode there's no difficulty adjustment active.
+        // it uses the highest possible difficulty -- represents nBits = 0x207fffff
+        if self.network_id == BitcoinNetworkType::Regtest {
             return Ok(Some((
                 0x207fffff,
                 Uint256([
@@ -722,56 +743,73 @@ impl SpvClient {
                     0x7fffffff00000000,
                 ]),
             )));
+        }
+
+        let max_target = Uint256([
+            0x0000000000000000,
+            0x0000000000000000,
+            0x0000000000000000,
+            0x00000000ffff0000,
+        ]);
+        let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
+
+        let parent_header = if headers_in_range.len() > 0 {
+            headers_in_range[0]
         } else {
-            Uint256([
-                0x0000000000000000,
-                0x0000000000000000,
-                0x0000000000000000,
-                0x00000000ffff0000,
-            ])
+            match self.read_block_header(current_header_height - 1)? {
+                Some(res) => res.header,
+                None => return Ok(None),
+            }
         };
 
-        if interval == 0 {
-            panic!(
-                "Invalid argument: interval must be positive (got {})",
-                interval
-            );
+        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
+            && self.network_id == BitcoinNetworkType::Testnet
+        {
+            // In Testnet mode, if the new block's timestamp is more than 2* 10 minutes
+            // then allow mining of a min-difficulty block.
+            if current_header.time > parent_header.time + 10 * 60 * 2 {
+                return Ok(Some((max_target_bits, max_target)));
+            }
+
+            // Otherwise return the last non-special-min-difficulty-rules-block
+            for ancestor in headers_in_range {
+                if ancestor.bits != max_target_bits {
+                    let target = ancestor.target();
+                    return Ok(Some((ancestor.bits, target)));
+                }
+            }
         }
 
         let first_header =
             match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
-                Some(header) => header,
-                None => {
-                    // haven't got here yet
-                    return Ok(None);
-                }
+                Some(res) => res.header,
+                None => return Ok(None),
             };
 
         let last_header =
             match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
-                Some(header) => header,
-                None => {
-                    // whatever the current header is
-                    return Ok(None);
-                }
+                Some(res) => res.header,
+                None => return Ok(None),
             };
 
         // find actual timespan as being clamped between +/- 4x of the target timespan
-        let measured_timespan = (last_header.header.time - first_header.header.time) as u64;
+        let mut actual_timespan = (last_header.time - first_header.time) as u64;
         let target_timespan = BLOCK_DIFFICULTY_INTERVAL as u64;
-        let timespan_highpass = cmp::max(measured_timespan, target_timespan / 4);
-        let filtered_timespan = cmp::min(timespan_highpass, target_timespan * 4);
+        if actual_timespan < (target_timespan / 4) {
+            actual_timespan = target_timespan / 4;
+        }
+        if actual_timespan > (target_timespan * 4) {
+            actual_timespan = target_timespan * 4;
+        }
 
-        assert!(timespan_highpass < u32::max_value() as u64);
-        assert!(filtered_timespan < u32::max_value() as u64);
+        let last_target = last_header.target();
+        let new_target =
+            last_target * Uint256::from_u64(actual_timespan) / Uint256::from_u64(target_timespan);
+        let target = cmp::min(new_target, max_target);
 
-        let last_target = last_header.header.target();
-        let new_target = cmp::min(
-            max_target,
-            (last_target.mul_u32(filtered_timespan as u32)) / (Uint256::from_u64(target_timespan)),
-        );
-        let new_bits = BlockHeader::compact_target_from_u256(&new_target);
-        return Ok(Some((new_bits, new_target)));
+        let bits = BlockHeader::compact_target_from_u256(&target);
+
+        Ok(Some((bits, target)))
     }
 
     /// Ask for the next batch of headers (note that this will return the maximal size of headers)
@@ -863,9 +901,8 @@ impl BitcoinMessageHandler for SpvClient {
                 self.cur_block_height += num_headers as u64;
 
                 // ask for the next batch
-                let headers_height = self.get_headers_height()?;
-                assert!(headers_height > 0, "BUG: uninitialized SPV headers DB");
-                let block_height = headers_height - 1;
+                let block_height = self.get_highest_header_height()?;
+                assert!(block_height > 0, "BUG: uninitialized SPV headers DB");
 
                 // clear timeout
                 indexer.runtime.last_getheaders_send_time = 0;
