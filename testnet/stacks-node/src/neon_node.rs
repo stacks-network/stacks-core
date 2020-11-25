@@ -203,7 +203,7 @@ fn rotate_vrf_and_register(
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
 fn inner_generate_block_commit_op(
-    input: BurnchainSigner,
+    sender: BurnchainSigner,
     block_header_hash: BlockHeaderHash,
     burn_fee: u64,
     key: &RegisteredKey,
@@ -219,7 +219,8 @@ fn inner_generate_block_commit_op(
         sunset_burn,
         block_header_hash,
         burn_fee,
-        input,
+        input: (Txid([0; 32]), 0),
+        apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
         key_vtxindex: key.op_vtxindex as u16,
         memo: vec![],
@@ -1152,9 +1153,8 @@ impl InitializedNeonNode {
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
-    ) -> (Option<BlockSnapshot>, bool) {
+    ) -> Option<BlockSnapshot> {
         let mut last_sortitioned_block = None;
-        let mut won_sortition = false;
 
         let ic = sortdb.index_conn();
 
@@ -1174,21 +1174,16 @@ impl InitializedNeonNode {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.input.to_testnet_address(),
+                    op.apparent_sender.to_testnet_address(),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
-                // Release current registered key if leader won the sortition
-                // This will trigger a new registration
-                if op.input == self.burnchain_signer {
-                    won_sortition = true;
-                }
             } else {
                 if self.is_miner {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.input.to_testnet_address(),
+                        op.apparent_sender.to_testnet_address(),
                         &op.block_header_hash
                     );
                 }
@@ -1222,7 +1217,7 @@ impl InitializedNeonNode {
         // no-op on UserBurnSupport ops are not supported / produced at this point.
         self.last_burn_block = Some(block_snapshot);
 
-        (last_sortitioned_block.map(|x| x.0), won_sortition)
+        last_sortitioned_block.map(|x| x.0)
     }
 }
 

@@ -345,7 +345,7 @@ where
 }
 
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
-pub fn query_int<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql,
@@ -377,7 +377,7 @@ where
     Ok(row_data[0])
 }
 
-pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql,
