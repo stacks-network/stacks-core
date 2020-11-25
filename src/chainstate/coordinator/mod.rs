@@ -365,6 +365,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             first_burnchain_block_hash: burnchain.first_block_hash,
             first_burnchain_block_timestamp: 0,
             get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();

@@ -546,6 +546,12 @@ pub struct VestingSchedule {
     pub block_height: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountBalance {
+    pub address: PrincipalData,
+    pub amount: u64,
+}
+
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
@@ -553,6 +559,7 @@ pub struct ChainStateBootData {
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_vesting_schedules: Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
+    pub get_bulk_initial_balances: Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -770,7 +777,7 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
-            println!("Initializing chain with {} balances", boot_data.initial_balances.len());
+            println!("Initializing chain with {} config balances", boot_data.initial_balances.len());
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::account_genesis_credit(clarity, address, *amount)
@@ -778,6 +785,22 @@ impl StacksChainState {
                 initial_liquid_ustx = initial_liquid_ustx
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
+            }
+
+            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                println!("Initializing chain with balances");
+                let initial_balances = get_balances();
+                let mut balances_count = 0;
+                for balance in initial_balances {
+                    balances_count = balances_count + 1;
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_genesis_credit(clarity, &balance.address, balance.amount)
+                    });
+                    initial_liquid_ustx = initial_liquid_ustx
+                        .checked_add(balance.amount as u128)
+                        .expect("FATAL: liquid STX overflow");
+                }
+                println!("Done initializing chain with {} balances", balances_count);
             }
 
             if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
@@ -1517,6 +1540,7 @@ pub mod test {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         StacksChainState::open_and_exec(

@@ -1255,6 +1255,7 @@ impl NeonGenesisNode {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             post_flight_callback: Some(boot_block_exec),
             get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         // do the initial open!

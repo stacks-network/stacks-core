@@ -2328,6 +2328,7 @@ pub mod test {
                 first_burnchain_block_height: first_burnchain_block_height as u32,
                 first_burnchain_block_timestamp: 0,
                 get_bulk_initial_vesting_schedules: None,
+                get_bulk_initial_balances: None,
             };
 
             let (chainstate, _) = StacksChainState::open_and_exec(
