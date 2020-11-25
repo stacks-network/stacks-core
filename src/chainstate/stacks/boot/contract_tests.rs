@@ -6,10 +6,7 @@ use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleTypeSignature, TypeSignature, Value, NONE,
-};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature, TypeSignature, Value, NONE, ResponseData};
 
 use std::convert::TryInto;
 
@@ -36,11 +33,15 @@ use core::{
     FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
+use vm::types::Value::Response;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+
+const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -55,6 +56,10 @@ lazy_static! {
     );
     static ref POX_CONTRACT: QualifiedContractIdentifier = QualifiedContractIdentifier::parse(
         &format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
+    )
+    .unwrap();
+    static ref COST_VOTING_CONTRACT: QualifiedContractIdentifier = QualifiedContractIdentifier::parse(
+        &format!("{}.cost-voting", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
     )
     .unwrap();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
@@ -844,5 +849,66 @@ fn delegation_tests() {
             .to_string(),
             "(err 9)".to_string()
         );
+    });
+}
+
+#[test]
+fn cost_voting_tests() {
+    let mut sim = ClarityTestSim::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
+            .unwrap();
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "submit-proposal",
+                &symbols_from_values(vec![
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("function-name".into()).unwrap(),
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("cost-function-name".into()).unwrap(),
+                ])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData { committed: true, data: Value::UInt(0).into() } )
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "submit-proposal",
+                &symbols_from_values(vec![
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("function-name".into()).unwrap(),
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("cost-function-name".into()).unwrap(),
+                ])
+            ).unwrap().0,
+            Value::Response(ResponseData { committed: true, data: Value::UInt(1).into() } )
+        );
+
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "vote-proposal",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(10),
+            ])).unwrap().0;
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::UInt(10));
     });
 }
