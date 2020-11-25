@@ -141,7 +141,9 @@ impl AttachmentsDownloader {
             }
 
             // Do we already have a matching validated attachment
-            if let Ok(Some(_entry)) = atlasdb.find_instanciated_attachment(&attachment_instance.content_hash) {
+            if let Ok(Some(_entry)) =
+                atlasdb.find_instanciated_attachment(&attachment_instance.content_hash)
+            {
                 atlasdb
                     .insert_new_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
@@ -153,7 +155,9 @@ impl AttachmentsDownloader {
             }
 
             // Do we already have a matching inboxed attachment
-            if let Ok(Some(attachment)) = atlasdb.find_new_attachment(&attachment_instance.content_hash) {
+            if let Ok(Some(attachment)) =
+                atlasdb.find_new_attachment(&attachment_instance.content_hash)
+            {
                 atlasdb
                     .insert_instanciated_attachment(&attachment)
                     .map_err(|e| net_error::DBError(e))?;
@@ -218,7 +222,10 @@ impl AttachmentsBatchStateContext {
         let mut queue = BinaryHeap::new();
         for (contract_id, _) in self.attachments_batch.attachments_instances.iter() {
             for (peer_url, reliability_report) in self.peers.iter() {
-                for pages in self.attachments_batch.get_paginated_missing_pages_for_contract_id(contract_id) {
+                for pages in self
+                    .attachments_batch
+                    .get_paginated_missing_pages_for_contract_id(contract_id)
+                {
                     let request = AttachmentsInventoryRequest {
                         url: peer_url.clone(),
                         reliability_report: reliability_report.clone(),
@@ -228,7 +235,7 @@ impl AttachmentsBatchStateContext {
                         consensus_hash: self.attachments_batch.consensus_hash,
                         block_header_hash: self.attachments_batch.block_header_hash,
                     };
-                    queue.push(request);    
+                    queue.push(request);
                 }
             }
         }

@@ -24,7 +24,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 
 use core::mempool::*;
-use net::atlas::{AtlasDB, Attachment, OnchainInventoryLookup, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use net::atlas::{
+    AtlasDB, Attachment, OnchainInventoryLookup, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
+};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
@@ -562,11 +564,14 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
-            let msg = format!("Number of attachment inv pages is limited by {} per request", MAX_ATTACHMENT_INV_PAGES_PER_REQUEST);
+            let msg = format!(
+                "Number of attachment inv pages is limited by {} per request",
+                MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+            );
             warn!("{}", msg);
             let response = HttpResponseType::ServerError(response_metadata, msg.clone());
             response.send(http, fd)?;
-            return Ok(()) 
+            return Ok(());
         }
 
         let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
@@ -3832,7 +3837,7 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                let pages_indexes = HashSet::from_iter(vec![1,2,3,4,5,6,7,8,9]);
+                let pages_indexes = HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
                 convo_client.new_getattachmentsinv(None, pages_indexes)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -3840,15 +3845,15 @@ mod test {
                 println!("{:?}", http_response);
                 match http_response {
                     HttpResponseType::ServerError(_, msg) => {
-                        assert_eq!(msg, "Number of attachment inv pages is limited by 8 per request");
+                        assert_eq!(
+                            msg,
+                            "Number of attachment inv pages is limited by 8 per request"
+                        );
                         true
                     }
-                    _ => {
-                        false
-                    }
+                    _ => false,
                 }
             },
         );
     }
-
 }

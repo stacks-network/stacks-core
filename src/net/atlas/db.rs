@@ -234,10 +234,7 @@ impl AtlasDB {
         Ok(res)
     }
 
-    pub fn insert_new_attachment(
-        &mut self,
-        attachment: &Attachment,
-    ) -> Result<(), db_error> {
+    pub fn insert_new_attachment(&mut self, attachment: &Attachment) -> Result<(), db_error> {
         let tx = self.tx_begin()?;
         let res = tx.execute(
             "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 0)",
@@ -260,9 +257,10 @@ impl AtlasDB {
             "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 1)",
             &[
                 &attachment.hash() as &dyn ToSql,
-                &attachment.content as &dyn ToSql
+                &attachment.content as &dyn ToSql,
             ],
-        ).map_err(db_error::SqliteError)?;
+        )
+        .map_err(db_error::SqliteError)?;
         tx.execute(
             "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
             &[&attachment.hash() as &dyn ToSql],
@@ -277,7 +275,8 @@ impl AtlasDB {
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 0".to_string();
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 0"
+            .to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
         Ok(row)
@@ -299,7 +298,8 @@ impl AtlasDB {
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 1".to_string();
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 1"
+            .to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
         Ok(row)

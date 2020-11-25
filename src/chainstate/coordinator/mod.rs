@@ -30,12 +30,14 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::{boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR},
+    boot::{
+        boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+    },
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
     },
-    events::{StacksTransactionReceipt, StacksTransactionEvent, TransactionOrigin},
+    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     TransactionPayload,
 };
@@ -633,28 +635,29 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let mut attachments_instances = HashSet::new();
                     for receipt in block_receipt.tx_receipts.iter() {
                         if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
-                            if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload
-                        {
-                            let contract_id = contract_call.to_clarity_contract_id();
-                            if self.atlas_config.contracts.contains(&contract_id) {
-                                for event in receipt.events.iter() {
-                                    if let StacksTransactionEvent::SmartContractEvent(
-                                        ref event_data,
-                                    ) = event
-                                    {
-                                        let res = AttachmentInstance::try_new_from_value(
-                                            &event_data.value,
-                                            &contract_id,
-                                            &block_receipt.header.consensus_hash,
-                                            block_receipt.header.anchored_header.block_hash(),
-                                            block_receipt.header.block_height,
-                                        );
-                                        if let Ok(attachment_instance) = res {
-                                            attachments_instances.insert(attachment_instance);
+                            if let TransactionPayload::ContractCall(ref contract_call) =
+                                transaction.payload
+                            {
+                                let contract_id = contract_call.to_clarity_contract_id();
+                                if self.atlas_config.contracts.contains(&contract_id) {
+                                    for event in receipt.events.iter() {
+                                        if let StacksTransactionEvent::SmartContractEvent(
+                                            ref event_data,
+                                        ) = event
+                                        {
+                                            let res = AttachmentInstance::try_new_from_value(
+                                                &event_data.value,
+                                                &contract_id,
+                                                &block_receipt.header.consensus_hash,
+                                                block_receipt.header.anchored_header.block_hash(),
+                                                block_receipt.header.block_height,
+                                            );
+                                            if let Ok(attachment_instance) = res {
+                                                attachments_instances.insert(attachment_instance);
+                                            }
                                         }
                                     }
                                 }
-                            }
                             }
                         }
                     }

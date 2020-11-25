@@ -173,10 +173,12 @@ impl Requestable for BlockRequestKey {
                 HttpRequestMetadata::from_host(peer_host),
                 self.index_block_hash,
             ),
-            BlockRequestKeyKind::ConfirmedMicroblockStream => HttpRequestType::GetMicroblocksConfirmed(
-                HttpRequestMetadata::from_host(peer_host),
-                self.index_block_hash,
-            ),
+            BlockRequestKeyKind::ConfirmedMicroblockStream => {
+                HttpRequestType::GetMicroblocksConfirmed(
+                    HttpRequestMetadata::from_host(peer_host),
+                    self.index_block_hash,
+                )
+            }
         }
     }
 }
@@ -1860,8 +1862,7 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority =
-                PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
+            let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {

@@ -489,7 +489,6 @@ fn test_attachments_batch_constructs() {
     );
 }
 
-
 #[test]
 fn test_attachments_batch_pages() {
     let attachment_instance_1 =
