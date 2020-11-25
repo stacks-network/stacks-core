@@ -21,6 +21,7 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::BurnchainStateTransitionOps;
@@ -302,9 +303,8 @@ impl BitcoinRegtestController {
                         .expect("BUG: no data for the canonical chain tip");
 
                     let burnchain_height = burnchain_indexer
-                        .get_headers_height()
-                        .map_err(BurnchainControllerError::IndexerError)?
-                        - 1; // 1-indexed, so convert to 0-indexed height
+                        .get_highest_header_height()
+                        .map_err(BurnchainControllerError::IndexerError)?;
 
                     break (snapshot, burnchain_height, state_transition);
                 }
@@ -468,10 +468,16 @@ impl BitcoinRegtestController {
         };
 
         let utxos = if utxos.len() == 0 {
+            let (_, network) = self.config.burnchain.get_bitcoin_network();
             loop {
-                let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
-
-                sleep_ms(1000);
+                if let BitcoinNetworkType::Regtest = network {
+                    // Performing this operation on Mainnet / Testnet is very expensive, and can be longer than bitcoin block time.
+                    // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
+                    // reasonable to me.
+                    // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
+                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+                    sleep_ms(1000);
+                }
 
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
