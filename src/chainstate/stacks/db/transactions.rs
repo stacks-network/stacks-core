@@ -7090,7 +7090,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate_with_balances(
             false,
             0x80000000,
-            "process-poison-microblock",
+            "process-poison-microblock-invalid-transaction",
             balances,
         );
 
@@ -7171,7 +7171,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate_with_balances(
             false,
             0x80000000,
-            "process-poison-microblock",
+            "process-poison-microblock-multiple-same-block",
             balances,
         );
 

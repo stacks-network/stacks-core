@@ -7306,7 +7306,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), initial_balance));
         }
 
-        let mut peer_config = TestPeerConfig::new("test_build_microblock_stream", 2014, 2015);
+        let mut peer_config = TestPeerConfig::new("test_build_microblock_stream_forks", 2014, 2015);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -7604,7 +7604,11 @@ pub mod test {
             balances.push((addr.to_account_principal(), initial_balance));
         }
 
-        let mut peer_config = TestPeerConfig::new("test_build_microblock_stream", 2014, 2015);
+        let mut peer_config = TestPeerConfig::new(
+            "test_build_microblock_stream_forks_with_descendants",
+            2014,
+            2015,
+        );
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
