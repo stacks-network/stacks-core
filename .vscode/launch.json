@@ -76,7 +76,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "executable 'stacks-node'",
+            "name": "executable 'stacks-node' -- mocknet",
             "cargo": {
                 "args": [
                     "build",
@@ -89,24 +89,6 @@
                 }
             },
             "args": ["mocknet"],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "executable 'stacks-node' -- testnet",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=stacks-node",
-                    "--package=stacks-node"
-                ],
-                "filter": {
-                    "name": "stacks-node",
-                    "kind": "bin"
-                }
-            },
-            "args": ["testnet"],
             "cwd": "${workspaceFolder}"
         },
         {

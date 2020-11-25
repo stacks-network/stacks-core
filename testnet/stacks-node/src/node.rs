@@ -1,5 +1,5 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use crate::run_loop::RegisteredKey;
+use crate::{run_loop::RegisteredKey, genesis};
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
@@ -158,19 +158,13 @@ impl Node {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let initial_vesting_schedules = config
-            .initial_vesting_schedules
-            .iter()
-            .map(|e| (e.address.clone(), e.amount, e.block_height))
-            .collect();
-
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            initial_vesting_schedules,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
+            get_bulk_initial_vesting_schedules: Some(Box::new(|| &genesis::EMBEDDED_GENESIS_DATA.vesting_schedules)),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(

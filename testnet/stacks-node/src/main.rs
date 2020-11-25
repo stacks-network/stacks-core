@@ -42,7 +42,6 @@ pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-pub use self::genesis::GenesisData;
 
 
 use pico_args::Arguments;
@@ -189,7 +188,7 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\tExample:
 \t\t  stacks-node start --config=/path/to/config.toml
 
-version\t\tDisplay informations about the current version and our release cycle.
+version\t\tDisplay information about the current version and our release cycle.
 
 help\t\tDisplay this help.
 
