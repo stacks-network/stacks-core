@@ -8687,8 +8687,11 @@ pub mod test {
     fn stacks_db_staging_microblocks_multiple_forks() {
         // multiple anchored blocks build off of a microblock stream that gets forked multiple
         // times
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblocks_multiple_fork");
+        let mut chainstate = instantiate_chainstate(
+            false,
+            0x80000000,
+            "stacks_db_staging_microblocks_multiple_fork",
+        );
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
