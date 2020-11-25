@@ -4066,7 +4066,9 @@ impl PeerNetwork {
         }
 
         if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, tx) {
-            info!("Reject transaction {}: {:?}", txid, &e);
+            info!("Reject transaction {}: {:?}", txid, &e;
+                  "txid" => %txid
+            );
             return false;
         }
 

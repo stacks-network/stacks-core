@@ -679,7 +679,9 @@ impl StacksChainState {
                     "Invalid Stacks transaction: microblock public key hash {} never seen in this fork",
                     &pubkh
                 );
-                warn!("{}", &msg);
+                warn!("{}", &msg;
+                      "microblock_pubkey_hash" => %pubkh
+                );
 
                 return Err(Error::InvalidStacksTransaction(msg, false));
             }
@@ -690,7 +692,9 @@ impl StacksChainState {
                     < current_height
                 {
                     let msg = format!("Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}", height, current_height);
-                    warn!("{}", &msg);
+                    warn!("{}", &msg;
+                          "microblock_pubkey_hash" => %pubkh
+                    );
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
@@ -715,7 +719,10 @@ impl StacksChainState {
             if mblock_header_1.sequence < seq {
                 // this sender reports a point lower in the stream where a fork occurred, and is now
                 // entitled to a commission of the punished miner's coinbase
-                debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq);
+                debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq;
+                    "sender" => %sender_principal,
+                    "microblock_pubkey_hash" => %pubkh
+                );
                 env.global_context.database.insert_microblock_poison(
                     mblock_pubk_height,
                     &sender_principal,
@@ -724,14 +731,19 @@ impl StacksChainState {
                 (sender_principal.clone(), mblock_header_1.sequence)
             } else {
                 // someone else beat the sender to this report
-                debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq);
+                debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq;
+                    "sender" => %sender_principal,
+                    "microblock_pubkey_hash" => %pubkh
+                );
                 (reporter, seq)
             }
         } else {
             // first-ever report of a fork
             debug!(
                 "Sender {} reports a poison-microblock record at seq {} for key {} at height {}",
-                &sender_principal, mblock_header_1.sequence, &pubkh, &mblock_pubk_height
+                &sender_principal, mblock_header_1.sequence, &pubkh, &mblock_pubk_height;
+                "sender" => %sender_principal,
+                "microblock_pubkey_hash" => %pubkh
             );
             env.global_context.database.insert_microblock_poison(
                 mblock_pubk_height,
