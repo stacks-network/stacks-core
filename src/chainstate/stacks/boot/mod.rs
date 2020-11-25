@@ -3284,7 +3284,10 @@ pub mod test {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.pox_rejection_fraction = 25;
+        // used to be set to 25, but test at 15 here, because the increased coinbase
+        //   and, to a lesser extent, the initial block bonus altered the relative fraction
+        //   owned by charlie.
+        burnchain.pox_constants.pox_rejection_fraction = 15;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-reject", 6024);
 
