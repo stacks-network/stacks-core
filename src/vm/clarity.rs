@@ -35,6 +35,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MarfTrieId, TrieHash};
+use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
@@ -140,6 +141,17 @@ impl From<ParseError> for Error {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),
+        }
+    }
+}
+
+impl From<ChainstateError> for Error {
+    fn from(e: ChainstateError) -> Self {
+        match e {
+            ChainstateError::InvalidStacksTransaction(msg, _) => Error::BadTransaction(msg),
+            ChainstateError::CostOverflowError(_, after, budget) => Error::CostError(after, budget),
+            ChainstateError::ClarityError(x) => x,
+            x => Error::BadTransaction(format!("{:?}", &x)),
         }
     }
 }
