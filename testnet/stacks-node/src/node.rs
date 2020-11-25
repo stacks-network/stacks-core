@@ -1,5 +1,5 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use crate::{run_loop::RegisteredKey, genesis};
+use crate::{genesis::{self, EmbeddedGenesisData}, run_loop::RegisteredKey};
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
@@ -164,7 +164,7 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_vesting_schedules: Some(Box::new(|| &genesis::EMBEDDED_GENESIS_DATA.vesting_schedules)),
+            get_bulk_initial_vesting_schedules: Some(Box::new(|| EmbeddedGenesisData::parse_vesting_schedules())),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(

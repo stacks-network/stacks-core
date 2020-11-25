@@ -552,7 +552,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-    pub get_bulk_initial_vesting_schedules: Option<Box<dyn FnOnce() -> &'static Vec<VestingSchedule>>>,
+    pub get_bulk_initial_vesting_schedules: Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
 }
 
 impl ChainStateBootData {
