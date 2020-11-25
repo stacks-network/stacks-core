@@ -39,15 +39,19 @@ use chainstate::burn::db::sortdb::*;
 
 use net::Error as net_error;
 
-use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use vm::types::{
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
+};
 
-use vm::contexts::{AssetMap, AssetMapEntry};
+use vm::contexts::{AssetMap, AssetMapEntry, Environment};
 
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
-use vm::costs::ExecutionCost;
 
-use vm::types::{AssetIdentifier, Value};
+use vm::costs::cost_functions;
+use vm::costs::CostTracker;
+use vm::costs::ExecutionCost;
 
 use vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
@@ -62,6 +66,9 @@ use vm::clarity::Error as clarity_error;
 use vm::database::ClarityDatabase;
 
 use vm::contracts::Contract;
+
+use vm::representations::ClarityName;
+use vm::representations::ContractName;
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {
@@ -577,6 +584,188 @@ impl StacksChainState {
             }
         }
         return true;
+    }
+
+    /// Given two microblock headers, were they signed by the same key?
+    /// Return the pubkey hash if so; return Err otherwise
+    fn check_microblock_header_signer(
+        mblock_hdr_1: &StacksMicroblockHeader,
+        mblock_hdr_2: &StacksMicroblockHeader,
+    ) -> Result<Hash160, Error> {
+        let pkh1 = mblock_hdr_1.check_recover_pubkey().map_err(|e| {
+            Error::InvalidStacksTransaction(
+                format!("Failed to recover public key: {:?}", &e),
+                false,
+            )
+        })?;
+
+        let pkh2 = mblock_hdr_2.check_recover_pubkey().map_err(|e| {
+            Error::InvalidStacksTransaction(
+                format!("Failed to recover public key: {:?}", &e),
+                false,
+            )
+        })?;
+
+        if pkh1 != pkh2 {
+            let msg = format!(
+                "Invalid PoisonMicroblock transaction -- signature pubkey hash {} != {}",
+                &pkh1, &pkh2
+            );
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+        Ok(pkh1)
+    }
+
+    /// Process a poison-microblock transaction within a Clarity environment.
+    /// The code in vm::contexts will call this, via a similarly-named method.
+    /// Returns a Value that represents the miner slashed:
+    /// * contains the block height of the block with the slashed microblock public key hash
+    /// * contains the microblock public key hash
+    /// * contains the sender that reported the poison-microblock
+    /// * contains the sequence number at which the fork occured
+    pub fn handle_poison_microblock(
+        env: &mut Environment,
+        mblock_header_1: &StacksMicroblockHeader,
+        mblock_header_2: &StacksMicroblockHeader,
+    ) -> Result<Value, Error> {
+        let cost_before = env.global_context.cost_track.get_total();
+
+        // encodes MARF reads for loading microblock height and current height, and loading and storing a
+        // poison-microblock report
+        runtime_cost!(cost_functions::POISON_MICROBLOCK, env, 0)
+            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
+
+        let sender_principal = match &env.sender {
+            Some(ref sender) => {
+                let sender_principal = sender.clone().expect_principal();
+                if let PrincipalData::Standard(sender_principal) = sender_principal {
+                    sender_principal
+                } else {
+                    panic!(
+                        "BUG: tried to handle poison microblock without a standard principal sender"
+                    );
+                }
+            }
+            None => {
+                panic!("BUG: tried to handle poison microblock without a sender");
+            }
+        };
+
+        // is this valid -- were both headers signed by the same key?
+        let pubkh =
+            StacksChainState::check_microblock_header_signer(mblock_header_1, mblock_header_2)?;
+
+        let microblock_height_opt = env
+            .global_context
+            .database
+            .get_microblock_pubkey_hash_height(&pubkh);
+        let current_height = env.global_context.database.get_current_block_height();
+
+        // for the microblock public key hash we had to process
+        env.add_memory(20)
+            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
+
+        // for the block height we had to load
+        env.add_memory(4)
+            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
+
+        // was the referenced public key hash used anytime in the past
+        // MINER_REWARD_MATURITY blocks?
+        let mblock_pubk_height = match microblock_height_opt {
+            None => {
+                // public key has never been seen before
+                let msg = format!(
+                    "Invalid Stacks transaction: microblock public key hash {} never seen in this fork",
+                    &pubkh
+                );
+                warn!("{}", &msg);
+
+                return Err(Error::InvalidStacksTransaction(msg, false));
+            }
+            Some(height) => {
+                if height
+                    .checked_add(MINER_REWARD_MATURITY as u32)
+                    .expect("BUG: too many blocks")
+                    < current_height
+                {
+                    let msg = format!("Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}", height, current_height);
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg, false));
+                }
+                height
+            }
+        };
+
+        // add punishment / commission record, if one does not already exist at lower sequence
+        let (reporter_principal, reported_seq) = if let Some((reporter, seq)) = env
+            .global_context
+            .database
+            .get_microblock_poison_report(mblock_pubk_height)
+        {
+            // account for report loaded
+            env.add_memory(TypeSignature::PrincipalType.size() as u64)
+                .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
+
+            // u128 sequence
+            env.add_memory(16)
+                .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
+
+            if mblock_header_1.sequence < seq {
+                // this sender reports a point lower in the stream where a fork occurred, and is now
+                // entitled to a commission of the punished miner's coinbase
+                debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq);
+                env.global_context.database.insert_microblock_poison(
+                    mblock_pubk_height,
+                    &sender_principal,
+                    mblock_header_1.sequence,
+                )?;
+                (sender_principal.clone(), mblock_header_1.sequence)
+            } else {
+                // someone else beat the sender to this report
+                debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq);
+                (reporter, seq)
+            }
+        } else {
+            // first-ever report of a fork
+            debug!(
+                "Sender {} reports a poison-microblock record at seq {} for key {} at height {}",
+                &sender_principal, mblock_header_1.sequence, &pubkh, &mblock_pubk_height
+            );
+            env.global_context.database.insert_microblock_poison(
+                mblock_pubk_height,
+                &sender_principal,
+                mblock_header_1.sequence,
+            )?;
+            (sender_principal.clone(), mblock_header_1.sequence)
+        };
+
+        let hash_data = BuffData {
+            data: pubkh.as_bytes().to_vec(),
+        };
+        let tuple_data = TupleData::from_data(vec![
+            (
+                ClarityName::try_from("block_height").expect("BUG: valid string representation"),
+                Value::UInt(mblock_pubk_height as u128),
+            ),
+            (
+                ClarityName::try_from("microblock_pubkey_hash")
+                    .expect("BUG: valid string representation"),
+                Value::Sequence(SequenceData::Buffer(hash_data)),
+            ),
+            (
+                ClarityName::try_from("reporter").expect("BUG: valid string representation"),
+                Value::Principal(PrincipalData::Standard(reporter_principal)),
+            ),
+            (
+                ClarityName::try_from("sequence").expect("BUG: valid string representation"),
+                Value::UInt(reported_seq as u128),
+            ),
+        ])
+        .expect("BUG: valid tuple representation");
+
+        Ok(Value::Tuple(tuple_data))
     }
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
@@ -6948,10 +7137,8 @@ pub mod test {
         let err =
             StacksChainState::process_transaction(&mut conn, &signed_tx_poison_microblock, false)
                 .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Interpreter(
-            ::vm::errors::InterpreterError::InvalidPoisonMicroblockTransaction(_),
-        ))) = err
-        {
+        if let Error::ClarityError(clarity_error::BadTransaction(msg)) = err {
+            assert!(msg.find("never seen in this fork").is_some());
         } else {
             assert!(false);
         }

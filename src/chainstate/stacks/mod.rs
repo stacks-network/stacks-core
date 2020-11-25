@@ -67,8 +67,11 @@ use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalDat
 use vm::errors::Error as clarity_interpreter_error;
 
 use vm::clarity::Error as clarity_error;
+use vm::costs::CostErrors;
 use vm::costs::ExecutionCost;
 use vm::representations::{ClarityName, ContractName};
+
+use vm::contexts::GlobalContext;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -315,6 +318,30 @@ impl From<db_error> for Error {
 impl From<clarity_interpreter_error> for Error {
     fn from(e: clarity_interpreter_error) -> Error {
         Error::ClarityError(clarity_error::Interpreter(e))
+    }
+}
+
+impl Error {
+    pub fn from_cost_error(
+        err: CostErrors,
+        cost_before: ExecutionCost,
+        context: &GlobalContext,
+    ) -> Error {
+        match err {
+            CostErrors::CostOverflow => {
+                let cur_cost = context.cost_track.get_total();
+                let budget = context.cost_track.get_limit();
+                Error::CostOverflowError(cost_before, cur_cost, budget)
+            }
+            CostErrors::CostBalanceExceeded(used, budget) => {
+                Error::CostOverflowError(cost_before, used, budget)
+            }
+            CostErrors::MemoryBalanceExceeded(_, _) => {
+                let cur_cost = context.cost_track.get_total();
+                let budget = context.cost_track.get_limit();
+                Error::CostOverflowError(cost_before, cur_cost, budget)
+            }
+        }
     }
 }
 

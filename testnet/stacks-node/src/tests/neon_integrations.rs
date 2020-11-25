@@ -35,7 +35,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let keychain = Keychain::default(conf.node.seed.clone());
 
     conf.node.miner = true;
-    conf.node.wait_time_for_microblocks = 6000;
+    conf.node.wait_time_for_microblocks = 500;
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.mode = "neon".into();
@@ -280,6 +280,7 @@ fn microblock_integration_test() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
+    conf.node.wait_time_for_microblocks = 500;
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -679,6 +680,7 @@ fn size_check_integration_test() {
         .collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
+    conf.node.wait_time_for_microblocks = 500;
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {

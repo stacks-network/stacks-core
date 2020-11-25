@@ -26,7 +26,6 @@ use vm::costs::{cost_functions, CostErrors, CostTracker, ExecutionCost, LimitedC
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::functions::handle_contract_call_special_cases;
-use vm::functions::handle_poison_microblock;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
@@ -37,7 +36,9 @@ use vm::types::{
 use vm::{eval, is_reserved};
 
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
+use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
+use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
@@ -456,13 +457,14 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    pub fn execute_in_env<F, A>(
+    pub fn execute_in_env<F, A, E>(
         &mut self,
         sender: Value,
         f: F,
-    ) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
+    ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        F: FnOnce(&mut Environment) -> Result<A>,
+        E: From<::vm::errors::Error>,
+        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
@@ -541,7 +543,7 @@ impl<'a> OwnedEnvironment<'a> {
         sender: &PrincipalData,
         mblock_hdr_1: &StacksMicroblockHeader,
         mblock_hdr_2: &StacksMicroblockHeader,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
         self.execute_in_env(Value::Principal(sender.clone()), |exec_env| {
             exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
         })
@@ -549,7 +551,7 @@ impl<'a> OwnedEnvironment<'a> {
 
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env(recipient.clone().into(), |env| {
+        self.execute_in_env::<_, _, ()>(recipient.clone().into(), |env| {
             let mut snapshot = env
                 .global_context
                 .database
@@ -975,9 +977,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         mblock_header_1: &StacksMicroblockHeader,
         mblock_header_2: &StacksMicroblockHeader,
-    ) -> Result<Value> {
+    ) -> std::result::Result<Value, ChainstateError> {
         self.global_context.begin();
-        let result = handle_poison_microblock(self, mblock_header_1, mblock_header_2);
+        let result =
+            StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
         match result {
             Ok(ret) => {
                 self.global_context.commit()?;

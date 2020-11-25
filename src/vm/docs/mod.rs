@@ -1773,7 +1773,7 @@ mod test {
             let docs_principal_id = PrincipalData::Contract(docs_test_id);
             let mut env = OwnedEnvironment::new(conn);
             let balance = STXBalance::initial(1000);
-            env.execute_in_env(
+            env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
                 |e| {
                     let mut snapshot = e

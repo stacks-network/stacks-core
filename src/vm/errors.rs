@@ -60,7 +60,6 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
-    InvalidPoisonMicroblockTransaction(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
@@ -200,6 +199,11 @@ impl From<InterpreterError> for Error {
     fn from(err: InterpreterError) -> Self {
         Error::Interpreter(err)
     }
+}
+
+#[cfg(test)]
+impl From<Error> for () {
+    fn from(err: Error) -> Self {}
 }
 
 impl Into<Value> for ShortReturnType {

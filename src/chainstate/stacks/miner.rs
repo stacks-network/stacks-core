@@ -8034,8 +8034,6 @@ pub mod test {
         }
     }
 
-    //
-
     // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
     // within the same fork)
     // TODO: (BLOCKED) build off of different points in the same microblock stream

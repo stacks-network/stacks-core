@@ -512,6 +512,10 @@ fn spawn_peer(
             // Fortunately, microblock-mining isn't a very CPU or I/O-intensive process, and the
             // node operator can bound how expensive each microblock can be in order to limit the
             // amount of time the microblock miner spends mining.
+            //
+            // Once the Clarity DB has been refactored to be safe to write to by multiple threads
+            // concurrently, then microblock mining can be moved to the relayer thread (where it
+            // really ought to occur, since microblock mining can be both CPU- and I/O-intensive).
             let next_microblock = match try_mine_microblock(
                 &config,
                 &mut microblock_miner_state,

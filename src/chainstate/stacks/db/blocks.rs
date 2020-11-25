@@ -990,9 +990,7 @@ impl StacksChainState {
     ) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
         let args: &[&dyn ToSql] = &[&index_block_hash];
-        let mut rows =
-            query_rows::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)?;
-        Ok(rows.pop())
+        query_row::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)
     }
 
     #[cfg(test)]
@@ -1082,7 +1080,7 @@ impl StacksChainState {
                         return Ok(None);
                     }
                 };
-                header.microblock_pubkey_hash.clone()
+                header.microblock_pubkey_hash
             }
         };
         Ok(Some(pubkey_hash))
@@ -1097,12 +1095,9 @@ impl StacksChainState {
         parent_index_block_hash: &StacksBlockId,
         microblock_hash: &BlockHeaderHash,
     ) -> Result<Option<StagingMicroblock>, Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 AND orphaned = 0 LIMIT 1".to_string();
+        let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 AND orphaned = 0 LIMIT 1";
         let args: &[&dyn ToSql] = &[&parent_index_block_hash, &microblock_hash];
-        let mut rows =
-            query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
-
-        Ok(rows.pop())
+        query_row::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
     /// Load up a preprocessed microblock's staging info (processed or not), via its index
@@ -1113,12 +1108,9 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         index_microblock_hash: &StacksBlockId,
     ) -> Result<Option<StagingMicroblock>, Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE index_microblock_hash = ?1 AND orphaned = 0 LIMIT 1".to_string();
+        let sql = "SELECT * FROM staging_microblocks WHERE index_microblock_hash = ?1 AND orphaned = 0 LIMIT 1";
         let args: &[&dyn ToSql] = &[&index_microblock_hash];
-        let mut rows =
-            query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
-
-        Ok(rows.pop())
+        query_row::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
     /// Load up a preprocessed microblock (processed or not)
@@ -1208,10 +1200,7 @@ impl StacksChainState {
                 last_seq.saturating_sub(1)
             );
 
-            if last_seq < u16::MAX
-                && microblock.header.sequence < u16::MAX
-                && microblock.header.sequence > 0
-            {
+            if last_seq < u16::MAX && microblock.header.sequence < u16::MAX {
                 // should always decrease by 1
                 assert_eq!(
                     microblock.header.sequence + 1,
@@ -4278,8 +4267,8 @@ impl StacksChainState {
     /// The header info will be pulled from the headers DB, so this method only succeeds if the
     /// parent block has been processed.
     /// If it's not known, return None.
-    fn get_parent_header_info<'a>(
-        chainstate_tx: &mut ChainstateTx<'a>,
+    fn get_parent_header_info(
+        chainstate_tx: &mut ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(
