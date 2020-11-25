@@ -140,8 +140,8 @@ pub struct BlockSnapshot {
     pub sortition_id: SortitionId,
     pub pox_valid: bool,
     /// the amount of accumulated coinbase ustx that
-    ///   will accrue to the first sortition winner elected _after_
-    ///   this block.
+    ///   will accrue to the sortition winner elected by this block
+    ///   or to the next winner if there is no winner in this block
     pub accumulated_coinbase_ustx: u128,
 }
 
@@ -493,7 +493,14 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &prev_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();

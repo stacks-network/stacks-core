@@ -1498,6 +1498,7 @@ mod tests {
                         &block_ops[i],
                         None,
                         None,
+                        None,
                     )
                     .unwrap();
 

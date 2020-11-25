@@ -637,6 +637,7 @@ mod tests {
                         &block_ops[i as usize],
                         None,
                         None,
+                        None,
                     )
                     .unwrap();
                 snapshot_row.index_root = tip_index_root;

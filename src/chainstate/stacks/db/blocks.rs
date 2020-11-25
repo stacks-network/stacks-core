@@ -4194,16 +4194,14 @@ impl StacksChainState {
             // good to go!
             clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
 
-            // figure out if there any accumulated rewards
-            //   getting the snapshot that preceded the snapshot that elected this block.
-            let sortition_tip = burn_dbconn.context.chain_tip.clone();
-            let accumulated_rewards = if let Some(parent_snapshot) =
-                burn_dbconn.get_block_snapshot(&parent_burn_hash, &sortition_tip)?
-            {
-                parent_snapshot.accumulated_coinbase_ustx
-            } else {
-                0
-            };
+            // figure out if there any accumulated rewards by
+            //   getting the snapshot that elected this block.
+            let accumulated_rewards = SortitionDB::get_block_snapshot_consensus(
+                burn_dbconn.tx(),
+                chain_tip_consensus_hash,
+            )?
+            .expect("CORRUPTION: failed to load snapshot that elected processed block")
+            .accumulated_coinbase_ustx;
 
             let coinbase_at_block = StacksChainState::get_coinbase_reward(
                 chain_tip_burn_header_height as u64,

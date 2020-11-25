@@ -642,6 +642,7 @@ pub mod tests {
                         &block_ops[i as usize],
                         None,
                         None,
+                        None,
                     )
                     .unwrap();
                 snapshot_row.index_root = next_tip_root;

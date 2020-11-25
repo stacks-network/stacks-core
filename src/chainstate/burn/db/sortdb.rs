@@ -358,6 +358,11 @@ struct AcceptedStacksBlockHeader {
     pub height: u64,                       // stacks block height
 }
 
+pub struct InitialMiningBonus {
+    pub total_reward: u128,
+    pub per_block: u128,
+}
+
 impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<AcceptedStacksBlockHeader, db_error> {
         let tip_consensus_hash = ConsensusHash::from_column(row, "tip_consensus_hash")?;
@@ -2053,7 +2058,7 @@ impl SortitionDB {
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
         let index_root =
-            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None)?;
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot)?;
@@ -2459,15 +2464,12 @@ impl SortitionDB {
         };
 
         // Get any initial mining bonus which would be due to the winner of this block.
-        let bonus_remaining = sortition_db_handle
-            .get_indexed(&parent_sort_id, db_keys::initial_mining_bonus_remaining())?
-            .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB"))
-            .unwrap_or(0);
+        let bonus_remaining =
+            sortition_db_handle.get_initial_mining_bonus_remaining(&parent_sort_id)?;
 
         let initial_mining_bonus = if bonus_remaining > 0 {
             let mining_bonus_per_block = sortition_db_handle
-                .get_indexed(&parent_sort_id, db_keys::initial_mining_bonus_per_block())?
-                .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB"))
+                .get_initial_mining_bonus_per_block(&parent_sort_id)?
                 .expect("BUG: initial mining bonus amount written, but not the per block amount.");
             cmp::min(bonus_remaining, mining_bonus_per_block)
         } else {
@@ -3062,6 +3064,8 @@ impl SortitionDB {
 impl<'a> SortitionHandleTx<'a> {
     /// Append a snapshot to a chain tip, and update various chain tip statistics.
     /// Returns the new state root of this fork.
+    /// `initialize_bonus` - if Some(..), then this snapshot is the first mined snapshot,
+    ///    and this method should initialize the `initial_mining_bonus` fields in the sortition db.
     pub fn append_chain_tip_snapshot(
         &mut self,
         parent_snapshot: &BlockSnapshot,
@@ -3069,6 +3073,7 @@ impl<'a> SortitionHandleTx<'a> {
         block_ops: &Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
         reward_info: Option<&RewardSetInfo>,
+        initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         assert_eq!(
             snapshot.parent_burn_header_hash,
@@ -3088,6 +3093,7 @@ impl<'a> SortitionHandleTx<'a> {
             block_ops,
             next_pox_info,
             reward_info,
+            initialize_bonus,
         )?;
 
         let mut sn = snapshot.clone();
@@ -3105,6 +3111,24 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         Ok(root_hash)
+    }
+
+    fn get_initial_mining_bonus_remaining(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<u128, db_error> {
+        self.get_indexed(&chain_tip, db_keys::initial_mining_bonus_remaining())?
+            .map(|s| Ok(s.parse().expect("BUG: bad mining bonus stored in DB")))
+            .unwrap_or(Ok(0))
+    }
+
+    fn get_initial_mining_bonus_per_block(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<Option<u128>, db_error> {
+        Ok(self
+            .get_indexed(&chain_tip, db_keys::initial_mining_bonus_per_block())?
+            .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
     }
 
     fn store_transition_ops(
@@ -3377,6 +3401,7 @@ impl<'a> SortitionHandleTx<'a> {
         block_ops: &Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
+        initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(
@@ -3411,31 +3436,30 @@ impl<'a> SortitionHandleTx<'a> {
                 &snapshot.winning_stacks_block_hash,
             ));
             values.push(snapshot.sortition_id.to_hex());
+        }
 
-            // is this the first ever snapshot with a sortition winner? if so, compute
-            //   and store the initial mining bonuses
-            if parent_snapshot.total_burn == 0 {
-                let blocks_without_winners =
-                    snapshot.block_height - self.context.first_block_height;
-                let mut total_initial_mining_reward = 0;
-                for burn_block_height in self.context.first_block_height..snapshot.block_height {
-                    total_initial_mining_reward += StacksChainState::get_coinbase_reward(
-                        burn_block_height,
-                        self.context.first_block_height,
+        if let Some(initialize_bonus) = initialize_bonus {
+            // first sortition with a winner, set the initial mining bonus fields
+            keys.push(db_keys::initial_mining_bonus_per_block().into());
+            values.push(initialize_bonus.per_block.to_string());
+
+            let total_reward_remaining = initialize_bonus.total_reward - initialize_bonus.per_block;
+            keys.push(db_keys::initial_mining_bonus_remaining().into());
+            values.push(total_reward_remaining.to_string());
+        } else if parent_snapshot.total_burn > 0 {
+            // mining has started, check if there's still any remaining bonus that this
+            //  block consumed, and then decrement
+            let prior_bonus_remaining =
+                self.get_initial_mining_bonus_remaining(&parent_snapshot.sortition_id)?;
+            if prior_bonus_remaining > 0 {
+                let mining_bonus_per_block = self
+                    .get_initial_mining_bonus_per_block(&parent_snapshot.sortition_id)?
+                    .expect(
+                        "BUG: initial mining bonus amount written, but not the per block amount.",
                     );
-                }
-                let per_block_reward =
-                    total_initial_mining_reward / INITIAL_MINING_BONUS_WINDOW as u128;
-
-                info!("First sortition winner chosen";
-                      "blocks_without_winners" => %blocks_without_winners,
-                      "initial_mining_per_block_reward" => %per_block_reward,
-                      "initial_mining_bonus_block_window" => %INITIAL_MINING_BONUS_WINDOW);
-                keys.push(db_keys::initial_mining_bonus_per_block().into());
-                values.push(per_block_reward.to_string());
-
+                let bonus_remaining = prior_bonus_remaining.saturating_sub(mining_bonus_per_block);
                 keys.push(db_keys::initial_mining_bonus_remaining().into());
-                values.push(total_initial_mining_reward.to_string());
+                values.push(bonus_remaining.to_string());
             }
         }
 
@@ -3742,7 +3766,7 @@ mod tests {
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
         let index_root = tx
-            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None, None)
+            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None, None, None)
             .unwrap();
         sn.index_root = index_root;
 
@@ -4029,7 +4053,7 @@ mod tests {
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
             let index_root = tx
-                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None, None)
+                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None, None, None)
                 .unwrap();
             sn.index_root = index_root;
 
@@ -4360,7 +4384,14 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -4600,7 +4631,14 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -4928,6 +4966,7 @@ mod tests {
                 &vec![],
                 None,
                 None,
+                None,
             )
             .unwrap();
             tx.commit().unwrap();
@@ -4949,8 +4988,15 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], None, None)
-                .unwrap();
+            tx.append_chain_tip_snapshot(
+                &chain_tip,
+                &snapshot_with_sortition,
+                &vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
             tx.commit().unwrap();
         }
 
@@ -5136,7 +5182,7 @@ mod tests {
             ]);
 
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None, None)
                 .unwrap();
             tx.commit().unwrap();
 
@@ -5272,7 +5318,14 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &next_snapshot,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 tx.commit().unwrap();
 
@@ -5356,6 +5409,7 @@ mod tests {
                             &vec![],
                             None,
                             None,
+                            None,
                         )
                         .unwrap();
                     tx.commit().unwrap();
@@ -5388,7 +5442,14 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &next_snapshot,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 tx.commit().unwrap();
                 next_index_root
@@ -5579,7 +5640,14 @@ mod tests {
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -5817,7 +5885,7 @@ mod tests {
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None, None, None)
                     .unwrap();
                 tx.commit().unwrap();
             }
