@@ -330,13 +330,13 @@ impl SpvClient {
         return Ok(());
     }
 
-    /// Report how many block headers we have downloaded to the given path.
+    /// Report how many block headers (+ 1) we have downloaded to the given path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
         let max = self.get_highest_header_height()?;
         Ok(max + 1)
     }
 
-    /// Report how many block headers we have downloaded to the given path.
+    /// Report the highest heigth of the last header we got
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
