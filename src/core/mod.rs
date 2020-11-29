@@ -42,6 +42,9 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)
+#[cfg(test)]
+pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
+#[cfg(not(test))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 // first burnchain block hash

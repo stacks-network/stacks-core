@@ -3284,10 +3284,10 @@ pub mod test {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
-        // used to be set to 25, but test at 15 here, because the increased coinbase
+        // used to be set to 25, but test at 5 here, because the increased coinbase
         //   and, to a lesser extent, the initial block bonus altered the relative fraction
         //   owned by charlie.
-        burnchain.pox_constants.pox_rejection_fraction = 15;
+        burnchain.pox_constants.pox_rejection_fraction = 5;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-reject", 6024);
 
@@ -3499,8 +3499,11 @@ pub mod test {
                     eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                     if cur_reward_cycle == alice_reward_cycle {
-                        // charlie rejected in this cycle, so no reward address
-                        assert_eq!(reward_addrs.len(), 0);
+                        assert_eq!(
+                            reward_addrs.len(),
+                            0,
+                            "charlie rejected in this cycle, so no reward address"
+                        );
                     } else {
                         // charlie didn't reject this cycle, so Alice's reward address should be
                         // present

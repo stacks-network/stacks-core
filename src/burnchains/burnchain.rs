@@ -2165,7 +2165,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
 
             let mut block_124_snapshot = BlockSnapshot {
-                accumulated_coinbase_ustx: 400_000,
+                accumulated_coinbase_ustx: 400_000_000,
                 pox_valid: true,
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
