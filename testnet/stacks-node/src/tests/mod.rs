@@ -2,6 +2,7 @@ mod bitcoin_regtest;
 mod integrations;
 mod mempool;
 mod neon_integrations;
+mod atlas;
 
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::ConsensusHash;

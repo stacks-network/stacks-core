@@ -1085,7 +1085,7 @@ pub struct PostTransactionRequestBody {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetAttachmentResponse {
-    attachment: Attachment,
+    pub attachment: Attachment,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
