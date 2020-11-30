@@ -1,7 +1,4 @@
-use crate::{
-    neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode, genesis
-};
+use crate::{BitcoinRegtestController, BurnchainController, Config, genesis::EmbeddedGenesisData, EventDispatcher, Keychain, NeonGenesisNode, genesis, neon_node};
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -213,7 +210,7 @@ impl RunLoop {
                 first_burnchain_block_hash,
                 first_burnchain_block_height,
                 first_burnchain_block_timestamp,
-                get_bulk_initial_vesting_schedules: Some(Box::new(|| &genesis::EMBEDDED_GENESIS_DATA.vesting_schedules))
+                get_bulk_initial_vesting_schedules: Some(Box::new(|| EmbeddedGenesisData::parse_vesting_schedules())),
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
