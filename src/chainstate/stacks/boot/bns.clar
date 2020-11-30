@@ -63,7 +63,7 @@
 
 ;;;; Data
 (define-map namespaces
-  ((namespace (buff 19)))
+  ((namespace (buff 20)))
   ((namespace-import principal)
    (revealed-at uint)
    (launched-at (optional uint))
@@ -80,13 +80,13 @@
   ((hashed-salted-namespace (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
-(define-non-fungible-token names (tuple (name (buff 16)) (namespace (buff 19))))
+(define-non-fungible-token names (tuple (name (buff 32)) (namespace (buff 20))))
 
 ;; Rule 1-1 -> 1 principal, 1 name
-(define-map rule-1-1 ((owner principal)) ((name (buff 16)) (namespace (buff 19))))
+(define-map rule-1-1 ((owner principal)) ((name (buff 32)) (namespace (buff 20))))
 
 (define-map name-properties
-  ((name (buff 16)) (namespace (buff 19)))
+  ((name (buff 32)) (namespace (buff 20)))
   ((registered-at (optional uint))
    (imported-at (optional uint))
    (revoked-at (optional uint))
@@ -102,7 +102,7 @@
 (define-private (max (a uint) (b uint))
   (if (> a b) a b))
 
-(define-read-only (compute-namespace-price? (namespace (buff 19)))
+(define-read-only (compute-namespace-price? (namespace (buff 20)))
   (let ((namespace-len (len namespace)))
     (asserts!
       (> namespace-len u0)
@@ -187,16 +187,16 @@
     (is-digit char)
     (is-special-char char)))
 
-(define-private (has-vowels-chars (name (buff 16)))
+(define-private (has-vowels-chars (name (buff 32)))
   (> (len (filter is-vowel name)) u0))
 
-(define-private (has-nonalpha-chars (name (buff 16)))
+(define-private (has-nonalpha-chars (name (buff 32)))
   (> (len (filter is-nonalpha name)) u0))
 
 (define-private (has-invalid-chars (name (buff 19)))
   (< (len (filter is-char-valid name)) (len name)))
 
-(define-private (compute-name-price (name (buff 16))
+(define-private (compute-name-price (name (buff 32))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
   (let (
     (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
@@ -210,7 +210,7 @@
         (max nonalpha-discount no-vowel-discount))
       u10)))
 
-(define-private (is-name-lease-expired? (namespace (buff 19)) (name (buff 16)))
+(define-private (is-name-lease-expired? (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
@@ -230,7 +230,7 @@
           (ok (> block-height (+ lifetime registered-at))))))))
 
 ;; todo(ludo): should be refactored - based on (is-name-lease-expired?)
-(define-read-only (is-name-in-grace-period? (namespace (buff 19)) (name (buff 16)))
+(define-read-only (is-name-in-grace-period? (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
@@ -251,8 +251,8 @@
             (> block-height (+ lifetime registered-at)) 
             (<= block-height (+ (+ lifetime registered-at) NAME_GRACE_PERIOD_DURATION)))))))))
 
-(define-private (update-name-ownership? (namespace (buff 19)) 
-                                        (name (buff 16)) 
+(define-private (update-name-ownership? (namespace (buff 20)) 
+                                        (name (buff 32)) 
                                         (from principal) 
                                         (to principal))
   (if (is-eq from to)
@@ -267,8 +267,8 @@
         ((namespace namespace) (name name)))
       (ok true))))
 
-(define-private (update-zonefile-and-props (namespace (buff 19))
-                                           (name (buff 16))
+(define-private (update-zonefile-and-props (namespace (buff 20))
+                                           (name (buff 32))
                                            (registered-at (optional uint)) 
                                            (imported-at (optional uint)) 
                                            (revoked-at (optional uint)) 
@@ -348,7 +348,7 @@
 ;; This second step reveals the salt and the namespace ID (pairing it with its NAMESPACE_PREORDER). It reveals how long
 ;; names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace
 ;; that determines how cheap or expensive names its will be.
-(define-public (namespace-reveal (namespace (buff 19))
+(define-public (namespace-reveal (namespace (buff 20))
                                  (namespace-version uint)
                                  (namespace-salt (buff 20))
                                  (p-func-base uint)
@@ -441,8 +441,8 @@
 ;; NAME_IMPORT
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given
 ;; both an owner and some off-chain state. This step is optional; Namespace creators are not required to import names.
-(define-public (name-import (namespace (buff 19))
-                            (name (buff 16))
+(define-public (name-import (namespace (buff 20))
+                            (name (buff 32))
                             (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
@@ -477,7 +477,7 @@
 ;; NAMESPACE_READY
 ;; The final step of the process launches the namespace and makes the namespace available to the public. Once a namespace
 ;; is launched, anyone can register a name in it if they pay the appropriate amount of cryptocurrency.
-(define-public (namespace-ready (namespace (buff 19)))
+(define-public (namespace-ready (namespace (buff 20)))
   (let (
       (namespace-props (unwrap!
         (map-get? namespaces ((namespace namespace)))
@@ -538,8 +538,8 @@
 ;; NAME_REGISTRATION
 ;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
-(define-public (name-register (namespace (buff 19))
-                              (name (buff 16))
+(define-public (name-register (namespace (buff 20))
+                              (name (buff 32))
                               (salt (buff 20))
                               (zonefile-hash (buff 20)))
   (let (
@@ -619,8 +619,8 @@
 ;; A NAME_UPDATE transaction changes the name's zone file hash. You would send one of these transactions 
 ;; if you wanted to change the name's zone file contents. 
 ;; For example, you would do this if you want to deploy your own Gaia hub and want other people to read from it.
-(define-public (name-update (namespace (buff 19))
-                            (name (buff 16))
+(define-public (name-update (namespace (buff 20))
+                            (name (buff 32))
                             (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
@@ -668,8 +668,8 @@
 ;; - Send the name to someone else
 ;; When transferring a name, you have the option to also clear the name's zone file hash (i.e. set it to null). 
 ;; This is useful for when you send the name to someone else, so the recipient's name does not resolve to your zone file.
-(define-public (name-transfer (namespace (buff 19))
-                              (name (buff 16))
+(define-public (name-transfer (namespace (buff 20))
+                              (name (buff 32))
                               (new-owner principal)
                               (zonefile-hash (optional (buff 20))))
   (let (
@@ -730,8 +730,8 @@
 ;; is revoked, no one can change its public key hash or its zone file hash. 
 ;; The name's zone file hash is set to null to prevent it from resolving.
 ;; You should only do this if your private key is compromised, or if you want to render your name unusable for whatever reason.
-(define-public (name-revoke (namespace (buff 19))
-                            (name (buff 16)))
+(define-public (name-revoke (namespace (buff 20))
+                            (name (buff 32)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names (tuple (name name) (namespace namespace)))
@@ -780,8 +780,8 @@
 ;; It will stop resolving in the grace period, and all of the above operations will cease to be honored by the BNS consensus rules.
 ;; You may, however, send a NAME_RENEWAL during this grace period to preserve your name.
 ;; If your name is in a namespace where names do not expire, then you never need to use this transaction.
-(define-public (name-renewal (namespace (buff 19))
-                             (name (buff 16))
+(define-public (name-renewal (namespace (buff 20))
+                             (name (buff 32))
                              (stx-to-burn uint)
                              (new-owner (optional principal))
                              (zonefile-hash (optional (buff 20))))
@@ -861,7 +861,7 @@
           (asserts! (is-some (get revoked-at name-props)) (ok false))
           (ok true))))))
 
-(define-read-only (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
+(define-read-only (can-name-be-registered (namespace (buff 20)) (name (buff 32)))
   (let (
       (wrapped-name-props (map-get? name-properties ((namespace namespace) (name name))))
       (namespace-props (unwrap! (map-get? namespaces ((namespace namespace))) (ok false))))
@@ -879,7 +879,7 @@
       ;; Is lease expired?
       (is-name-lease-expired? namespace name))))
 
-(define-read-only (name-resolve (namespace (buff 19)) (name (buff 16)))
+(define-read-only (name-resolve (namespace (buff 20)) (name (buff 32)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names (tuple (name name) (namespace namespace)))

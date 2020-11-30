@@ -1290,7 +1290,7 @@ fn atlas_integration_test() {
             panic!("");
         }
 
-        // (define-public (namespace-reveal (namespace (buff 19))
+        // (define-public (namespace-reveal (namespace (buff 20))
         //                                  (namespace-version uint)
         //                                  (namespace-salt (buff 20))
         //                                  (p-func-base uint)
@@ -1372,8 +1372,8 @@ fn atlas_integration_test() {
             panic!("");
         }
 
-        // (define-public (name-import (namespace (buff 19))
-        //                             (name (buff 16))
+        // (define-public (name-import (namespace (buff 20))
+        //                             (name (buff 32))
         //                             (zonefile-hash (buff 20)))
         let zonefile_hex = "facade00";
         let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
