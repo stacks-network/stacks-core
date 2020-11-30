@@ -1,6 +1,6 @@
 use crate::{
     neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode,
+    NeonGenesisNode, GenesisData,
 };
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -147,6 +147,13 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let initial_vesting_schedules = self
+            .config
+            .initial_vesting_schedules
+            .iter()
+            .map(|e| (e.address.clone(), e.amount, e.block_height))
+            .collect();
+
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
         for observer in self.config.events_observers.iter() {
@@ -155,7 +162,26 @@ impl RunLoop {
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
+        let (network, _) = self.config.burnchain.get_bitcoin_network();
+
+        let burnchain_config = match burnchain_opt {
+            Some(burnchain_config) => burnchain_config.clone(),
+            None => match Burnchain::new(
+                &self.config.get_burn_db_path(),
+                &self.config.burnchain.chain,
+                &network,
+            ) {
+                Ok(burnchain) => burnchain,
+                Err(e) => {
+                    error!("Failed to instantiate burnchain: {}", e);
+                    panic!()
+                }
+            },
+        };
         let chainstate_path = self.config.get_chainstate_path();
+        let first_burnchain_block_hash = burnchain_config.first_block_hash.clone();
+        let first_burnchain_block_height = burnchain_config.first_block_height as u32;
+        let first_burnchain_block_timestamp = burnchain_config.first_block_timestamp;
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let first_block_height = burnchain_config.first_block_height as u128;
@@ -188,11 +214,14 @@ impl RunLoop {
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
         });
-        let mut boot_data = ChainStateBootData::new(
-            &coordinator_burnchain_config,
-            initial_balances,
-            Some(boot_block),
-        );
+        let mut boot_data = ChainStateBootData {
+                initial_balances,
+                initial_vesting_schedules,
+                post_flight_callback: None,
+                first_burnchain_block_hash,
+                first_burnchain_block_height,
+                first_burnchain_block_timestamp,
+        };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             mainnet,

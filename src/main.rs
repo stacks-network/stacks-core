@@ -462,6 +462,7 @@ fn main() {
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
+            initial_vesting_schedules: vec![],
             post_flight_callback: None,
             first_burnchain_block_hash,
             first_burnchain_block_height: first_burnchain_block_height as u32,

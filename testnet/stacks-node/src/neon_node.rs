@@ -1257,9 +1257,20 @@ impl NeonGenesisNode {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+        let initial_vesting_schedules = config
+            .initial_vesting_schedules
+            .iter()
+            .map(|e| (e.address.clone(), e.amount, e.block_height))
+            .collect();
 
-        let mut boot_data =
-            ChainStateBootData::new(&burnchain, initial_balances, Some(boot_block_exec));
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            initial_vesting_schedules,
+            first_burnchain_block_hash: burnchain.first_block_hash.clone(),
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
+            post_flight_callback: Some(boot_block_exec),
+        };
 
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(

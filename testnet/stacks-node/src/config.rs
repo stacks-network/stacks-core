@@ -15,6 +15,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
+use super::GenesisData;
 use super::neon_node::TESTNET_PEER_VERSION;
 use super::node::TESTNET_CHAIN_ID;
 
@@ -25,9 +26,11 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+    pub mstx_vesting_schedule: Option<Vec<InitialVestingScheduleFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub block_limit: Option<BlockLimitFile>,
+    pub genesis: Option<GenesisConfigFile>,
 }
 
 impl ConfigFile {
@@ -273,9 +276,11 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
+    pub initial_vesting_schedules: Vec<InitialVestingSchedule>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub block_limit: ExecutionCost,
+    pub genesis: Option<GenesisConfig>,
 }
 
 lazy_static! {
@@ -437,7 +442,7 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
-        let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
+        let mut initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
             Some(balances) => balances
                 .iter()
                 .map(|balance| {
@@ -452,6 +457,57 @@ impl Config {
                 })
                 .collect(),
             None => vec![],
+        };
+
+        let mut initial_vesting_schedules: Vec<InitialVestingSchedule> = match config_file.mstx_vesting_schedule {
+            Some(schedules) => schedules
+                .iter()
+                .map(|schedule| {
+                    let address: PrincipalData =
+                        PrincipalData::parse_standard_principal(&schedule.address)
+                            .unwrap()
+                            .into();
+                    InitialVestingSchedule {
+                        address,
+                        amount: schedule.amount,
+                        block_height: schedule.block_height,
+                    }
+                })
+                .collect(),
+            None => vec![],
+        };
+
+        let genesis = match config_file.genesis {
+            Some(genesis) => {
+                let expected_sha2sum =  genesis.sha2sum.expect("Genesis config: sha2sum should be provided");
+                let (file_path, file_url) = match (genesis.file_path, genesis.file_url) {
+                    (Some(file_path), None) => (Some(file_path), None),
+                    (None, Some(file_url)) => (None, Some(file_url)), 
+                    (_, _) => panic!("Genesis config: either file_path or file_url should be provided")
+                };
+
+                if let Some(ref file_url) = file_url {
+                    
+                }
+
+                if let Some(ref file_path) = file_path {
+                    let genesis_data = GenesisData::from_file(file_path, &expected_sha2sum)
+                        .expect("Unable to load genesis file");
+                    let mut balances = genesis_data.get_initial_balances();
+                    initial_balances.append(&mut balances);
+
+                    let mut schedules = genesis_data.get_initial_vesting_schedules();
+                    initial_vesting_schedules.append(&mut schedules);
+                    println!("{} vesting loaded", initial_vesting_schedules.len());
+                }
+
+                Some(GenesisConfig {
+                    sha2sum: expected_sha2sum,
+                    file_path,
+                    file_url
+                })
+            }
+            None => None,
         };
 
         let mut events_observers = match config_file.events_observer {
@@ -635,9 +691,11 @@ impl Config {
             node,
             burnchain,
             initial_balances,
+            initial_vesting_schedules,
             events_observers,
             connection_options,
             block_limit,
+            genesis,
         }
     }
 
@@ -687,6 +745,21 @@ impl Config {
         }
         total
     }
+
+    pub fn is_importing_genesis(&self) -> bool {
+        self.genesis.is_some()
+    }
+
+    pub fn should_download_genesis(&self) -> bool {
+        match self.genesis {
+            None => false,
+            Some(ref genesis) => genesis.file_url.is_some() 
+        }
+    }
+
+    pub fn get_genesis_file_path(&self) -> String {
+        format!("{}", self.genesis.as_ref().unwrap().file_path.as_ref().unwrap())
+    }
 }
 
 impl std::default::Default for Config {
@@ -704,14 +777,17 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
+        let genesis = None;
 
         Config {
             burnchain,
             node,
             initial_balances: vec![],
+            initial_vesting_schedules: vec![],
             events_observers: vec![],
             connection_options,
             block_limit,
+            genesis,
         }
     }
 }
@@ -992,6 +1068,20 @@ pub struct NodeConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default)]
+pub struct GenesisConfigFile {
+    pub sha2sum: Option<String>,
+    pub file_path: Option<String>,
+    pub file_url: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct GenesisConfig {
+    pub sha2sum: String,
+    pub file_path: Option<String>,
+    pub file_url: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Default)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
@@ -1068,10 +1158,17 @@ impl EventKeyType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InitialVestingSchedule {
+    pub amount: u64,
+    pub address: PrincipalData,
+    pub block_height: u64,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -1079,3 +1176,11 @@ pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
 }
+
+#[derive(Clone, Deserialize, Default)]
+pub struct InitialVestingScheduleFile {
+    pub address: String,
+    pub amount: u64,
+    pub block_height: u64,
+}
+

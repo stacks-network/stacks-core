@@ -306,7 +306,14 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            initial_vesting_schedules: vec![],
+            post_flight_callback: None,
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_hash: burnchain.first_block_hash,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
+        };
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =

@@ -155,8 +155,15 @@ impl Node {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let initial_vesting_schedules = config
+            .initial_vesting_schedules
+            .iter()
+            .map(|e| (e.address.clone(), e.amount, e.block_height))
+            .collect();
+
         let mut boot_data = ChainStateBootData {
             initial_balances,
+            initial_vesting_schedules,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,

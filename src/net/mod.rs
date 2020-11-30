@@ -2183,6 +2183,7 @@ pub mod test {
 
             let first_burnchain_block_height = config.burnchain.first_block_height;
             let first_burnchain_block_hash = config.burnchain.first_block_hash;
+            let first_burnchain_block_timestamp = config.burnchain.first_block_timestamp;
 
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
@@ -2268,11 +2269,15 @@ pub mod test {
                 }
             };
 
-            let mut boot_data = ChainStateBootData::new(
-                &config.burnchain,
-                config.initial_balances.clone(),
-                Some(Box::new(post_flight_callback)),
-            );
+            let mut boot_data = ChainStateBootData {
+                initial_balances: config.initial_balances.clone(),
+                initial_vesting_schedules: vec![],
+                post_flight_callback: Some(Box::new(post_flight_callback)),
+                first_burnchain_block_hash: first_burnchain_block_hash,
+                first_burnchain_block_height: first_burnchain_block_height as u32,
+                first_burnchain_block_timestamp: first_burnchain_block_timestamp,
+            };
+
 
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,
