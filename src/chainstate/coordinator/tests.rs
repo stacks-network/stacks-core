@@ -212,19 +212,20 @@ pub fn setup_states(
     );
 
     let block_limit = ExecutionCost::max_value();
-    // TODO(matt): initial_balances perhaps not ready at this stage...?
-    let mut boot_data = ChainStateBootData {
-        initial_balances: initial_balances.unwrap_or(vec![]),
-        post_flight_callback: None,
-        first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-        first_burnchain_block_height: 0,
-        first_burnchain_block_timestamp: 0,
-        get_bulk_initial_vesting_schedules: None,
-        get_bulk_initial_balances: None,
-    };
+    let initial_balances = initial_balances.unwrap_or(vec![]);
 
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances: initial_balances.clone(),
+            post_flight_callback: None,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
+            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
+        };
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
             let contract = QualifiedContractIdentifier::parse(&format!(
