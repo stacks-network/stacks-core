@@ -2276,6 +2276,7 @@ pub mod test {
                 first_burnchain_block_height: first_burnchain_block_height as u32,
                 first_burnchain_block_timestamp: first_burnchain_block_timestamp,
                 get_bulk_initial_vesting_schedules: None,
+                get_bulk_initial_balances: None,
             };
 
 

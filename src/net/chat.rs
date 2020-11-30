@@ -2387,6 +2387,7 @@ mod test {
             first_burnchain_block_hash: burnchain.first_block_hash,
             first_burnchain_block_timestamp: 0,
             get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         let (chainstate, _) = StacksChainState::open_and_exec(

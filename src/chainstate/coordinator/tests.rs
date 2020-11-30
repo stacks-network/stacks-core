@@ -220,6 +220,7 @@ pub fn setup_states(
         first_burnchain_block_height: 0,
         first_burnchain_block_timestamp: 0,
         get_bulk_initial_vesting_schedules: None,
+        get_bulk_initial_balances: None,
     };
     
     for path in paths.iter() {
