@@ -831,7 +831,33 @@ impl StacksChainState {
             TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
-                let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
+
+                let contract_id = boot::boot_code_id("lockup");
+                let function = "unlock-vesting-schedules";
+                let cost_before = clarity_tx.cost_so_far();
+
+                let response = clarity_tx.run_contract_call(
+                    &origin_account.principal,
+                    &contract_id,
+                    function,
+                    &[Value::none()],
+                    |_, _| false,
+                );
+                let mut total_cost = clarity_tx.cost_so_far();
+                total_cost
+                    .sub(&cost_before)
+                    .expect("BUG: total block cost decreased");
+
+                let (_, _, mut events) = match response {
+                    Ok((return_value, asset_map, events)) => Ok((return_value, asset_map, events)),
+                    Err(e) => {
+                        warn!("Failed unlocking vesting schedules: {:?}", &e);
+                        Err(Error::ClarityError(e))
+                    }
+                }?;
+
+                let mut receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
+                receipt.events.append(&mut events);
                 Ok(receipt)
             }
         }
