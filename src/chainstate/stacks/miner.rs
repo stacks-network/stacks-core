@@ -7538,8 +7538,7 @@ pub mod test {
 
         for (i, addr) in addrs.iter().enumerate() {
             let account = get_stacks_account(&mut peer, &addr.to_account_principal());
-            let expected_coinbase = 500_000_000;
-
+            let expected_coinbase = 3_600_000_000;
             test_debug!(
                 "Test {}: {}",
                 &account.principal.to_string(),

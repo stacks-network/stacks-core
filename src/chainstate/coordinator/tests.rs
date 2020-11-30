@@ -1602,7 +1602,7 @@ fn test_initial_coinbase_reward_distributions() {
         coord.handle_new_burnchain_block().unwrap();
     }
     let initial_missed_blocks = {
-        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let burnchain = get_burnchain_db(path, pox_consts.clone());
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         // +1 here, because the # of missed blocks is (first_sortition_height - first_burn_block_height)
         burnchain_tip.block_height + 1
