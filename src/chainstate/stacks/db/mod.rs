@@ -539,13 +539,20 @@ pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first
 
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct VestingSchedule {
+    pub address: PrincipalData,
+    pub amount: u64,
+    pub block_height: u64,
+}
+
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
-    pub initial_vesting_schedules: Vec<(PrincipalData, u64, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub get_bulk_initial_vesting_schedules: Option<Box<dyn FnOnce() -> &'static Vec<VestingSchedule>>>,
 }
 
 impl ChainStateBootData {
@@ -560,7 +567,7 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             post_flight_callback,
-            initial_vesting_schedules: vec![],
+            get_bulk_initial_vesting_schedules: None,
         }
     }
 }
@@ -766,50 +773,54 @@ impl StacksChainState {
                     .expect("FATAL: liquid STX overflow");
             }
 
-            println!("Initializing chain with {} vesting schedules", boot_data.initial_vesting_schedules.len());
-            let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
-            let lockup_contract_id = boot_code_id("lockup");
-            for (address, amount, block_height) in boot_data.initial_vesting_schedules.drain(..) {
-                
-                let value = unlocks_per_blocks.get(&block_height).unwrap_or(&0);
-                let index = value + 1;
-                unlocks_per_blocks.insert(block_height, index);
+            if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
+                println!("Initializing chain with vesting schedules");
+                let initial_vesting_schedules = get_schedules();
+                let mut vesting_schedule_count = 0;
+                let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
+                let lockup_contract_id = boot_code_id("lockup");
+                for schedule in initial_vesting_schedules {
+                    vesting_schedule_count = vesting_schedule_count + 1;
+                    let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
+                    let index = value + 1;
+                    unlocks_per_blocks.insert(schedule.block_height, index);
 
-                clarity_tx.connection().as_transaction(|clarity| {
-                    clarity.with_clarity_db(|db| {
-                        let key = TupleData::from_data(vec![
-                            ("stx-height".into(), Value::UInt(block_height.into())),
-                            ("index".into(), Value::UInt(index.into())),
-                        ]).unwrap();
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        clarity.with_clarity_db(|db| {
+                            let key = TupleData::from_data(vec![
+                                ("stx-height".into(), Value::UInt(schedule.block_height.into())),
+                                ("index".into(), Value::UInt(index.into())),
+                            ]).unwrap();
 
-                        let value = TupleData::from_data(vec![
-                            ("owner".into(), Value::Principal(address)),
-                            ("metadata".into(), Value::buff_from_byte(0)),
-                            ("unlock-ustx".into(), Value::UInt(amount.into())),
-                        ]).unwrap();
-                        db.insert_entry(
-                            &lockup_contract_id, 
-                            "internal-locked-stx", 
-                            Value::Tuple(key),
-                            Value::Tuple(value))?;
-                        
-                        let key = TupleData::from_data(vec![
-                            ("stx-height".into(), Value::UInt(block_height.into())),
-                        ]).unwrap();
-                        let value = TupleData::from_data(vec![
-                            ("total-unlocked".into(), Value::UInt(index.into())),
-                        ]).unwrap();
-                        db.insert_entry(
-                            &lockup_contract_id, 
-                            "unlocked-stx-per-block", 
-                            Value::Tuple(key),
-                            Value::Tuple(value))?;
+                            let value = TupleData::from_data(vec![
+                                ("owner".into(), Value::Principal(schedule.address.clone())),
+                                ("metadata".into(), Value::buff_from_byte(0)),
+                                ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
+                            ]).unwrap();
+                            db.insert_entry(
+                                &lockup_contract_id, 
+                                "internal-locked-stx", 
+                                Value::Tuple(key),
+                                Value::Tuple(value))?;
+                            
+                            let key = TupleData::from_data(vec![
+                                ("stx-height".into(), Value::UInt(schedule.block_height.into())),
+                            ]).unwrap();
+                            let value = TupleData::from_data(vec![
+                                ("total-unlocked".into(), Value::UInt(index.into())),
+                            ]).unwrap();
+                            db.insert_entry(
+                                &lockup_contract_id, 
+                                "unlocked-stx-per-block", 
+                                Value::Tuple(key),
+                                Value::Tuple(value))?;
 
-                        Ok(())
-                    }).unwrap();
-                });
+                            Ok(())
+                        }).unwrap();
+                    });
+                }
+                println!("Done initializing chain with {} vesting schedules", vesting_schedule_count);
             }
-            println!("Done initializing chain with {} vesting schedules", boot_data.initial_vesting_schedules.len());
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
@@ -1494,11 +1505,11 @@ pub mod test {
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            initial_vesting_schedules: vec![],
             post_flight_callback: None,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            get_bulk_initial_vesting_schedules: None,
         };
 
         StacksChainState::open_and_exec(

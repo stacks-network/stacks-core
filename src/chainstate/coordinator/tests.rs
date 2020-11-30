@@ -215,11 +215,11 @@ pub fn setup_states(
     // TODO(matt): initial_balances perhaps not ready at this stage...?
     let mut boot_data = ChainStateBootData {
         initial_balances: initial_balances.unwrap_or(vec![]),
-        initial_vesting_schedules: vec![],
         post_flight_callback: None,
         first_burnchain_block_hash: BurnchainHeaderHash::zero(),
         first_burnchain_block_height: 0,
         first_burnchain_block_timestamp: 0,
+        get_bulk_initial_vesting_schedules: None,
     };
     
     for path in paths.iter() {

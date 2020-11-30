@@ -1,6 +1,6 @@
 use crate::{
     neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode, GenesisData,
+    NeonGenesisNode, genesis
 };
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -147,13 +147,6 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let initial_vesting_schedules = self
-            .config
-            .initial_vesting_schedules
-            .iter()
-            .map(|e| (e.address.clone(), e.amount, e.block_height))
-            .collect();
-
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
         for observer in self.config.events_observers.iter() {
@@ -216,11 +209,11 @@ impl RunLoop {
         });
         let mut boot_data = ChainStateBootData {
                 initial_balances,
-                initial_vesting_schedules,
                 post_flight_callback: None,
                 first_burnchain_block_hash,
                 first_burnchain_block_height,
                 first_burnchain_block_timestamp,
+                get_bulk_initial_vesting_schedules: Some(Box::new(|| &genesis::EMBEDDED_GENESIS_DATA.vesting_schedules))
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
