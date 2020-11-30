@@ -21,14 +21,16 @@ use crate::{
     config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
     node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
 };
-use stacks::net::{AccountEntryResponse, RPCPeerInfoData, PostTransactionRequestBody, GetAttachmentResponse};
-use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::net::{
+    AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
+};
 use stacks::util::hash::Hash160;
+use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
-use std::sync::mpsc;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -102,11 +104,9 @@ mod test_observer {
     async fn handle_attachments(
         attachments: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
-        let new_attachments = attachments
-            .as_array()
-            .unwrap();
+        let new_attachments = attachments.as_array().unwrap();
         let mut attachments = ATTACHMENTS.lock().unwrap();
-            for new_attachment in new_attachments {
+        for new_attachment in new_attachments {
             attachments.push(new_attachment.clone());
         }
         Ok(warp::http::StatusCode::OK)
@@ -147,9 +147,14 @@ mod test_observer {
             .and_then(handle_attachments);
 
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks).or(new_attachments))
-            .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
-            .await
+        warp::serve(
+            new_blocks
+                .or(mempool_txs)
+                .or(new_burn_blocks)
+                .or(new_attachments),
+        )
+        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
+        .await
     }
 
     pub fn spawn() {
@@ -1151,7 +1156,6 @@ fn pox_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-
 enum Signal {
     BootstrapNodeReady,
     ReplicatingAttachmentsStartTest1,
@@ -1181,18 +1185,29 @@ fn atlas_integration_test() {
         pk.set_compressed(true);
         pk.to_hex()
     };
-    conf_bootstrap_node.initial_balances.push(initial_balance_user_1.clone());
+    conf_bootstrap_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
 
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
-    let bootstrap_node_url = format!("{}@{}", bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind);
-    conf_follower_node.node.set_bootstrap_node(Some(bootstrap_node_url));
+    let bootstrap_node_url = format!(
+        "{}@{}",
+        bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
+    );
+    conf_follower_node
+        .node
+        .set_bootstrap_node(Some(bootstrap_node_url));
     conf_follower_node.node.miner = false;
-    conf_follower_node.initial_balances.push(initial_balance_user_1.clone());
-    conf_follower_node.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    conf_follower_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+    conf_follower_node
+        .events_observers
+        .push(EventObserverConfig {
+            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            events_keys: vec![EventKeyType::AnyEvent],
+        });
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -1213,39 +1228,40 @@ fn atlas_integration_test() {
             Some(burnchain_config.clone()),
         );
         let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
-    
+
         btc_regtest_controller.bootstrap_chain(201);
-    
+
         eprintln!("Chain bootstrapped...");
-    
+
         let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
         let blocks_processed = run_loop.get_blocks_processed_arc();
         let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
-    
+
         thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
-    
+
         // give the run loop some time to start up!
         wait_for_runloop(&blocks_processed);
-    
+
         // first block wakes up the run loop
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
         // first block will hold our VRF registration
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
         // second block will be the first mined Stacks block
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
         // Let's setup the follower now.
-        follower_node_tx.send(Signal::BootstrapNodeReady)
+        follower_node_tx
+            .send(Signal::BootstrapNodeReady)
             .expect("Unable to send signal");
 
         match bootstrap_node_rx.recv() {
             Ok(Signal::ReplicatingAttachmentsStartTest1) => {
                 println!("Follower node is ready...");
-            },
-            _ => { panic!("Bootstrap node could nod boot. Aborting test.") }
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
         // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
@@ -1266,8 +1282,9 @@ fn atlas_integration_test() {
             &[
                 Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
                 Value::UInt(1000),
-            ]);
-    
+            ],
+        );
+
         let path = format!("{}/v2/transactions", &http_origin);
         let res = client
             .post(&path)
@@ -1348,8 +1365,9 @@ fn atlas_integration_test() {
                 Value::UInt(1),
                 Value::UInt(1000),
                 Value::Principal(initial_balance_user_1.address.clone()),
-            ]);
-    
+            ],
+        );
+
         let path = format!("{}/v2/transactions", &http_origin);
         let res = client
             .post(&path)
@@ -1388,8 +1406,9 @@ fn atlas_integration_test() {
                 Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
                 Value::buff_from("johndoe".as_bytes().to_vec()).unwrap(),
                 Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
-            ]);
-    
+            ],
+        );
+
         let body = {
             let content = PostTransactionRequestBody {
                 tx: bytes_to_hex(&tx_3),
@@ -1414,7 +1433,7 @@ fn atlas_integration_test() {
         // From there, let's mine these transaction, and build an extra block.
         let mut sort_height = channel.get_sortitions_processed();
         eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1; 
+        let few_blocks = sort_height + 1 + 1;
 
         // now let's mine until the next reward cycle starts ...
         while sort_height < few_blocks {
@@ -1422,22 +1441,23 @@ fn atlas_integration_test() {
             sort_height = channel.get_sortitions_processed();
             eprintln!("Sort height: {}", sort_height);
         }
-    
+
         // Then check that the follower is correctly replicating the attachment
-        follower_node_tx.send(Signal::ReplicatingAttachmentsCheckTest1(sort_height))
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest1(sort_height))
             .expect("Unable to send signal");
 
         match bootstrap_node_rx.recv() {
             Ok(Signal::ReplicatingAttachmentsStartTest2) => {
                 println!("Follower node is ready...");
-            },
-            _ => { panic!("Bootstrap node could nod boot. Aborting test.") }
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
         // From there, let's mine these transaction, and build an extra block.
         let mut sort_height = channel.get_sortitions_processed();
         eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1; 
+        let few_blocks = sort_height + 1 + 1;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -1452,7 +1472,11 @@ fn atlas_integration_test() {
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
-                let path = format!("{}/v2/attachments/{}", &http_origin, hashed_zonefile.to_hex());
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
                 let res = client
                     .get(&path)
                     .header("Content-Type", "application/json")
@@ -1470,11 +1494,13 @@ fn atlas_integration_test() {
                     }
                     eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                     thread::sleep(Duration::from_millis(1000));
-                }            }
+                }
+            }
         }
 
         // Then check that the follower is correctly replicating the attachment
-        follower_node_tx.send(Signal::ReplicatingAttachmentsCheckTest2(sort_height))
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest2(sort_height))
             .expect("Unable to send signal");
 
         channel.stop_chains_coordinator();
@@ -1488,34 +1514,35 @@ fn atlas_integration_test() {
         match follower_node_rx.recv() {
             Ok(Signal::BootstrapNodeReady) => {
                 println!("Booting follower node...");
-            },
-            _ => { panic!("Bootstrap node could nod boot. Aborting test.") }
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
-    
+
         let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
         let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
 
         eprintln!("Chain bootstrapped...");
-    
+
         let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
         let blocks_processed = run_loop.get_blocks_processed_arc();
         let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
-    
+
         thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
-    
+
         // give the run loop some time to start up!
         wait_for_runloop(&blocks_processed);
-                
+
         // Follower node is ready, the bootstrap node will now handover
-        bootstrap_node_tx.send(Signal::ReplicatingAttachmentsStartTest1)
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest1)
             .expect("Unable to send signal");
 
         // The bootstrap node published and mined a transaction that includes an attachment.
-        // Lets observe the attachments replication kicking in. 
+        // Lets observe the attachments replication kicking in.
         let target_height = match follower_node_rx.recv() {
             Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
-            _ => { panic!("Bootstrap node could nod boot. Aborting test.") }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
         let mut sort_height = channel.get_sortitions_processed();
@@ -1523,14 +1550,18 @@ fn atlas_integration_test() {
             wait_for_runloop(&blocks_processed);
             sort_height = channel.get_sortitions_processed();
         }
-        
+
         // Now wait for the node to sync the attachment
         let mut attachments_did_sync = false;
         let mut timeout = 30;
         while attachments_did_sync != true {
             let zonefile_hex = "facade00";
             let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
-            let path = format!("{}/v2/attachments/{}", &http_origin, hashed_zonefile.to_hex());
+            let path = format!(
+                "{}/v2/attachments/{}",
+                &http_origin,
+                hashed_zonefile.to_hex()
+            );
             let res = client
                 .get(&path)
                 .header("Content-Type", "application/json")
@@ -1551,10 +1582,10 @@ fn atlas_integration_test() {
         }
 
         // Test 2: 9 transactions are posted to the follower.
-        // We want to make sure that the miner is able to 
+        // We want to make sure that the miner is able to
         // 1) mine these transactions
         // 2) retrieve the attachments staged on the follower node.
-        // 3) ensure that the follower is also instanciating the attachments after 
+        // 3) ensure that the follower is also instanciating the attachments after
         // executing the transactions, once mined.
         let namespace = "passport";
         for i in 1..10 {
@@ -1572,8 +1603,9 @@ fn atlas_integration_test() {
                     Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
                     Value::buff_from(name.as_bytes().to_vec()).unwrap(),
                     Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
-                ]);
-        
+                ],
+            );
+
             let body = {
                 let content = PostTransactionRequestBody {
                     tx: bytes_to_hex(&tx),
@@ -1581,7 +1613,7 @@ fn atlas_integration_test() {
                 };
                 serde_json::to_vec(&json!(content)).unwrap()
             };
-    
+
             let path = format!("{}/v2/transactions", &http_origin);
             let res = client
                 .post(&path)
@@ -1593,15 +1625,16 @@ fn atlas_integration_test() {
             if !res.status().is_success() {
                 eprintln!("{}", res.text().unwrap());
                 panic!("");
-            }            
+            }
         }
-        
-        bootstrap_node_tx.send(Signal::ReplicatingAttachmentsStartTest2)
+
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest2)
             .expect("Unable to send signal");
 
         let target_height = match follower_node_rx.recv() {
             Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
-            _ => { panic!("Bootstrap node could nod boot. Aborting test.") }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
         let mut sort_height = channel.get_sortitions_processed();
@@ -1609,7 +1642,7 @@ fn atlas_integration_test() {
             wait_for_runloop(&blocks_processed);
             sort_height = channel.get_sortitions_processed();
         }
-        
+
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
@@ -1617,7 +1650,11 @@ fn atlas_integration_test() {
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
-                let path = format!("{}/v2/attachments/{}", &http_origin, hashed_zonefile.to_hex());
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
                 let res = client
                     .get(&path)
                     .header("Content-Type", "application/json")
@@ -1640,7 +1677,7 @@ fn atlas_integration_test() {
         }
 
         // Ensure that we the attached sidecar was able to receive a total of 10 attachments
-        assert_eq!(test_observer::get_attachments().len(), 10); 
+        assert_eq!(test_observer::get_attachments().len(), 10);
 
         channel.stop_chains_coordinator();
     });
