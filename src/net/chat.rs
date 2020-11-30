@@ -2385,7 +2385,7 @@ mod test {
             post_flight_callback: None,
             first_burnchain_block_height: burnchain.first_block_height as u32,
             first_burnchain_block_hash: burnchain.first_block_hash,
-            first_burnchain_block_timestamp: 0,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             get_bulk_initial_vesting_schedules: None,
             get_bulk_initial_balances: None,
         };
