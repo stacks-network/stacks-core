@@ -1087,4 +1087,3 @@ pub struct InitialVestingScheduleFile {
     pub amount: u64,
     pub block_height: u64,
 }
-

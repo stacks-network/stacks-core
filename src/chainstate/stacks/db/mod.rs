@@ -28,11 +28,11 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
-use std::collections::{HashMap, hash_map::Entry};
 
 use core::*;
 
@@ -558,8 +558,10 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-    pub get_bulk_initial_vesting_schedules: Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
-    pub get_bulk_initial_balances: Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
+    pub get_bulk_initial_vesting_schedules:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
+    pub get_bulk_initial_balances:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -771,7 +773,10 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
-            println!("Initializing chain with {} config balances", boot_data.initial_balances.len());
+            println!(
+                "Initializing chain with {} config balances",
+                boot_data.initial_balances.len()
+            );
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::account_genesis_credit(clarity, address, *amount)
@@ -788,7 +793,11 @@ impl StacksChainState {
                 for balance in initial_balances {
                     balances_count = balances_count + 1;
                     clarity_tx.connection().as_transaction(|clarity| {
-                        StacksChainState::account_genesis_credit(clarity, &balance.address, balance.amount)
+                        StacksChainState::account_genesis_credit(
+                            clarity,
+                            &balance.address,
+                            balance.amount,
+                        )
                     });
                     initial_liquid_ustx = initial_liquid_ustx
                         .checked_add(balance.amount as u128)
@@ -810,40 +819,56 @@ impl StacksChainState {
                     unlocks_per_blocks.insert(schedule.block_height, index);
 
                     clarity_tx.connection().as_transaction(|clarity| {
-                        clarity.with_clarity_db(|db| {
-                            let key = TupleData::from_data(vec![
-                                ("stx-height".into(), Value::UInt(schedule.block_height.into())),
-                                ("index".into(), Value::UInt(index.into())),
-                            ]).unwrap();
+                        clarity
+                            .with_clarity_db(|db| {
+                                let key = TupleData::from_data(vec![
+                                    (
+                                        "stx-height".into(),
+                                        Value::UInt(schedule.block_height.into()),
+                                    ),
+                                    ("index".into(), Value::UInt(index.into())),
+                                ])
+                                .unwrap();
 
-                            let value = TupleData::from_data(vec![
-                                ("owner".into(), Value::Principal(schedule.address.clone())),
-                                ("metadata".into(), Value::buff_from_byte(0)),
-                                ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
-                            ]).unwrap();
-                            db.insert_entry(
-                                &lockup_contract_id, 
-                                "internal-locked-stx", 
-                                Value::Tuple(key),
-                                Value::Tuple(value))?;
-                            
-                            let key = TupleData::from_data(vec![
-                                ("stx-height".into(), Value::UInt(schedule.block_height.into())),
-                            ]).unwrap();
-                            let value = TupleData::from_data(vec![
-                                ("total-unlocked".into(), Value::UInt(index.into())),
-                            ]).unwrap();
-                            db.insert_entry(
-                                &lockup_contract_id, 
-                                "unlocked-stx-per-block", 
-                                Value::Tuple(key),
-                                Value::Tuple(value))?;
+                                let value = TupleData::from_data(vec![
+                                    ("owner".into(), Value::Principal(schedule.address.clone())),
+                                    ("metadata".into(), Value::buff_from_byte(0)),
+                                    ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
+                                ])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "internal-locked-stx",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
 
-                            Ok(())
-                        }).unwrap();
+                                let key = TupleData::from_data(vec![(
+                                    "stx-height".into(),
+                                    Value::UInt(schedule.block_height.into()),
+                                )])
+                                .unwrap();
+                                let value = TupleData::from_data(vec![(
+                                    "total-unlocked".into(),
+                                    Value::UInt(index.into()),
+                                )])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "unlocked-stx-per-block",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
+
+                                Ok(())
+                            })
+                            .unwrap();
                     });
                 }
-                println!("Done initializing chain with {} vesting schedules", vesting_schedule_count);
+                println!(
+                    "Done initializing chain with {} vesting schedules",
+                    vesting_schedule_count
+                );
             }
 
             if let Some(callback) = boot_data.post_flight_callback.take() {

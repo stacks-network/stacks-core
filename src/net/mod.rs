@@ -2279,7 +2279,6 @@ pub mod test {
                 get_bulk_initial_balances: None,
             };
 
-
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,
                 config.network_id,

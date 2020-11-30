@@ -1,5 +1,8 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use crate::{genesis::{self}, run_loop::RegisteredKey};
+use crate::{
+    genesis::{self},
+    run_loop::RegisteredKey,
+};
 
 use std::convert::TryFrom;
 use std::default::Default;
@@ -161,7 +164,9 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_vesting_schedules: Some(Box::new(|| genesis::parse_vesting_schedules())),
+            get_bulk_initial_vesting_schedules: Some(Box::new(|| {
+                genesis::parse_vesting_schedules()
+            })),
             get_bulk_initial_balances: Some(Box::new(|| genesis::parse_balances())),
         };
 

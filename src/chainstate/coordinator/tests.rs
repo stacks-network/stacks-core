@@ -222,7 +222,7 @@ pub fn setup_states(
         get_bulk_initial_vesting_schedules: None,
         get_bulk_initial_balances: None,
     };
-    
+
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 
