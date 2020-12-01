@@ -779,7 +779,7 @@ impl StacksChainState {
             );
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::account_genesis_credit(clarity, address, *amount)
+                    StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
                 });
                 initial_liquid_ustx = initial_liquid_ustx
                     .checked_add(*amount as u128)
@@ -796,7 +796,7 @@ impl StacksChainState {
                         StacksChainState::account_genesis_credit(
                             clarity,
                             &balance.address,
-                            balance.amount,
+                            balance.amount.into(),
                         )
                     });
                     initial_liquid_ustx = initial_liquid_ustx
@@ -806,6 +806,7 @@ impl StacksChainState {
                 println!("Done initializing chain with {} balances", balances_count);
             }
 
+            let mut total_vesting_amount: u128 = 0;
             if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
                 println!("Initializing chain with vesting schedules");
                 let initial_vesting_schedules = get_schedules();
@@ -813,6 +814,7 @@ impl StacksChainState {
                 let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
                 let lockup_contract_id = boot_code_id("lockup");
                 for schedule in initial_vesting_schedules {
+                    total_vesting_amount = total_vesting_amount.checked_add(schedule.amount as u128).expect("FATAL: vesting STX overflow");
                     vesting_schedule_count = vesting_schedule_count + 1;
                     let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                     let index = value + 1;
@@ -870,6 +872,15 @@ impl StacksChainState {
                     vesting_schedule_count
                 );
             }
+
+            println!("Credit lockup contract with balance {}", total_vesting_amount);
+            clarity_tx.connection().as_transaction(|clarity| {
+                StacksChainState::account_genesis_credit(
+                    clarity,
+                    &PrincipalData::from(boot_code_id("lockup")),
+                    total_vesting_amount,
+                )
+            });
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
