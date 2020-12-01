@@ -172,13 +172,6 @@ fn test_bad_function_name() {
 }
 
 #[test]
-fn test_bad_map_type_definition() {
-    let snippet = "(define-map map (key int) (int))";
-    let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map definition"));
-}
-
-#[test]
 fn test_public_function_must_return_response() {
     let snippet = "(define-public (fn) 1)";
     let err = mem_type_check(snippet).unwrap_err();
