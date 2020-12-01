@@ -3643,8 +3643,11 @@ pub mod test {
         signer.sign_origin(&privk_origin).unwrap();
         let contract_call_tx = signer.get_tx().unwrap();
 
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens-deny");
+        let mut chainstate = instantiate_chainstate(
+            false,
+            0x80000000,
+            "process-post-conditions-tokens-deny-2097",
+        );
         let mut conn = chainstate.block_begin(
             &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -3657,8 +3660,11 @@ pub mod test {
         let _ =
             StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
 
-        let (_fee, _) =
+        let (_fee, receipt) =
             StacksChainState::process_transaction(&mut conn, &contract_call_tx, false).unwrap();
+
+        assert_eq!(receipt.post_condition_aborted, true);
+        assert_eq!(receipt.result.to_string(), "(ok (err u1))");
 
         conn.commit_block();
     }
