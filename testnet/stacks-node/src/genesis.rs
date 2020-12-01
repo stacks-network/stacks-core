@@ -1,9 +1,9 @@
-use stacks::chainstate::stacks::StacksAddress;
 use stacks::{
     burnchains::bitcoin::address::BitcoinAddress,
     chainstate::stacks::db::{AccountBalance, VestingSchedule},
     util::hash::Sha256Sum,
 };
+use stacks::{burnchains::Address, chainstate::stacks::StacksAddress};
 
 pub const GENESIS_DATA_BYTES: &str = include_str!("../chainstate.txt");
 pub const GENESIS_DATA_SHA_BYTES: &str = include_str!("../chainstate.txt.sha256");
@@ -39,6 +39,19 @@ fn check_genesis_data_integrity() {
     }
 }
 
+fn parse_genesis_address(addr: &str) -> Option<StacksAddress> {
+    // Typical entries are b58 bitcoin addresses that need converted to c32
+    match BitcoinAddress::from_b58(&addr) {
+        Ok(addr) => return Some(StacksAddress::from_bitcoin_address(&addr)),
+        _ => {}
+    };
+    // A few addresses (from legacy placeholder accounts) are already c32
+    match StacksAddress::from_string(addr) {
+        Some(addr) => return Some(addr),
+        None => return None,
+    };
+}
+
 pub fn parse_vesting_schedules() -> Box<dyn Iterator<Item = VestingSchedule>> {
     check_genesis_data_integrity();
     let schedules = GENESIS_DATA_BYTES
@@ -51,13 +64,10 @@ pub fn parse_vesting_schedules() -> Box<dyn Iterator<Item = VestingSchedule>> {
         .filter_map(|line| {
             let mut parts = line.split(",");
             let addr = parts.next().unwrap();
-            let stx_address = match BitcoinAddress::from_b58(&addr) {
-                Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
-                _ => {
-                    warn!("Skipping invalid vesting address: {}", addr);
-                    return None;
-                }
-            };
+            let stx_address = parse_genesis_address(&addr).expect(&format!(
+                "Failed to parsed genesis vesting address {}",
+                addr
+            ));
             let amount = parts.next().unwrap().parse::<u64>().unwrap();
             let block_height = parts.next().unwrap().parse::<u64>().unwrap();
             Some(VestingSchedule {
@@ -81,13 +91,10 @@ pub fn parse_balances() -> Box<dyn Iterator<Item = AccountBalance>> {
         .filter_map(|line| {
             let mut parts = line.split(",");
             let addr = parts.next().unwrap();
-            let stx_address = match BitcoinAddress::from_b58(&addr) {
-                Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
-                _ => {
-                    warn!("Skipping invalid stx balance address: {}", addr);
-                    return None;
-                }
-            };
+            let stx_address = parse_genesis_address(&addr).expect(&format!(
+                "Failed to parsed genesis balance address {}",
+                addr
+            ));
             let balance = parts.next().unwrap().parse::<u64>().unwrap();
             Some(AccountBalance {
                 address: stx_address.into(),
