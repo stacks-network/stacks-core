@@ -2269,15 +2269,11 @@ pub mod test {
                 }
             };
 
-            let mut boot_data = ChainStateBootData {
-                initial_balances: config.initial_balances.clone(),
-                post_flight_callback: Some(Box::new(post_flight_callback)),
-                first_burnchain_block_hash: first_burnchain_block_hash,
-                first_burnchain_block_height: first_burnchain_block_height as u32,
-                first_burnchain_block_timestamp: first_burnchain_block_timestamp,
-                get_bulk_initial_vesting_schedules: None,
-                get_bulk_initial_balances: None,
-            };
+            let mut boot_data = ChainStateBootData::new(
+                &config.burnchain,
+                config.initial_balances.clone(),
+                Some(Box::new(post_flight_callback)),
+            );
 
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,

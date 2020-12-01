@@ -217,15 +217,7 @@ pub fn setup_states(
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 
-        let mut boot_data = ChainStateBootData {
-            initial_balances: initial_balances.clone(),
-            post_flight_callback: None,
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: burnchain.first_block_height as u32,
-            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
-            get_bulk_initial_vesting_schedules: None,
-            get_bulk_initial_balances: None,
-        };
+        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
             let contract = QualifiedContractIdentifier::parse(&format!(
