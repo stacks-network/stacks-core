@@ -39,7 +39,7 @@ use chainstate::burn::db::sortdb::*;
 
 use net::Error as net_error;
 
-use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData};
 
 use vm::contexts::{AssetMap, AssetMapEntry};
 
