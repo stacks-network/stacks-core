@@ -163,14 +163,8 @@ impl<'a> DefinitionSorter {
                                 DefineFunctions::Map => {
                                     // Args: [name, key, value]: with key value being potentialy tuples
                                     if function_args.len() == 3 {
-                                        self.probe_for_dependencies(
-                                            &function_args[1],
-                                            tle_index,
-                                        )?;
-                                        self.probe_for_dependencies(
-                                            &function_args[2],
-                                            tle_index,
-                                        )?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[2], tle_index)?;
                                     }
                                     return Ok(());
                                 }
@@ -210,10 +204,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies(
-                                            &function_args[1],
-                                            tle_index,
-                                        )?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
                                 }
@@ -265,7 +256,10 @@ impl<'a> DefinitionSorter {
                                 }
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
-                                    self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(function_args, tle_index)?;
+                                    self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
+                                        function_args,
+                                        tle_index,
+                                    )?;
                                     return Ok(());
                                 }
                                 _ => {}
@@ -352,10 +346,7 @@ impl<'a> DefinitionSorter {
         tle_index: usize,
     ) -> ParseResult<()> {
         if pair.len() == 2 {
-            self.probe_for_dependencies(
-                &pair[1],
-                tle_index,
-            )?;
+            self.probe_for_dependencies(&pair[1], tle_index)?;
         }
         Ok(())
     }

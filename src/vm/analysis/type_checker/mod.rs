@@ -556,7 +556,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         // should we set the type of the subexpressions of the signature to no-type as well?
 
         let key_type = TypeSignature::parse_type_repr(key_type, &mut ())
-                .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
+            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
         let value_type = TypeSignature::parse_type_repr(value_type, &mut ())
             .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
 

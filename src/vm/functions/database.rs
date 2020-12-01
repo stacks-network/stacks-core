@@ -302,7 +302,7 @@ pub fn special_set_entry(
 
     check_argument_count(3, args)?;
 
-    let key =eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, &context)?;
 
     let value = eval(&args[2], env, &context)?;
 
