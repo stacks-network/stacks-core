@@ -6,15 +6,18 @@ use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction,
+    StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
+
+use stacks::vm::database::ClarityDeserializable;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
@@ -772,6 +775,13 @@ fn pox_integration_test() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let third_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -916,6 +926,44 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our stacking operation...
+    let mut tested = false;
+    for block in blocks_observed.iter() {
+        if tested {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(_) = parsed.payload {
+            } else {
+                continue;
+            }
+
+            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+            assert_eq!(parsed.to_string(),
+                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
+                               &spender_addr));
+            tested = true;
+        }
+    }
+
+    assert!(tested);
 
     // let's stack with spender 2 and spender 3...
 
