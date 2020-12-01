@@ -694,10 +694,10 @@ practice, a buffer would probably be used.
   (if (< name 1e5) 1000 100))
 
 (define-map name-map 
-  ((name integer)) ((buyer principal)))
+  { name: uint } { buyer: principal })
 (define-map preorder-map
-  ((name-hash (buffer 160)))
-  ((buyer principal) (paid integer)))
+  { name-hash: (buff 160) }
+  { buyer: principal, paid: uint })
 
 (define-public (preorder 
                (name-hash (buffer 20))

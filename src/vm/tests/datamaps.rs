@@ -30,7 +30,7 @@ fn assert_executes(expected: Result<Value, Error>, input: &str) {
 
 #[test]
 fn test_simple_tea_shop() {
-    let test1 = "(define-map proper-tea ((tea-type int)) ((amount int)))
+    let test1 = "(define-map proper-tea { tea-type: int } { amount: int })
          (define-private (stock (tea int) (amount int))
            (map-set proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define-private (consume (tea int))
@@ -78,7 +78,7 @@ fn test_simple_tea_shop() {
 
 #[test]
 fn test_bound_tuple() {
-    let test = "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store { key: int } { value: int })
          (define-private (kv-add (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
@@ -118,7 +118,7 @@ fn test_bound_tuple() {
 
 #[test]
 fn test_explicit_syntax_tuple() {
-    let test = "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store { key: int } { value: int })
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store (tuple (key key))
@@ -155,7 +155,7 @@ fn test_explicit_syntax_tuple() {
 
 #[test]
 fn test_implicit_syntax_tuple() {
-    let test = "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store { key: int } { value: int })
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store {key: key}
@@ -379,7 +379,7 @@ fn test_set_string_variable() {
 
 #[test]
 fn test_factorial_contract() {
-    let test1 = "(define-map factorials ((id int)) ((current int) (index int)))
+    let test1 = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
            (map-insert factorials {id: id} {current: 1, index: factorial}))
          (define-private (compute (id int))
@@ -427,7 +427,7 @@ fn test_factorial_contract() {
 
 #[test]
 fn silly_naming_system() {
-    let test1 = "(define-map silly-names ((name int)) ((owner int)))
+    let test1 = "(define-map silly-names { name: int } { owner: int })
          (define-private (register (name int) (owner int))
            (if (map-insert silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
@@ -484,7 +484,7 @@ fn datamap_errors() {
 
 #[test]
 fn lists_system_2() {
-    let test = "(define-map lists ((name int)) ((contents (list 5 1 int))))
+    let test = "(define-map lists { name: int } { contents: (list 5 1 int) })
          (define-private (add-list (name int) (content (list 5 1 int)))
            (map-insert lists (tuple (name name))
                                 (tuple (contents content))))
@@ -504,7 +504,7 @@ fn lists_system_2() {
 
 #[test]
 fn lists_system() {
-    let test1 = "(define-map lists ((name int)) ((contents (list 5 int))))
+    let test1 = "(define-map lists { name: int } { contents: (list 5 int) })
          (define-private (add-list (name int) (content (list 5 int)))
            (map-insert lists (tuple (name name))
                                 (tuple (contents content))))
@@ -572,9 +572,9 @@ fn lists_system() {
 
 #[test]
 fn tuples_system() {
-    let test1 = "(define-map tuples ((name int))
-                            ((contents (tuple (name (string-ascii 5))
-                                              (owner (string-ascii 5))))))
+    let test1 = "(define-map tuples { name: int }
+                            { contents: (tuple (name (string-ascii 5))
+                                              (owner (string-ascii 5))) })
 
          (define-private (add-tuple (name int) (content (string-ascii 5)))
            (map-insert tuples (tuple (name name))
@@ -642,17 +642,15 @@ fn tuples_system() {
 #[test]
 fn bad_define_maps() {
     let tests = [
-        "(define-map lists ((name int)) ((contents int bool)))",
-        "(define-map lists ((name int)) (contents bool))",
-        "(define-map lists ((name int)) contents)",
-        "(define-map (lists) ((name int)) contents)",
-        "(define-map lists ((name int)) contents 5)",
-        "(define-map lists ((name int)) ((contents (list 5 0 int))))",
+        "(define-map lists { name: int } (tuple (contents int bool)))",
+        "(define-map lists { name: int } contents)",
+        "(define-map (lists) { name: int } contents)",
+        "(define-map lists { name: int } contents 5)",
+        "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let mut expected: Vec<Error> = vec![
         CheckErrors::BadSyntaxExpectedListOfPairs.into(),
-        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
-        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
+        CheckErrors::UnknownTypeName("contents".to_string()).into(),
         CheckErrors::ExpectedName.into(),
         CheckErrors::IncorrectArgumentCount(3, 4).into(),
         CheckErrors::InvalidTypeDescription.into(),

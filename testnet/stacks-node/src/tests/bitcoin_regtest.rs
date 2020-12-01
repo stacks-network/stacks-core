@@ -280,17 +280,17 @@ fn bitcoind_integration_test() {
             1 => {
                 // On round 1, publish the KV contract
                 // $ cat /tmp/out.clar
-                // (define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+                // (define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
                 // (define-public (get-value (key (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Getting key " key))
-                //         (match (map-get? store ((key key)))
+                //         (match (map-get? store { key: key })
                 //             entry (ok (get value entry))
                 //             (err 0))))
                 // (define-public (set-value (key (string-ascii 32)) (value (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Setting key " key))
-                //         (map-set store ((key key)) ((value value)))
+                //         (map-set store { key: key } { value: value })
                 //         (ok 'true)))
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let header_hash = chain_tip.block.block_hash();

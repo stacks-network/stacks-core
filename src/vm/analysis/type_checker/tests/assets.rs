@@ -52,8 +52,8 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
 
          (define-non-fungible-token names uint)
          (define-map preorder-map
-           ((name-hash (buff 20)))
-           ((buyer principal) (paid uint)))
+           { name-hash: (buff 20) }
+           { buyer: principal, paid: uint })
 
          (define-public (preorder
                         (name-hash (buff 20))
