@@ -6,10 +6,11 @@ use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction,
+    StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
@@ -936,23 +937,32 @@ fn pox_integration_test() {
     // look up the return value of our stacking operation...
     let mut tested = false;
     for block in blocks_observed.iter() {
+        if tested {
+            break;
+        }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         eprintln!("{}", transactions.len());
-        if transactions.len() == 2 {
-            for tx in transactions.iter() {
-                if tx.get("tx_index").unwrap().as_u64().unwrap() != 1 {
-                    continue;
-                }
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                assert_eq!(parsed.to_string(),
-                           format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
-                                   &spender_addr));
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
             }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(_) = parsed.payload {
+            } else {
+                continue;
+            }
+
+            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+            assert_eq!(parsed.to_string(),
+                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
+                               &spender_addr));
             tested = true;
-            continue;
         }
     }
+
     assert!(tested);
 
     // let's stack with spender 2 and spender 3...

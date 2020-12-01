@@ -153,7 +153,7 @@ impl EventObserver {
                     STATUS_RESP_NOT_COMMITTED
                 }
             }
-            (true, Value::Response(response_data)) => STATUS_RESP_POST_CONDITION,
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => unreachable!(), // Transaction results should always be a Value::Response type
         };
 
