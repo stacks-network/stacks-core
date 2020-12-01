@@ -18,9 +18,3 @@
             (map grant-vesting due-schedules)
             (map-delete vesting-schedules { stx-block-height: stx-block-height })
             (ok (len due-schedules)))))
-
-(define-public (register-vesting-schedules (stx-block-height uint) (entries (list 4426 (tuple (beneficiary principal) (ustx-amount uint)))))
-    (begin
-        (asserts! (is-eq block-height u0) (err ERR_UNLOCK_UNREACHABLE))
-        (map-insert vesting-schedules { stx-block-height: stx-block-height } { entries: entries })
-        (ok (len entries))))

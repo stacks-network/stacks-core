@@ -770,6 +770,15 @@ impl Value {
         }
     }
 
+    pub fn expect_list(self) -> Vec<Value> {
+        if let Value::Sequence(SequenceData::List(listdata)) = self {
+            listdata.data
+        } else {
+            error!("Value '{:?}' is not a list", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_buff_padded(self, sz: usize, pad: u8) -> Vec<u8> {
         let mut data = self.expect_buff(sz);
         if sz > data.len() {
