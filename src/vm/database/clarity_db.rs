@@ -739,12 +739,9 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
-        key_type: TupleTypeSignature,
-        value_type: TupleTypeSignature,
+        key_type: TypeSignature,
+        value_type: TypeSignature,
     ) {
-        let key_type = TypeSignature::from(key_type);
-        let value_type = TypeSignature::from(value_type);
-
         let data = DataMapMetadata {
             key_type,
             value_type,
