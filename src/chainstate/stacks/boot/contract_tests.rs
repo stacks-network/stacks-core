@@ -942,7 +942,7 @@ fn cost_voting_tests() {
             "withdraw-votes",
             &symbols_from_values(vec![
                 Value::UInt(0),
-                Value::UInt(15),
+                Value::UInt(5),
             ])).unwrap();
 
         // Assert withdrawal worked
@@ -954,7 +954,35 @@ fn cost_voting_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(0),
                 ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(0)))})
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+        );
+    });
+
+    // Fast forward to proposal expiration
+    for _ in 0..2016 {
+        sim.execute_next_block(|_| { });
+    }
+
+    sim.execute_next_block(|env| {
+        // Withdraw STX after proposal expires
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "withdraw-after-votes",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+            ])).unwrap();
+
+    });
+
+    sim.execute_next_block(|env| {
+        // Assert that stx balance is correct
+        assert_eq!(
+            env.eval_read_only(
+                &COST_VOTING_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
+            ).unwrap().0,
+            Value::UInt(1000000)
         );
     });
 }
