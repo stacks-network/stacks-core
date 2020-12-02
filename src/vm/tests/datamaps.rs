@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::From;
 use std::convert::TryFrom;
 use vm::contexts::OwnedEnvironment;
 use vm::database::MemoryBackingStore;
@@ -24,7 +25,6 @@ use vm::types::{
     TupleTypeSignature, TypeSignature, Value,
 };
 use vm::ClarityName;
-use std::convert::From;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -707,27 +707,30 @@ fn test_combines_tuples() {
 
     let expected = [
         make_tuple(vec![
-            ("a".into(), Value::Int(5)), 
+            ("a".into(), Value::Int(5)),
             ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3))
+            ("c".into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), make_tuple(vec![
-                ("x".into(), Value::Int(5)), 
-                ("y".into(), Value::Int(1)),
-            ])), 
+            (
+                "a".into(),
+                make_tuple(vec![
+                    ("x".into(), Value::Int(5)),
+                    ("y".into(), Value::Int(1)),
+                ]),
+            ),
             ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3))
+            ("c".into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::none()), 
+            ("a".into(), Value::none()),
             ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3))
+            ("c".into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(4)), 
+            ("a".into(), Value::Int(4)),
             ("b".into(), Value::Int(5)),
-            ("c".into(), Value::Int(6))
+            ("c".into(), Value::Int(6)),
         ]),
     ];
 

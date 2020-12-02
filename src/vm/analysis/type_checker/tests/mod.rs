@@ -1556,10 +1556,10 @@ fn test_combine_tuples() {
     ];
 
     let expected = [
-        "(tuple (a int) (b int) (c int))", 
-        "(tuple (a (tuple (x int) (y int))) (b int) (c int))", 
+        "(tuple (a int) (b int) (c int))",
+        "(tuple (a (tuple (x int) (y int))) (b int) (c int))",
         "(tuple (a (optional (tuple (x int) (y int)))) (b int) (c int))",
-        "(tuple (a int) (b int) (c int))",  
+        "(tuple (a int) (b int) (c int))",
     ];
 
     for (will_pass, expected) in ok.iter().zip(expected.iter()) {

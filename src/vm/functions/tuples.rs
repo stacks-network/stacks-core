@@ -86,13 +86,13 @@ pub fn tuple_set(
     let base = eval(&args[0], env, context)?;
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base)))
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base))),
     }?;
-    
+
     let update = eval(&args[1], env, context)?;
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update)))
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update))),
     }?;
 
     let combined = TupleData::deep_merge(initial_values, new_values)?;

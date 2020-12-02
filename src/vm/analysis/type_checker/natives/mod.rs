@@ -164,13 +164,13 @@ fn check_special_set(
     let base = checker.type_check(&args[0], context)?;
     match base {
         TypeSignature::TupleType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedTuple(base.clone()))
+        _ => Err(CheckErrors::ExpectedTuple(base.clone())),
     }?;
-    
+
     let update = checker.type_check(&args[1], context)?;
     match update {
         TypeSignature::TupleType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedTuple(update.clone()))
+        _ => Err(CheckErrors::ExpectedTuple(update.clone())),
     }?;
 
     TypeSignature::least_supertype(&update, &base)?;
