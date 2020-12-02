@@ -262,6 +262,33 @@ fn test_simple_map_list() {
 }
 
 #[test]
+fn test_variadic_map_list() {
+    let test = "(define-private (area (w int) (h int)) (* w h))
+         (map area (list 5 10 1 2) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(25),
+        Value::Int(20),
+        Value::Int(30),
+        Value::Int(6),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(define-private (u+ (a uint) (b int)) (+ a (to-uint b)))
+    (map u+ (list u5 u10 u1 u2) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![
+        Value::UInt(10),
+        Value::UInt(12),
+        Value::UInt(31),
+        Value::UInt(5),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+}
+
+#[test]
 fn test_simple_map_append() {
     let tests = [
         "(append (list 1 2) 6)",
