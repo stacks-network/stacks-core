@@ -154,6 +154,30 @@ fn check_special_get(
     }
 }
 
+fn check_special_set(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let base = checker.type_check(&args[0], context)?;
+    match base {
+        TypeSignature::TupleType(_) => Ok(()),
+        _ => Err(CheckErrors::ExpectedTuple(base.clone()))
+    }?;
+    
+    let update = checker.type_check(&args[1], context)?;
+    match update {
+        TypeSignature::TupleType(_) => Ok(()),
+        _ => Err(CheckErrors::ExpectedTuple(update.clone()))
+    }?;
+
+    TypeSignature::least_supertype(&update, &base)?;
+
+    Ok(base)
+}
+
 pub fn check_special_tuple_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -676,6 +700,7 @@ impl TypedNativeFunction {
             DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
             TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
             TupleGet => Special(SpecialNativeFunction(&check_special_get)),
+            TupleSet => Special(SpecialNativeFunction(&check_special_set)),
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),

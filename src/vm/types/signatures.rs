@@ -678,9 +678,6 @@ impl TypeSignature {
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
-                if types_a.len() != types_b.len() {
-                    return Err(CheckErrors::TypeError(a.clone(), b.clone()));
-                }
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b

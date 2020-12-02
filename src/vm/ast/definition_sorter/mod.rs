@@ -254,6 +254,14 @@ impl<'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }
+                                NativeFunctions::TupleSet => {
+                                    // Args: [expr, expr]: ignore key-name
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
                                     self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(

@@ -75,3 +75,26 @@ pub fn tuple_get(
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into()),
     }
 }
+
+pub fn tuple_set(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let base = eval(&args[0], env, context)?;
+    let initial_values = match base {
+        Value::Tuple(initial_values) => Ok(initial_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base)))
+    }?;
+    
+    let update = eval(&args[1], env, context)?;
+    let new_values = match update {
+        Value::Tuple(new_values) => Ok(new_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update)))
+    }?;
+
+    let combined = TupleData::deep_merge(initial_values, new_values)?;
+    Ok(Value::Tuple(combined))
+}

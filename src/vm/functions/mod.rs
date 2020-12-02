@@ -81,6 +81,7 @@ define_named_enum!(NativeFunctions {
     DeleteEntry("map-delete"),
     TupleCons("tuple"),
     TupleGet("get"),
+    TupleSet("set"),
     Begin("begin"),
     Hash160("hash160"),
     Sha256("sha256"),
@@ -232,6 +233,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
+            TupleSet => SpecialFunction("special_set-tuple", &tuples::tuple_set),
             Begin => NativeFunction(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),
