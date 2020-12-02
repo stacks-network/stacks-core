@@ -629,5 +629,4 @@ fn test_eval_func_arg_panic() {
     let test5 = "(map + (list 1 2 3 4) 2)";
     let e: Error = CheckErrors::ExpectedSequence(IntType).into();
     assert_eq!(e, execute(test5).unwrap_err());
-
 }
