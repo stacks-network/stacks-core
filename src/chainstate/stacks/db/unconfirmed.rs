@@ -51,10 +51,14 @@ pub struct UnconfirmedState {
 
     pub last_mblock: Option<StacksMicroblockHeader>,
     pub last_mblock_seq: u16,
+
+    dirty: bool
 }
 
 impl UnconfirmedState {
-    pub fn new(
+    /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
+    /// call .refresh() to instatiate and store the underlying state trie.
+    fn new(
         chainstate: &StacksChainState,
         tip: StacksBlockId,
     ) -> Result<UnconfirmedState, Error> {
@@ -62,7 +66,7 @@ impl UnconfirmedState {
 
         let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-
+        
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
@@ -73,27 +77,8 @@ impl UnconfirmedState {
 
             last_mblock: None,
             last_mblock_seq: 0,
-        })
-    }
 
-    pub fn open_readonly(
-        chainstate: &StacksChainState,
-        tip: StacksBlockId,
-    ) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
-        let clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
-        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-
-        Ok(UnconfirmedState {
-            confirmed_chain_tip: tip,
-            unconfirmed_chain_tip: unconfirmed_tip,
-            clarity_inst: clarity_instance,
-            considered: HashSet::new(),
-            cost_so_far: ExecutionCost::zero(),
-            bytes_so_far: 0,
-
-            last_mblock: None,
-            last_mblock_seq: u16::max_value(),
+            dirty: false
         })
     }
 
@@ -247,14 +232,46 @@ impl UnconfirmedState {
             None => Ok((0, 0, vec![])),
         }
     }
+
+    /// Is there any state to read?
+    pub fn is_readable(&self) -> bool {
+        self.has_data() && !self.dirty
+    }
+
+    /// Can we write to this unconfirmed state?
+    pub fn is_writable(&self) -> bool {
+        !self.dirty
+    }
+
+    /// Mark this unconfirmed state as "dirty", forcing it to be re-instantiated on the next read
+    /// or write
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+    }
+
+    /// Does the unconfirmed state represent any data?
+    fn has_data(&self) -> bool {
+        self.last_mblock.is_some()
+    }
 }
 
 impl StacksChainState {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
+        if !unconfirmed.has_data() {
+            debug!(
+                "Dropping empty unconfirmed state off of {} ({})",
+                &unconfirmed.confirmed_chain_tip,
+                &unconfirmed.unconfirmed_chain_tip
+            );
+            return;
+        }
+
+        // not empty, so do explicit rollback
         debug!(
-            "Drop unconfirmed state off of {}",
-            &unconfirmed.confirmed_chain_tip
+            "Dropping unconfirmed state off of {} ({})",
+            &unconfirmed.confirmed_chain_tip,
+            &unconfirmed.unconfirmed_chain_tip
         );
         let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
             self.config(),
@@ -264,6 +281,11 @@ impl StacksChainState {
             &unconfirmed.confirmed_chain_tip,
         );
         clarity_tx.rollback_unconfirmed();
+        debug!(
+            "Dropped unconfirmed state off of {} ({})",
+            &unconfirmed.confirmed_chain_tip,
+            &unconfirmed.unconfirmed_chain_tip
+        );
     }
 
     /// Instantiate the unconfirmed state of a given chain tip.
@@ -276,6 +298,7 @@ impl StacksChainState {
         debug!("Make new unconfirmed state off of {}", &anchored_block_id);
         let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
+        debug!("Made new unconfirmed state off of {} (at {})", &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip);
         Ok((unconfirmed_state, fees, burns, receipts))
     }
 
@@ -290,26 +313,39 @@ impl StacksChainState {
         canonical_tip: StacksBlockId,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         debug!("Reload unconfirmed state off of {}", &canonical_tip);
-
+        
         let unconfirmed_state = self.unconfirmed_state.take();
-
         if let Some(mut unconfirmed_state) = unconfirmed_state {
-            if canonical_tip == unconfirmed_state.confirmed_chain_tip {
-                // refresh with latest microblocks
-                let res = unconfirmed_state.refresh(self, burn_dbconn);
-                self.unconfirmed_state = Some(unconfirmed_state);
-                return res;
-            } else {
-                self.unconfirmed_state = Some(unconfirmed_state);
+            if unconfirmed_state.is_readable() {
+                if canonical_tip == unconfirmed_state.confirmed_chain_tip {
+                    // refresh with latest microblocks
+                    let res = unconfirmed_state.refresh(self, burn_dbconn);
+                    debug!("Unconfirmed state off of {} ({}) refreshed", canonical_tip, &unconfirmed_state.unconfirmed_chain_tip);
+
+                    self.unconfirmed_state = Some(unconfirmed_state);
+                    return res;
+                } else {
+                    // got a new tip; will imminently drop
+                    self.unconfirmed_state = Some(unconfirmed_state);
+                }
+            }
+            else {
+                // will need to drop this anyway -- it's dirty, or not instantiated
+                self.drop_unconfirmed_state(unconfirmed_state);
             }
         }
 
-        // tip changed, or we don't have unconfirmed state yet
-        let (new_unconfirmed_state, fees, burns, receipts) =
-            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
+        // tip changed, or we don't have unconfirmed state yet, or we do and it's dirty, or it was
+        // never instantiated anyway
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
+        
+        let (new_unconfirmed_state, fees, burns, receipts) =
+            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
+
+        debug!("Unconfirmed state off of {} reloaded (new unconfirmed tip is {})", canonical_tip, &new_unconfirmed_state.unconfirmed_chain_tip);
+        
         self.unconfirmed_state = Some(new_unconfirmed_state);
         Ok((fees, burns, receipts))
     }
@@ -321,9 +357,15 @@ impl StacksChainState {
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut unconfirmed_state = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state {
+            if !unconfirmed_state.is_readable() {
+                warn!("Unconfirmed state is not readable; it will soon be refreshed");
+                return Ok((0, 0, vec![]));
+            }
+
             debug!(
-                "Refresh unconfirmed state off of {}",
-                &unconfirmed_state.confirmed_chain_tip
+                "Refresh unconfirmed state off of {} ({})",
+                &unconfirmed_state.confirmed_chain_tip,
+                &unconfirmed_state.unconfirmed_chain_tip
             );
             let res = unconfirmed_state.refresh(self, burn_dbconn);
             if res.is_ok() {
@@ -341,44 +383,9 @@ impl StacksChainState {
         res
     }
 
-    /// Refresh the current unconfirmed state in a read-only fashion -- just make sure it's
-    /// pointing to the given stacks block ID.
-    /// Don't apply any new microblocks.
-    pub fn refresh_unconfirmed_state_readonly(
-        &mut self,
-        canonical_tip: StacksBlockId,
-    ) -> Result<(), Error> {
-        debug!(
-            "Refresh read-only unconfirmed state off of {}",
-            &canonical_tip
-        );
-
-        let unconfirmed_state_opt = self.unconfirmed_state.take();
-        if let Some(unconfirmed_state) = unconfirmed_state_opt {
-            if unconfirmed_state.confirmed_chain_tip == canonical_tip {
-                debug!(
-                    "Unconfirmed chain tip is {}",
-                    &unconfirmed_state.unconfirmed_chain_tip
-                );
-                self.unconfirmed_state = Some(unconfirmed_state);
-                Ok(())
-            } else {
-                let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-                debug!(
-                    "New switched-over unconfirmed chain tip is {}",
-                    &new_unconfirmed_state.unconfirmed_chain_tip
-                );
-                self.unconfirmed_state = Some(new_unconfirmed_state);
-                Ok(())
-            }
-        } else {
-            let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-            debug!(
-                "New initially-loaded unconfirmed chain tip is {}",
-                &new_unconfirmed_state.unconfirmed_chain_tip
-            );
-            self.unconfirmed_state = Some(new_unconfirmed_state);
-            Ok(())
+    pub fn set_unconfirmed_dirty(&mut self, dirty: bool) {
+        if let Some(ref mut unconfirmed) = self.unconfirmed_state.as_mut() {
+            unconfirmed.dirty = dirty;
         }
     }
 }
@@ -630,7 +637,7 @@ mod test {
                         clarity_db.get_account_stx_balance(&recv_addr.into())
                     })
                 },
-            );
+            ).unwrap();
             peer.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
@@ -865,7 +872,7 @@ mod test {
                             clarity_db.get_account_stx_balance(&recv_addr.into())
                         })
                     },
-                );
+                ).unwrap();
                 peer.sortdb = Some(sortdb);
 
                 assert_eq!(
