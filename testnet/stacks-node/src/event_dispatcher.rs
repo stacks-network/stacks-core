@@ -1,10 +1,10 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::thread::sleep;
 use std::time::Duration;
+use std::{cell::RefCell, collections::hash_map::Entry};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -207,7 +207,7 @@ impl EventObserver {
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
-        boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
+        boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
     ) {
@@ -222,18 +222,10 @@ impl EventObserver {
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
             serialized_txs.push(payload);
             tx_index += 1;
-        }
-
-        if let Some(boot_receipts) = boot_receipts {
-            for receipt in boot_receipts.iter() {
-                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
-                serialized_txs.push(payload);
-                tx_index += 1;
-            }
         }
 
         // Wrap events
@@ -267,7 +259,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
-    boot_receipts: Vec<StacksTransactionReceipt>,
+    boot_receipts: RefCell<Option<Vec<StacksTransactionReceipt>>>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -320,7 +312,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
-            boot_receipts: vec![],
+            boot_receipts: RefCell::new(None),
         }
     }
 
@@ -373,13 +365,15 @@ impl EventDispatcher {
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
-        let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            Some(&self.boot_receipts)
-        } else {
-            None
-        };
+        let mut boot_receipts = vec![];
+        if chain_tip.metadata.block_height == 1 {
+            let mut boot_receipts_result = self.boot_receipts.borrow_mut();
+            if let Some(mut val) = boot_receipts_result.take() {
+                boot_receipts.append(&mut val);
+            }
+        }
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
@@ -472,7 +466,7 @@ impl EventDispatcher {
                     filtered_events,
                     chain_tip,
                     parent_index_hash,
-                    boot_receipts,
+                    &boot_receipts,
                     &winner_txid,
                     &mature_rewards,
                 );
@@ -503,7 +497,7 @@ impl EventDispatcher {
     }
 
     pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.boot_receipts = receipts;
+        self.boot_receipts = RefCell::new(Some(receipts));
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(

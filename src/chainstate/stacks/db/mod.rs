@@ -773,6 +773,7 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
             println!(
                 "Initializing chain with {} config balances",
                 boot_data.initial_balances.len()
@@ -784,6 +785,13 @@ impl StacksChainState {
                 initial_liquid_ustx = initial_liquid_ustx
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
+                let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                    STXMintEventData {
+                        recipient: address.clone(),
+                        amount: *amount as u128,
+                    },
+                ));
+                allocation_events.push(mint_event);
             }
 
             if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
@@ -802,9 +810,33 @@ impl StacksChainState {
                     initial_liquid_ustx = initial_liquid_ustx
                         .checked_add(balance.amount as u128)
                         .expect("FATAL: liquid STX overflow");
+                    let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                        STXMintEventData {
+                            recipient: balance.address,
+                            amount: balance.amount.into(),
+                        },
+                    ));
+                    allocation_events.push(mint_event);
                 }
                 println!("Done initializing chain with {} balances", balances_count);
             }
+
+            let allocations_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_auth.clone(),
+                TransactionPayload::TokenTransfer(
+                    PrincipalData::Standard(boot_code_address.into()),
+                    0,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            );
+            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
+                allocations_tx,
+                allocation_events,
+                Value::okay_true(),
+                ExecutionCost::zero(),
+            );
+            receipts.push(allocations_receipt);
 
             let mut total_vesting_amount: u128 = 0;
             if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
