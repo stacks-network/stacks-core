@@ -548,7 +548,7 @@ fn main() {
                     &canonical_block_tip,
                 );
                 p2p_chainstate
-                    .refresh_unconfirmed_state_readonly(canonical_tip)
+                    .refresh_unconfirmed_state(canonical_tip, &p2p_new_sortition_db)
                     .expect("Failed to open unconfirmed Clarity state");
 
                 sleep_ms(100);
