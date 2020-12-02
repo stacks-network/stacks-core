@@ -223,9 +223,9 @@ impl<'a> SortitionHandleTx<'a> {
             let per_block = total_reward / INITIAL_MINING_BONUS_WINDOW as u128;
 
             info!("First sortition winner chosen";
-                  "blocks_without_winners" => %blocks_without_winners,
-                  "initial_mining_per_block_reward" => %per_block,
-                  "initial_mining_bonus_block_window" => %INITIAL_MINING_BONUS_WINDOW);
+                  "blocks_without_winners" => blocks_without_winners,
+                  "initial_mining_per_block_reward" => per_block,
+                  "initial_mining_bonus_block_window" => INITIAL_MINING_BONUS_WINDOW);
 
             assert_eq!(snapshot.accumulated_coinbase_ustx, 0,
                        "First block should not have receive additional coinbase before initial reward calculation");

@@ -4197,7 +4197,7 @@ impl StacksChainState {
                 burn_dbconn.context.first_block_height,
             );
 
-            let total_coinbase = coinbase_at_block + accumulated_rewards;
+            let total_coinbase = coinbase_at_block.saturating_add(accumulated_rewards);
 
             // calculate reward for this block's miner
             let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(

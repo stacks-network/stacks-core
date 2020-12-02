@@ -3443,7 +3443,9 @@ impl<'a> SortitionHandleTx<'a> {
             keys.push(db_keys::initial_mining_bonus_per_block().into());
             values.push(initialize_bonus.per_block.to_string());
 
-            let total_reward_remaining = initialize_bonus.total_reward - initialize_bonus.per_block;
+            let total_reward_remaining = initialize_bonus
+                .total_reward
+                .saturating_sub(initialize_bonus.per_block);
             keys.push(db_keys::initial_mining_bonus_remaining().into());
             values.push(total_reward_remaining.to_string());
         } else if parent_snapshot.total_burn > 0 {
