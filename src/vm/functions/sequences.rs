@@ -18,7 +18,8 @@ use std::cmp;
 use std::convert::TryInto;
 use vm::costs::{cost_functions, CostOverflowingMath};
 use vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    RuntimeErrorType,
 };
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
@@ -120,7 +121,7 @@ pub fn special_map(
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
-    
+
     // Let's consider a function f (f a b c ...)
     // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
     // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
@@ -137,10 +138,12 @@ pub fn special_map(
                     }
                 }
             }
-            _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
-        }    
+            _ => {
+                return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+            }
+        }
     }
-    
+
     // We can now apply the map
     let mapped_results: Vec<_> = mapped_func_args
         .into_iter()
