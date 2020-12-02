@@ -155,26 +155,7 @@ impl RunLoop {
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
-        let (network, _) = self.config.burnchain.get_bitcoin_network();
-
-        let burnchain_config = match burnchain_opt {
-            Some(burnchain_config) => burnchain_config.clone(),
-            None => match Burnchain::new(
-                &self.config.get_burn_db_path(),
-                &self.config.burnchain.chain,
-                &network,
-            ) {
-                Ok(burnchain) => burnchain,
-                Err(e) => {
-                    error!("Failed to instantiate burnchain: {}", e);
-                    panic!()
-                }
-            },
-        };
         let chainstate_path = self.config.get_chainstate_path();
-        let first_burnchain_block_hash = burnchain_config.first_block_hash.clone();
-        let first_burnchain_block_height = burnchain_config.first_block_height as u32;
-        let first_burnchain_block_timestamp = burnchain_config.first_block_timestamp;
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let first_block_height = burnchain_config.first_block_height as u128;
@@ -209,10 +190,10 @@ impl RunLoop {
         });
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: None,
-            first_burnchain_block_hash,
-            first_burnchain_block_height,
-            first_burnchain_block_timestamp,
+            post_flight_callback: Some(boot_block),
+            first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
+            first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
+            first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
             get_bulk_initial_vesting_schedules: Some(Box::new(|| {
                 genesis::parse_vesting_schedules()
             })),
