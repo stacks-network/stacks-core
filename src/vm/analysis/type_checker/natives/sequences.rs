@@ -25,7 +25,7 @@ use vm::types::{Value, MAX_VALUE_SIZE};
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use vm::analysis::type_checker::{
-    check_argument_count, no_type, CheckErrors, CheckResult, TypeChecker, TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, no_type, CheckErrors, CheckResult, TypeChecker, TypeResult, TypingContext,
 };
 
 use vm::costs::{analysis_typecheck_cost, cost_functions};
@@ -55,7 +55,7 @@ pub fn check_special_map(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_argument_count(2, args)?;
+    check_arguments_at_least(2, args)?;
 
     let function_name = args[0]
         .match_atom()
@@ -65,31 +65,49 @@ pub fn check_special_map(
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
     runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
-    let argument_type = checker.type_check(&args[1], context)?;
+    
+    let mut func_args = vec![];
+    let mut min_args = u32::MAX;
+    let mut max_args = u32::MIN;
+    for arg in args[1..].iter() {
+        let argument_type = checker.type_check(&arg, context)?;
+        let entry_type = match argument_type {
+            TypeSignature::SequenceType(sequence) => {
+                let (entry_type, len) = match sequence {
+                    ListType(list_data) => {
+                        list_data.destruct()
+                    }
+                    BufferType(buffer_data) => {
+                        (TypeSignature::min_buffer(), buffer_data.into())
+                    }
+                    StringType(ASCII(ascii_data)) => {
+                        (TypeSignature::min_string_ascii(), ascii_data.into())
+                    }
+                    StringType(UTF8(utf8_data)) => {
+                        (TypeSignature::min_string_utf8(), utf8_data.into())
+                    }
+                };
+                min_args = min_args.min(len);
+                max_args = max_args.max(len);
+                entry_type
+            }
+            _ => {
+                // Note: we could, if we want, enable this:
+                // (map + (list 1 1 1) 1) -> (list 2 2 2)
+                // However that could lead to confusions when combining certain types:
+                // ex: (map concat (list "hello " "hi ") "world") would fail, because
+                // strings are handled as sequences.
+                return Err(CheckErrors::ExpectedSequence(argument_type).into())
+            }
+        };
+        func_args.push(entry_type);
+    }
+    if min_args != max_args {
+        return Err(CheckErrors::IncorrectArgumentCount(min_args as usize, max_args as usize).into())
+    }
 
-    let (mapped_type, len) = match argument_type {
-        TypeSignature::SequenceType(ListType(list_data)) => {
-            let (arg_items_type, arg_length) = list_data.destruct();
-            let mapped_type = function_type.check_args(checker, &[arg_items_type])?;
-            (mapped_type, arg_length)
-        }
-        TypeSignature::SequenceType(BufferType(buffer_data)) => {
-            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_buffer()])?;
-            (mapped_type, buffer_data.into())
-        }
-        TypeSignature::SequenceType(StringType(ASCII(ascii_data))) => {
-            let mapped_type =
-                function_type.check_args(checker, &[TypeSignature::min_string_ascii()])?;
-            (mapped_type, ascii_data.into())
-        }
-        TypeSignature::SequenceType(StringType(UTF8(utf8_data))) => {
-            let mapped_type =
-                function_type.check_args(checker, &[TypeSignature::min_string_utf8()])?;
-            (mapped_type, utf8_data.into())
-        }
-        _ => return Err(CheckErrors::ExpectedSequence(argument_type).into()),
-    };
-    TypeSignature::list_of(mapped_type, len)
+    let mapped_type = function_type.check_args(checker, &func_args)?;
+    TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
 
