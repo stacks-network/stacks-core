@@ -42,7 +42,7 @@ pub mod docs;
 #[cfg(test)]
 pub mod tests;
 
-use vm::callables::CallableType;
+use vm::callables::{CallableType, ArgumentsLength};
 use vm::contexts::GlobalContext;
 use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
 use vm::costs::{

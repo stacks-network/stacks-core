@@ -286,6 +286,28 @@ fn test_variadic_map_list() {
     ])
     .unwrap();
     assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(map + (list 5 10) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(10),
+        Value::Int(12),
+        Value::Int(30),
+        Value::Int(3),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(map pow (list 2 2 2 2) (list 1 2 3 4 5 6 7))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(2),
+        Value::Int(4),
+        Value::Int(8),
+        Value::Int(16),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
 }
 
 #[test]

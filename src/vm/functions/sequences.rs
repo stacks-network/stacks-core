@@ -26,7 +26,7 @@ use vm::types::{
     signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
     TypeSignature::BoolType, Value,
 };
-use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use vm::{apply, eval, lookup_function, CallableType, ArgumentsLength, Environment, LocalContext};
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -121,7 +121,8 @@ pub fn special_map(
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
-
+    let app_args_len = function.get_application_args_len()
+        .ok_or(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.to_string()))?;
     // Let's consider a function f (f a b c ...)
     // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
     // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
@@ -145,10 +146,20 @@ pub fn special_map(
     }
 
     // We can now apply the map
-    let mapped_results: Vec<_> = mapped_func_args
-        .into_iter()
-        .map(|arguments| apply(&function, &arguments, env, context))
-        .collect::<Result<Vec<_>>>()?;
+    let mut mapped_results = vec![];
+    for arguments in mapped_func_args.iter() {
+        // If the number of parameters is fixed (vs variadic), we 
+        // continue the execution as long as enough arguments are
+        // provided by the sequecences.
+        // Variadic application will exhaust the longest sequence.
+        if let ArgumentsLength::Fixed(len) = app_args_len {
+            if arguments.len() != len {
+                break
+            }
+        }
+        let res = apply(&function, &arguments, env, context)?;
+        mapped_results.push(res);
+    }
 
     Value::list_from(mapped_results)
 }
