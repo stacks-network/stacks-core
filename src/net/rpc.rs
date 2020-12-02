@@ -181,9 +181,16 @@ impl RPCPeerInfoData {
         let stacks_tip_consensus_hash = burnchain_tip.canonical_stacks_tip_consensus_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
-        let unconfirmed_tip = match chainstate.unconfirmed_state {
-            Some(ref unconfirmed) => unconfirmed.unconfirmed_chain_tip.clone(),
-            None => StacksBlockId([0x00; 32]),
+        let (unconfirmed_tip, unconfirmed_seq) = match chainstate.unconfirmed_state {
+            Some(ref unconfirmed) => {
+                if unconfirmed.is_readable() {
+                    (unconfirmed.unconfirmed_chain_tip.clone(), unconfirmed.last_mblock_seq)
+                }
+                else {
+                    (StacksBlockId([0x00; 32]), 0)
+                }
+            },
+            None => (StacksBlockId([0x00; 32]), 0)
         };
 
         Ok(RPCPeerInfoData {
@@ -199,6 +206,7 @@ impl RPCPeerInfoData {
             stacks_tip,
             stacks_tip_consensus_hash: stacks_tip_consensus_hash.to_hex(),
             unanchored_tip: unconfirmed_tip,
+            unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
         })
     }
@@ -220,7 +228,7 @@ impl RPCPoxInfoData {
             clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
                 env.execute_contract(&contract_identifier, function, &vec![], true)
             })
-        });
+        }).ok_or(net_error::NotFoundError)?;
 
         let res = match data {
             Ok(res) => res.expect_result_ok().expect_tuple(),
@@ -852,7 +860,7 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let response = match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
                 let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
@@ -888,9 +896,13 @@ impl ConversationHttp {
                     nonce_proof,
                 }
             })
-        });
-
-        let response = HttpResponseType::GetAccount(response_metadata, data);
+        }) {
+            Some(data) => HttpResponseType::GetAccount(response_metadata, data),
+            None => HttpResponseType::NotFound(
+                response_metadata,
+                "Chain tip not found".into(),
+            )
+        };
 
         response.send(http, fd).map(|_| ())
     }
@@ -914,7 +926,7 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let response = match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(
                     &contract_identifier,
@@ -942,9 +954,13 @@ impl ConversationHttp {
                 let data = format!("0x{}", value.serialize());
                 MapEntryResponse { data, marf_proof }
             })
-        });
-
-        let response = HttpResponseType::GetMapEntry(response_metadata, data);
+        }) {
+            Some(data) => HttpResponseType::GetMapEntry(response_metadata, data),
+            None => HttpResponseType::NotFound(
+                response_metadata,
+                "Chain tip not found".into(),
+            )
+        };
 
         response.send(http, fd).map(|_| ())
     }
@@ -976,26 +992,29 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data_opt = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })
         });
 
-        let response = match data {
-            Ok(data) => CallReadOnlyResponse {
+        let response = match data_opt {
+            Some(Ok(data)) => HttpResponseType::CallReadOnlyFunction(response_metadata, CallReadOnlyResponse {
                 okay: true,
                 result: Some(format!("0x{}", data.serialize())),
                 cause: None,
-            },
-            Err(e) => CallReadOnlyResponse {
+            }),
+            Some(Err(e)) => HttpResponseType::CallReadOnlyFunction(response_metadata, CallReadOnlyResponse {
                 okay: false,
                 result: None,
                 cause: Some(e.to_string()),
-            },
+            }),
+            None => HttpResponseType::NotFound(
+                response_metadata,
+                "Chain tip not found".into(),
+            )
         };
 
-        let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
         response.send(http, fd).map(|_| ())
     }
 
@@ -1016,7 +1035,7 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let response = match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
                 let source = db.get_contract_src(&contract_identifier)?;
                 let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
@@ -1035,14 +1054,16 @@ impl ConversationHttp {
                     marf_proof,
                 })
             })
-        });
-
-        let response = match data {
-            Some(data) => HttpResponseType::GetContractSrc(response_metadata, data),
+        }) {
+            Some(Some(data)) => HttpResponseType::GetContractSrc(response_metadata, data),
+            Some(None) => HttpResponseType::NotFound(
+                response_metadata,
+                "No contract source data found".into()
+            ),
             None => HttpResponseType::NotFound(
                 response_metadata,
-                "No contract source data found".into(),
-            ),
+                "Chain tip not found".into(),
+            )
         };
 
         response.send(http, fd).map(|_| ())
@@ -1067,19 +1088,21 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let response = match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_analysis_db_readonly(|db| {
                 let contract = db.load_contract(&contract_identifier)?;
                 contract.contract_interface
             })
-        });
-
-        let response = match data {
-            Some(data) => HttpResponseType::GetContractABI(response_metadata, data),
+        }) {
+            Some(Some(data)) => HttpResponseType::GetContractABI(response_metadata, data),
+            Some(None) => HttpResponseType::NotFound(
+                response_metadata,
+                "No contract interface data found".into()
+            ),
             None => HttpResponseType::NotFound(
                 response_metadata,
-                "No contract interface data found".into(),
-            ),
+                "Chain tip not found".into(),
+            )
         };
 
         response.send(http, fd).map(|_| ())
