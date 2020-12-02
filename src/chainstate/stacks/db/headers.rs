@@ -310,4 +310,18 @@ impl StacksChainState {
         let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
         Ok(rows.pop())
     }
+
+    /// Is this block present and processed?
+    pub fn has_stacks_block(
+        conn: &Connection,
+        block_id: &StacksBlockId,
+    ) -> Result<bool, Error> {
+        let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[block_id];
+        Ok(conn
+            .query_row(sql, args, |_r| ())
+            .optional()
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
+            .is_some())
+    }
 }
