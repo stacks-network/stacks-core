@@ -271,6 +271,110 @@ fn bitcoind_integration_test() {
 
 #[test]
 #[ignore]
+fn bitcoind_forking_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    assert_eq!(res.nonce, 7);
+
+    // okay, let's figure out the burn block we want to fork away.
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_regtest_controller.build_next_block(5);
+
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // the fork reduced our block height
+    assert_eq!(res.nonce, 2);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // but we're able to keep on mining
+    assert_eq!(res.nonce, 3);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn microblock_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
