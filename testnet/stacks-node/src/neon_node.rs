@@ -423,6 +423,7 @@ fn try_mine_microblock(
                         }
                     }
                 }
+                microblock_miner.last_mined = get_epoch_time_ms();
                 microblock_miner_state.replace(microblock_miner);
             }
             // otherwise, we're not the sortition winner, and the microblock miner state can be
@@ -690,7 +691,7 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
-                    debug!("Relayer: Process tenure");
+                    debug!("Relayer: Process tenure {}/{} in {}", &consensus_hash, &block_header_hash, &burn_hash);
                     for (last_mined_block, microblock_privkey) in last_mined_blocks.drain(..) {
                         let AssembledAnchorBlock {
                             parent_consensus_hash,
@@ -1187,7 +1188,7 @@ impl InitializedNeonNode {
                         &stacks_tip.anchored_block_hash,
                     ),
                     |conn| StacksChainState::get_account(conn, &principal),
-                );
+                ).expect(&format!("BUG: stacks tip block {}/{} no longer exists after we queried it", &stacks_tip.consensus_hash, &stacks_tip.anchored_block_hash));
                 account.nonce
             };
 
@@ -1225,25 +1226,63 @@ impl InitializedNeonNode {
 
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {
-            let mut best_attempt = 1;
+            let mut best_attempt = 0;
+            debug!("Consider {} in-flight Stacks tip(s)", &last_mined_blocks.len());
             for prev_block in last_mined_blocks.iter() {
+                debug!("Consider in-flight Stacks tip {}/{} in {}", &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, &prev_block.my_burn_hash);
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash
                     && prev_block.anchored_block.header.parent_block
                         == stacks_parent_header.anchored_header.block_hash()
                 {
-                    // the chain tip hasn't changed since we attempted to build a block.  Use what we
-                    // already have.
-                    debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {})",
-                           &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
-                           prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
+                    // the anchored chain tip hasn't changed since we attempted to build a block.
+                    // But, have discovered any new microblocks worthy of being mined?
+                    if let Ok(Some(stream)) = StacksChainState::load_descendant_staging_microblock_stream(
+                        chain_state.db(),
+                        &StacksBlockHeader::make_index_block_hash(
+                            &prev_block.parent_consensus_hash,
+                            &stacks_parent_header.anchored_header.block_hash()
+                        ),
+                        0,
+                        u16::MAX
+                    ) {
+                        if stream.len() <= prev_block.anchored_block.header.parent_microblock_sequence as usize {
+                            // the chain tip hasn't changed since we attempted to build a block.  Use what we
+                            // already have.
+                            debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no new microblocks ({} <= {})",
+                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
-                    return None;
-                } else {
-                    best_attempt = cmp::max(best_attempt, prev_block.attempt + 1);
+                            return None;
+                        }
+                        else {
+                            // there are new microblocks!
+                            // TODO: only consider rebuilding our anchored block if we (a) have
+                            // time, and (b) the new microblocks are worth more than the new BTC
+                            // fee minus the old BTC fee
+                            debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), but there are new microblocks ({} > {})",
+                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
+
+                            best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                        }
+                    }
+                    else {
+                        // no microblock stream to confirm, and the stacks tip hasn't changed
+                        debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no microblocks present",
+                               &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                               prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
+
+                        return None;
+                    }
+                }
+                else {
+                    debug!("Stacks tip has changed since we last tried to mine a block in {} at burn height {}; attempt was {} (for {}/{})",
+                           prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
+                    best_attempt = cmp::max(best_attempt, prev_block.attempt);
                 }
             }
-            best_attempt
+            best_attempt + 1
         };
 
         // Generates a proof out of the sortition hash provided in the params.
@@ -1416,7 +1455,14 @@ impl InitializedNeonNode {
             sunset_burn,
         );
         let mut op_signer = keychain.generate_op_signer();
-        bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
+
+        debug!("Submit block-commit for block {} off of {}/{}", &anchored_block.block_hash(), &parent_consensus_hash, &anchored_block.header.parent_block);
+
+        let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
+        if !res {
+            warn!("Failed to submit Bitcoin transaction");
+            return None;
+        }
 
         Some((
             AssembledAnchorBlock {
