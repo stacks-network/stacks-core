@@ -4825,7 +4825,7 @@ impl StacksChainState {
 
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        let res = self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
+        let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(
                 mempool_conn,
                 conn,
@@ -4834,7 +4834,11 @@ impl StacksChainState {
                 tx,
                 tx_size,
             )
-        });
+        }) {
+            Some(r) => r,
+            None => Err(MemPoolRejection::NoSuchChainTip(current_consensus_hash.clone(), current_block.clone()))
+        };
+
         match res {
             Ok(x) => Ok(x),
             Err(MemPoolRejection::BadNonces(mismatch_error)) => {
