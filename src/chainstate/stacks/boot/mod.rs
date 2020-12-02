@@ -860,7 +860,8 @@ pub mod test {
             )
             (begin
                 ;; take the stx from the tx-sender
-                (stx-transfer? amount-ustx tx-sender this-contract)
+                
+                (unwrap-panic (stx-transfer? amount-ustx tx-sender this-contract))
 
                 ;; this contract stacks the stx given to it
                 (as-contract
@@ -874,8 +875,9 @@ pub mod test {
                 (recipient tx-sender)
             )
             (begin
-                (as-contract
-                    (stx-transfer? amount-ustx tx-sender recipient))
+                (unwrap-panic
+                    (as-contract
+                        (stx-transfer? amount-ustx tx-sender recipient)))
                 (ok true)
             ))
         )
@@ -2950,7 +2952,7 @@ pub mod test {
                             0,
                             "charlie-test",
                             &format!(
-                                "(begin (stx-transfer? u1 tx-sender '{}))",
+                                "(begin (unwrap-panic (stx-transfer? u1 tx-sender '{})))",
                                 &key_to_stacks_addr(&alice)
                             ),
                         );
