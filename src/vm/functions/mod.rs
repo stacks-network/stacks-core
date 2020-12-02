@@ -27,7 +27,9 @@ pub mod tuples;
 
 use util::hash;
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -42,6 +44,7 @@ use vm::{eval, Environment, LocalContext};
 
 use address::AddressHashMode;
 use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
 pub use vm::functions::special::handle_contract_call_special_cases;
 
@@ -59,6 +62,7 @@ define_named_enum!(NativeFunctions {
     Modulo("mod"),
     Power("pow"),
     Sqrti("sqrti"),
+    Log2("log2"),
     BitwiseXOR("xor"),
     And("and"),
     Or("or"),
@@ -131,84 +135,89 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Add => NativeFunction(
                 "native_add",
                 NativeHandle::MoreArg(&arithmetic::native_add),
-                cost_functions::ADD,
+                ClarityCostFunction::Add,
             ),
             Subtract => NativeFunction(
                 "native_sub",
                 NativeHandle::MoreArg(&arithmetic::native_sub),
-                cost_functions::SUB,
+                ClarityCostFunction::Sub,
             ),
             Multiply => NativeFunction(
                 "native_mul",
                 NativeHandle::MoreArg(&arithmetic::native_mul),
-                cost_functions::MUL,
+                ClarityCostFunction::Mul,
             ),
             Divide => NativeFunction(
                 "native_div",
                 NativeHandle::MoreArg(&arithmetic::native_div),
-                cost_functions::DIV,
+                ClarityCostFunction::Div,
             ),
             CmpGeq => NativeFunction(
                 "native_geq",
                 NativeHandle::DoubleArg(&arithmetic::native_geq),
-                cost_functions::GEQ,
+                ClarityCostFunction::Geq,
             ),
             CmpLeq => NativeFunction(
                 "native_leq",
                 NativeHandle::DoubleArg(&arithmetic::native_leq),
-                cost_functions::LEQ,
+                ClarityCostFunction::Leq,
             ),
             CmpLess => NativeFunction(
                 "native_le",
                 NativeHandle::DoubleArg(&arithmetic::native_le),
-                cost_functions::LE,
+                ClarityCostFunction::Le,
             ),
             CmpGreater => NativeFunction(
                 "native_ge",
                 NativeHandle::DoubleArg(&arithmetic::native_ge),
-                cost_functions::GE,
+                ClarityCostFunction::Ge,
             ),
             ToUInt => NativeFunction(
                 "native_to_uint",
                 NativeHandle::SingleArg(&arithmetic::native_to_uint),
-                cost_functions::INT_CAST,
+                ClarityCostFunction::IntCast,
             ),
             ToInt => NativeFunction(
                 "native_to_int",
                 NativeHandle::SingleArg(&arithmetic::native_to_int),
-                cost_functions::INT_CAST,
+                ClarityCostFunction::IntCast,
             ),
             Modulo => NativeFunction(
                 "native_mod",
                 NativeHandle::DoubleArg(&arithmetic::native_mod),
-                cost_functions::MOD,
+                ClarityCostFunction::Mod,
             ),
             Power => NativeFunction(
                 "native_pow",
                 NativeHandle::DoubleArg(&arithmetic::native_pow),
-                cost_functions::POW,
+                ClarityCostFunction::Pow,
             ),
             Sqrti => NativeFunction(
                 "native_sqrti",
                 NativeHandle::SingleArg(&arithmetic::native_sqrti),
-                cost_functions::SQRTI,
+                ClarityCostFunction::Sqrti,
+            ),
+            Log2 => NativeFunction(
+                "native_log2",
+                NativeHandle::SingleArg(&arithmetic::native_log2),
+                ClarityCostFunction::Log2,
             ),
             BitwiseXOR => NativeFunction(
                 "native_xor",
                 NativeHandle::DoubleArg(&arithmetic::native_xor),
-                cost_functions::XOR,
+                ClarityCostFunction::Xor,
             ),
             And => SpecialFunction("special_and", &boolean::special_and),
             Or => SpecialFunction("special_or", &boolean::special_or),
             Not => NativeFunction(
                 "native_not",
                 NativeHandle::SingleArg(&boolean::native_not),
-                cost_functions::NOT,
+                ClarityCostFunction::Not,
             ),
             Equals => NativeFunction(
                 "native_eq",
                 NativeHandle::MoreArg(&native_eq),
-                cost_functions::EQ,
+                ClarityCostFunction::Eq,
             ),
             If => SpecialFunction("special_if", &special_if),
             Let => SpecialFunction("special_let", &special_let),
@@ -223,7 +232,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Len => NativeFunction(
                 "native_len",
                 NativeHandle::SingleArg(&sequences::native_len),
-                cost_functions::LEN,
+                ClarityCostFunction::Len,
             ),
             ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
@@ -235,32 +244,32 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Begin => NativeFunction(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),
-                cost_functions::BEGIN,
+                ClarityCostFunction::Begin,
             ),
             Hash160 => NativeFunction(
                 "native_hash160",
                 NativeHandle::SingleArg(&crypto::native_hash160),
-                cost_functions::HASH160,
+                ClarityCostFunction::Hash160,
             ),
             Sha256 => NativeFunction(
                 "native_sha256",
                 NativeHandle::SingleArg(&crypto::native_sha256),
-                cost_functions::SHA256,
+                ClarityCostFunction::Sha256,
             ),
             Sha512 => NativeFunction(
                 "native_sha512",
                 NativeHandle::SingleArg(&crypto::native_sha512),
-                cost_functions::SHA512,
+                ClarityCostFunction::Sha512,
             ),
             Sha512Trunc256 => NativeFunction(
                 "native_sha512trunc256",
                 NativeHandle::SingleArg(&crypto::native_sha512trunc256),
-                cost_functions::SHA512T256,
+                ClarityCostFunction::Sha512t256,
             ),
             Keccak256 => NativeFunction(
                 "native_keccak256",
                 NativeHandle::SingleArg(&crypto::native_keccak256),
-                cost_functions::KECCAK256,
+                ClarityCostFunction::Keccak256,
             ),
             Secp256k1Recover => SpecialFunction(
                 "native_secp256k1-recover",
@@ -282,69 +291,69 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ConsSome => NativeFunction(
                 "native_some",
                 NativeHandle::SingleArg(&options::native_some),
-                cost_functions::SOME_CONS,
+                ClarityCostFunction::SomeCons,
             ),
             ConsOkay => NativeFunction(
                 "native_okay",
                 NativeHandle::SingleArg(&options::native_okay),
-                cost_functions::OK_CONS,
+                ClarityCostFunction::OkCons,
             ),
             ConsError => NativeFunction(
                 "native_error",
                 NativeHandle::SingleArg(&options::native_error),
-                cost_functions::ERR_CONS,
+                ClarityCostFunction::ErrCons,
             ),
             DefaultTo => NativeFunction(
                 "native_default_to",
                 NativeHandle::DoubleArg(&options::native_default_to),
-                cost_functions::DEFAULT_TO,
+                ClarityCostFunction::DefaultTo,
             ),
             Asserts => SpecialFunction("special_asserts", &special_asserts),
             UnwrapRet => NativeFunction(
                 "native_unwrap_ret",
                 NativeHandle::DoubleArg(&options::native_unwrap_or_ret),
-                cost_functions::UNWRAP_RET,
+                ClarityCostFunction::UnwrapRet,
             ),
             UnwrapErrRet => NativeFunction(
                 "native_unwrap_err_ret",
                 NativeHandle::DoubleArg(&options::native_unwrap_err_or_ret),
-                cost_functions::UNWRAP_ERR_OR_RET,
+                ClarityCostFunction::UnwrapErrOrRet,
             ),
             IsOkay => NativeFunction(
                 "native_is_okay",
                 NativeHandle::SingleArg(&options::native_is_okay),
-                cost_functions::IS_OKAY,
+                ClarityCostFunction::IsOkay,
             ),
             IsNone => NativeFunction(
                 "native_is_none",
                 NativeHandle::SingleArg(&options::native_is_none),
-                cost_functions::IS_NONE,
+                ClarityCostFunction::IsNone,
             ),
             IsErr => NativeFunction(
                 "native_is_err",
                 NativeHandle::SingleArg(&options::native_is_err),
-                cost_functions::IS_ERR,
+                ClarityCostFunction::IsErr,
             ),
             IsSome => NativeFunction(
                 "native_is_some",
                 NativeHandle::SingleArg(&options::native_is_some),
-                cost_functions::IS_SOME,
+                ClarityCostFunction::IsSome,
             ),
             Unwrap => NativeFunction(
                 "native_unwrap",
                 NativeHandle::SingleArg(&options::native_unwrap),
-                cost_functions::UNWRAP,
+                ClarityCostFunction::Unwrap,
             ),
             UnwrapErr => NativeFunction(
                 "native_unwrap_err",
                 NativeHandle::SingleArg(&options::native_unwrap_err),
-                cost_functions::UNWRAP_ERR,
+                ClarityCostFunction::UnwrapErr,
             ),
             Match => SpecialFunction("special_match", &options::special_match),
             TryRet => NativeFunction(
                 "native_try_ret",
                 NativeHandle::SingleArg(&options::native_try_ret),
-                cost_functions::TRY_RET,
+                ClarityCostFunction::TryRet,
             ),
             MintAsset => SpecialFunction("special_mint_asset", &assets::special_mint_asset),
             MintToken => SpecialFunction("special_mint_token", &assets::special_mint_token),
@@ -402,7 +411,7 @@ fn special_print(
 ) -> Result<Value> {
     let input = eval(&args[0], env, context)?;
 
-    runtime_cost!(cost_functions::PRINT, env, input.size())?;
+    runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
     if cfg!(feature = "developer-mode") {
         eprintln!("{}", &input);
@@ -419,7 +428,7 @@ fn special_if(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    runtime_cost!(cost_functions::IF, env, 0)?;
+    runtime_cost(ClarityCostFunction::If, env, 0)?;
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
     match conditional {
@@ -441,7 +450,7 @@ fn special_asserts(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::ASSERTS, env, 0)?;
+    runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
 
@@ -512,7 +521,7 @@ fn special_let(
     // parse and eval the bindings.
     let bindings = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
 
-    runtime_cost!(cost_functions::LET, env, bindings.len())?;
+    runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
@@ -580,7 +589,7 @@ fn special_contract_of(
     // arg0 => trait
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::CONTRACT_OF, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractOf, env, 0)?;
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
