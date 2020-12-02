@@ -213,7 +213,6 @@ pub fn setup_states(
 
     let block_limit = ExecutionCost::max_value();
     let initial_balances = initial_balances.unwrap_or(vec![]);
-
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 

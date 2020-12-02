@@ -814,7 +814,9 @@ impl StacksChainState {
                 let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
                 let lockup_contract_id = boot_code_id("lockup");
                 for schedule in initial_vesting_schedules {
-                    total_vesting_amount = total_vesting_amount.checked_add(schedule.amount as u128).expect("FATAL: vesting STX overflow");
+                    total_vesting_amount = total_vesting_amount
+                        .checked_add(schedule.amount as u128)
+                        .expect("FATAL: vesting STX overflow");
                     vesting_schedule_count = vesting_schedule_count + 1;
                     let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                     let index = value + 1;
@@ -873,7 +875,10 @@ impl StacksChainState {
                 );
             }
 
-            println!("Credit lockup contract with balance {}", total_vesting_amount);
+            println!(
+                "Credit lockup contract with balance {}",
+                total_vesting_amount
+            );
             clarity_tx.connection().as_transaction(|clarity| {
                 StacksChainState::account_genesis_credit(
                     clarity,
