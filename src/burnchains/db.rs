@@ -117,7 +117,6 @@ CREATE TABLE burnchain_db_block_headers (
     parent_block_hash TEXT NOT NULL,
     num_txs INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
-    valid INTEGER NOT NULL,
 
     PRIMARY KEY(block_hash)
 );
@@ -136,8 +135,8 @@ impl<'a> BurnchainDBTransaction<'a> {
         header: &BurnchainBlockHeader,
     ) -> Result<i64, BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_headers
-                   (block_height, block_hash, parent_block_hash, num_txs, timestamp, valid)
-                   VALUES (?, ?, ?, ?, ?, 1)";
+                   (block_height, block_hash, parent_block_hash, num_txs, timestamp)
+                   VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(header.block_height)?,
             &header.block_hash,
@@ -250,15 +249,9 @@ impl BurnchainDB {
     }
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
-        let qry = "SELECT * FROM burnchain_db_block_headers WHERE valid = 1 ORDER BY block_height DESC, block_hash ASC LIMIT 1";
+        let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
-    }
-
-    pub fn invalidate_headers(&self, greater_than_height: u64) -> Result<(), BurnchainError> {
-        let qry = "UPDATE burnchain_db_block_headers SET valid = 0 WHERE block_height > ?";
-        self.conn.execute(qry, &[greater_than_height as i64])?;
-        Ok(())
     }
 
     pub fn get_burnchain_block(

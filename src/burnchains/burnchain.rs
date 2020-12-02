@@ -971,7 +971,6 @@ impl Burnchain {
                 sync_height
             );
             indexer.drop_headers(sync_height)?;
-            //            burnchain_db.invalidate_headers(sync_height)?;
         }
 
         // get latest headers.
