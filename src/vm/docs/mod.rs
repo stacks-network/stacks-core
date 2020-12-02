@@ -448,12 +448,14 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A) -> B, (list A)",
-    output_type: "(list B)",
-    signature: "(map func list)",
+    input_type: "Function(A) -> B, (list A), (list B), ...",
+    output_type: "(list X)",
+    signature: "(map func list-a list-b ...)",
     description: "The `map` function applies the input function `func` to each element of the
-input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns (false true false true)",
+input lists, and outputs a list containing the _outputs_ from those function applications.",
+    example: "
+(map not (list true false true false)) ;; Returns (false true false true)
+(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)",
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
