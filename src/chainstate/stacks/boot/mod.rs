@@ -665,7 +665,7 @@ pub mod test {
                 &sortdb.index_conn(),
                 &stacks_block_id,
                 |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
-            )
+            ).unwrap()
         });
         account
     }
@@ -680,7 +680,7 @@ pub mod test {
                 &sortdb.index_conn(),
                 &stacks_block_id,
                 |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
-            )
+            ).unwrap()
         });
         contract_opt
     }
