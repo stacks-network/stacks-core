@@ -1547,6 +1547,43 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
 }
 
 #[test]
+fn test_combine_tuples() {
+    let ok = [
+        "(set { a: 1, b: 2, c: 3 } { a: 1 })",
+        "(set { a: { x: 0, y: 1 }, b: 2, c: 3 } { a: { x: 5 } })",
+        "(set { a: (some { x: 0, y: 1 }), b: 2, c: 3 } { a: none })",
+        "(set { a: 1, b: 2, c: 3 } { a: 4, b: 5, c: 6 })",
+    ];
+
+    let expected = [
+        "(tuple (a int) (b int) (c int))", 
+        "(tuple (a (tuple (x int) (y int))) (b int) (c int))", 
+        "(tuple (a (optional (tuple (x int) (y int)))) (b int) (c int))",
+        "(tuple (a int) (b int) (c int))",  
+    ];
+
+    for (will_pass, expected) in ok.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(will_pass).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    let nok = [
+        "(set { a: 1, b: 2, c: 3 } { d: 1 })",
+        "(set { a: { x: 0, y: 1 }, b: 2, c: 3 } { a: { x: 5, z: 0 } })",
+        "(set { a: 1, b: 2, c: 3 } { a: u1 })",
+    ];
+
+    for will_fail in nok.iter() {
+        assert!(match mem_type_check(will_fail).unwrap_err().err {
+            CheckErrors::TypeError(_, _) => true,
+            _ => false,
+        });
+    }
+
+    mem_type_check("(set { a: 1, b: 2, c: 3 } 5)").unwrap_err();
+}
+
+#[test]
 fn test_tuple_map() {
     let t = "(define-map tuples { name: int }
                             { contents: (tuple (name (buff 5))
@@ -1648,6 +1685,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
     let cases = [
         "map-get? kv-store { incomptible-key: key }",
         "map-get? kv-store { key: true }",
+        "map-get? kv-store true",
         "map-get? kv-store (incompatible-tuple)",
     ];
 

@@ -23,6 +23,8 @@ use vm::types::{
     ListData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value,
 };
+use vm::ClarityName;
+use std::convert::From;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -687,5 +689,49 @@ fn bad_tuples() {
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err.into());
+    }
+}
+
+fn make_tuple(entries: Vec<(ClarityName, Value)>) -> Value {
+    Value::Tuple(TupleData::from_data(entries).unwrap())
+}
+
+#[test]
+fn test_combines_tuples() {
+    let ok = [
+        "(set { a: 1, b: 2, c: 3 } { a: 5 })",
+        "(set { a: { x: 0, y: 1 }, b: 2, c: 3 } { a: { x: 5 } })",
+        "(set { a: (some { x: 0, y: 1 }), b: 2, c: 3 } { a: none })",
+        "(set { a: 1, b: 2, c: 3 } { a: 4, b: 5, c: 6 })",
+    ];
+
+    let expected = [
+        make_tuple(vec![
+            ("a".into(), Value::Int(5)), 
+            ("b".into(), Value::Int(2)),
+            ("c".into(), Value::Int(3))
+        ]),
+        make_tuple(vec![
+            ("a".into(), make_tuple(vec![
+                ("x".into(), Value::Int(5)), 
+                ("y".into(), Value::Int(1)),
+            ])), 
+            ("b".into(), Value::Int(2)),
+            ("c".into(), Value::Int(3))
+        ]),
+        make_tuple(vec![
+            ("a".into(), Value::none()), 
+            ("b".into(), Value::Int(2)),
+            ("c".into(), Value::Int(3))
+        ]),
+        make_tuple(vec![
+            ("a".into(), Value::Int(4)), 
+            ("b".into(), Value::Int(5)),
+            ("c".into(), Value::Int(6))
+        ]),
+    ];
+
+    for (test, expected) in ok.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
     }
 }

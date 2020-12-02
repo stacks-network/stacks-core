@@ -81,6 +81,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         DeleteEntry => "(map-delete map-foo {a: 1})",
         TupleCons => "(tuple (a 1))",
         TupleGet => "(get a tuple-foo)",
+        TupleSet => "(set {a: 1, b: 2} {b: 1})",
         Begin => "(begin 1)",
         Hash160 => "(hash160 1)",
         Sha256 => "(sha256 1)",
