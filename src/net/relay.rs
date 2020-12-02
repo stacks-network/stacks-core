@@ -2555,7 +2555,7 @@ mod test {
                                 )
                             })
                         },
-                    );
+                    ).unwrap();
 
                     test_debug!(
                         "Nonce of {:?} is {} at {}/{}",
