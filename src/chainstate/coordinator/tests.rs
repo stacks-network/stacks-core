@@ -763,7 +763,7 @@ fn test_simple_setup() {
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
-        ),
+        ).unwrap(),
         Value::UInt(50)
     );
 
@@ -1049,7 +1049,7 @@ fn test_sortition_with_reward_set() {
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
-        ),
+        ).unwrap(),
         // we only got to block height 49, because of the little fork at the end.
         Value::UInt(49)
     );
@@ -1273,7 +1273,7 @@ fn test_sortition_with_burner_reward_set() {
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
-        ),
+        ).unwrap(),
         Value::UInt(50)
     );
 
@@ -1451,7 +1451,7 @@ fn test_pox_btc_ops() {
                         )
                     })
                 },
-            );
+            ).unwrap();
 
             if ix > 2 && reward_cycle_count < 6 {
                 assert_eq!(
@@ -1526,7 +1526,7 @@ fn test_pox_btc_ops() {
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
-        ),
+        ).unwrap(),
         Value::UInt(50)
     );
 
@@ -1759,7 +1759,7 @@ fn test_sortition_with_sunset() {
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
-        ),
+        ).unwrap(),
         Value::UInt(100)
     );
 
@@ -2570,7 +2570,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
             )
             .unwrap()
         },
-    )
+    ).unwrap()
 }
 
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
