@@ -860,6 +860,7 @@ fn cost_voting_tests() {
         env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
             .unwrap();
 
+        // Submit a proposal
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
@@ -877,21 +878,7 @@ fn cost_voting_tests() {
             Value::Response(ResponseData { committed: true, data: Value::UInt(0).into() } )
         );
 
-        assert_eq!(
-            env.execute_transaction(
-                (&USER_KEYS[0]).into(),
-                COST_VOTING_CONTRACT.clone(),
-                "submit-proposal",
-                &symbols_from_values(vec![
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name").unwrap()),
-                    Value::string_utf8_from_string_utf8_literal("function-name".into()).unwrap(),
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name").unwrap()),
-                    Value::string_utf8_from_string_utf8_literal("cost-function-name".into()).unwrap(),
-                ])
-            ).unwrap().0,
-            Value::Response(ResponseData { committed: true, data: Value::UInt(1).into() } )
-        );
-
+        // Vote on the proposal
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
@@ -901,6 +888,7 @@ fn cost_voting_tests() {
                 Value::UInt(10),
             ])).unwrap().0;
 
+        // Assert that the number of votes is correct
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
@@ -909,6 +897,64 @@ fn cost_voting_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(0),
                 ])).unwrap().0,
-            Value::UInt(10));
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+        );
+
+        // Vote again on the proposal
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "vote-proposal",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(5),
+            ])).unwrap().0;
+
+        // Assert that the number of votes is correct
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+        );
+
+        // Assert votes are assigned to principal
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-principal-votes",
+                &symbols_from_values(vec![
+                    Value::Principal(StandardPrincipalData::from(&USER_KEYS[0]).into()),
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+        );
+
+        // Withdraw votes
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "withdraw-votes",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(15),
+            ])).unwrap();
+
+        // Assert withdrawal worked
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(0)))})
+        );
     });
 }
