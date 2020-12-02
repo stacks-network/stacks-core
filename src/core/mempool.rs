@@ -1071,7 +1071,10 @@ mod tests {
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::test::chainstate_path;
     use chainstate::stacks::db::test::instantiate_chainstate;
+    use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
     use chainstate::stacks::test::codec_all_transactions;
+    use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+    use core::FIRST_STACKS_BLOCK_HASH;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";
@@ -1088,7 +1091,12 @@ mod tests {
 
     #[test]
     fn mempool_do_not_replace_tx() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_do_not_replace_tx");
+        let mut chainstate = instantiate_chainstate_with_balances(
+            false,
+            0x80000000,
+            "mempool_do_not_replace_tx",
+            vec![],
+        );
 
         // genesis -> b_1 -> b_2
         //      \-> b_3
@@ -1116,8 +1124,8 @@ mod tests {
                 &chainstate_tx,
                 clar_tx,
                 &NULL_BURN_STATE_DB,
-                &ConsensusHash::empty(),
-                &BlockHeaderHash::sentinel(),
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
                 &b_1.0,
                 &b_1.1,
             );
@@ -1130,8 +1138,8 @@ mod tests {
                 &chainstate_tx,
                 clar_tx,
                 &NULL_BURN_STATE_DB,
-                &ConsensusHash::empty(),
-                &BlockHeaderHash::sentinel(),
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
                 &b_3.0,
                 &b_3.1,
             );

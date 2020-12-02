@@ -74,7 +74,7 @@ pub fn type_check(
         expressions,
         analysis_db,
         insert_contract,
-        LimitedCostTracker::new_max_limit(),
+        LimitedCostTracker::new_free(),
     )
     .map_err(|(e, _cost_tracker)| e)
 }

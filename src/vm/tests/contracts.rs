@@ -192,7 +192,7 @@ fn test_simple_token_system() {
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
     {
-        let mut block = clarity.begin_block(
+        let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &test_block_headers(0),
             &NULL_HEADER_DB,

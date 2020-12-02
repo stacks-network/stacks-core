@@ -60,6 +60,7 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
+    CostContractLoadFailure,
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

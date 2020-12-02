@@ -28,13 +28,14 @@ use vm::analysis::type_checker::{
     check_argument_count, no_type, CheckErrors, CheckResult, TypeChecker, TypeResult, TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 fn get_simple_native_or_user_define(
     function_name: &str,
     checker: &mut TypeChecker,
 ) -> CheckResult<FunctionType> {
-    runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(native_function)
@@ -64,7 +65,7 @@ pub fn check_special_map(
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     let argument_type = checker.type_check(&args[1], context)?;
 
     let (mapped_type, len) = match argument_type {
@@ -107,7 +108,7 @@ pub fn check_special_filter(
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     let argument_type = checker.type_check(&args[1], context)?;
 
     {
@@ -140,7 +141,7 @@ pub fn check_special_fold(
     //   you _cannot_ fold a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
@@ -174,7 +175,7 @@ pub fn check_special_concat(
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
 
@@ -230,7 +231,7 @@ pub fn check_special_append(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     let lhs_type = checker.type_check(&args[0], context)?;
     match lhs_type {
@@ -265,10 +266,10 @@ pub fn check_special_as_max_len(
             return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into());
         }
     };
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_ANNOTATE,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeAnnotate,
         checker,
-        TypeSignature::UIntType.type_size()?
+        TypeSignature::UIntType.type_size()?,
     )?;
     checker
         .type_map
@@ -312,7 +313,7 @@ pub fn check_special_len(
     check_argument_count(1, args)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match collection_type {
         TypeSignature::SequenceType(_) => Ok(()),

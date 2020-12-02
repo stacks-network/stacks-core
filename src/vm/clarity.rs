@@ -23,7 +23,7 @@ use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, MarfedKV, RollbackWrapper,
-    RollbackWrapperPersistedLog, SqliteConnection,
+    RollbackWrapperPersistedLog, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
@@ -36,6 +36,9 @@ use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MarfTrieId, TrieHash};
 use chainstate::stacks::StacksBlockId;
+
+#[cfg(test)]
+use chainstate::stacks::boot::{BOOT_CODE_COSTS, STACKS_BOOT_COST_CONTRACT};
 
 use std::error;
 use std::fmt;
@@ -246,7 +249,13 @@ impl ClarityInstance {
 
         datastore.begin(current, next);
 
-        let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(self.block_limit.clone(), &mut clarity_db)
+                    .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
 
         ClarityBlockConnection {
             datastore,
@@ -255,6 +264,83 @@ impl ClarityInstance {
             parent: self,
             cost_track,
         }
+    }
+
+    pub fn begin_genesis_block<'a>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a> {
+        let mut datastore = self
+            .datastore
+            .take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect(
+                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
+            );
+
+        datastore.begin(current, next);
+
+        let cost_track = Some(LimitedCostTracker::new_free());
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            parent: self,
+            cost_track,
+        }
+    }
+
+    /// begin a genesis block with the default cost contract
+    ///  used in testing.
+    #[cfg(test)]
+    pub fn begin_test_genesis_block<'a>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a> {
+        let mut datastore = self
+            .datastore
+            .take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect(
+                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
+            );
+
+        datastore.begin(current, next);
+
+        let cost_track = Some(LimitedCostTracker::new_free());
+
+        let mut conn = ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            parent: self,
+            cost_track,
+        };
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&*STACKS_BOOT_COST_CONTRACT, BOOT_CODE_COSTS)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &*STACKS_BOOT_COST_CONTRACT,
+                    &ast,
+                    BOOT_CODE_COSTS,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn
     }
 
     pub fn begin_unconfirmed<'a>(
@@ -270,7 +356,13 @@ impl ClarityInstance {
 
         datastore.begin_unconfirmed(current);
 
-        let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(self.block_limit.clone(), &mut clarity_db)
+                    .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
 
         ClarityBlockConnection {
             datastore,
@@ -320,7 +412,7 @@ impl ClarityInstance {
             .as_mut()
             .unwrap()
             .as_clarity_db(header_db, burn_state_db);
-        let mut env = OwnedEnvironment::new(clarity_db);
+        let mut env = OwnedEnvironment::new_free(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -899,10 +991,19 @@ mod tests {
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -929,10 +1030,19 @@ mod tests {
         let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -971,10 +1081,19 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -1047,10 +1166,19 @@ mod tests {
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -1095,7 +1223,7 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(
+            let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
@@ -1126,7 +1254,7 @@ mod tests {
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
         let sql = marf.get_side_store();
-        // sqlite should not have any entries
+        // sqlite only have entries
         assert_eq!(
             0,
             sql.mut_conn()
@@ -1155,17 +1283,27 @@ mod tests {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
         // make an empty but confirmed block
-        {
-            let conn = confirmed_clarity_instance.begin_block(
+        confirmed_clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
-            );
-            conn.commit_block();
-        }
+            )
+            .commit_block();
 
-        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let mut marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+
+        let genesis_metadata_entries = marf
+            .get_side_store()
+            .mut_conn()
+            .query_row::<u32, _, _>(
+                "SELECT COUNT(value) FROM metadata_table",
+                NO_PARAMS,
+                |row| row.get(0),
+            )
+            .unwrap();
+
         let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         // make an unconfirmed block off of the confirmed block
@@ -1254,9 +1392,9 @@ mod tests {
         );
 
         let sql = marf.get_side_store();
-        // sqlite should not have any metadata entries
+        // sqlite only have any metadata entries from the genesis block
         assert_eq!(
-            0,
+            genesis_metadata_entries,
             sql.mut_conn()
                 .query_row::<u32, _, _>(
                     "SELECT COUNT(value) FROM metadata_table",
@@ -1274,10 +1412,19 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -1462,10 +1609,20 @@ mod tests {
             nonce: 0,
             stx_balance,
         };
+
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId::sentinel(),
-                &StacksBlockId([0; 32]),
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -1499,10 +1656,19 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
-        {
-            let mut conn = clarity_instance.begin_block(
+        clarity_instance
+            .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
@@ -1541,8 +1707,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([2 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
             );
