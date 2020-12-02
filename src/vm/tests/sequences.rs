@@ -618,11 +618,16 @@ fn test_eval_func_arg_panic() {
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    let e: Error = CheckErrors::IncorrectArgumentCount(2, 3).into();
+    let e: Error = CheckErrors::UndefinedFunction("square".to_string()).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
     let e: Error = CheckErrors::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());
+
+    let test5 = "(map + (list 1 2 3 4) 2)";
+    let e: Error = CheckErrors::ExpectedSequence(IntType).into();
+    assert_eq!(e, execute(test5).unwrap_err());
+
 }
