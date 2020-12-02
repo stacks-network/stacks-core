@@ -22,7 +22,9 @@ use chainstate::stacks::index::marf::{MarfConnection, MARF};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::{Error as MarfError, MARFValue, MarfTrieId, TrieHash};
-use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::{
+    StacksBlockId, StacksBlockHeader
+};
 use std::convert::TryInto;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use vm::analysis::AnalysisDatabase;
@@ -36,6 +38,10 @@ use vm::errors::{
 use vm::types::QualifiedContractIdentifier;
 
 use util::db::IndexDBConn;
+
+use core::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH
+};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -455,6 +461,18 @@ impl ClarityBackingStore for MarfedKV {
         {
             Ok(Some(x)) => x,
             Ok(None) => {
+                let first_tip = StacksBlockHeader::make_index_block_hash(
+                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    &FIRST_STACKS_BLOCK_HASH,
+                );
+                if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
+                    // the current block height should always work, except if it's the first block
+                    // height (in which case, the current chain tip should match the first-ever
+                    // index block hash).
+                    return 0;
+                }
+
+                // should never happen
                 let msg = format!(
                     "Failed to obtain current block height of {} (got None)",
                     &self.chain_tip
