@@ -22,7 +22,8 @@ use vm::analysis::type_checker::{
     TypeResult, TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -31,7 +32,7 @@ pub fn check_special_okay(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(inner_type, no_type())?;
@@ -45,7 +46,7 @@ pub fn check_special_some(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_option(inner_type)?;
@@ -59,7 +60,7 @@ pub fn check_special_error(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(no_type(), inner_type)?;
@@ -75,7 +76,7 @@ pub fn check_special_is_response(
 
     let input = checker.type_check(&args[0], context)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(_types) = input {
         return Ok(TypeSignature::BoolType);
@@ -93,7 +94,7 @@ pub fn check_special_is_optional(
 
     let input = checker.type_check(&args[0], context)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::OptionalType(_type) = input {
         return Ok(TypeSignature::BoolType);
@@ -139,7 +140,7 @@ pub fn check_special_asserts(
 }
 
 fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     match input {
         TypeSignature::OptionalType(input_type) => {
@@ -162,7 +163,7 @@ fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
 }
 
 fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(response_type) = input {
         let err_type = response_type.1;
@@ -215,7 +216,7 @@ pub fn check_special_try_ret(
 
     let input = checker.type_check(&args[0], context)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     match input {
         TypeSignature::OptionalType(input_type) => {
@@ -277,10 +278,10 @@ fn eval_with_new_binding(
 ) -> TypeResult {
     let mut inner_context = context.extend()?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_BIND_NAME,
+    runtime_cost(
+        ClarityCostFunction::AnalysisBindName,
         checker,
-        bind_type.type_size()?
+        bind_type.type_size()?,
     )?;
 
     checker.contract_context.check_name_used(&bind_name)?;
