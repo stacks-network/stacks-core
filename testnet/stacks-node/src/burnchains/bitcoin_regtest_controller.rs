@@ -619,7 +619,8 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_block_commit op - {}",
+            "Miner node: submitting leader_block_commit op for {} - {}",
+            &payload.block_header_hash,
             public_key.to_hex()
         );
 
