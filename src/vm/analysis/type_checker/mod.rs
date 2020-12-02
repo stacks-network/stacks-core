@@ -441,6 +441,26 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         result
     }
 
+    fn type_check_consecutive_statements(
+        &mut self,
+        args: &[SymbolicExpression],
+        context: &TypingContext,
+    ) -> TypeResult {
+
+        let mut types_returned = self.type_check_all(args, context)?;
+        
+        let last_return = types_returned
+            .pop()
+            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+
+        for type_return in types_returned.iter() {
+            if type_return.is_response_type() {       
+                return Err(CheckErrors::UncheckedIntermediaryResponses.into())
+            }
+        }
+        Ok(last_return)
+    }
+
     fn type_check_all(
         &mut self,
         args: &[SymbolicExpression],

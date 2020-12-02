@@ -98,13 +98,7 @@ fn check_special_begin(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut typed_args = checker.type_check_all(args, context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(args, context)
 }
 
 fn inner_handle_tuple_get(
@@ -222,13 +216,7 @@ fn check_special_let(
         Ok(())
     })?;
 
-    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
 
 fn check_special_fetch_var(

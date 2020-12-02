@@ -67,6 +67,7 @@ pub enum CheckErrors {
     ExpectedOptionalOrResponseValue(Value),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
+    UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
 
@@ -399,6 +400,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
+            CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
         }
     }
 
