@@ -176,7 +176,7 @@ impl ConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("xenon.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
             ..BurnchainConfigFile::default()
         };
 
