@@ -18,6 +18,7 @@ pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
 pub mod stack_stx;
+pub mod transfer_stx;
 pub mod user_burn_support;
 
 use std::convert::From;
@@ -80,6 +81,8 @@ pub enum Error {
     UserBurnSupportNoLeaderKey,
     UserBurnSupportNotSupported,
 
+    TransferStxMustBePositive,
+
     StackStxMustBePositive,
     StackStxInvalidCycles,
 }
@@ -125,6 +128,7 @@ impl fmt::Display for Error {
             Error::UserBurnSupportNotSupported => {
                 write!(f, "User burn operations are not supported")
             }
+            Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
             Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
             Error::StackStxInvalidCycles => write!(
                 f,
@@ -147,6 +151,20 @@ impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct TransferStxOp {
+    pub sender: StacksAddress,
+    pub recipient: StacksAddress,
+    pub transfered_ustx: u128,
+    pub memo: Vec<u8>,
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
@@ -248,6 +266,7 @@ pub enum BlockstackOperationType {
     UserBurnSupport(UserBurnSupportOp),
     PreStackStx(PreStackStxOp),
     StackStx(StackStxOp),
+    TransferStx(TransferStxOp),
 }
 
 impl BlockstackOperationType {
@@ -258,6 +277,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
             BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
             BlockstackOperationType::PreStackStx(_) => Opcodes::PreStackStx,
+            BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
         }
     }
 
@@ -272,6 +292,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
             BlockstackOperationType::StackStx(ref data) => &data.txid,
             BlockstackOperationType::PreStackStx(ref data) => &data.txid,
+            BlockstackOperationType::TransferStx(ref data) => &data.txid,
         }
     }
 
@@ -282,6 +303,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
             BlockstackOperationType::StackStx(ref data) => data.vtxindex,
             BlockstackOperationType::PreStackStx(ref data) => data.vtxindex,
+            BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
         }
     }
 
@@ -292,6 +314,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
             BlockstackOperationType::StackStx(ref data) => data.block_height,
             BlockstackOperationType::PreStackStx(ref data) => data.block_height,
+            BlockstackOperationType::TransferStx(ref data) => data.block_height,
         }
     }
 
@@ -302,6 +325,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::PreStackStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -313,6 +337,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PreStackStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
         };
     }
 
@@ -328,6 +353,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::PreStackStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }
@@ -335,19 +361,13 @@ impl BlockstackOperationType {
 impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref leader_key_register) => {
-                fmt::Display::fmt(&format!("{:?}", leader_key_register), f)
-            }
-            BlockstackOperationType::PreStackStx(ref op) => {
-                fmt::Display::fmt(&format!("{:?}", op), f)
-            }
-            BlockstackOperationType::StackStx(ref op) => fmt::Display::fmt(&format!("{:?}", op), f),
-            BlockstackOperationType::LeaderBlockCommit(ref leader_block_commit) => {
-                fmt::Display::fmt(&format!("{:?}", leader_block_commit), f)
-            }
-            BlockstackOperationType::UserBurnSupport(ref user_burn_support) => {
-                fmt::Display::fmt(&format!("{:?}", user_burn_support), f)
-            }
+            BlockstackOperationType::LeaderKeyRegister(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PreStackStx(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
+
+            BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
         }
     }
 }

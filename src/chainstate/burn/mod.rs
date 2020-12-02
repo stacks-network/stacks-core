@@ -113,6 +113,7 @@ pub enum Opcodes {
     UserBurnSupport = '_' as u8,
     StackStx = 'x' as u8,
     PreStackStx = 'p' as u8,
+    TransferStx = '$' as u8,
 }
 
 // a burnchain block snapshot

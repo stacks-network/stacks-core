@@ -58,7 +58,7 @@ use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, Sort
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
-    UserBurnSupportOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -132,6 +132,9 @@ impl BurnchainStateTransition {
                     // PreStackStx ops don't need to be processed by sort db, so pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::TransferStx(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
@@ -650,9 +653,9 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse leader key register tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
@@ -664,9 +667,9 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse leader block commit tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
@@ -678,9 +681,9 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse user burn support tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
@@ -692,12 +695,38 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse pre stack stx tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
+                }
+            }
+            x if x == Opcodes::TransferStx as u8 => {
+                let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = burnchain_db.get_burnchain_op(pre_stx_txid);
+                if let Some(BlockstackOperationType::PreStackStx(pre_stx)) = pre_stx_tx {
+                    let sender = &pre_stx.output;
+                    match TransferStxOp::from_tx(block_header, burn_tx, sender) {
+                        Ok(op) => Some(BlockstackOperationType::TransferStx(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse transfer stx tx";
+                                "txid" => %burn_tx.txid(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to TransferStxOp";
+                        "txid" => %burn_tx.txid(),
+                        "pre_stx_txid" => %pre_stx_txid
+                    );
+                    None
                 }
             }
             x if x == Opcodes::StackStx as u8 => {
@@ -711,9 +740,9 @@ impl Burnchain {
                         Err(e) => {
                             warn!(
                                 "Failed to parse stack stx tx";
-                                "txid" => %burn_tx.txid().to_string(),
+                                "txid" => %burn_tx.txid(),
                                 "data" => %to_hex(&burn_tx.data()),
-                                "error" => %format!("{:?}", e)
+                                "error" => ?e,
                             );
                             None
                         }
