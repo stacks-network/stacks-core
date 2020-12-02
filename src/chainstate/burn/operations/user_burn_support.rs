@@ -215,10 +215,10 @@ impl StacksMessageCodec for UserBurnSupportOp {
 
 impl UserBurnSupportOp {
     pub fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
+        _block_header: &BurnchainBlockHeader,
+        _tx: &BurnchainTransaction,
     ) -> Result<UserBurnSupportOp, op_error> {
-        UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
+        Err(op_error::UserBurnSupportNotSupported)
     }
 
     pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
@@ -406,7 +406,11 @@ mod tests {
                 },
             };
 
-            let op = UserBurnSupportOp::from_tx(&header, &burnchain_tx);
+            let op = UserBurnSupportOp::parse_from_tx(
+                header.block_height,
+                &header.block_hash,
+                &burnchain_tx,
+            );
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {

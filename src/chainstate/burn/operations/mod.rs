@@ -78,6 +78,7 @@ pub enum Error {
     // all the things that can go wrong with user burn supports
     UserBurnSupportBadConsensusHash,
     UserBurnSupportNoLeaderKey,
+    UserBurnSupportNotSupported,
 
     StackStxMustBePositive,
     StackStxInvalidCycles,
@@ -121,6 +122,9 @@ impl fmt::Display for Error {
                 f,
                 "User burn support does not match a registered leader key"
             ),
+            Error::UserBurnSupportNotSupported => {
+                write!(f, "User burn operations are not supported")
+            }
             Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
             Error::StackStxInvalidCycles => write!(
                 f,
