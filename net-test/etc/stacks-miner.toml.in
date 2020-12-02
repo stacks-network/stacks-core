@@ -8,7 +8,7 @@ miner = true
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
 p2p_address = "@@STACKS_PUBLIC_IP@@:@@STACKS_MINER_P2P_PORT@@"
 pox_sync_sample_secs = 10
-wait_time_for_microblocks = 0
+wait_time_for_microblocks = 5000
 
 [burnchain]
 chain = "bitcoin"
