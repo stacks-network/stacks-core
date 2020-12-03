@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::fs;
 
 use core::*;
@@ -45,7 +45,7 @@ pub struct UnconfirmedState {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
     pub clarity_inst: ClarityInstance,
-    pub considered: HashSet<Txid>,
+    pub mined_txs: HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>,
     pub cost_so_far: ExecutionCost,
     pub bytes_so_far: u64,
 
@@ -71,7 +71,7 @@ impl UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
-            considered: HashSet::new(),
+            mined_txs: HashMap::new(),
             cost_so_far: ExecutionCost::zero(),
             bytes_so_far: 0,
 
@@ -111,7 +111,7 @@ impl UnconfirmedState {
         let mut total_fees = 0;
         let mut total_burns = 0;
         let mut all_receipts = vec![];
-        let mut all_txs = HashSet::new();
+        let mut mined_txs = HashMap::new();
         let new_cost;
         let mut new_bytes = 0;
 
@@ -177,8 +177,8 @@ impl UnconfirmedState {
                     total as u64
                 };
 
-                for tx in mblock.txs {
-                    all_txs.insert(tx.txid());
+                for tx in &mblock.txs {
+                    mined_txs.insert(tx.txid(), (tx.clone(), mblock.block_hash(), mblock.header.sequence));
                 }
             }
 
@@ -188,7 +188,7 @@ impl UnconfirmedState {
 
         self.last_mblock = last_mblock;
         self.last_mblock_seq = last_mblock_seq;
-        self.considered.extend(all_txs);
+        self.mined_txs.extend(mined_txs);
         self.cost_so_far = new_cost;
         self.bytes_so_far += new_bytes;
 
@@ -252,6 +252,11 @@ impl UnconfirmedState {
     /// Does the unconfirmed state represent any data?
     fn has_data(&self) -> bool {
         self.last_mblock.is_some()
+    }
+
+    /// Get information about an unconfirmed transaction
+    pub fn get_unconfirmed_transaction(&self, txid: &Txid) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
+        self.mined_txs.get(txid).map(|x| x.clone())
     }
 }
 
