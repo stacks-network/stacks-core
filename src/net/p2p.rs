@@ -2859,7 +2859,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        mut dns_client_opt: Option<&mut DNSClient>,
+        dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
@@ -2927,23 +2927,6 @@ impl PeerNetwork {
                     // go fetch blocks
                     match dns_client_opt {
                         Some(ref mut dns_client) => {
-                            PeerNetwork::with_attachments_downloader(
-                                self,
-                                |network, attachments_downloader| {
-                                    match attachments_downloader
-                                        .run(dns_client, chainstate, network)
-                                    {
-                                        Ok(ref mut attachments) => {
-                                            network_result.attachments.append(attachments);
-                                        }
-                                        Err(e) => {
-                                            warn!("Atlas: AttachmentsDownloader failed running with error {:?}", e);
-                                        }
-                                    }
-                                    Ok(())
-                                },
-                            )?;
-
                             if self.do_network_block_download(
                                 sortdb,
                                 chainstate,
@@ -3009,6 +2992,43 @@ impl PeerNetwork {
         }
 
         Ok(do_prune)
+    }
+
+    fn do_attachment_downloads(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        mut dns_client_opt: Option<&mut DNSClient>,
+        network_result: &mut NetworkResult,
+    ) -> Result<(), net_error> {
+        match dns_client_opt {
+            Some(ref mut dns_client) => {
+                PeerNetwork::with_attachments_downloader(
+                    self,
+                    |network, attachments_downloader| {
+                        match attachments_downloader.run(dns_client, chainstate, network) {
+                            Ok(ref mut attachments) => {
+                                network_result.attachments.append(attachments);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Atlas: AttachmentsDownloader failed running with error {:?}",
+                                    e
+                                );
+                            }
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
+            None => {
+                // skip this step -- no DNS client available
+                test_debug!(
+                    "{:?}: no DNS client provided; skipping block download",
+                    &self.local_peer
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Given an event ID, find the other event ID corresponding
@@ -3906,7 +3926,7 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        dns_client_opt: Option<&mut DNSClient>,
+        mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         mut poll_state: NetworkPollState,
     ) -> Result<(), net_error> {
@@ -3957,7 +3977,7 @@ impl PeerNetwork {
         let do_prune = self.do_network_work(
             sortdb,
             chainstate,
-            dns_client_opt,
+            &mut dns_client_opt,
             download_backpressure,
             network_result,
         )?;
@@ -3975,6 +3995,9 @@ impl PeerNetwork {
             }
             self.prune_connections();
         }
+
+        // download attachments
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // In parallel, do a neighbor walk
         self.do_network_neighbor_walk()?;
