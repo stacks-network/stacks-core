@@ -223,6 +223,10 @@ impl TransferStxOp {
             warn!("Invalid TransferStxOp, must have positive ustx");
             return Err(op_error::TransferStxMustBePositive);
         }
+        if self.sender == self.recipient {
+            warn!("Invalid TransferStxOp, sender is recipient");
+            return Err(op_error::TransferStxSelfSend);
+        }
 
         Ok(())
     }
@@ -262,8 +266,8 @@ mod tests {
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
-            opcode: Opcodes::StackStx as u8,
-            data: vec![1; 80],
+            opcode: Opcodes::TransferStx as u8,
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
@@ -317,6 +321,6 @@ mod tests {
             &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
         );
         assert_eq!(op.transfered_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.memo, vec![1]);
+        assert_eq!(op.memo, vec![1; 61]);
     }
 }

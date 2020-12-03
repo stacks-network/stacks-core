@@ -354,8 +354,8 @@ impl FromRow<TransferStxOp> for TransferStxOp {
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
-        let recipient = StacksAddress::from_column(row, "reward_addr")?;
-        let transfered_ustx_str: String = row.get("stacked_ustx");
+        let recipient = StacksAddress::from_column(row, "recipient_addr")?;
+        let transfered_ustx_str: String = row.get("transfered_ustx");
         let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let memo_hex: String = row.get("memo");

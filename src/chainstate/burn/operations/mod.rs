@@ -82,6 +82,7 @@ pub enum Error {
     UserBurnSupportNotSupported,
 
     TransferStxMustBePositive,
+    TransferStxSelfSend,
 
     StackStxMustBePositive,
     StackStxInvalidCycles,
@@ -129,6 +130,7 @@ impl fmt::Display for Error {
                 write!(f, "User burn operations are not supported")
             }
             Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
+            Error::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
             Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
             Error::StackStxInvalidCycles => write!(
                 f,

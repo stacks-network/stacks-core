@@ -78,7 +78,7 @@ use vm::clarity::{
     Error as clarity_error,
 };
 use vm::contexts::OwnedEnvironment;
-use vm::costs::ExecutionCost;
+use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::marf::MarfedKV;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
@@ -323,6 +323,12 @@ impl<'a> ClarityTx<'a> {
 
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
+    }
+
+    /// set the clarity tx's cost tracker
+    ///   returns the replaced cost tracker
+    pub fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {
+        self.block.set_cost_tracker(new_tracker)
     }
 
     #[cfg(test)]
