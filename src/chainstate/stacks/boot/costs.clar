@@ -494,3 +494,12 @@
         read_count: u1,
         read_length: u1
     })
+
+(define-read-only (poison_microblock (n uint))
+    {
+        runtime: u1,
+        write_length: u1,
+        write_count: u1,
+        read_count: u1, 
+        read_length: u1
+    })
