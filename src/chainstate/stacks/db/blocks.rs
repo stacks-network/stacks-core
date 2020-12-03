@@ -3753,8 +3753,6 @@ impl StacksChainState {
                 sender,
                 recipient,
                 transfered_ustx,
-                memo,
-                block_height,
                 txid,
                 burn_header_hash,
                 ..

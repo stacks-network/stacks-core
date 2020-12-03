@@ -1671,11 +1671,30 @@ fn test_stx_transfer_btc_ops() {
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
+            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+                output: recipient.clone(),
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
         } else if ix == 1 {
             ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: stacker.clone(),
                 recipient: recipient.clone(),
                 transfered_ustx: transfer_amt,
+                memo: vec![],
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 2 {
+            // shouldn't be accepted -- transfer amount is too large
+            ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: recipient.clone(),
+                recipient: stacker.clone(),
+                transfered_ustx: transfer_amt + 1,
                 memo: vec![],
                 txid: next_txid(),
                 vtxindex: 5,

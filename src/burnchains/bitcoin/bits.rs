@@ -520,10 +520,9 @@ impl BitcoinTxInput {
 }
 
 fn to_txid(txin: &BtcTxIn) -> (Txid, u32) {
-    (
-        Txid(txin.previous_output.txid.0.clone()),
-        txin.previous_output.vout,
-    )
+    let mut bits = txin.previous_output.txid.0.clone();
+    bits.reverse();
+    (Txid(bits), txin.previous_output.vout)
 }
 
 impl BitcoinTxOutput {
