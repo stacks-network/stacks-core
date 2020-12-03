@@ -8,7 +8,7 @@ export interface PriceFunction {
   base: number,
   coeff: number,
   nonAlphaDiscount: number,
-  noVoyelDiscount: number,
+  noVowelDiscount: number,
 }
 
 export class BNSClient extends Client {
@@ -65,7 +65,7 @@ export class BNSClient extends Client {
 
   // (namespace-reveal (namespace (buff 20))
   //                   (namespace-version uint)
-  //                   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))
+  //                   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint)))
   //                   (renewal-rule uint)
   //                   (name-importer principal))
   async namespaceReveal(namespace: string, 
@@ -80,7 +80,7 @@ export class BNSClient extends Client {
       `u${priceFunction.coeff}`, 
       ...priceFunction.buckets.map(bucket => `u${bucket}`), 
       `u${priceFunction.nonAlphaDiscount}`, 
-      `u${priceFunction.noVoyelDiscount}`];
+      `u${priceFunction.noVowelDiscount}`];
     const tx = this.createTransaction({
       method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
     });
