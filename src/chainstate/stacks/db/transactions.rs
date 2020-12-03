@@ -52,6 +52,8 @@ use vm::ast::build_ast;
 use vm::costs::cost_functions;
 use vm::costs::CostTracker;
 use vm::costs::ExecutionCost;
+use vm::costs::runtime_cost;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 use vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
@@ -633,7 +635,7 @@ impl StacksChainState {
 
         // encodes MARF reads for loading microblock height and current height, and loading and storing a
         // poison-microblock report
-        runtime_cost!(cost_functions::POISON_MICROBLOCK, env, 0)
+        runtime_cost(ClarityCostFunction::PoisonMicroblock, env, 0)
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
 
         let sender_principal = match &env.sender {

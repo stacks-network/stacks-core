@@ -95,7 +95,7 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
-    clarity_state: ClarityInstance,
+    pub clarity_state: ClarityInstance,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
@@ -1152,7 +1152,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a> {
         let conf = self.config();
-        let headers_db = self.headers_state_index.sqlite_conn();
+        let db = self.state_index.sqlite_conn();
         let clarity_instance = &mut self.clarity_state;
 
         // mix burn header hash and stacks block header hash together, since the stacks block hash
@@ -1184,7 +1184,7 @@ impl StacksChainState {
         let inner_clarity_tx = clarity_instance.begin_genesis_block(
             &parent_index_block,
             &new_index_block,
-            headers_db,
+            db,
             burn_dbconn,
         );
 
