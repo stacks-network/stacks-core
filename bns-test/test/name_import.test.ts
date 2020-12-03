@@ -101,12 +101,12 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.result).include('Returned: true');
     // });
 
-    // it("Resolving an imported name should fail if the namespace is not ready", async () => {
+    // it("Resolving an imported name should succeed if the namespace is not ready", async () => {
       receipt = await bns.getNameZonefile(
         cases[0].namespace, 
         "alpha", { sender: cases[0].nameOwner });
+
       expect(receipt.result).include('0x30303030');
-      console.log(receipt);
       expect(receipt.success).eq(true);
     // });
 

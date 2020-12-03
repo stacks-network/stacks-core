@@ -141,7 +141,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     });
 
 
-    it("should succeed if the price-function, renewal-rule, namespace and salt are valid", async () => {
+    it("should succeed if the price-function, lifetime, namespace and salt are valid", async () => {
       let receipt = await bns.namespaceReveal(
         cases[0].namespace, 
         cases[0].version, 
@@ -183,7 +183,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
       expect(receipt.result).include('u12');
     });
 
-    it("should succeed if the price-function, renewal-rule, namespace and salt are valid", async () => {
+    it("should succeed if the price-function, lifetime, namespace and salt are valid", async () => {
       let receipt = await bns.namespaceReveal(
         cases[1].namespace, 
         cases[1].version, 

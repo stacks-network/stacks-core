@@ -66,7 +66,7 @@ export class BNSClient extends Client {
   // (namespace-reveal (namespace (buff 20))
   //                   (namespace-version uint)
   //                   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint)))
-  //                   (renewal-rule uint)
+  //                   (lifetime uint)
   //                   (name-importer principal))
   async namespaceReveal(namespace: string, 
                         namespaceVersion: number, 

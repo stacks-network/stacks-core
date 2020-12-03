@@ -68,7 +68,7 @@
    (revealed-at uint)
    (launched-at (optional uint))
    (namespace-version uint)
-   (renewal-rule uint)
+   (lifetime uint)
    (price-function (tuple 
     (buckets (list 16 uint)) 
     (base uint) 
@@ -196,6 +196,31 @@
 (define-private (has-invalid-chars (name (buff 32)))
   (< (len (filter is-char-valid name)) (len name)))
 
+(define-private (name-lease-started-at? (namespace-launched-at (optional uint)) 
+                                        (namespace-revealed-at uint)
+                                        (name-props (tuple 
+                                                  (registered-at (optional uint))
+                                                  (imported-at (optional uint))
+                                                  (revoked-at (optional uint))
+                                                  (zonefile-hash (buff 20)))))
+      (let ((registered-at (get registered-at name-props))
+            (imported-at (get imported-at name-props)))
+        ;; The namespace must be launched
+        (asserts! (is-some namespace-launched-at) (err ERR_NAMESPACE_NOT_LAUNCHED))
+        ;; Sanity check: the name must have been either be registered or imported
+        (asserts! (is-eq (xor 
+          (match (get registered-at name-props) res 1 0)
+          (match (get imported-at name-props)   res 1 0)) 1) (err ERR_PANIC))
+        ;; If the name was launched, then started-at will come from registered-at
+        (if (is-some registered-at)
+          ;; The name was registered - We return the registration block height
+          (ok (unwrap-panic registered-at))
+          (if (and (>= (unwrap-panic imported-at) namespace-revealed-at)
+                   (<= (unwrap-panic imported-at) (unwrap-panic namespace-launched-at)))
+            ;; The name was imported after revealing the namespace and before launching the namespace - We return the launch block height
+            (ok (unwrap-panic namespace-launched-at))
+            (err ERR_NAME_EXPIRED)))))
+
 (define-private (compute-name-price (name (buff 32))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
   (let (
@@ -218,18 +243,12 @@
     (name-props (unwrap! 
       (map-get? name-properties ((namespace namespace) (name name))) 
       (err ERR_NAME_NOT_FOUND))))
-    (if (and (is-none (get registered-at name-props)) (is-some (get imported-at name-props)))
-      (ok false) ;; The name was imported and not launched - not subject to expiration, however should they expire if the namespace expire? - if so, todo(ludo)
-      (let (      ;; The name was registered
-        (registered-at (unwrap! 
-          (get registered-at name-props) (err ERR_PANIC)))
-        (lifetime 
-          (get renewal-rule namespace-props)))
+    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
+          (lifetime (get lifetime namespace-props)))
         (if (is-eq lifetime u0)
           (ok false)
-          (ok (> block-height (+ lifetime registered-at))))))))
+          (ok (> block-height (+ lifetime lease-started-at)))))))
 
-;; todo(ludo): should be refactored - based on (is-name-lease-expired?)
 (define-read-only (is-name-in-grace-period? (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
@@ -238,18 +257,13 @@
     (name-props (unwrap! 
       (map-get? name-properties ((namespace namespace) (name name))) 
       (err ERR_NAME_NOT_FOUND))))
-    (if (is-none (get registered-at name-props))
-      (ok false) ;; The name was imported - not subject to expiration
-      (let (      ;; The name was registered
-        (registered-at (unwrap! 
-          (get registered-at name-props) (err ERR_PANIC)))
-        (lifetime 
-          (get renewal-rule namespace-props)))
+    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
+          (lifetime (get lifetime namespace-props)))
         (if (is-eq lifetime u0)
           (ok false)
           (ok (and 
-            (> block-height (+ lifetime registered-at)) 
-            (<= block-height (+ (+ lifetime registered-at) NAME_GRACE_PERIOD_DURATION)))))))))
+            (> block-height (+ lifetime lease-started-at)) 
+            (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION))))))))
 
 (define-private (update-name-ownership? (namespace (buff 20)) 
                                         (name (buff 32)) 
@@ -371,7 +385,7 @@
                                  (p-func-b16 uint)
                                  (p-func-non-alpha-discount uint)
                                  (p-func-no-vowel-discount uint)
-                                 (renewal-rule uint)
+                                 (lifetime uint)
                                  (namespace-import principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
@@ -434,7 +448,7 @@
        (revealed-at block-height)
        (launched-at none)
        (namespace-version namespace-version)
-       (renewal-rule renewal-rule)
+       (lifetime lifetime)
        (price-function price-function)))
     (ok true))))
 
@@ -461,9 +475,9 @@
         (< block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL))
         (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
       ;; Mint the new name
-      (unwrap! 
-        (nft-mint? names (tuple (namespace namespace) (name name)) tx-sender)
-        (err ERR_NAME_UNAVAILABLE))
+      (if (is-ok (nft-mint? names (tuple (namespace namespace) (name name)) tx-sender))
+        true
+        false)
       ;; Update zonefile and props
       (update-zonefile-and-props
         namespace 
@@ -501,7 +515,7 @@
        (namespace-import (get namespace-import namespace-props))
        (revealed-at (get revealed-at namespace-props))
        (namespace-version (get namespace-version namespace-props))
-       (renewal-rule (get renewal-rule namespace-props))
+       (lifetime (get lifetime namespace-props))
        (price-function (get price-function namespace-props))))
     (ok true)))
 
@@ -801,7 +815,7 @@
       (err ERR_NAMESPACE_NOT_LAUNCHED))
     ;; The namespace should require renewals
     (asserts!
-      (> (get renewal-rule namespace-props) u0)
+      (> (get lifetime namespace-props) u0)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The sender must match the name's current owner
     (asserts!
@@ -871,11 +885,9 @@
     (asserts! (is-some (nft-get-owner? names (tuple (name name) (namespace namespace)))) (ok true))
     (let ((name-props (unwrap! wrapped-name-props (err ERR_PANIC))))
       ;; Integrity check - Ensure that the name was either "imported" or "registered".
-      (asserts! 
-        (or 
-          (and (is-some (get registered-at name-props)) (is-none (get imported-at name-props)))
-          (and (is-some (get imported-at name-props)) (is-none (get registered-at name-props))))
-        (err ERR_PANIC))
+      (asserts! (is-eq (xor 
+        (match (get registered-at name-props) res 1 0)
+        (match (get imported-at name-props)   res 1 0)) 1) (err ERR_PANIC))
       ;; Is lease expired?
       (is-name-lease-expired? namespace name))))
 
@@ -891,13 +903,17 @@
       (map-get? namespaces ((namespace namespace))) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (is-lease-expired (is-name-lease-expired? namespace name)))
-    ;; The name must not be in the renewal grace period
-    (asserts!
-      (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) false)
-      (err ERR_NAME_GRACE_PERIOD))
-    ;; The name must not be expired
-    (if (is-ok is-lease-expired)
-      (asserts! (not (unwrap! is-lease-expired (err ERR_PANIC))) (err ERR_NAME_EXPIRED))
+    ;; If the namespace is already launched
+    (if (is-some (get launched-at namespace-props))
+      (begin
+        ;; The name must not be in the renewal grace period
+        (asserts!
+          (is-eq (try! (is-name-in-grace-period? namespace name)) false)
+          (err ERR_NAME_GRACE_PERIOD))
+        ;; The name must not be expired
+        (if (is-ok is-lease-expired)
+          (asserts! (not (try! is-lease-expired)) (err ERR_NAME_EXPIRED))
+          true))        
       true)
     ;; The name must not be revoked
     (asserts!
