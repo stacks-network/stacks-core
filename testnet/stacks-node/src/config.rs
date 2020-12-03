@@ -176,12 +176,12 @@ impl ConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("xenon.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
             ..BurnchainConfigFile::default()
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@xenon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -881,7 +881,7 @@ impl NodeConfig {
                 port: addr.port(),
             },
             public_key: pubk,
-            expire_block: 99999,
+            expire_block: 9999999,
             last_contact_time: 0,
             allowed: 0,
             denied: 0,

@@ -34,9 +34,7 @@ macro_rules! guarded_string {
                 if value.len() > (MAX_STRING_LEN as usize) {
                     return Err(RuntimeErrorType::BadNameValue($Label, value));
                 }
-                // TODO: use lazy static ?
-                let regex_check = $Regex.expect("FAIL: Bad static regex.");
-                if regex_check.is_match(&value) {
+                if $Regex.is_match(&value) {
                     Ok(Self(value))
                 } else {
                     Err(RuntimeErrorType::BadNameValue($Label, value))
@@ -81,21 +79,18 @@ macro_rules! guarded_string {
     };
 }
 
-guarded_string!(
-    ClarityName,
-    "ClarityName",
-    Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$")
-);
-guarded_string!(
-    ContractName,
-    "ContractName",
-    Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$")
-);
-guarded_string!(
-    UrlString,
-    "UrlString",
-    Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#)
-);
+lazy_static! {
+    pub static ref CLARITY_NAME_REGEX: Regex =
+        Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$").unwrap();
+    pub static ref CONTRACT_NAME_REGEX: Regex =
+        Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$").unwrap();
+    pub static ref URL_STRING_REGEX: Regex =
+        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
+}
+
+guarded_string!(ClarityName, "ClarityName", CLARITY_NAME_REGEX);
+guarded_string!(ContractName, "ContractName", CONTRACT_NAME_REGEX);
+guarded_string!(UrlString, "UrlString", URL_STRING_REGEX);
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum PreSymbolicExpressionType {

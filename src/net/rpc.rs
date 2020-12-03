@@ -87,6 +87,8 @@ use vm::{
     database::{
         marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
     },
+    errors::Error as ClarityRuntimeError,
+    errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
@@ -209,11 +211,11 @@ impl RPCPoxInfoData {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        options: &ConnectionOptions,
+        _options: &ConnectionOptions,
     ) -> Result<RPCPoxInfoData, net_error> {
         let contract_identifier = boot::boot_code_id("pox");
         let function = "get-pox-info";
-        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
+        let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
 
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
@@ -858,14 +860,20 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
-
         let args: Vec<_> = args
             .iter()
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
 
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            let cost_track = clarity_tx
+                .with_clarity_db_readonly(|clarity_db| {
+                    LimitedCostTracker::new(options.read_only_call_limit.clone(), clarity_db)
+                })
+                .map_err(|_| {
+                    ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
+                })?;
+
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })

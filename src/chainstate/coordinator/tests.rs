@@ -759,7 +759,7 @@ fn test_simple_setup() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
@@ -1045,7 +1045,7 @@ fn test_sortition_with_reward_set() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
@@ -1269,7 +1269,7 @@ fn test_sortition_with_burner_reward_set() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
@@ -1522,7 +1522,7 @@ fn test_pox_btc_ops() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
@@ -1755,7 +1755,7 @@ fn test_sortition_with_sunset() {
             |conn| conn
                 .with_readonly_clarity_env(
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
+                    LimitedCostTracker::new_free(),
                     |env| env.eval_raw("block-height")
                 )
                 .unwrap()
@@ -2565,7 +2565,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
         |conn| {
             conn.with_readonly_clarity_env(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                LimitedCostTracker::new_max_limit(),
+                LimitedCostTracker::new_free(),
                 |env| env.eval_raw(eval),
             )
             .unwrap()

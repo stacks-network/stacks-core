@@ -330,14 +330,20 @@ impl SpvClient {
         return Ok(());
     }
 
-    /// Report how many block headers we have downloaded to the given path.
+    /// Report how many block headers (+ 1) we have downloaded to the given path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
+        let max = self.get_highest_header_height()?;
+        Ok(max + 1)
+    }
+
+    /// Report the highest heigth of the last header we got
+    pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
             "SELECT MAX(height) FROM headers",
             NO_PARAMS,
         )? {
-            Some(max) => Ok(max + 1),
+            Some(max) => Ok(max),
             None => Ok(0),
         }
     }
@@ -895,9 +901,8 @@ impl BitcoinMessageHandler for SpvClient {
                 self.cur_block_height += num_headers as u64;
 
                 // ask for the next batch
-                let headers_height = self.get_headers_height()?;
-                assert!(headers_height > 0, "BUG: uninitialized SPV headers DB");
-                let block_height = headers_height - 1;
+                let block_height = self.get_highest_header_height()?;
+                assert!(block_height > 0, "BUG: uninitialized SPV headers DB");
 
                 // clear timeout
                 indexer.runtime.last_getheaders_send_time = 0;
