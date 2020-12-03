@@ -686,6 +686,7 @@ fn test_lists() {
         "(map hash160 (list u1 u2 u3 u4 u5))",
         "(map hash160 (list 1 2 3 4 5))",
         "(map + (list 1 2 3 4 5) (list 1 2 3 4 5) (list 1 2 3 4 5))",
+        "(map + (list 1 2 3 4 5) (list 1 2 3 4) (list 1 2 3 4 5))",
         "(list (list 1 2) (list 3 4) (list 5 1 7))",
         "(filter not (list false true false))",
         "(fold and (list true true false false) true)",
@@ -698,6 +699,7 @@ fn test_lists() {
         "(list 5 (buff 20))",
         "(list 5 (buff 20))",
         "(list 5 int)",
+        "(list 4 int)",
         "(list 3 (list 3 int))",
         "(list 3 bool)",
         "bool",
@@ -724,7 +726,6 @@ fn test_lists() {
         "(map - (list true false true false))",
         "(map hash160 (+ u1 u2))",
         "(len 1)",
-        "(map + (list 1 2 3 4 5) (list 1 2 3 4) (list 1 2 3 4 5))",
         "(map + (list 1 2 3 4 5) (list true true true true true))",
     ];
     let bad_expected = [
@@ -744,7 +745,6 @@ fn test_lists() {
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
         CheckErrors::ExpectedSequence(UIntType),
         CheckErrors::ExpectedSequence(IntType),
-        CheckErrors::IncorrectArgumentCount(4, 5),
         CheckErrors::TypeError(IntType, BoolType),
     ];
 

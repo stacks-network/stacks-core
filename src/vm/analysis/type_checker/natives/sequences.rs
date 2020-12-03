@@ -69,7 +69,6 @@ pub fn check_special_map(
 
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
-    let mut max_args = 0;
     for arg in args[1..].iter() {
         let argument_type = checker.type_check(&arg, context)?;
         let entry_type = match argument_type {
@@ -85,7 +84,6 @@ pub fn check_special_map(
                     }
                 };
                 min_args = min_args.min(len);
-                max_args = max_args.max(len);
                 entry_type
             }
             _ => {
@@ -98,11 +96,6 @@ pub fn check_special_map(
             }
         };
         func_args.push(entry_type);
-    }
-    if min_args != max_args {
-        return Err(
-            CheckErrors::IncorrectArgumentCount(min_args as usize, max_args as usize).into(),
-        );
     }
 
     let mapped_type = function_type.check_args(checker, &func_args)?;

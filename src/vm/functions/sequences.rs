@@ -26,7 +26,7 @@ use vm::types::{
     signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
     TypeSignature::BoolType, Value,
 };
-use vm::{apply, eval, lookup_function, ArgumentsLength, CallableType, Environment, LocalContext};
+use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -121,18 +121,21 @@ pub fn special_map(
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
-    let app_args_len = function.get_application_args_len().ok_or(
-        CheckErrors::IllegalOrUnknownFunctionApplication(function_name.to_string()),
-    )?;
+
     // Let's consider a function f (f a b c ...)
     // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
     // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
     let mut mapped_func_args = vec![];
+    let mut min_args_len = usize::MAX;
     for map_arg in args[1..].iter() {
         let mut sequence = eval(map_arg, env, context)?;
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
+                min_args_len = min_args_len.min(sequence_data.len());
                 for (apply_index, value) in sequence_data.atom_values().into_iter().enumerate() {
+                    if apply_index > min_args_len {
+                        break;
+                    }
                     if apply_index >= mapped_func_args.len() {
                         mapped_func_args.push(vec![value]);
                     } else {
@@ -148,15 +151,15 @@ pub fn special_map(
 
     // We can now apply the map
     let mut mapped_results = vec![];
+    let mut previous_len = None;
     for arguments in mapped_func_args.iter() {
-        // If the number of parameters is fixed (vs variadic), we
-        // continue the execution as long as enough arguments are
-        // provided by the sequecences.
-        // Variadic application will exhaust the longest sequence.
-        if let ArgumentsLength::Fixed(len) = app_args_len {
-            if arguments.len() != len {
+        // Stop iterating when we are done with the shortest sequence
+        if let Some(previous_len) = previous_len {
+            if previous_len != arguments.len() {
                 break;
             }
+        } else {
+            previous_len = Some(arguments.len());
         }
         let res = apply(&function, &arguments, env, context)?;
         mapped_results.push(res);

@@ -234,29 +234,12 @@ impl DefinedFunction {
     }
 }
 
-pub enum ArgumentsLength {
-    Fixed(usize),
-    Variadic,
-}
-
 impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
             CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
             CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
-        }
-    }
-
-    pub fn get_application_args_len(&self) -> Option<ArgumentsLength> {
-        match self {
-            CallableType::UserFunction(f) => Some(ArgumentsLength::Fixed(f.arguments.len())),
-            CallableType::NativeFunction(_, handle, _) => match handle {
-                NativeHandle::SingleArg(_) => Some(ArgumentsLength::Fixed(1)),
-                NativeHandle::DoubleArg(_) => Some(ArgumentsLength::Fixed(2)),
-                NativeHandle::MoreArg(_) => Some(ArgumentsLength::Variadic),
-            },
-            _ => None,
         }
     }
 }
