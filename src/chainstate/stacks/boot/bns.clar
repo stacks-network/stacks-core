@@ -67,7 +67,6 @@
   ((namespace-import principal)
    (revealed-at uint)
    (launched-at (optional uint))
-   (namespace-version uint)
    (lifetime uint)
    (price-function (tuple 
     (buckets (list 16 uint)) 
@@ -363,7 +362,6 @@
 ;; names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace
 ;; that determines how cheap or expensive names its will be.
 (define-public (namespace-reveal (namespace (buff 20))
-                                 (namespace-version uint)
                                  (namespace-salt (buff 20))
                                  (p-func-base uint)
                                  (p-func-coeff uint)
@@ -447,7 +445,6 @@
       ((namespace-import namespace-import)
        (revealed-at block-height)
        (launched-at none)
-       (namespace-version namespace-version)
        (lifetime lifetime)
        (price-function price-function)))
     (ok true))))
@@ -514,7 +511,6 @@
       ((launched-at (some block-height))
        (namespace-import (get namespace-import namespace-props))
        (revealed-at (get revealed-at namespace-props))
-       (namespace-version (get namespace-version namespace-props))
        (lifetime (get lifetime namespace-props))
        (price-function (get price-function namespace-props))))
     (ok true)))

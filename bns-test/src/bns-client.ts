@@ -64,12 +64,10 @@ export class BNSClient extends Client {
   }
 
   // (namespace-reveal (namespace (buff 20))
-  //                   (namespace-version uint)
   //                   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint)))
   //                   (lifetime uint)
   //                   (name-importer principal))
   async namespaceReveal(namespace: string, 
-                        namespaceVersion: number, 
                         salt: string,
                         priceFunction: PriceFunction, 
                         renewalRule: number, 
@@ -82,7 +80,7 @@ export class BNSClient extends Client {
       `u${priceFunction.nonAlphaDiscount}`, 
       `u${priceFunction.noVowelDiscount}`];
     const tx = this.createTransaction({
-      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
+      method: { name: "namespace-reveal", args: [`"${namespace}"`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);

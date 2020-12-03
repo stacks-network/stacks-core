@@ -88,7 +88,6 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
 
       receipt = await bns.namespaceReveal(
         cases[1].namespace, 
-        cases[1].version, 
         cases[1].salt,
         cases[1].priceFunction, 
         cases[1].renewalRule, 
@@ -121,7 +120,6 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
 
       receipt = await bns.namespaceReveal(
         cases[0].namespace, 
-        cases[0].version, 
         cases[0].salt,
         cases[0].priceFunction, 
         cases[0].renewalRule, 

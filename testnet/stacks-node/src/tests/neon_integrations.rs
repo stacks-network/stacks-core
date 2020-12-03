@@ -1308,7 +1308,6 @@ fn atlas_integration_test() {
         }
 
         // (define-public (namespace-reveal (namespace (buff 20))
-        //                                  (namespace-version uint)
         //                                  (namespace-salt (buff 20))
         //                                  (p-func-base uint)
         //                                  (p-func-coeff uint)
@@ -1330,7 +1329,7 @@ fn atlas_integration_test() {
         //                                  (p-func-b16 uint)
         //                                  (p-func-non-alpha-discount uint)
         //                                  (p-func-no-vowel-discount uint)
-        //                                  (renewal-rule uint)
+        //                                  (lifetime uint)
         //                                  (namespace-import principal))
         let tx_2 = make_contract_call(
             &user_1,
@@ -1341,7 +1340,6 @@ fn atlas_integration_test() {
             "namespace-reveal",
             &[
                 Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
-                Value::UInt(1),
                 Value::buff_from(salt.as_bytes().to_vec()).unwrap(),
                 Value::UInt(1),
                 Value::UInt(1),

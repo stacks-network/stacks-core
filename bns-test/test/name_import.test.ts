@@ -79,7 +79,6 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
 
       receipt = await bns.namespaceReveal(
         cases[0].namespace, 
-        cases[0].version, 
         cases[0].salt,
         cases[0].priceFunction, 
         cases[0].renewalRule, 
