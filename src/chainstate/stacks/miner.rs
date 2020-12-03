@@ -66,11 +66,12 @@ struct MicroblockMinerRuntime {
 
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
     fn from(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
+        let considered = unconfirmed.mined_txs.iter().map(|(txid, _)| txid.clone()).collect();
         MicroblockMinerRuntime {
             consumed_execution: unconfirmed.cost_so_far.clone(),
             bytes_so_far: unconfirmed.bytes_so_far,
             prev_microblock_header: unconfirmed.last_mblock.clone(),
-            considered: Some(unconfirmed.considered.clone()),
+            considered: Some(considered),
         }
     }
 }
