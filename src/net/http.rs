@@ -50,6 +50,8 @@ use net::ProtocolFamily;
 use net::StacksHttpMessage;
 use net::StacksHttpPreamble;
 use net::StacksMessageCodec;
+use net::UnconfirmedTransactionStatus;
+use net::UnconfirmedTransactionResponse;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
@@ -98,6 +100,7 @@ lazy_static! {
         Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
+    static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex = Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
@@ -1449,6 +1452,11 @@ impl HttpRequestType {
                 &HttpRequestType::parse_getmicroblocks_unconfirmed,
             ),
             (
+                "GET",
+                &PATH_GETTRANSACTION_UNCONFIRMED,
+                &HttpRequestType::parse_gettransaction_unconfirmed,
+            ),
+            (
                 "POST",
                 &PATH_POSTTRANSACTION,
                 &HttpRequestType::parse_posttransaction,
@@ -1967,6 +1975,42 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_gettransaction_unconfirmed<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetMicrolocksUnconfirmed"
+                    .to_string(),
+            ));
+        }
+        
+        let txid_hex = regex 
+            .get(1)
+            .ok_or(net_error::DeserializeError(
+                "Failed to match path to txid group".to_string(),
+            ))?
+            .as_str();
+
+        if txid_hex.len() != 64 {
+            return Err(net_error::DeserializeError(
+                "Invalid txid: expected 64 bytes".to_string(),
+            ));
+        }
+
+        let txid = Txid::from_hex(&txid_hex)
+            .map_err(|_e| net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
+
+        Ok(HttpRequestType::GetTransactionUnconfirmed(
+             HttpRequestMetadata::from_preamble(preamble),
+             txid
+        ))
+    }
+
     fn parse_posttransaction<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2077,6 +2121,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
+            HttpRequestType::GetTransactionUnconfirmed(ref md, _) => md,
             HttpRequestType::PostTransaction(ref md, _) => md,
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
@@ -2099,6 +2144,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
+            HttpRequestType::GetTransactionUnconfirmed(ref mut md, _) => md,
             HttpRequestType::PostTransaction(ref mut md, _) => md,
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
@@ -2143,6 +2189,10 @@ impl HttpRequestType {
                 "/v2/microblocks/unconfirmed/{}/{}",
                 block_hash.to_hex(),
                 min_seq
+            ),
+            HttpRequestType::GetTransactionUnconfirmed(_md, txid) => format!(
+                "/v2/transactions/unconfirmed/{}",
+                txid
             ),
             HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
             HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
@@ -2576,6 +2626,10 @@ impl HttpResponseType {
                 &PATH_GETMICROBLOCKS_UNCONFIRMED,
                 &HttpResponseType::parse_microblocks_unconfirmed,
             ),
+            (
+                &PATH_GETTRANSACTION_UNCONFIRMED,
+                &HttpResponseType::parse_transaction_unconfirmed,
+            ),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
             (
                 &PATH_POSTMICROBLOCK,
@@ -2830,6 +2884,25 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_transaction_unconfirmed<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let unconfirmed_status : UnconfirmedTransactionResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+
+        // tx payload must decode to a transaction
+        let tx_bytes = hex_bytes(&unconfirmed_status.tx).map_err(|_| net_error::DeserializeError("Unconfirmed transaction is not hex-encoded".to_string()))?;
+        let _ = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|_| net_error::DeserializeError("Unconfirmed transaction is not a well-formed Stacks transaction".to_string()))?;
+
+        Ok(HttpResponseType::UnconfirmedTransaction(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            unconfirmed_status
+        ))
+    }
+
     fn parse_txid<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -2926,6 +2999,7 @@ impl HttpResponseType {
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
+            HttpResponseType::UnconfirmedTransaction(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
@@ -3114,6 +3188,10 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, &mblock_bytes)?;
             }
+            HttpResponseType::UnconfirmedTransaction(ref md, ref unconfirmed_status) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, unconfirmed_status)?;
+            }
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -3212,7 +3290,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => {
                     "HTTP(GetMicroblocksUnconfirmed)"
-                }
+                },
+                HttpRequestType::GetTransactionUnconfirmed(_, _) => "HTTP(GetTransactionUnconfirmed)",
                 HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
@@ -3240,6 +3319,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
                 HttpResponseType::MicroblockHash(_, _) => "HTTP(Microblock)",
+                HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
