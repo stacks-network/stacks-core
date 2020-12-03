@@ -193,7 +193,7 @@
 (define-private (has-nonalpha-chars (name (buff 32)))
   (> (len (filter is-nonalpha name)) u0))
 
-(define-private (has-invalid-chars (name (buff 19)))
+(define-private (has-invalid-chars (name (buff 32)))
   (< (len (filter is-char-valid name)) (len name)))
 
 (define-private (compute-name-price (name (buff 32))
@@ -904,4 +904,4 @@
       (is-none (get revoked-at name-props))
       (err ERR_NAME_REVOKED))
     ;; Get the zonefile
-    (ok (get zonefile-hash name-props))))
+    (ok { zonefile-hash: (get zonefile-hash name-props), owner: owner })))
