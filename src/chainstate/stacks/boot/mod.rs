@@ -141,10 +141,11 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_conn();
+        let dbconn = self.state_index.sqlite_conn();
         self.clarity_state
             .eval_read_only(
                 &stacks_block_id,
-                self.headers_state_index.sqlite_conn(),
+                dbconn,
                 &iconn,
                 &boot_code_id(boot_contract_name),
                 code,
