@@ -47,6 +47,8 @@ use net::StacksHttp;
 use net::StacksHttpMessage;
 use net::StacksMessageCodec;
 use net::StacksMessageType;
+use net::UnconfirmedTransactionStatus;
+use net::UnconfirmedTransactionResponse;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
@@ -76,7 +78,7 @@ use rusqlite::{DatabaseName, NO_PARAMS};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
-use util::hash::to_hex;
+use util::hash::{to_hex, hex_bytes};
 use util::hash::Hash160;
 
 use crate::version_string;
@@ -1195,6 +1197,48 @@ impl ConversationHttp {
             }
         }
     }
+    
+    /// Handle a GET unconfirmed transaction.
+    /// The response will be synchronously written to the fd.
+    fn handle_gettransaction_unconfirmed<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &StacksChainState,
+        mempool: &MemPoolDB,
+        txid: &Txid
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // present in the unconfirmed state?
+        if let Some(ref unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+            if let Some((transaction, mblock_hash, seq)) = unconfirmed.get_unconfirmed_transaction(txid) {
+                let response = HttpResponseType::UnconfirmedTransaction(response_metadata, UnconfirmedTransactionResponse {
+                    status: UnconfirmedTransactionStatus::Microblock { block_hash: mblock_hash, seq: seq },
+                    tx: to_hex(&transaction.serialize_to_vec())
+                });
+                return response.send(http, fd).map(|_| ());
+            }
+        }
+
+        // present in the mempool?
+        if let Some(txinfo) = MemPoolDB::get_tx(mempool.conn(), txid)? {
+            let response = HttpResponseType::UnconfirmedTransaction(response_metadata, UnconfirmedTransactionResponse {
+                status: UnconfirmedTransactionStatus::Mempool,
+                tx: to_hex(&txinfo.tx.serialize_to_vec())
+            });
+            return response.send(http, fd).map(|_| ());
+        }
+
+        // not found
+        let response = HttpResponseType::NotFound(
+            response_metadata,
+            format!(
+                "No such unconfirmed transaction {}", txid
+            ),
+        );
+        return response.send(http, fd).map(|_| ());
+    }
 
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
@@ -1459,6 +1503,20 @@ impl ConversationHttp {
                 *min_seq,
                 chainstate,
             )?,
+            HttpRequestType::GetTransactionUnconfirmed(
+                ref _md,
+                ref txid
+            ) => {
+                ConversationHttp::handle_gettransaction_unconfirmed(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    chainstate,
+                    mempool,
+                    txid
+                )?;
+                None
+            },
             HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -2126,6 +2184,14 @@ impl ConversationHttp {
         )
     }
 
+    /// Make a new get-unconfirmed-tx request
+    pub fn new_gettransaction_unconfirmed(&self, txid: Txid) -> HttpRequestType {
+        HttpRequestType::GetTransactionUnconfirmed(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            txid
+        )
+    }
+
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
         HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
@@ -2532,6 +2598,7 @@ mod test {
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
             let sortdb = peer_1.sortdb.take().unwrap();
+            PeerNetwork::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
             let mblock = {
                 let sort_iconn = sortdb.index_conn();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -2634,6 +2701,8 @@ mod test {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
+        PeerNetwork::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb).unwrap();
+
         convo_1
             .chat(
                 &view_1,
@@ -2656,6 +2725,8 @@ mod test {
         let mut peer_2_sortdb = peer_2.sortdb.take().unwrap();
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
+        
+        PeerNetwork::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb).unwrap();
 
         convo_2
             .chat(
@@ -2693,6 +2764,8 @@ mod test {
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+        
+        PeerNetwork::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb).unwrap();
 
         convo_1
             .chat(
@@ -3233,6 +3306,72 @@ mod test {
                             *microblocks,
                             (*server_microblocks_cell.borrow())[5..].to_vec()
                         );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_unconfirmed_transaction() {
+        let last_txid = RefCell::new(Txid([0u8; 32]));
+        let last_mblock = RefCell::new(BlockHeaderHash([0u8; 32]));
+
+        test_rpc(
+            "test_rpc_unconfirmed_transaction",
+            40052,
+            40053,
+            50052,
+            50053,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let privk = StacksPrivateKey::from_hex(
+                    "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+                )
+                .unwrap();
+                
+                let sortdb = peer_server.sortdb.take().unwrap();
+                PeerNetwork::setup_unconfirmed_state(peer_server.chainstate(), &sortdb).unwrap();
+                peer_server.sortdb = Some(sortdb);
+
+                assert!(peer_server.chainstate().unconfirmed_state.is_some());
+                let (txid, mblock_hash) = match peer_server.chainstate().unconfirmed_state {
+                    Some(ref unconfirmed) => {
+                        assert!(unconfirmed.mined_txs.len() > 0);
+                        let mut txid = Txid([0u8; 32]);
+                        let mut mblock_hash = BlockHeaderHash([0u8; 32]);
+                        for (next_txid, (_, mbh, ..)) in unconfirmed.mined_txs.iter() {
+                            txid = next_txid.clone();
+                            mblock_hash = mbh.clone();
+                            break;
+                        }
+                        (txid, mblock_hash)
+                    },
+                    None => {
+                        panic!("No unconfirmed state");
+                    }
+                };
+                
+                *last_txid.borrow_mut() = txid.clone();
+                *last_mblock.borrow_mut() = mblock_hash.clone();
+
+                convo_client.new_gettransaction_unconfirmed(txid)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::UnconfirmedTransaction(response_md, unconfirmed_resp) => {
+                        assert_eq!(unconfirmed_resp.status, UnconfirmedTransactionStatus::Microblock { block_hash: (*last_mblock.borrow()).clone(), seq: 0 });
+                        let tx = StacksTransaction::consensus_deserialize(&mut &hex_bytes(&unconfirmed_resp.tx).unwrap()[..]).unwrap();
+                        assert_eq!(tx.txid(), *last_txid.borrow());
                         true
                     }
                     _ => {
