@@ -69,7 +69,7 @@ pub fn check_special_map(
 
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
-    let mut max_args = u32::MIN;
+    let mut max_args = 0;
     for arg in args[1..].iter() {
         let argument_type = checker.type_check(&arg, context)?;
         let entry_type = match argument_type {

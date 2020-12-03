@@ -448,9 +448,9 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A) -> B, (list A), (list B), ...",
+    input_type: "Function(A, B, ..., N) -> X, (list A1 A2 ... Am), (list B1 B2 ... Bm), ..., (list N1 N2 ... Nm)",
     output_type: "(list X)",
-    signature: "(map func list-a list-b ...)",
+    signature: "(map func list-A list-B ... list-N)",
     description: "The `map` function applies the input function `func` to each element of the
 input lists, and outputs a list containing the _outputs_ from those function applications.",
     example: "
