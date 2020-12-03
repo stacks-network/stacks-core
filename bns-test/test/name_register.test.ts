@@ -1,19 +1,24 @@
-import { Provider, ProviderRegistry, Receipt, Query } from "@blockstack/clarity";
+import { NativeClarityBinProvider } from "@blockstack/clarity";
 import { expect } from "chai";
+import { getTempFilePath } from "@blockstack/clarity/lib/utils/fsUtil";
+import { getDefaultBinaryFilePath } from "@blockstack/clarity-native-bin";
 import { BNSClient, PriceFunction } from "../src/bns-client";
+import { mineBlocks } from "./utils";
 
-describe("BNS Test Suite - NAME_REGISTER", async () => {
+describe("BNS Test Suite - NAME_REGISTER", () => {
   let bns: BNSClient;
-  let provider: Provider;
+  let provider: NativeClarityBinProvider;
 
   const addresses = [
     "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
     "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE",
-    "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"
+    "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR",
+    "SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36"
   ];
   const alice = addresses[0];
   const bob = addresses[1];
   const charlie = addresses[2];
+  const dave = addresses[3];
 
   const cases = [{
     namespace: "blockstack",
@@ -51,34 +56,35 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
     zonefile: "1111",
   }];
 
-  before(async () => {
-    provider = await ProviderRegistry.createProvider();
+  beforeEach(async () => {
+    const allocations = [
+      { principal: alice, amount: 10_000_000_000 },
+      { principal: bob, amount: 10_000_000 },
+      { principal: charlie, amount: 10_000_000 },
+      { principal: dave, amount: 10_000_000 },
+    ]
+    const binFile = getDefaultBinaryFilePath();
+    const dbFileName = getTempFilePath();
+    provider = await NativeClarityBinProvider.create(allocations, dbFileName, binFile);
     bns = new BNSClient(provider);
     await bns.deployContract();
   });
 
-  describe("Revealing the name 'bob.blockstack'", async () => {
-    it("should fail if the namespace 'blockstack' is not registered");
-
-    it("should fail if the namespace 'blockstack' is not launched");
 
     it("should fail if no matching pre-order can be found", async () => {
-      let receipt = await bns.nameRegister(
+      await mineBlocks(bns, 20);
+
+      var receipt = await bns.nameRegister(
         cases[0].namespace, 
         "bob", 
         cases[0].salt, 
         cases[0].zonefile, { sender: cases[0].nameOwner });
       expect(receipt.success).eq(false);
-      expect(receipt.result).eq('2001');    
-    });
-  });
+      expect(receipt.error).include('2001');    
 
-  describe("Given an unlaunched namespace 'id', owned by Alice", async () => {
-
-    before(async () => {
-      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
+      receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).eq('u30');
+      expect(receipt.result).include('u33');
 
       receipt = await bns.namespaceReveal(
         cases[1].namespace, 
@@ -88,17 +94,14 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
         cases[1].renewalRule, 
         cases[1].nameImporter, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).eq('true');
-    });
+      expect(receipt.result).include('true');
 
-    describe("Pre-ordering and Revealing the name 'baobab.blockstack'", async () => {
-      it("should fail, since the namespace isn't launched", async () => {
-        let receipt = await bns.namePreorder(
+      receipt = await bns.namePreorder(
           cases[1].namespace, 
           "baobab",
           cases[1].salt, 
           100, { sender: bob });
-        expect(receipt.result).eq('u30');
+        expect(receipt.result).include('u35');
         expect(receipt.success).eq(true);
 
         receipt = await bns.nameRegister(
@@ -106,18 +109,15 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
           "baobab", 
           cases[1].salt, 
           cases[1].zonefile, { sender: bob });
-        expect(receipt.result).eq('1007');    
+        expect(receipt.error).include('1007');    
         expect(receipt.success).eq(false);
-      });
-    });
-  });
+      
+  // describe("Given a launched namespace 'blockstack', owned by Alice", () => {
 
-  describe("Given a launched namespace 'blockstack', owned by Alice", async () => {
-
-    before(async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+    // beforeEach(async () => {
+      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).eq('u30');
+      expect(receipt.result).include('u37');
 
       receipt = await bns.namespaceReveal(
         cases[0].namespace, 
@@ -127,217 +127,221 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
         cases[0].renewalRule, 
         cases[0].nameImporter, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).eq('true');
+      expect(receipt.result).include('true');
 
       receipt = await bns.namespaceReady(cases[0].namespace, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).eq('true');
+      expect(receipt.result).include('true');
 
-      await provider.mineBlocks(1);  
-    });
+      await bns.mineBlocks(1);  
+    // });
 
-    describe("Revealing the name 'bob.blockstack'", async () => {
-      it("should fail if no matching pre-order can be found", async () => {
-        let receipt = await bns.nameRegister(
+    // describe("Revealing the name 'bob.blockstack'", () => {
+    //   it("should fail if no matching pre-order can be found", async () => {
+        receipt = await bns.nameRegister(
           cases[0].namespace, 
           "bob", 
           cases[0].salt, 
           cases[0].zonefile, { sender: cases[0].nameOwner });
         expect(receipt.success).eq(false);
-        expect(receipt.result).eq('2001');  
-      });
-    });
+        expect(receipt.error).include('2001');  
+    //   });
+    // });
   
-    describe("Given a pre-order of the name 'bub.blockstack', burning 2559999 STX instead of 2560000 STX, Revealing the name", async () => {
-      before(async () => {
+    // describe("Given a pre-order of the name 'bub.blockstack', burning 2559999 STX instead of 2560000 STX, Revealing the name", async () => {
+    //   beforeEach(async () => {
 
-        let receipt = await bns.namePreorder(
+        receipt = await bns.namePreorder(
           cases[0].namespace,
           "bub",
           cases[0].salt, 
           2559999, { sender: bob });
         expect(receipt.success).eq(true);
-        expect(receipt.result).eq('u31');
-      });
+        expect(receipt.result).include('u42');
+      // });
 
-      it("should fail", async () => {
-        let receipt = await bns.nameRegister(
+      // it("should fail", async () => {
+        receipt = await bns.nameRegister(
           cases[0].namespace, 
           "bub", 
           cases[0].salt, 
           cases[0].zonefile, { sender: bob });
-        expect(receipt.result).eq('2007');    
+        expect(receipt.error).include('2007');    
         expect(receipt.success).eq(false);
-      });
-    });
+    //   });
+    // });
 
-    describe("Given an existing pre-order of the name 'Bob.blockstack', initiated by Bob at block #21", async () => {
+    // describe("Given an existing pre-order of the name 'Bob.blockstack', initiated by Bob at block #21", async () => {
 
-      before(async () => {
-        let receipt = await bns.namePreorder(
+    //   beforeEach(async () => {
+        receipt = await bns.namePreorder(
           cases[0].namespace,
           "Bob",
           cases[0].salt, 
           2560000, { sender: cases[0].nameOwner });
         expect(receipt.success).eq(true);
-        expect(receipt.result).eq('u31');
-      });
+        expect(receipt.result).include('u44');
+      // });
   
-      it("Bob registering the name 'Bob.blockstack' should fail", async () => {
-        let receipt = await bns.nameRegister(
+      // it("Bob registering the name 'Bob.blockstack' should fail", async () => {
+        receipt = await bns.nameRegister(
           cases[0].namespace, 
           "Bob", 
           cases[0].salt, 
           cases[0].zonefile, { sender: cases[0].nameOwner });
-        expect(receipt.result).eq('2022');
+        expect(receipt.error).include('2022');
         expect(receipt.success).eq(false);
-      });
-    });
+    //   });
+    // });
 
-    describe("Given an existing pre-order of the name 'bob.blockstack', initiated by Bob at block #21", async () => {
+    // describe("Given an existing pre-order of the name 'bob.blockstack', initiated by Bob at block #21", () => {
 
-      before(async () => {
-        let receipt = await bns.namePreorder(
+    //   beforeEach(async () => {
+        receipt = await bns.namePreorder(
           cases[0].namespace,
           "bob",
           cases[0].salt, 
           2560000, { sender: cases[0].nameOwner });
         expect(receipt.success).eq(true);
-        expect(receipt.result).eq('u31');
-      });
+        expect(receipt.result).include('u46');
+      // });
   
-      describe("Bob registering the name 'bob.blockstack'", async () => {
+      // describe("Bob registering the name 'bob.blockstack'", async () => {
 
-        it("should succeed", async () => {
-          let receipt = await bns.nameRegister(
+      //   it("should succeed", async () => {
+          receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bob", 
             cases[0].salt, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('true');
+          expect(receipt.result).include('true');
           expect(receipt.success).eq(true);
 
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('0x30303030');
+          expect(receipt.result).include('0x30303030');
           expect(receipt.success).eq(true);
-        });
+        // });
 
-        it("should fail registering twice", async () => {
-          let receipt = await bns.nameRegister(
+        // it("should fail registering twice", async () => {
+          receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bob", 
             cases[0].salt, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('2004');
+          expect(receipt.error).include('2004');
           expect(receipt.success).eq(false);
-        });
+      //   });
 
-      });
+      // });
 
-      describe("Charlie registering 'bob.blockstack'", async () => {
+      // describe("Charlie registering 'bob.blockstack'", () => {
 
-        it("should fail", async () => {
+      //   it("should fail", async () => {
 
-          let receipt = await bns.namePreorder(
+          receipt = await bns.namePreorder(
             cases[0].namespace,
             "bob",
             cases[0].salt, 
             2560000, { sender: charlie });
           expect(receipt.success).eq(true);
-          expect(receipt.result).eq('u31');
+          expect(receipt.result).include('u50');
   
           receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bob", 
             cases[0].salt, 
             cases[0].zonefile, { sender: charlie });
-          expect(receipt.result).eq('2004');
+          expect(receipt.error).include('2004');
           expect(receipt.success).eq(false);
-        });
-      });
+      //   });
+      // });
 
-      // todo(ludo): investigate the case where 'name.namespace' was preordered while being unavailable
-      // and then became available
-      describe("Bob registering a second name 'bobby.blockstack'", async () => {
+      // // todo(ludo): investigate the case where 'name.namespace' was preordered while being unavailable
+      // // and then became available
+      // describe("Bob registering a second name 'bobby.blockstack'", () => {
 
-        it("should fail if 'bob.blockstack' is not expired", async () => {
-          await provider.mineBlocks(1);
+        // it("should fail if 'bob.blockstack' is not expired", async () => {
+          await bns.mineBlocks(1);
 
-          let receipt = await bns.namePreorder(
+          receipt = await bns.namePreorder(
             cases[0].namespace,
             "bobby",
             cases[0].salt, 
             160000, { sender: cases[0].nameOwner });
           expect(receipt.success).eq(true);
-          expect(receipt.result).eq('u32');
+          expect(receipt.result).include('u53');
   
           receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bobby", 
             cases[0].salt, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('3001');
+          expect(receipt.error).include('3001');
           expect(receipt.success).eq(false);
-        });
+        // });
 
-        it("should succeed once 'bob.blockstack' is expired", async () => {
-          await provider.mineBlocks(cases[0].renewalRule);
+        // it("should succeed once 'bob.blockstack' is expired", async () => {
+          await mineBlocks(bns, cases[0].renewalRule);
 
-          let receipt = await bns.namePreorder(
+          receipt = await bns.namePreorder(
             cases[0].namespace,
             "bobby",
             cases[0].salt, 
             160000, { sender: cases[0].nameOwner });
           expect(receipt.success).eq(true);
-          expect(receipt.result).eq('u42');
+          expect(receipt.result).include('u65');
   
+          receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "bob", { sender: cases[0].nameOwner });
+
           receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bobby", 
             cases[0].salt, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('true');
+          expect(receipt.result).include('true');
           expect(receipt.success).eq(true);
 
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bobby", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('0x30303030');
+          expect(receipt.result).include('0x30303030');
           expect(receipt.success).eq(true);
-        });
-      });
+      //   });
+      // });
 
-      describe("Charlie registering 'bob.blockstack'", async () => {
+      // describe("Charlie registering 'bob.blockstack'", () => {
 
-        it("should succeed once 'bob.blockstack' is expired", async () => {
+      //   it("should succeed once 'bob.blockstack' is expired", async () => {
 
-          let receipt = await bns.namePreorder(
+          receipt = await bns.namePreorder(
             cases[0].namespace,
             "bob",
             cases[0].salt, 
             2560000, { sender: charlie });
           expect(receipt.success).eq(true);
-          expect(receipt.result).eq('u42');
+          expect(receipt.result).include('u69');
   
           receipt = await bns.nameRegister(
             cases[0].namespace, 
             "bob", 
             cases[0].salt, 
             "AAAA", { sender: charlie });
-          expect(receipt.result).eq('true');
+          expect(receipt.result).include('true');
           expect(receipt.success).eq(true);
 
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('0x41414141');
+          expect(receipt.result).include('0x41414141');
           expect(receipt.success).eq(true);
-        });
-      });
+      //   });
+      // });
 
-    });
+    // });
   });
 });
 

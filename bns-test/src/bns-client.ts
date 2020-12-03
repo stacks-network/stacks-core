@@ -1,4 +1,5 @@
-import { Client, Provider, Receipt, Result } from "@blockstack/clarity";
+import { Client, Provider, Receipt, Result, NativeClarityBinProvider, Transaction } from "@blockstack/clarity";
+import { ExecutionError } from "@blockstack/clarity/lib/providers/clarityBin";
 import ripemd160 from 'ripemd160';
 import shajs from 'sha.js';
 
@@ -11,8 +12,31 @@ export interface PriceFunction {
 }
 
 export class BNSClient extends Client {
-  constructor(provider: Provider) {
-    super("S1G2081040G2081040G2081040G208105NK8PE5.bns", "bns", provider);
+  constructor(provider: NativeClarityBinProvider) {
+    super("S1G2081040G2081040G2081040G208105NK8PE5.bns", "../../src/chainstate/stacks/boot/bns", provider);
+  }
+
+  submitTransaction = async (tx: Transaction): Promise<Receipt> => {
+    if (!tx.method || !tx.sender) {
+      throw 'Invalid TX';
+    }
+    try {
+      const res = await this.provider.execute(
+        this.name,
+        tx.method.name,
+        tx.sender,
+        ...tx.method.args
+      );
+      return res;
+    } catch (error) {
+      if (error instanceof ExecutionError) {
+        return {
+          success: false,
+          error: error.commandOutput,
+        }
+      }
+      throw error;
+    }
   }
 
   // (namespace-preorder (hashed-namespace (buff 20))
@@ -148,7 +172,7 @@ export class BNSClient extends Client {
   async nameTransfer(namespace: string, 
                      name: string, 
                      newOwner: string, 
-                     zonefileContent: string, 
+                     zonefileContent: string|null, 
                      params: { sender: string }): Promise<Receipt> {
     const args = [`"${namespace}"`, `"${name}"`, `'${newOwner}`];
     args.push(zonefileContent === null ? "none" : `(some\ "${zonefileContent}")`);
@@ -208,5 +232,15 @@ export class BNSClient extends Client {
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
     return res;
+  }
+
+  async mineBlocks(blocks: number) {
+    for (let index = 0; index < blocks; index++) {
+      const query = this.createQuery({
+        atChaintip: false,
+        method: { name: "compute-namespace-price?", args: ['0x0000'] }
+      });
+      const res = await this.submitQuery(query);
+    }
   }
 }
