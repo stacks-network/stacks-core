@@ -1227,7 +1227,7 @@ impl StacksChainState {
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         match StacksChainState::has_stacks_block(self.db(), parent_tip) {
-            Ok(true) => {},
+            Ok(true) => {}
             Ok(false) => {
                 return None;
             }
@@ -1287,7 +1287,8 @@ impl StacksChainState {
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         let unconfirmed = if let Some(ref unconfirmed_state) = self.unconfirmed_state {
-            *parent_tip == unconfirmed_state.unconfirmed_chain_tip && unconfirmed_state.is_readable()
+            *parent_tip == unconfirmed_state.unconfirmed_chain_tip
+                && unconfirmed_state.is_readable()
         } else {
             false
         };

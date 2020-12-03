@@ -673,11 +673,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
-            ).unwrap()
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_account(clarity_tx, addr)
+                })
+                .unwrap()
         });
         account
     }
@@ -688,11 +688,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
-            ).unwrap()
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_contract(clarity_tx, addr).unwrap()
+                })
+                .unwrap()
         });
         contract_opt
     }

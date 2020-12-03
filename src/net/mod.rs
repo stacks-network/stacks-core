@@ -100,7 +100,7 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::strings::UrlString;
 
 use util::get_epoch_time_secs;
-use util::hash::{to_hex, hex_bytes};
+use util::hash::{hex_bytes, to_hex};
 
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
@@ -1078,14 +1078,17 @@ pub struct AccountEntryResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnconfirmedTransactionStatus {
-    Microblock { block_hash: BlockHeaderHash, seq: u16 },
-    Mempool
+    Microblock {
+        block_hash: BlockHeaderHash,
+        seq: u16,
+    },
+    Mempool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnconfirmedTransactionResponse {
     pub tx: String,
-    pub status: UnconfirmedTransactionStatus
+    pub status: UnconfirmedTransactionStatus,
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.

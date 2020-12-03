@@ -312,10 +312,7 @@ impl StacksChainState {
     }
 
     /// Is this block present and processed?
-    pub fn has_stacks_block(
-        conn: &Connection,
-        block_id: &StacksBlockId,
-    ) -> Result<bool, Error> {
+    pub fn has_stacks_block(conn: &Connection, block_id: &StacksBlockId) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[block_id];
         Ok(conn

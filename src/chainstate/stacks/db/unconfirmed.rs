@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use core::*;
@@ -52,21 +52,18 @@ pub struct UnconfirmedState {
     pub last_mblock: Option<StacksMicroblockHeader>,
     pub last_mblock_seq: u16,
 
-    dirty: bool
+    dirty: bool,
 }
 
 impl UnconfirmedState {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
-    fn new(
-        chainstate: &StacksChainState,
-        tip: StacksBlockId,
-    ) -> Result<UnconfirmedState, Error> {
+    fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
         let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-        
+
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
@@ -78,7 +75,7 @@ impl UnconfirmedState {
             last_mblock: None,
             last_mblock_seq: 0,
 
-            dirty: false
+            dirty: false,
         })
     }
 
@@ -178,7 +175,10 @@ impl UnconfirmedState {
                 };
 
                 for tx in &mblock.txs {
-                    mined_txs.insert(tx.txid(), (tx.clone(), mblock.block_hash(), mblock.header.sequence));
+                    mined_txs.insert(
+                        tx.txid(),
+                        (tx.clone(), mblock.block_hash(), mblock.header.sequence),
+                    );
                 }
             }
 
@@ -255,7 +255,10 @@ impl UnconfirmedState {
     }
 
     /// Get information about an unconfirmed transaction
-    pub fn get_unconfirmed_transaction(&self, txid: &Txid) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
+    pub fn get_unconfirmed_transaction(
+        &self,
+        txid: &Txid,
+    ) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
         self.mined_txs.get(txid).map(|x| x.clone())
     }
 }
@@ -266,8 +269,7 @@ impl StacksChainState {
         if !unconfirmed.has_data() {
             debug!(
                 "Dropping empty unconfirmed state off of {} ({})",
-                &unconfirmed.confirmed_chain_tip,
-                &unconfirmed.unconfirmed_chain_tip
+                &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
             );
             return;
         }
@@ -275,8 +277,7 @@ impl StacksChainState {
         // not empty, so do explicit rollback
         debug!(
             "Dropping unconfirmed state off of {} ({})",
-            &unconfirmed.confirmed_chain_tip,
-            &unconfirmed.unconfirmed_chain_tip
+            &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
         let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
             self.config(),
@@ -288,8 +289,7 @@ impl StacksChainState {
         clarity_tx.rollback_unconfirmed();
         debug!(
             "Dropped unconfirmed state off of {} ({})",
-            &unconfirmed.confirmed_chain_tip,
-            &unconfirmed.unconfirmed_chain_tip
+            &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
     }
 
@@ -303,7 +303,10 @@ impl StacksChainState {
         debug!("Make new unconfirmed state off of {}", &anchored_block_id);
         let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
-        debug!("Made new unconfirmed state off of {} (at {})", &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip);
+        debug!(
+            "Made new unconfirmed state off of {} (at {})",
+            &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip
+        );
         Ok((unconfirmed_state, fees, burns, receipts))
     }
 
@@ -318,14 +321,17 @@ impl StacksChainState {
         canonical_tip: StacksBlockId,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         debug!("Reload unconfirmed state off of {}", &canonical_tip);
-        
+
         let unconfirmed_state = self.unconfirmed_state.take();
         if let Some(mut unconfirmed_state) = unconfirmed_state {
             if unconfirmed_state.is_readable() {
                 if canonical_tip == unconfirmed_state.confirmed_chain_tip {
                     // refresh with latest microblocks
                     let res = unconfirmed_state.refresh(self, burn_dbconn);
-                    debug!("Unconfirmed state off of {} ({}) refreshed", canonical_tip, &unconfirmed_state.unconfirmed_chain_tip);
+                    debug!(
+                        "Unconfirmed state off of {} ({}) refreshed",
+                        canonical_tip, &unconfirmed_state.unconfirmed_chain_tip
+                    );
 
                     self.unconfirmed_state = Some(unconfirmed_state);
                     return res;
@@ -333,8 +339,7 @@ impl StacksChainState {
                     // got a new tip; will imminently drop
                     self.unconfirmed_state = Some(unconfirmed_state);
                 }
-            }
-            else {
+            } else {
                 // will need to drop this anyway -- it's dirty, or not instantiated
                 self.drop_unconfirmed_state(unconfirmed_state);
             }
@@ -345,12 +350,15 @@ impl StacksChainState {
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
-        
+
         let (new_unconfirmed_state, fees, burns, receipts) =
             self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
 
-        debug!("Unconfirmed state off of {} reloaded (new unconfirmed tip is {})", canonical_tip, &new_unconfirmed_state.unconfirmed_chain_tip);
-        
+        debug!(
+            "Unconfirmed state off of {} reloaded (new unconfirmed tip is {})",
+            canonical_tip, &new_unconfirmed_state.unconfirmed_chain_tip
+        );
+
         self.unconfirmed_state = Some(new_unconfirmed_state);
         Ok((fees, burns, receipts))
     }
@@ -369,8 +377,7 @@ impl StacksChainState {
 
             debug!(
                 "Refresh unconfirmed state off of {} ({})",
-                &unconfirmed_state.confirmed_chain_tip,
-                &unconfirmed_state.unconfirmed_chain_tip
+                &unconfirmed_state.confirmed_chain_tip, &unconfirmed_state.unconfirmed_chain_tip
             );
             let res = unconfirmed_state.refresh(self, burn_dbconn);
             if res.is_ok() {
@@ -634,15 +641,14 @@ mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
             let sortdb = peer.sortdb.take().unwrap();
-            let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &canonical_tip,
-                |clarity_tx| {
+            let confirmed_recv_balance = peer
+                .chainstate()
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db.get_account_stx_balance(&recv_addr.into())
                     })
-                },
-            ).unwrap();
+                })
+                .unwrap();
             peer.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
@@ -869,15 +875,14 @@ mod test {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
                 let sortdb = peer.sortdb.take().unwrap();
-                let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(
-                    &sortdb.index_conn(),
-                    &canonical_tip,
-                    |clarity_tx| {
+                let confirmed_recv_balance = peer
+                    .chainstate()
+                    .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                         clarity_tx.with_clarity_db_readonly(|clarity_db| {
                             clarity_db.get_account_stx_balance(&recv_addr.into())
                         })
-                    },
-                ).unwrap();
+                    })
+                    .unwrap();
                 peer.sortdb = Some(sortdb);
 
                 assert_eq!(

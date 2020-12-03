@@ -328,15 +328,10 @@ impl Error {
         context: &GlobalContext,
     ) -> Error {
         match err {
-            CostErrors::CostOverflow => {
-                let cur_cost = context.cost_track.get_total();
-                let budget = context.cost_track.get_limit();
-                Error::CostOverflowError(cost_before, cur_cost, budget)
-            }
             CostErrors::CostBalanceExceeded(used, budget) => {
                 Error::CostOverflowError(cost_before, used, budget)
             }
-            CostErrors::MemoryBalanceExceeded(_, _) => {
+            _ => {
                 let cur_cost = context.cost_track.get_total();
                 let budget = context.cost_track.get_limit();
                 Error::CostOverflowError(cost_before, cur_cost, budget)

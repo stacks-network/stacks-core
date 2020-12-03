@@ -24,10 +24,11 @@ extern crate blockstack_lib;
 use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, TransactionAnchorMode
+    StacksAddress, StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::util::{
@@ -303,7 +304,10 @@ fn sign_transaction_single_sig_standard(
         .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
-fn parse_anchor_mode(args: &mut Vec<String>, usage: &str) -> Result<TransactionAnchorMode, CliError> {
+fn parse_anchor_mode(
+    args: &mut Vec<String>,
+    usage: &str,
+) -> Result<TransactionAnchorMode, CliError> {
     let num_args = args.len();
     let mut offchain_only = false;
     let mut onchain_only = false;
@@ -311,10 +315,7 @@ fn parse_anchor_mode(args: &mut Vec<String>, usage: &str) -> Result<TransactionA
     for i in 0..num_args {
         if args[i] == "--microblock-only" {
             if idx > 0 {
-                return Err(CliError::Message(format!(
-                    "USAGE:\n {}",
-                    usage,
-                )));
+                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
             }
 
             offchain_only = true;
@@ -322,10 +323,7 @@ fn parse_anchor_mode(args: &mut Vec<String>, usage: &str) -> Result<TransactionA
         }
         if args[i] == "--block-only" {
             if idx > 0 {
-                return Err(CliError::Message(format!(
-                    "USAGE:\n {}",
-                    usage,
-                )));
+                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
             }
 
             onchain_only = true;
@@ -337,11 +335,9 @@ fn parse_anchor_mode(args: &mut Vec<String>, usage: &str) -> Result<TransactionA
     }
     if onchain_only {
         Ok(TransactionAnchorMode::OnChainOnly)
-    }
-    else if offchain_only {
+    } else if offchain_only {
         Ok(TransactionAnchorMode::OffChainOnly)
-    }
-    else {
+    } else {
         Ok(TransactionAnchorMode::Any)
     }
 }
@@ -719,7 +715,9 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
     match StacksMicroblock::consensus_deserialize(&mut debug_cursor) {
-        Ok(block) => Ok(serde_json::to_string(&block).expect("Failed to serialize microblock to JSON")),
+        Ok(block) => {
+            Ok(serde_json::to_string(&block).expect("Failed to serialize microblock to JSON"))
+        }
         Err(e) => {
             let mut ret = String::new();
             ret.push_str(&format!("Failed to decode microblock: {:?}\n", &e));
@@ -834,7 +832,7 @@ mod test {
         ];
 
         assert!(main_handler(to_string_vec(&tt_args)).is_ok());
-        
+
         let tt_args = [
             "token-transfer",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
@@ -846,7 +844,7 @@ mod test {
         ];
 
         assert!(main_handler(to_string_vec(&tt_args)).is_ok());
-        
+
         let tt_args = [
             "token-transfer",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
@@ -898,7 +896,7 @@ mod test {
             format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
                 .contains("Failed to parse recipient")
         );
-        
+
         let tt_args = [
             "token-transfer",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",

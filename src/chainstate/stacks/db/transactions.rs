@@ -50,10 +50,10 @@ use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 
 use vm::costs::cost_functions;
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::runtime_cost;
 use vm::costs::CostTracker;
 use vm::costs::ExecutionCost;
-use vm::costs::runtime_cost;
-use vm::costs::cost_functions::ClarityCostFunction;
 
 use vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,

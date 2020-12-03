@@ -693,7 +693,10 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
-                    debug!("Relayer: Process tenure {}/{} in {}", &consensus_hash, &block_header_hash, &burn_hash);
+                    debug!(
+                        "Relayer: Process tenure {}/{} in {}",
+                        &consensus_hash, &block_header_hash, &burn_hash
+                    );
                     for (last_mined_block, microblock_privkey) in last_mined_blocks.drain(..) {
                         let AssembledAnchorBlock {
                             parent_consensus_hash,
@@ -1190,14 +1193,19 @@ impl InitializedNeonNode {
 
             let coinbase_nonce = {
                 let principal = keychain.origin_address().unwrap().into();
-                let account = chain_state.with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
-                    &StacksBlockHeader::make_index_block_hash(
-                        &stacks_tip.consensus_hash,
-                        &stacks_tip.anchored_block_hash,
-                    ),
-                    |conn| StacksChainState::get_account(conn, &principal),
-                ).expect(&format!("BUG: stacks tip block {}/{} no longer exists after we queried it", &stacks_tip.consensus_hash, &stacks_tip.anchored_block_hash));
+                let account = chain_state
+                    .with_read_only_clarity_tx(
+                        &burn_db.index_conn(),
+                        &StacksBlockHeader::make_index_block_hash(
+                            &stacks_tip.consensus_hash,
+                            &stacks_tip.anchored_block_hash,
+                        ),
+                        |conn| StacksChainState::get_account(conn, &principal),
+                    )
+                    .expect(&format!(
+                        "BUG: stacks tip block {}/{} no longer exists after we queried it",
+                        &stacks_tip.consensus_hash, &stacks_tip.anchored_block_hash
+                    ));
                 account.nonce
             };
 
@@ -1236,9 +1244,17 @@ impl InitializedNeonNode {
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {
             let mut best_attempt = 0;
-            debug!("Consider {} in-flight Stacks tip(s)", &last_mined_blocks.len());
+            debug!(
+                "Consider {} in-flight Stacks tip(s)",
+                &last_mined_blocks.len()
+            );
             for prev_block in last_mined_blocks.iter() {
-                debug!("Consider in-flight Stacks tip {}/{} in {}", &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, &prev_block.my_burn_hash);
+                debug!(
+                    "Consider in-flight Stacks tip {}/{} in {}",
+                    &prev_block.parent_consensus_hash,
+                    &prev_block.anchored_block.header.parent_block,
+                    &prev_block.my_burn_hash
+                );
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash
                     && prev_block.anchored_block.header.parent_block
@@ -1246,16 +1262,20 @@ impl InitializedNeonNode {
                 {
                     // the anchored chain tip hasn't changed since we attempted to build a block.
                     // But, have discovered any new microblocks worthy of being mined?
-                    if let Ok(Some(stream)) = StacksChainState::load_descendant_staging_microblock_stream(
-                        chain_state.db(),
-                        &StacksBlockHeader::make_index_block_hash(
-                            &prev_block.parent_consensus_hash,
-                            &stacks_parent_header.anchored_header.block_hash()
-                        ),
-                        0,
-                        u16::MAX
-                    ) {
-                        if stream.len() <= prev_block.anchored_block.header.parent_microblock_sequence as usize {
+                    if let Ok(Some(stream)) =
+                        StacksChainState::load_descendant_staging_microblock_stream(
+                            chain_state.db(),
+                            &StacksBlockHeader::make_index_block_hash(
+                                &prev_block.parent_consensus_hash,
+                                &stacks_parent_header.anchored_header.block_hash(),
+                            ),
+                            0,
+                            u16::MAX,
+                        )
+                    {
+                        if stream.len()
+                            <= prev_block.anchored_block.header.parent_microblock_sequence as usize
+                        {
                             // the chain tip hasn't changed since we attempted to build a block.  Use what we
                             // already have.
                             debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no new microblocks ({} <= {})",
@@ -1263,8 +1283,7 @@ impl InitializedNeonNode {
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             return None;
-                        }
-                        else {
+                        } else {
                             // there are new microblocks!
                             // TODO: only consider rebuilding our anchored block if we (a) have
                             // time, and (b) the new microblocks are worth more than the new BTC
@@ -1275,8 +1294,7 @@ impl InitializedNeonNode {
 
                             best_attempt = cmp::max(best_attempt, prev_block.attempt);
                         }
-                    }
-                    else {
+                    } else {
                         // no microblock stream to confirm, and the stacks tip hasn't changed
                         debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no microblocks present",
                                &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
@@ -1284,8 +1302,7 @@ impl InitializedNeonNode {
 
                         return None;
                     }
-                }
-                else {
+                } else {
                     debug!("Stacks tip has changed since we last tried to mine a block in {} at burn height {}; attempt was {} (for {}/{})",
                            prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
                     best_attempt = cmp::max(best_attempt, prev_block.attempt);
@@ -1478,7 +1495,12 @@ impl InitializedNeonNode {
         );
         let mut op_signer = keychain.generate_op_signer();
 
-        debug!("Submit block-commit for block {} off of {}/{}", &anchored_block.block_hash(), &parent_consensus_hash, &anchored_block.header.parent_block);
+        debug!(
+            "Submit block-commit for block {} off of {}/{}",
+            &anchored_block.block_hash(),
+            &parent_consensus_hash,
+            &anchored_block.header.parent_block
+        );
 
         let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
         if !res {

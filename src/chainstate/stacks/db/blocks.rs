@@ -4836,7 +4836,10 @@ impl StacksChainState {
             )
         }) {
             Some(r) => r,
-            None => Err(MemPoolRejection::NoSuchChainTip(current_consensus_hash.clone(), current_block.clone()))
+            None => Err(MemPoolRejection::NoSuchChainTip(
+                current_consensus_hash.clone(),
+                current_block.clone(),
+            )),
         };
 
         match res {

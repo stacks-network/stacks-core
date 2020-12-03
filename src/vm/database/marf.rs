@@ -22,9 +22,7 @@ use chainstate::stacks::index::marf::{MarfConnection, MARF};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::{Error as MarfError, MARFValue, MarfTrieId, TrieHash};
-use chainstate::stacks::{
-    StacksBlockId, StacksBlockHeader
-};
+use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 use std::convert::TryInto;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use vm::analysis::AnalysisDatabase;
@@ -40,9 +38,7 @@ use vm::types::QualifiedContractIdentifier;
 
 use util::db::IndexDBConn;
 
-use core::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH
-};
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
