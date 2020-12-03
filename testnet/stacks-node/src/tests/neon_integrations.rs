@@ -1,6 +1,6 @@
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
+    make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
 use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
@@ -32,6 +32,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
+
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::{BurnchainHeaderHash, Txid};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -273,10 +278,21 @@ fn bitcoind_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{BurnchainHeaderHash, Txid};
-use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+fn get_balance<F: std::fmt::Display>(
+    client: &reqwest::blocking::Client,
+    http_origin: &str,
+    account: &F,
+) -> u128 {
+    let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    u128::from_str_radix(&res.balance[2..], 16).unwrap()
+}
 
 #[test]
 #[ignore]
@@ -295,10 +311,19 @@ fn stx_transfer_btc_integration_test() {
     )
     .unwrap();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let spender_2_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
+    let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
+        amount: 100300,
+    });
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_2_addr.clone(),
         amount: 100300,
     });
 
@@ -336,19 +361,7 @@ fn stx_transfer_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the spender's account:
-
-    eprintln!("Spender account: {}", spender_addr);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100300);
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -399,53 +412,82 @@ fn stx_transfer_btc_integration_test() {
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100300);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &recipient_addr);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 0);
 
     // this block should process the transfer
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &recipient_addr);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100000);
+    // now let's do a pre-stx-op and a transfer op in the same burnchain block...
+
+    // okay, let's send a pre-stx op.
+    let pre_stx_op = PreStxOp {
+        output: spender_2_stx_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::PreStx(pre_stx_op),
+            &mut miner_signer,
+            1
+        ),
+        "Pre-stx operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // sleep 2 seconds for bitcoin mempool?
+    //    thread::sleep(Duration::from_secs(2));
+
+    // let's fire off our transfer op.
+    let transfer_stx_op = TransferStxOp {
+        sender: spender_2_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
+        transfered_ustx: 100_000,
+        memo: vec![],
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk.clone(), false);
+
+    btc_regtest_controller.use_unsafe_utxos = true;
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::TransferStx(transfer_stx_op),
+            &mut spender_signer,
+            1
+        ),
+        "Transfer operation should submit successfully"
+    );
+    // should be elected in the same block as the transfer, so balances should be unchanged.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+
+    // should process the transfer
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 200_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 300);
 
     channel.stop_chains_coordinator();
 }

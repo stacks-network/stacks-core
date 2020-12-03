@@ -34,7 +34,6 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp,
     UserBurnSupportOp,
 };
-use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
@@ -49,6 +48,9 @@ use stacks::util::sleep_ms;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
+#[cfg(test)]
+use stacks::chainstate::burn::Opcodes;
+
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
@@ -60,6 +62,7 @@ pub struct BitcoinRegtestController {
     last_utxos: Vec<UTXO>,
     last_tx_len: u64,
     min_relay_fee: u64, // satoshis/byte
+    pub use_unsafe_utxos: bool,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -121,6 +124,7 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
+            use_unsafe_utxos: false,
         }
     }
 
@@ -158,6 +162,7 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
+            use_unsafe_utxos: false,
         }
     }
 
@@ -452,7 +457,7 @@ impl BitcoinRegtestController {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                false,
+                self.use_unsafe_utxos,
                 amount_required,
             );
 
@@ -572,8 +577,8 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_transfer_stacks_tx(
         &mut self,
-        payload: PreStxOp,
-        signer: &mut BurnchainOpSigner,
+        _payload: TransferStxOp,
+        _signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         unimplemented!()
     }
@@ -628,8 +633,8 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
-        payload: PreStxOp,
-        signer: &mut BurnchainOpSigner,
+        _payload: PreStxOp,
+        _signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         unimplemented!()
     }

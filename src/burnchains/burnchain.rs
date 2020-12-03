@@ -640,11 +640,14 @@ impl Burnchain {
     }
 
     /// Try to parse a burnchain transaction into a Blockstack operation
+    /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
+    ///   the currently-being-evaluated tx.
     pub fn classify_transaction(
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
         sunset_end_ht: u64,
+        pre_stx_op_map: &HashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
@@ -705,7 +708,10 @@ impl Burnchain {
             }
             x if x == Opcodes::TransferStx as u8 => {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = burnchain_db.get_burnchain_op(pre_stx_txid);
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
                     let sender = &pre_stx.output;
                     match TransferStxOp::from_tx(block_header, burn_tx, sender) {
@@ -730,9 +736,12 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::StackStx as u8 => {
-                let pre_stack_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stack_stx_tx = burnchain_db.get_burnchain_op(pre_stack_stx_txid);
-                if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stack_stx_tx {
+                let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
                     match StackStxOp::from_tx(block_header, burn_tx, sender, sunset_end_ht) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
@@ -750,7 +759,7 @@ impl Burnchain {
                     warn!(
                         "Failed to find corresponding input to StackStxOp";
                         "txid" => %burn_tx.txid().to_string(),
-                        "pre_stx_txid" => %pre_stack_stx_txid.to_string()
+                        "pre_stx_txid" => %pre_stx_txid.to_string()
                     );
                     None
                 }

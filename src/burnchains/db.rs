@@ -34,6 +34,8 @@ use util::db::{
     FromColumn, FromRow,
 };
 
+use std::collections::HashMap;
+
 pub struct BurnchainDB {
     conn: Connection,
 }
@@ -300,13 +302,36 @@ impl BurnchainDB {
             block.block_height(),
             &block.block_hash()
         );
-        block
-            .txs()
-            .iter()
-            .filter_map(|tx| {
-                Burnchain::classify_transaction(self, block_header, &tx, sunset_end_ht)
-            })
-            .collect()
+
+        let mut ops = Vec::new();
+        let mut pre_stx_ops = HashMap::new();
+
+        for tx in block.txs().iter() {
+            let result = Burnchain::classify_transaction(
+                self,
+                block_header,
+                &tx,
+                sunset_end_ht,
+                &pre_stx_ops,
+            );
+            if let Some(classified_tx) = result {
+                if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
+                    pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
+                } else {
+                    ops.push(classified_tx);
+                }
+            }
+        }
+
+        ops.extend(
+            pre_stx_ops
+                .into_iter()
+                .map(|(_, op)| BlockstackOperationType::PreStx(op)),
+        );
+
+        ops.sort_by_key(|op| op.vtxindex());
+
+        ops
     }
 
     pub fn store_new_burnchain_block(
