@@ -26,9 +26,7 @@ use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 
-use chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, PreStackStxOp, TransferStxOp,
-};
+use chainstate::burn::operations::{parse_u128_from_be, BlockstackOperationType, TransferStxOp};
 use core::POX_MAX_NUM_CYCLES;
 
 use burnchains::Address;

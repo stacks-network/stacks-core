@@ -1415,7 +1415,7 @@ fn test_pox_btc_ops() {
 
         if ix == 0 {
             // add a pre-stack-stx op
-            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
@@ -1664,14 +1664,14 @@ fn test_stx_transfer_btc_ops() {
 
         if ix == 0 {
             // add a pre-stack-stx op
-            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
-            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: recipient.clone(),
                 txid: next_txid(),
                 vtxindex: 6,

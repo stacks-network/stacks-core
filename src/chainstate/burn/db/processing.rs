@@ -88,8 +88,8 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 BurnchainError::OpError(e)
             }),
-            BlockstackOperationType::PreStackStx(_) => {
-                // no check() required for PreStackStx
+            BlockstackOperationType::PreStx(_) => {
+                // no check() required for PreStx
                 Ok(())
             }
         }

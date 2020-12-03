@@ -516,7 +516,7 @@ mod tests {
         let pre_stack_stx_0 = BitcoinTransaction {
             txid: pre_stack_stx_0_txid.clone(),
             vtxindex: 0,
-            opcode: Opcodes::PreStackStx as u8,
+            opcode: Opcodes::PreStx as u8,
             data: vec![0; 80],
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
@@ -684,7 +684,7 @@ mod tests {
             bytes: Hash160([2; 20]),
         });
 
-        if let BlockstackOperationType::PreStackStx(op) = &processed_ops_0[0] {
+        if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {
             assert_eq!(&op.output, &expected_pre_stack_addr);
         } else {
             panic!("EXPECTED to parse a pre stack stx op");

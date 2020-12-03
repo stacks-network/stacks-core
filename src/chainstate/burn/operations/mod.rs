@@ -186,7 +186,7 @@ pub struct StackStxOp {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub struct PreStackStxOp {
+pub struct PreStxOp {
     /// the output address
     pub output: StacksAddress,
 
@@ -266,7 +266,7 @@ pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
     UserBurnSupport(UserBurnSupportOp),
-    PreStackStx(PreStackStxOp),
+    PreStx(PreStxOp),
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
 }
@@ -278,7 +278,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(_) => Opcodes::LeaderBlockCommit,
             BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
             BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
-            BlockstackOperationType::PreStackStx(_) => Opcodes::PreStackStx,
+            BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
         }
     }
@@ -293,7 +293,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
             BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
             BlockstackOperationType::StackStx(ref data) => &data.txid,
-            BlockstackOperationType::PreStackStx(ref data) => &data.txid,
+            BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
         }
     }
@@ -304,7 +304,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.vtxindex,
             BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
             BlockstackOperationType::StackStx(ref data) => data.vtxindex,
-            BlockstackOperationType::PreStackStx(ref data) => data.vtxindex,
+            BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
         }
     }
@@ -315,7 +315,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.block_height,
             BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
             BlockstackOperationType::StackStx(ref data) => data.block_height,
-            BlockstackOperationType::PreStackStx(ref data) => data.block_height,
+            BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
         }
     }
@@ -326,7 +326,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::PreStackStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
         }
     }
@@ -338,7 +338,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.block_height = height,
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
-            BlockstackOperationType::PreStackStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
         };
     }
@@ -354,7 +354,7 @@ impl BlockstackOperationType {
             }
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
-            BlockstackOperationType::PreStackStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
         };
     }
@@ -364,7 +364,7 @@ impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::PreStackStx(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
 
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),

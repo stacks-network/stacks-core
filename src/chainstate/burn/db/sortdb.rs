@@ -49,7 +49,7 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
 
@@ -3194,7 +3194,7 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_transfer_stx(op)
             }
-            BlockstackOperationType::PreStackStx(ref op) => {
+            BlockstackOperationType::PreStx(ref op) => {
                 info!(
                     "ACCEPTED({}) pre stack stx op {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex

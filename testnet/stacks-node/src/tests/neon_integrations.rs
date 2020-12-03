@@ -276,7 +276,7 @@ fn bitcoind_integration_test() {
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
-use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStackStxOp, TransferStxOp};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 
 #[test]
 #[ignore]
@@ -351,7 +351,7 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100300);
 
     // okay, let's send a pre-stx op.
-    let pre_stx_op = PreStackStxOp {
+    let pre_stx_op = PreStxOp {
         output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
@@ -364,7 +364,7 @@ fn stx_transfer_btc_integration_test() {
 
     assert!(
         btc_regtest_controller.submit_operation(
-            BlockstackOperationType::PreStackStx(pre_stx_op),
+            BlockstackOperationType::PreStx(pre_stx_op),
             &mut miner_signer,
             1
         ),

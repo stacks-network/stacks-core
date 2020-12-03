@@ -31,8 +31,8 @@ use stacks::burnchains::PublicKey;
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp,
+    UserBurnSupportOp,
 };
 use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -572,7 +572,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_transfer_stacks_tx(
         &mut self,
-        payload: PreStackStxOp,
+        payload: PreStxOp,
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         unimplemented!()
@@ -628,7 +628,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
-        payload: PreStackStxOp,
+        payload: PreStxOp,
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         unimplemented!()
@@ -637,7 +637,7 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     fn build_pre_stacks_tx(
         &mut self,
-        payload: PreStackStxOp,
+        payload: PreStxOp,
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
@@ -648,7 +648,7 @@ impl BitcoinRegtestController {
         // Serialize the payload
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
-            bytes.push(Opcodes::PreStackStx as u8);
+            bytes.push(Opcodes::PreStx as u8);
             bytes
         };
 
@@ -1049,7 +1049,7 @@ impl BurnchainController for BitcoinRegtestController {
             BlockstackOperationType::UserBurnSupport(payload) => {
                 self.build_user_burn_support_tx(payload, op_signer, attempt)
             }
-            BlockstackOperationType::PreStackStx(payload) => {
+            BlockstackOperationType::PreStx(payload) => {
                 self.build_pre_stacks_tx(payload, op_signer)
             }
             BlockstackOperationType::TransferStx(payload) => {
