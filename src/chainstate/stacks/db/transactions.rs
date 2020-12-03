@@ -3790,6 +3790,120 @@ pub mod test {
         conn.commit_block();
     }
 
+    #[test]
+    fn process_post_conditions_tokens_deny_2097() {
+        let privk_origin = StacksPrivateKey::from_hex(
+            "027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01",
+        )
+        .unwrap();
+        let privk_recipient = StacksPrivateKey::from_hex(
+            "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
+        )
+        .unwrap();
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_recv = TransactionAuth::from_p2pkh(&privk_recipient).unwrap();
+        let addr_publisher = auth_origin.origin().address_testnet();
+        let addr_principal = addr_publisher.to_account_principal();
+
+        let contract = "
+(define-constant owner 'ST3X2W2SH9XQZRHHYJ21KWGTT1N6WX3D48K1NSTPE)
+(define-fungible-token connect-token)
+(begin (ft-mint? connect-token u100000000 owner))
+(define-public (transfer (recipient principal) (amount uint))
+  (ok (ft-transfer? connect-token amount tx-sender recipient)))
+"
+        .to_string();
+
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+
+        let recv_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk_recipient)],
+        )
+        .unwrap();
+        let recv_principal = recv_addr.to_account_principal();
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(addr_publisher.clone()),
+            contract_name.clone(),
+        );
+        let _contract_principal = PrincipalData::Contract(contract_id.clone());
+
+        let asset_info = AssetInfo {
+            contract_address: addr_publisher.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: ClarityName::try_from("connect-token").unwrap(),
+        };
+
+        let mut tx_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth_origin.clone(),
+            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract).unwrap(),
+        );
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_fee_rate(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk_origin).unwrap();
+
+        let signed_contract_tx = signer.get_tx().unwrap();
+
+        let mut tx_contract_call = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth_origin.clone(),
+            TransactionPayload::new_contract_call(
+                addr_publisher.clone(),
+                "hello-world",
+                "transfer",
+                vec![Value::Principal(recv_principal.clone()), Value::UInt(10)],
+            )
+            .unwrap(),
+        );
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_origin_nonce(1);
+
+        tx_contract_call.post_condition_mode = TransactionPostConditionMode::Deny;
+        tx_contract_call.add_post_condition(TransactionPostCondition::Fungible(
+            PostConditionPrincipal::Origin,
+            asset_info.clone(),
+            FungibleConditionCode::SentEq,
+            10,
+        ));
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract_call);
+        signer.sign_origin(&privk_origin).unwrap();
+        let contract_call_tx = signer.get_tx().unwrap();
+
+        let mut chainstate = instantiate_chainstate(
+            false,
+            0x80000000,
+            "process-post-conditions-tokens-deny-2097",
+        );
+        let mut conn = chainstate.block_begin(
+            &NULL_BURN_STATE_DB,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // publish contract
+        let _ =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
+
+        let (_fee, receipt) =
+            StacksChainState::process_transaction(&mut conn, &contract_call_tx, false).unwrap();
+
+        assert_eq!(receipt.post_condition_aborted, true);
+        assert_eq!(receipt.result.to_string(), "(ok (err u1))");
+
+        conn.commit_block();
+    }
+
     fn make_account(principal: &PrincipalData, nonce: u64, balance: u128) -> StacksAccount {
         let stx_balance = STXBalance::initial(balance);
         StacksAccount {

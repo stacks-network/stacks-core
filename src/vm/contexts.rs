@@ -22,7 +22,10 @@ use vm::ast;
 use vm::ast::ContractAST;
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::contracts::Contract;
-use vm::costs::{cost_functions, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
+use vm::costs::{
+    cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
+    ExecutionCost, LimitedCostTracker,
+};
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::functions::handle_contract_call_special_cases;
@@ -43,6 +46,7 @@ use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
 use serde::Serialize;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -102,7 +106,7 @@ pub struct GlobalContext<'a> {
     pub cost_track: LimitedCostTracker,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
@@ -428,9 +432,30 @@ impl EventBatch {
 }
 
 impl<'a> OwnedEnvironment<'a> {
+    #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
+            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_max_limit(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        let cost_track = LimitedCostTracker::new_max_limit(&mut database)
+            .expect("FAIL: problem instantiating cost tracking");
+
+        OwnedEnvironment {
+            context: GlobalContext::new(database, cost_track),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
+    pub fn new_free(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -609,6 +634,15 @@ impl<'a> OwnedEnvironment<'a> {
 }
 
 impl CostTracker for Environment<'_, '_> {
+    fn compute_cost(
+        &mut self,
+        cost_function: ClarityCostFunction,
+        input: u64,
+    ) -> std::result::Result<ExecutionCost, CostErrors> {
+        self.global_context
+            .cost_track
+            .compute_cost(cost_function, input)
+    }
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
@@ -624,6 +658,14 @@ impl CostTracker for Environment<'_, '_> {
 }
 
 impl CostTracker for GlobalContext<'_> {
+    fn compute_cost(
+        &mut self,
+        cost_function: ClarityCostFunction,
+        input: u64,
+    ) -> std::result::Result<ExecutionCost, CostErrors> {
+        self.cost_track.compute_cost(cost_function, input)
+    }
+
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
@@ -759,7 +801,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
-        runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
+        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
 
@@ -888,10 +930,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
         //  before returning.
         let result = (|| {
-            runtime_cost!(
-                cost_functions::CONTRACT_STORAGE,
+            runtime_cost(
+                ClarityCostFunction::ContractStorage,
                 self,
-                contract_string.len()
+                contract_string.len(),
             )?;
 
             if self

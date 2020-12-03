@@ -549,12 +549,12 @@ impl Burnchain {
         let headers_pathbuf = PathBuf::from(&headers_path);
 
         let headers_height = if headers_pathbuf.exists() {
-            indexer.get_headers_height()?
+            indexer.get_highest_header_height()?
         } else {
             0
         };
 
-        if !headers_pathbuf.exists() || headers_height < self.first_block_height {
+        if headers_height == 0 || headers_height < self.first_block_height {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
@@ -885,16 +885,18 @@ impl Burnchain {
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
-        // sanity check -- how many headers do we have?
-        // Note that this value is 1-indexed -- the smallest possible value it returns is 1,
-        // So, subtract 1.
-        let headers_height = indexer.get_headers_height().map_err(|e| {
+        // sanity check -- what is the height of our highest header
+        let headers_height = indexer.get_highest_header_height().map_err(|e| {
             error!(
                 "Failed to read headers height from {}: {:?}",
                 headers_path, &e
             );
             e
-        })? - 1;
+        })?;
+
+        if headers_height == 0 {
+            return Ok(0);
+        }
 
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
         // remote bitcoin peer's chain state.

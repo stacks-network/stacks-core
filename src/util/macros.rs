@@ -27,7 +27,7 @@ pub fn is_big_endian() -> bool {
 macro_rules! define_named_enum {
     ($Name:ident { $($Variant:ident($VarName:literal),)* }) =>
     {
-        #[derive(Debug)]
+        #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
             $($Variant),*,
         }
@@ -50,6 +50,19 @@ macro_rules! define_named_enum {
                         $Name::$Variant => $VarName.to_string(),
                     )*
                 }
+            }
+
+            pub fn get_name_str(&self) -> &'static str {
+                match self {
+                    $(
+                        $Name::$Variant => $VarName,
+                    )*
+                }
+            }
+        }
+        impl ::std::fmt::Display for $Name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                write!(f, "{}", self.get_name_str())
             }
         }
     }

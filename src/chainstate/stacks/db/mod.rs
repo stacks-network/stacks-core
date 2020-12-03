@@ -615,27 +615,6 @@ impl ChainStateBootData {
             post_flight_callback,
         }
     }
-
-    /// The callback post_flight_callback is invoked after initial balances are inserted, and after boot contracts are initialized
-    /// This method is used for inserting a callback before any other callback previously setup.
-    pub fn prepend_post_flight_callback(
-        &mut self,
-        new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-    ) {
-        match self.post_flight_callback.take() {
-            Some(initial_callback) => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                    initial_callback(clarity_tx);
-                }));
-            }
-            None => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                }));
-            }
-        }
-    }
 }
 
 impl StacksChainState {
@@ -784,7 +763,7 @@ impl StacksChainState {
         let mut receipts = vec![];
 
         {
-            let mut clarity_tx = chainstate.block_begin(
+            let mut clarity_tx = chainstate.genesis_block_begin(
                 &NULL_BURN_STATE_DB,
                 &BURNCHAIN_BOOT_CONSENSUS_HASH,
                 &BOOT_BLOCK_HASH,
@@ -1159,6 +1138,61 @@ impl StacksChainState {
             new_consensus_hash,
             new_block,
         )
+    }
+
+    /// Begin a transaction against the Clarity VM for initiating the genesis block
+    ///  the genesis block is special cased because it must be evaluated _before_ the
+    ///  cost contract is loaded in the boot code.
+    pub fn genesis_block_begin<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a> {
+        let conf = self.config();
+        let headers_db = self.headers_state_index.sqlite_conn();
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            headers_db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
     }
 
     pub fn with_clarity_marf<F, R>(&mut self, f: F) -> R

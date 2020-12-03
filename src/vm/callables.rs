@@ -21,12 +21,14 @@ use std::iter::FromIterator;
 
 use chainstate::stacks::events::StacksTransactionEvent;
 
-use vm::costs::{cost_functions, SimpleCostSpecification};
+use vm::costs::{cost_functions, runtime_cost, SimpleCostSpecification};
 
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::ContractContext;
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::errors::{check_argument_count, Error, InterpreterResult as Result};
 use vm::representations::{ClarityName, SymbolicExpression};
+use vm::types::Value::UInt;
 use vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
 };
@@ -34,7 +36,7 @@ use vm::{eval, Environment, LocalContext, Value};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, NativeHandle, SimpleCostSpecification),
+    NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
     SpecialFunction(
         &'static str,
         &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
@@ -114,13 +116,18 @@ impl DefinedFunction {
     }
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        runtime_cost!(
-            cost_functions::USER_FUNCTION_APPLICATION,
+        runtime_cost(
+            ClarityCostFunction::UserFunctionApplication,
             env,
-            self.arguments.len()
+            self.arguments.len(),
         )?;
+
         for arg_type in self.arg_types.iter() {
-            runtime_cost!(cost_functions::TYPE_CHECK_COST, env, arg_type)?;
+            runtime_cost(
+                ClarityCostFunction::InnerTypeCheckCost,
+                env,
+                arg_type.size(),
+            )?;
         }
 
         let mut context = LocalContext::new();

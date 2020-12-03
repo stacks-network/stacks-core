@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use util::hash::hex_bytes;
+use vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
@@ -58,6 +59,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Modulo => "(mod 2 1)",
         Power => "(pow 2 3)",
         Sqrti => "(sqrti 81)",
+        Log2 => "(log2 8)",
         BitwiseXOR => "(xor 1 2)",
         And => "(and true false)",
         Or => "(or true false)",
@@ -168,22 +170,22 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(
-        &StacksBlockId::sentinel(),
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-    );
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
 
-    {
-        marf_kv
-            .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-            .initialize();
-    }
+    let mut marf_kv = clarity_instance.destroy();
 
-    marf_kv.test_commit();
     marf_kv.begin(
         &StacksBlockHeader::make_index_block_hash(
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -192,8 +194,9 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         &StacksBlockId([1 as u8; 32]),
     );
 
-    let mut owned_env =
-        OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+    );
 
     owned_env
         .initialize_contract(trait_contract_id.clone(), contract_trait)
