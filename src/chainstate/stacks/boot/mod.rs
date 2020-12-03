@@ -2424,6 +2424,15 @@ pub mod test {
                             1,
                         );
                         block_txs.push(charlie_stack);
+                    } else if tenure_id == 10 {
+                        let charlie_withdraw = make_pox_withdraw_stx_contract_call(
+                            &charlie,
+                            1,
+                            &key_to_stacks_addr(&bob),
+                            "do-lockup",
+                            1024 * 1000000,
+                        );
+                        block_txs.push(charlie_withdraw);
                     } else if tenure_id == 11 {
                         // Alice locks up half of her tokens
                         let alice_lockup = make_pox_lockup(
@@ -2440,7 +2449,7 @@ pub mod test {
                         // Charlie locks up half of his tokens
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
-                            1,
+                            2,
                             &key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * 1000000,
@@ -2485,10 +2494,11 @@ pub mod test {
                 .get_reward_cycle(&burnchain, tip_burn_block_height);
 
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-            let charlie_balance = get_balance(
+            let charlie_contract_balance = get_balance(
                 &mut peer,
                 &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
             );
+            let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
@@ -2509,7 +2519,7 @@ pub mod test {
                     assert_eq!(alice_balance, 1024 * 1000000);
 
                     // Charlie's contract has not locked up STX
-                    assert_eq!(charlie_balance, 0);
+                    assert_eq!(charlie_contract_balance, 0);
                 }
 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -2536,7 +2546,10 @@ pub mod test {
                 // Alice has unlocked
                 assert_eq!(alice_balance, 1024 * 1000000);
 
-                // Charlie's contract has unlocked
+                // Charlie's contract was unlocked and wiped
+                assert_eq!(charlie_contract_balance, 0);
+
+                // Charlie's balance
                 assert_eq!(charlie_balance, 1024 * 1000000);
             } else if tenure_id == 11 {
                 // should have just re-locked
@@ -2592,7 +2605,11 @@ pub mod test {
 
                     // in Charlie's first reward cycle
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
-                        get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
+                        get_stacker_info(
+                            &mut peer,
+                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        )
+                        .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                     assert_eq!(first_reward_cycle, first_pox_reward_cycle);
@@ -2619,7 +2636,7 @@ pub mod test {
 
                     // All of Alice's and Charlie's tokens are locked
                     assert_eq!(alice_balance, 0);
-                    assert_eq!(charlie_balance, 0);
+                    assert_eq!(charlie_contract_balance, 0);
 
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -2651,7 +2668,7 @@ pub mod test {
                     // After Alice's first reward cycle, but before her second.
                     // unlock should have happened
                     assert_eq!(alice_balance, 1024 * 1000000);
-                    assert_eq!(charlie_balance, 1024 * 1000000);
+                    assert_eq!(charlie_contract_balance, 0);
 
                     // alice shouldn't be a stacker
                     assert!(
@@ -2686,13 +2703,8 @@ pub mod test {
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
-                    assert_eq!(charlie_account.stx_balance.amount_locked, 1024 * 1000000);
-                    assert_eq!(
-                        charlie_account.stx_balance.unlock_height as u128,
-                        (first_reward_cycle + 1)
-                            * (burnchain.pox_constants.reward_cycle_length as u128)
-                            + (burnchain.first_block_height as u128)
-                    );
+                    assert_eq!(charlie_account.stx_balance.amount_locked, 0);
+                    assert_eq!(charlie_account.stx_balance.unlock_height as u128, 0);
                 }
             } else if second_reward_cycle > 0 {
                 if cur_reward_cycle == second_reward_cycle {
@@ -2740,6 +2752,7 @@ pub mod test {
 
                     // Half of Alice's tokens are locked
                     assert_eq!(alice_balance, 512 * 1000000);
+                    assert_eq!(charlie_contract_balance, 0);
                     assert_eq!(charlie_balance, 512 * 1000000);
 
                     // Lock-up is consistent with stacker state
@@ -2758,7 +2771,7 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 512 * 1000000);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked, 512 * 1000000);
                     assert_eq!(
                         charlie_account.stx_balance.unlock_height as u128,
@@ -2772,7 +2785,8 @@ pub mod test {
                     // After Alice's second reward cycle
                     // unlock should have happened
                     assert_eq!(alice_balance, 1024 * 1000000);
-                    assert_eq!(charlie_balance, 1024 * 1000000);
+                    assert_eq!(charlie_contract_balance, 512 * 1000000);
+                    assert_eq!(charlie_balance, 512 * 1000000);
 
                     // alice and charlie shouldn't be stackers
                     assert!(
@@ -2806,7 +2820,7 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 512 * 1000000);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked, 512 * 1000000);
                     assert_eq!(
                         charlie_account.stx_balance.unlock_height as u128,
