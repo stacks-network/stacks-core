@@ -652,7 +652,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                                 block_receipt.header.anchored_header.block_hash(),
                                                 block_receipt.header.block_height,
                                             );
-                                            if let Ok(attachment_instance) = res {
+                                            if let Some(attachment_instance) = res {
                                                 attachments_instances.insert(attachment_instance);
                                             }
                                         }

@@ -255,14 +255,13 @@ fn test_attachment_instance_parsing() {
     ];
 
     for value in values.iter() {
-        AttachmentInstance::try_new_from_value(
+        assert!(AttachmentInstance::try_new_from_value(
             &value,
             &contract_id,
             &consensus_hash,
             block_header_hash.clone(),
             block_height,
-        )
-        .unwrap_err();
+        ).is_none());
     }
 }
 

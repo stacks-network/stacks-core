@@ -86,7 +86,7 @@ impl AttachmentInstance {
         consensus_hash: &ConsensusHash,
         block_header_hash: BlockHeaderHash,
         block_height: u64,
-    ) -> Result<AttachmentInstance, ()> {
+    ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
                 match (
@@ -104,7 +104,7 @@ impl AttachmentInstance {
                         } else {
                             match Hash160::from_bytes(&content_hash.data[..]) {
                                 Some(content_hash) => content_hash,
-                                _ => return Err(()),
+                                _ => return None,
                             }
                         };
                         let metadata = match attachment_data.get("metadata") {
@@ -127,13 +127,13 @@ impl AttachmentInstance {
                             metadata,
                             contract_id: contract_id.clone(),
                         };
-                        return Ok(instance);
+                        return Some(instance);
                     }
                     _ => {}
                 }
             }
         }
-        Err(())
+        None
     }
 }
 
