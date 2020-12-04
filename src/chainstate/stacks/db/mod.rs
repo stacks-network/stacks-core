@@ -28,6 +28,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -85,6 +86,7 @@ use vm::database::{
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+use vm::types::TupleData;
 
 use core::CHAINSTATE_VERSION;
 
@@ -537,12 +539,29 @@ pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first
 
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct VestingSchedule {
+    pub address: StacksAddress,
+    pub amount: u64,
+    pub block_height: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountBalance {
+    pub address: StacksAddress,
+    pub amount: u64,
+}
+
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub get_bulk_initial_vesting_schedules:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
+    pub get_bulk_initial_balances:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -557,6 +576,8 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             post_flight_callback,
+            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         }
     }
 }
@@ -752,14 +773,152 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
+            info!(
+                "Initializing chain with {} config balances",
+                boot_data.initial_balances.len()
+            );
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::account_genesis_credit(clarity, address, *amount)
+                    StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
                 });
                 initial_liquid_ustx = initial_liquid_ustx
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
+                let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                    STXMintEventData {
+                        recipient: address.clone(),
+                        amount: *amount as u128,
+                    },
+                ));
+                allocation_events.push(mint_event);
             }
+
+            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                info!("Initializing chain with balances");
+                let mut balances_count = 0;
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let initial_balances = get_balances();
+                    for balance in initial_balances {
+                        balances_count = balances_count + 1;
+                        StacksChainState::account_genesis_credit(
+                            clarity,
+                            &balance.address.into(),
+                            balance.amount.into(),
+                        );
+                        initial_liquid_ustx = initial_liquid_ustx
+                            .checked_add(balance.amount as u128)
+                            .expect("FATAL: liquid STX overflow");
+                        let mint_event = StacksTransactionEvent::STXEvent(
+                            STXEventType::STXMintEvent(STXMintEventData {
+                                recipient: balance.address.into(),
+                                amount: balance.amount.into(),
+                            }),
+                        );
+                        allocation_events.push(mint_event);
+                    }
+                });
+                info!("Done initializing chain with {} balances", balances_count);
+            }
+
+            let allocations_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_auth.clone(),
+                TransactionPayload::TokenTransfer(
+                    PrincipalData::Standard(boot_code_address.into()),
+                    0,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            );
+            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
+                allocations_tx,
+                allocation_events,
+                Value::okay_true(),
+                ExecutionCost::zero(),
+            );
+            receipts.push(allocations_receipt);
+
+            let mut total_vesting_amount: u128 = 0;
+            if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
+                info!("Initializing chain with vesting schedules");
+                let mut vesting_schedule_count = 0;
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let initial_vesting_schedules = get_schedules();
+                    let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
+                    let lockup_contract_id = boot_code_id("lockup");
+                    for schedule in initial_vesting_schedules {
+                        total_vesting_amount = total_vesting_amount
+                            .checked_add(schedule.amount as u128)
+                            .expect("FATAL: vesting STX overflow");
+                        vesting_schedule_count = vesting_schedule_count + 1;
+                        let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
+                        let index = value + 1;
+                        unlocks_per_blocks.insert(schedule.block_height, index);
+
+                        clarity
+                            .with_clarity_db(|db| {
+                                let key = TupleData::from_data(vec![
+                                    (
+                                        "stx-height".into(),
+                                        Value::UInt(schedule.block_height.into()),
+                                    ),
+                                    ("index".into(), Value::UInt(index.into())),
+                                ])
+                                .unwrap();
+
+                                let value = TupleData::from_data(vec![
+                                    ("owner".into(), Value::Principal(schedule.address.into())),
+                                    ("metadata".into(), Value::buff_from_byte(0)),
+                                    ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
+                                ])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "internal-locked-stx",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
+
+                                let key = TupleData::from_data(vec![(
+                                    "stx-height".into(),
+                                    Value::UInt(schedule.block_height.into()),
+                                )])
+                                .unwrap();
+                                let value = TupleData::from_data(vec![(
+                                    "total-unlocked".into(),
+                                    Value::UInt(index.into()),
+                                )])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "unlocked-stx-per-block",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
+
+                                Ok(())
+                            })
+                            .unwrap();
+                    }
+                });
+                info!(
+                    "Done initializing chain with {} vesting schedules",
+                    vesting_schedule_count
+                );
+            }
+
+            info!(
+                "Credit lockup contract with balance {}",
+                total_vesting_amount
+            );
+            clarity_tx.connection().as_transaction(|clarity| {
+                StacksChainState::account_genesis_credit(
+                    clarity,
+                    &PrincipalData::from(boot_code_id("lockup")),
+                    total_vesting_amount,
+                )
+            });
+
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
             }
@@ -1484,6 +1643,8 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         StacksChainState::open_and_exec(

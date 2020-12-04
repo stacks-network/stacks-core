@@ -25,6 +25,7 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+    pub mstx_vesting_schedule: Option<Vec<InitialVestingScheduleFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub block_limit: Option<BlockLimitFile>,
@@ -1068,7 +1069,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -1078,4 +1079,11 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct InitialVestingScheduleFile {
+    pub address: String,
+    pub amount: u64,
+    pub block_height: u64,
 }
