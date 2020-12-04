@@ -811,7 +811,7 @@ fn contract_stx_transfer() {
                                         .amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         1000
                     );
                     // check that 1000 stx _was_ debited from SK_3
@@ -826,7 +826,7 @@ fn contract_stx_transfer() {
                                     db.get_account_stx_balance(&addr_3).amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         99000
                     );
                 }
@@ -858,7 +858,7 @@ fn contract_stx_transfer() {
                                     db.get_account_stx_balance(&addr_2).amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         1
                     );
 
@@ -872,7 +872,7 @@ fn contract_stx_transfer() {
                                         .amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         999
                     );
                 }
@@ -900,7 +900,7 @@ fn contract_stx_transfer() {
                                         .amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         25999
                     );
                     // check that 1000 stx _was_ debited from SK_3
@@ -915,7 +915,7 @@ fn contract_stx_transfer() {
                                     db.get_account_stx_balance(&addr_3).amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         69000
                     );
                 }
@@ -990,7 +990,7 @@ fn mine_contract_twice() {
                                 db.get_contract_src(&contract_identifier).unwrap()
                             })
                         }
-                    ),
+                    ).unwrap(),
                     FAUCET_CONTRACT
                 );
             }
@@ -1125,7 +1125,7 @@ fn bad_contract_tx_rollback() {
                                         .amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         1000
                     );
                     // check that 1000 stx _was_ debited from SK_3
@@ -1140,7 +1140,7 @@ fn bad_contract_tx_rollback() {
                                     db.get_account_stx_balance(&addr_3).amount_unlocked
                                 })
                             }
-                        ),
+                        ).unwrap(),
                         99000
                     );
                 }
