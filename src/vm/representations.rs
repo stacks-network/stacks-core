@@ -76,6 +76,12 @@ macro_rules! guarded_string {
                 Self::try_from(value.to_string()).unwrap()
             }
         }
+
+        impl fmt::Display for $Name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
     };
 }
 

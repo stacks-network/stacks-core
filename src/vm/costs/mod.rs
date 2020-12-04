@@ -19,6 +19,7 @@ pub mod cost_functions;
 
 use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
@@ -147,6 +148,22 @@ impl ClarityCostFunctionReference {
         ClarityCostFunctionReference {
             contract_id: id,
             function_name: name,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CostStateSummary {
+    pub contract_call_circuits:
+        HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
+    pub cost_function_references: HashMap<ClarityCostFunction, ClarityCostFunctionReference>,
+}
+
+impl CostStateSummary {
+    pub fn empty() -> CostStateSummary {
+        CostStateSummary {
+            contract_call_circuits: HashMap::new(),
+            cost_function_references: HashMap::new(),
         }
     }
 }

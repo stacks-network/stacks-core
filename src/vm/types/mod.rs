@@ -734,6 +734,15 @@ impl Value {
         ))))
     }
 
+    pub fn expect_ascii(self) -> String {
+        if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
+            String::from_utf8(data).unwrap()
+        } else {
+            error!("Value '{:?}' is not an ASCII string", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_u128(self) -> u128 {
         if let Value::UInt(inner) = self {
             inner

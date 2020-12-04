@@ -12,6 +12,8 @@
 ;; max confirmed cost-funciton ID
 (define-data-var cost-function-max-id uint u1000)
 
+(define-data-var confirmed-proposal-count uint u0)
+
 ;; cost-function proposals
 (define-map proposals
     ((proposal-id uint))
@@ -23,14 +25,13 @@
 
 ;; confirmed cost-function proposals
 (define-map confirmed-proposals
-   ((proposal-id uint))
+   ((confirmed-id uint))
    ((confirmed-proposal
-      (optional  
         {  function-contract: principal,
            function-name: (string-ascii 50),
            cost-function-contract: principal,
            cost-function-name: (string-ascii 50),
-           confirmed-height: uint }))))
+           confirmed-height: uint })))
 
 (define-map functions-to-confirmed-ids
    ((function-contract principal) (function-name (string-ascii 50)))

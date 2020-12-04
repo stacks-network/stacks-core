@@ -135,6 +135,22 @@ pub trait ClarityBackingStore {
             .get_metadata(&bhh, &contract.to_string(), key))
     }
 
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        let bhh = self.get_block_at_height(at_height)
+            .ok_or_else(|| {
+                warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
+                RuntimeErrorType::BadBlockHeight(at_height.to_string())
+            })?;
+        Ok(self
+            .get_side_store()
+            .get_metadata(&bhh, &contract.to_string(), key))
+    }
+
     fn put_all_metadata(
         &mut self,
         mut items: Vec<((QualifiedContractIdentifier, String), String)>,
