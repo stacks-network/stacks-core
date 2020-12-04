@@ -39,12 +39,12 @@ use net::dns::*;
 use net::rpc::*;
 use net::*;
 
+use net::atlas::AttachmentsDownloader;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
 use net::GetBlocksInv;
 use net::StacksMessage;
 use net::StacksP2P;
-use net::atlas::AttachmentsDownloader;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 

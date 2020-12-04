@@ -3000,7 +3000,6 @@ impl PeerNetwork {
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
     ) -> Result<(), net_error> {
-
         if self.attachments_downloader.is_none() {
             self.init_attachments_downloader();
         }

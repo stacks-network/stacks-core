@@ -548,7 +548,7 @@ impl BatchedDNSLookupsState {
                 }
                 let state = match results {
                     Some(state) => state,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
 
                 let mut inflight = 0;
@@ -587,7 +587,7 @@ impl BatchedDNSLookupsState {
                 // Step successfully completed
                 let results = match results.take() {
                     Some(state) => state,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
                 BatchedDNSLookupsState::Done(results)
             }
@@ -617,7 +617,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
             BatchedRequestsState::BeginRequests(ref mut queue, ref mut results) => {
                 let mut queue = match queue.take() {
                     Some(queue) => queue,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
                 let mut requests = HashMap::new();
 
@@ -651,9 +651,9 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
 
                 let state = match results {
                     Some(state) => state,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
-                
+
                 for (event_id, request) in state.remaining.drain() {
                     match network.http.get_conversation(event_id) {
                         None => {
@@ -714,16 +714,16 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                     return fsm;
                 }
-                
+
                 // Requests completed!
                 // any requests left to perform?
                 let queue = match queue.take() {
                     Some(queue) => queue,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
                 match queue.len() {
                     0 => BatchedRequestsState::Done(results.take().unwrap()),
-                    _ => BatchedRequestsState::BeginRequests(Some(queue), results.take())
+                    _ => BatchedRequestsState::BeginRequests(Some(queue), results.take()),
                 }
             }
             BatchedRequestsState::Done(_) => unreachable!(),

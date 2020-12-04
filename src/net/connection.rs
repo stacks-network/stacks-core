@@ -416,8 +416,8 @@ impl std::default::Default for ConnectionOptions {
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
-            dns_timeout: 15_000,    // DNS timeout, in millis
-            max_inflight_blocks: 6, // number of parallel block downloads
+            dns_timeout: 15_000,         // DNS timeout, in millis
+            max_inflight_blocks: 6,      // number of parallel block downloads
             max_inflight_attachments: 6, // number of parallel attachments downloads
             read_only_call_limit: ExecutionCost {
                 write_length: 0,

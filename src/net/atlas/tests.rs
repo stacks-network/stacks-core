@@ -261,7 +261,8 @@ fn test_attachment_instance_parsing() {
             &consensus_hash,
             block_header_hash.clone(),
             block_height,
-        ).is_none());
+        )
+        .is_none());
     }
 }
 
