@@ -74,7 +74,6 @@ struct MicroblockMinerState {
     frequency: u64,
     last_mined: u128,
     quantity: u64,
-    max_quantity: u64,
 }
 
 enum RelayerDirective {
@@ -366,7 +365,6 @@ fn try_mine_microblock(
                         frequency: config.node.microblock_frequency,
                         last_mined: 0,
                         quantity: 0,
-                        max_quantity: u16::MAX as u64,
                     });
                 }
                 Ok(None) => {
