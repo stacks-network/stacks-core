@@ -44,6 +44,7 @@ use net::connection::ReplyHandleHttp;
 use net::GetBlocksInv;
 use net::StacksMessage;
 use net::StacksP2P;
+use net::atlas::AttachmentsDownloader;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -2146,6 +2147,11 @@ impl PeerNetwork {
             self.connection_opts.download_interval,
             self.connection_opts.max_inflight_blocks,
         ));
+    }
+
+    /// Initialize the attachment downloader
+    pub fn init_attachments_downloader(&mut self) -> () {
+        self.attachments_downloader = Some(AttachmentsDownloader::new());
     }
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get

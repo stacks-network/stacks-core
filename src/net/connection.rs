@@ -348,6 +348,7 @@ pub struct ConnectionOptions {
     pub pingback_timeout: u64,
     pub dns_timeout: u128,
     pub max_inflight_blocks: u64,
+    pub max_inflight_attachments: u64,
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
     pub max_block_push_bandwidth: u64,
@@ -417,6 +418,7 @@ impl std::default::Default for ConnectionOptions {
             pingback_timeout: 60,
             dns_timeout: 15_000,    // DNS timeout, in millis
             max_inflight_blocks: 6, // number of parallel block downloads
+            max_inflight_attachments: 6, // number of parallel attachments downloads
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,

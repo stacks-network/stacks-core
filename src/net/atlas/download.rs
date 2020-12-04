@@ -405,7 +405,7 @@ impl AttachmentsBatchStateMachine {
                         let sub_state = {
                             let requests_queue =
                                 context.get_prioritized_attachments_inventory_requests();
-                            BatchedRequestsState::Initialized(requests_queue)
+                            BatchedRequestsState::BeginRequests(Some(requests_queue), None)
                         };
                         AttachmentsBatchStateMachine::DownloadingAttachmentsInv((
                             sub_state, context,
@@ -423,12 +423,13 @@ impl AttachmentsBatchStateMachine {
                     &context.dns_lookups,
                     network,
                     chainstate,
+                    &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
                         let context = context.extend_with_inventories(results);
                         let sub_state = {
                             let requests_queue = context.get_prioritized_attachments_requests();
-                            BatchedRequestsState::Initialized(requests_queue)
+                            BatchedRequestsState::BeginRequests(Some(requests_queue), None)
                         };
                         AttachmentsBatchStateMachine::DownloadingAttachment((sub_state, context))
                     }
@@ -446,6 +447,7 @@ impl AttachmentsBatchStateMachine {
                     &context.dns_lookups,
                     network,
                     chainstate,
+                    &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
                         let context = context.extend_with_attachments(results);
@@ -462,7 +464,7 @@ impl AttachmentsBatchStateMachine {
 #[derive(Debug)]
 enum BatchedDNSLookupsState {
     Initialized(Vec<UrlString>),
-    Resolving(BatchedDNSLookupsResults),
+    Resolving(Option<BatchedDNSLookupsResults>),
     Done(BatchedDNSLookupsResults),
 }
 
@@ -537,13 +539,17 @@ impl BatchedDNSLookupsState {
                         }
                     }
                 }
-                BatchedDNSLookupsState::Resolving(state)
+                BatchedDNSLookupsState::Resolving(Some(state))
             }
-            BatchedDNSLookupsState::Resolving(ref mut state) => {
+            BatchedDNSLookupsState::Resolving(ref mut results) => {
                 if let Err(e) = dns_client.try_recv() {
                     warn!("Atlas: DNS client unable to receive data {}", e);
                     return fsm;
                 }
+                let state = match results {
+                    Some(state) => state,
+                    None => unreachable!()
+                };
 
                 let mut inflight = 0;
                 for (url_str, request) in state.parsed_urls.iter() {
@@ -578,18 +584,12 @@ impl BatchedDNSLookupsState {
                     return fsm;
                 }
 
-                // Step successfully completed - todo(ludo) find a better approach - maybe deref?
-                let mut result = BatchedDNSLookupsResults::default();
-                for (k, v) in state.errors.drain() {
-                    result.errors.insert(k, v);
-                }
-                for (k, v) in state.dns_lookups.drain() {
-                    result.dns_lookups.insert(k, v);
-                }
-                for (k, v) in state.parsed_urls.drain() {
-                    result.parsed_urls.insert(k, v);
-                }
-                BatchedDNSLookupsState::Done(result)
+                // Step successfully completed
+                let results = match results.take() {
+                    Some(state) => state,
+                    None => unreachable!()
+                };
+                BatchedDNSLookupsState::Done(results)
             }
             BatchedDNSLookupsState::Done(_) => unreachable!(),
         }
@@ -598,8 +598,8 @@ impl BatchedDNSLookupsState {
 
 #[derive(Debug)]
 enum BatchedRequestsState<T: Ord + Requestable + fmt::Display + std::hash::Hash> {
-    Initialized(BinaryHeap<T>),
-    Downloading(BatchedRequestsResult<T>),
+    BeginRequests(Option<BinaryHeap<T>>, Option<BatchedRequestsResult<T>>),
+    PollRequests(Option<BinaryHeap<T>>, Option<BatchedRequestsResult<T>>),
     Done(BatchedRequestsResult<T>),
 }
 
@@ -609,31 +609,51 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         network: &mut PeerNetwork,
         chainstate: &mut StacksChainState,
+        connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;
 
         match fsm {
-            BatchedRequestsState::Initialized(ref mut queue) => {
+            BatchedRequestsState::BeginRequests(ref mut queue, ref mut results) => {
+                let mut queue = match queue.take() {
+                    Some(queue) => queue,
+                    None => unreachable!()
+                };
                 let mut requests = HashMap::new();
-                while let Some(requestable) = queue.pop() {
-                    let mut requestables = VecDeque::new();
-                    requestables.push_back(requestable);
-                    let res = PeerNetwork::begin_request(
-                        network,
-                        dns_lookups,
-                        &mut requestables,
-                        chainstate,
-                    );
-                    if let Some((request, event_id)) = res {
-                        requests.insert(event_id, request);
+
+                // We want to limit the number of requests in flight,
+                // so we will be batching our requests.
+                for _ in 0..connection_options.max_inflight_attachments {
+                    if let Some(requestable) = queue.pop() {
+                        let mut requestables = VecDeque::new();
+                        requestables.push_back(requestable);
+                        let res = PeerNetwork::begin_request(
+                            network,
+                            dns_lookups,
+                            &mut requestables,
+                            chainstate,
+                        );
+                        if let Some((request, event_id)) = res {
+                            requests.insert(event_id, request);
+                        }
                     }
                 }
-                let next_state = BatchedRequestsResult::new(requests);
-                BatchedRequestsState::Downloading(next_state)
+
+                let results = if results.is_none() {
+                    Some(BatchedRequestsResult::new(requests))
+                } else {
+                    results.take()
+                };
+                BatchedRequestsState::PollRequests(Some(queue), results)
             }
-            BatchedRequestsState::Downloading(ref mut state) => {
+            BatchedRequestsState::PollRequests(ref mut queue, ref mut results) => {
                 let mut pending_requests = HashMap::new();
 
+                let state = match results {
+                    Some(state) => state,
+                    None => unreachable!()
+                };
+                
                 for (event_id, request) in state.remaining.drain() {
                     match network.http.get_conversation(event_id) {
                         None => {
@@ -687,23 +707,24 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                 }
 
-                // We completed this step
                 if pending_requests.len() > 0 {
+                    // We need to keep polling
                     for (event_id, request) in pending_requests.drain() {
                         state.remaining.insert(event_id, request);
                     }
                     return fsm;
                 }
-
-                // Step successfully completed - todo(ludo) find a better approach
-                let mut result = BatchedRequestsResult::empty();
-                for (k, v) in state.errors.drain() {
-                    result.errors.insert(k, v);
+                
+                // Requests completed!
+                // any requests left to perform?
+                let queue = match queue.take() {
+                    Some(queue) => queue,
+                    None => unreachable!()
+                };
+                match queue.len() {
+                    0 => BatchedRequestsState::Done(results.take().unwrap()),
+                    _ => BatchedRequestsState::BeginRequests(Some(queue), results.take())
                 }
-                for (k, v) in state.succeeded.drain() {
-                    result.succeeded.insert(k, v);
-                }
-                BatchedRequestsState::Done(result)
             }
             BatchedRequestsState::Done(_) => unreachable!(),
         }

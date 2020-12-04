@@ -394,7 +394,7 @@ impl PeerNetwork {
             header_cache: BlockHeaderCache::new(),
 
             block_downloader: None,
-            attachments_downloader: Some(AttachmentsDownloader::new()),
+            attachments_downloader: None,
 
             do_prune: false,
 
@@ -3000,6 +3000,11 @@ impl PeerNetwork {
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
     ) -> Result<(), net_error> {
+
+        if self.attachments_downloader.is_none() {
+            self.init_attachments_downloader();
+        }
+
         match dns_client_opt {
             Some(ref mut dns_client) => {
                 PeerNetwork::with_attachments_downloader(
