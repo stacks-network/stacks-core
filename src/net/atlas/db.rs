@@ -230,7 +230,6 @@ impl AtlasDB {
         let qry = format!("SELECT is_available FROM attachment_instances WHERE page_index = {} AND index_block_hash IN ({}) ORDER BY position_in_page ASC", page_index, ancestor_tree_sql);
         let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
         let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
-        println!("get_attachments_missing_at_page_index res: {:?}", res);
         Ok(res)
     }
 
