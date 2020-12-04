@@ -34,6 +34,7 @@ use core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
 use vm::types::Value::Response;
+use address::AddressHashMode;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -70,6 +71,13 @@ lazy_static! {
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
+    static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
+    ).unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
 }
@@ -227,7 +235,7 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
-        None
+        Some(MINER_ADDR.clone())
     }
     fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
         *LIQUID_SUPPLY
@@ -983,6 +991,25 @@ fn cost_voting_tests() {
                 &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
             ).unwrap().0,
             Value::UInt(1000000)
+        );
+
+        env.execute_transaction(
+            (&MINER_KEY.clone()).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "veto",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+            ])).unwrap();
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-vetos",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(1)))})
         );
     });
 }

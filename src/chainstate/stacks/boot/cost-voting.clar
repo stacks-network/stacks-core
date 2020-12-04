@@ -39,6 +39,9 @@
 ;; cost-function proposal votes
 (define-map proposal-votes ((proposal-id uint)) ((votes uint)))
 
+;; cost-function proposal vetos
+(define-map proposal-vetos ((proposal-id uint)) ((vetos uint)))
+
 ;; the number of votes a specific principal has committed to a proposal
 (define-map principal-proposal-votes ((address principal) (proposal-id uint)) ((votes uint)))
 
@@ -53,6 +56,10 @@
 ;; getter for cost-function proposal votes
 (define-read-only (get-proposal-votes (proposal-id uint))
     (get votes (map-get? proposal-votes { proposal-id: proposal-id })))
+
+;; getter for cost-function proposal vetos
+(define-read-only (get-proposal-vetos (proposal-id uint))
+    (get vetos (map-get? proposal-vetos { proposal-id: proposal-id })))
 
 ;; getter for cost-function proposal votes, for specific principal
 (define-read-only (get-principal-votes (address principal) (proposal-id uint))
@@ -88,8 +95,8 @@
             (< burn-block-height expiration-block-height)
             (is-none (map-get? confirmed-proposals { proposal-id: proposal-id })))
         (begin
-            (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
-            (try! (ft-mint? cost-vote-token amount tx-sender))
+            (unwrap! (stx-transfer? amount tx-sender (as-contract tx-sender)) (err 1))
+            (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err 1))
             (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
             (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
                                             { votes: (+ amount cur-principal-votes)})
@@ -113,8 +120,8 @@
             (< burn-block-height expiration-block-height)
             (is-none (map-get? confirmed-proposals { proposal-id: proposal-id })))
         (begin
-            (try! (as-contract (stx-transfer? amount tx-sender sender)))
-            (try! (as-contract (ft-transfer? cost-vote-token amount sender tx-sender)))
+            (unwrap! (as-contract (stx-transfer? amount tx-sender sender)) (err 1))
+            (unwrap! (as-contract (ft-transfer? cost-vote-token amount sender tx-sender)) (err 1))
             (map-set proposal-votes { proposal-id: proposal-id } { votes: (- cur-votes amount) })
             (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id }
                                               { votes: (- cur-principal-votes amount) })
@@ -136,15 +143,28 @@
             (> burn-block-height expiration-block-height)
             (is-some (map-get? confirmed-proposals { proposal-id: proposal-id })))
         (begin
-            (try! (as-contract (stx-transfer? cur-principal-votes tx-sender sender)))
-            (try! (as-contract (ft-transfer? cost-vote-token cur-principal-votes sender tx-sender)))
+            (unwrap! (as-contract (stx-transfer? cur-principal-votes tx-sender sender)) (err 1))
+            (unwrap! (as-contract (ft-transfer? cost-vote-token cur-principal-votes sender tx-sender)) (err 1))
             (ok true))
         (err 1)))
 )
 
 ;; Miner veto
 (define-public (veto (proposal-id uint))
-    (err 1)
+    (let (
+        (cur-vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
+        (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
+            proposal-id: proposal-id }) (err 1))))
+    )
+    (if (and
+            (is-eq contract-caller (unwrap! (get-block-info? miner-address (- block-height u1)) (err 1)))
+            (> burn-block-height expiration-block-height)
+            (is-none (map-get? confirmed-proposals { proposal-id: proposal-id })))
+        (begin
+            (map-set proposal-vetos { proposal-id: proposal-id } { vetos: (+ u1 cur-vetos) })
+            (ok true)
+        )
+        (err 1)))
 )
 
 ;; Confirm proposal has reached required vote count
