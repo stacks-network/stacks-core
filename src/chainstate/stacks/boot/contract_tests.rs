@@ -1012,4 +1012,58 @@ fn cost_voting_tests() {
             Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(1)))})
         );
     });
+
+    sim.execute_next_block(|env| {
+        // Submit a proposal
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "submit-proposal",
+                &symbols_from_values(vec![
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name2").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("function-name2".into()).unwrap(),
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name2").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("cost-function-name2".into()).unwrap(),
+                ])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData { committed: true, data: Value::UInt(1).into() } )
+        );
+
+        // Assert confirmation returns false
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm",
+                &symbols_from_values(vec![
+                    Value::UInt(1),
+                ])).unwrap().0,
+            Value::Response(ResponseData { committed: true, data: Value::Bool(false).into() })
+        );
+
+        for user in USER_KEYS.iter() {
+            env.execute_transaction(
+                user.into(),
+                COST_VOTING_CONTRACT.clone(),
+                "vote-proposal",
+                &symbols_from_values(vec![
+                    Value::UInt(1),
+                    Value::UInt(USTX_PER_HOLDER),
+                ])).unwrap().0;
+        }
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm",
+                &symbols_from_values(vec![
+                    Value::UInt(1),
+                ])).unwrap().0,
+            Value::Response(ResponseData { committed: true, data: Value::Bool(true).into() })
+        );
+    });
 }

@@ -169,5 +169,21 @@
 
 ;; Confirm proposal has reached required vote count
 (define-public (confirm (proposal-id uint))
-    (err 1)
+    (let (
+        (votes (default-to u0 (get votes (map-get? proposal-votes { proposal-id: proposal-id }))))
+        (vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
+        (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
+            proposal-id: proposal-id }) (err 1))))
+    )
+    (let (
+        (blocks-since-proposal (- block-height (- expiration-block-height u2016)))
+    )
+    (begin
+        (if (and
+            (>= (/ (* votes u100) stx-liquid-supply) u20)
+            (< (/ (* vetos u100) blocks-since-proposal) u80)
+        )
+        (ok true)
+        (ok false))
+    )))
 )
