@@ -6,10 +6,7 @@ use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleTypeSignature, TypeSignature, Value, NONE,
-};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature, TypeSignature, Value, NONE, ResponseData};
 
 use std::convert::TryInto;
 
@@ -36,11 +33,16 @@ use core::{
     FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
+use vm::types::Value::Response;
+use address::AddressHashMode;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+
+const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -57,6 +59,10 @@ lazy_static! {
         &format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
     )
     .unwrap();
+    static ref COST_VOTING_CONTRACT: QualifiedContractIdentifier = QualifiedContractIdentifier::parse(
+        &format!("{}.cost-voting", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
+    )
+    .unwrap();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)
@@ -65,6 +71,13 @@ lazy_static! {
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
+    static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
+    ).unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
 }
@@ -222,7 +235,7 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
-        None
+        Some(MINER_ADDR.clone())
     }
     fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
         *LIQUID_SUPPLY
@@ -843,6 +856,160 @@ fn delegation_tests() {
             .0
             .to_string(),
             "(err 9)".to_string()
+        );
+    });
+}
+
+#[test]
+fn cost_voting_tests() {
+    let mut sim = ClarityTestSim::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
+            .unwrap();
+
+        // Submit a proposal
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "submit-proposal",
+                &symbols_from_values(vec![
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("function-name".into()).unwrap(),
+                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name").unwrap()),
+                    Value::string_utf8_from_string_utf8_literal("cost-function-name".into()).unwrap(),
+                ])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData { committed: true, data: Value::UInt(0).into() } )
+        );
+
+        // Vote on the proposal
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "vote-proposal",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(10),
+            ])).unwrap().0;
+
+        // Assert that the number of votes is correct
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+        );
+
+        // Vote again on the proposal
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "vote-proposal",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(5),
+            ])).unwrap().0;
+
+        // Assert that the number of votes is correct
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+        );
+
+        // Assert votes are assigned to principal
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-principal-votes",
+                &symbols_from_values(vec![
+                    Value::Principal(StandardPrincipalData::from(&USER_KEYS[0]).into()),
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+        );
+
+        // Withdraw votes
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "withdraw-votes",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+                Value::UInt(5),
+            ])).unwrap();
+
+        // Assert withdrawal worked
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-votes",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+        );
+    });
+
+    // Fast forward to proposal expiration
+    for _ in 0..2016 {
+        sim.execute_next_block(|_| { });
+    }
+
+    sim.execute_next_block(|env| {
+        // Withdraw STX after proposal expires
+        env.execute_transaction(
+            (&USER_KEYS[0]).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "withdraw-after-votes",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+            ])).unwrap();
+
+    });
+
+    sim.execute_next_block(|env| {
+        // Assert that stx balance is correct
+        assert_eq!(
+            env.eval_read_only(
+                &COST_VOTING_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
+            ).unwrap().0,
+            Value::UInt(1000000)
+        );
+
+        env.execute_transaction(
+            (&MINER_KEY.clone()).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "veto",
+            &symbols_from_values(vec![
+                Value::UInt(0),
+            ])).unwrap();
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-vetos",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(1)))})
         );
     });
 }
