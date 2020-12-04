@@ -606,19 +606,15 @@ fn microblock_integration_test() {
             sleep_ms(1000);
         }
 
-        let path = format!("{}/v2/info", &http_origin);
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
-
         // we can query _new_ unconfirmed state from the microblock we announced
         let path = format!(
             "{}/v2/accounts/{}?proof=0&tip={}",
             &http_origin, &spender_addr, &tip_info.unanchored_tip
         );
+        let res_text = client.get(&path).send().unwrap().text().unwrap();
+
+        eprintln!("text of {}\n{}", &path, &res_text);
+
         let res = client
             .get(&path)
             .send()

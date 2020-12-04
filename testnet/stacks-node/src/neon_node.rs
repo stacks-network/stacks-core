@@ -1271,8 +1271,15 @@ impl InitializedNeonNode {
                             u16::MAX,
                         )
                     {
-                        if stream.len()
-                            <= prev_block.anchored_block.header.parent_microblock_sequence as usize
+                        if (prev_block.anchored_block.header.parent_microblock
+                            == BlockHeaderHash([0u8; 32])
+                            && stream.len() == 0)
+                            || (prev_block.anchored_block.header.parent_microblock
+                                != BlockHeaderHash([0u8; 32])
+                                && stream.len()
+                                    <= (prev_block.anchored_block.header.parent_microblock_sequence
+                                        as usize)
+                                        + 1)
                         {
                             // the chain tip hasn't changed since we attempted to build a block.  Use what we
                             // already have.
