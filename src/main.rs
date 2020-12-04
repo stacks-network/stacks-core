@@ -540,13 +540,6 @@ fn main() {
             loop {
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
-                let (canonical_burn_tip, canonical_block_tip) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(p2p_new_sortition_db.conn())
-                        .expect("Failed to read canonical stacks chain tip");
-                let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                    &canonical_burn_tip,
-                    &canonical_block_tip,
-                );
                 p2p_chainstate
                     .refresh_unconfirmed_state(&p2p_new_sortition_db.index_conn())
                     .expect("Failed to open unconfirmed Clarity state");
