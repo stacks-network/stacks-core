@@ -283,7 +283,6 @@ fn microblock_integration_test() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    conf.node.wait_time_for_microblocks = 500;
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -599,10 +598,10 @@ fn microblock_integration_test() {
 
         // wait at least two p2p refreshes
         // so it can produce the microblock
-        for i in 0..11 {
+        for i in 0..30 {
             debug!(
                 "wait {} more seconds for microblock miner to find our transaction...",
-                11 - i
+                30 - i
             );
             sleep_ms(1000);
         }
@@ -683,7 +682,6 @@ fn size_check_integration_test() {
         .collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    conf.node.wait_time_for_microblocks = 500;
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -694,6 +692,7 @@ fn size_check_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -710,7 +709,11 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .unwrap();
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, None));
@@ -783,6 +786,8 @@ fn size_check_integration_test() {
             panic!("");
         }
     }
+    
+    sleep_ms(60_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -794,9 +799,10 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    
 
     // let's figure out how many micro-only and anchor-only txs got accepted
     //   by examining our account nonces:
@@ -820,6 +826,8 @@ fn size_check_integration_test() {
             panic!("Spender address nonce incremented past 1");
         }
     }
+
+    eprintln!("anchor_block_txs: {}, micro_block_txs: {}", anchor_block_txs, micro_block_txs);
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
