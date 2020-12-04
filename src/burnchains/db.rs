@@ -560,10 +560,10 @@ mod tests {
             }],
         };
 
-        // this one will have a corresponding pre_stack_stx tx.
+        // this one will not have a corresponding pre_stack_stx tx.
         let stack_stx_0 = BitcoinTransaction {
             txid: Txid([4; 32]),
-            vtxindex: 0,
+            vtxindex: 1,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -571,7 +571,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: (pre_stack_stx_0_txid.clone(), 1),
+                tx_ref: (Txid([0; 32]), 1),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -586,7 +586,7 @@ mod tests {
         // this one will have a corresponding pre_stack_stx tx.
         let stack_stx_0_second_attempt = BitcoinTransaction {
             txid: Txid([4; 32]),
-            vtxindex: 0,
+            vtxindex: 2,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -609,7 +609,7 @@ mod tests {
         // this one won't have a corresponding pre_stack_stx tx.
         let stack_stx_1 = BitcoinTransaction {
             txid: Txid([3; 32]),
-            vtxindex: 0,
+            vtxindex: 3,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -632,7 +632,7 @@ mod tests {
         // this one won't use the correct output
         let stack_stx_2 = BitcoinTransaction {
             txid: Txid([8; 32]),
-            vtxindex: 0,
+            vtxindex: 4,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
