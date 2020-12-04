@@ -3963,6 +3963,18 @@ impl StacksChainState {
             let stacking_burn_ops =
                 SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
 
+            let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
+                &chainstate_tx.deref().deref(),
+                &StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_block_hash,
+                ),
+            )?
+            .expect(&format!(
+                "BUG: no execution cost found for parent block {}/{}",
+                parent_consensus_hash, parent_block_hash
+            ));
+
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,
                 clarity_instance,
@@ -3972,6 +3984,12 @@ impl StacksChainState {
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             );
+
+            debug!(
+                "Parent block {}/{} cost {:?}",
+                &parent_consensus_hash, &parent_block_hash, &parent_block_cost
+            );
+            clarity_tx.reset_cost(parent_block_cost.clone());
 
             let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
                 &mut clarity_tx,
@@ -4021,7 +4039,8 @@ impl StacksChainState {
                 }
             }
 
-            // process microblock stream
+            // process microblock stream.
+            // If we go over-budget, then we can't process this block either (which is by design)
             let (microblock_fees, microblock_burns, microblock_txs_receipts) =
                 match StacksChainState::process_microblocks_transactions(
                     &mut clarity_tx,
@@ -4046,7 +4065,16 @@ impl StacksChainState {
                     Ok((fees, burns, events)) => (fees, burns, events),
                 };
 
-            let microblock_cost = clarity_tx.cost_so_far();
+            // find microblock cost
+            let mut microblock_cost = clarity_tx.cost_so_far();
+            microblock_cost
+                .sub(&parent_block_cost)
+                .expect("BUG: block_cost + microblock_cost < block_cost");
+
+            // if we get here, then we need to reset the block-cost back to 0 since this begins the
+            // epoch defined by this miner.
+            clarity_tx.reset_cost(ExecutionCost::zero());
+
             debug!("\n\nAppend block";
                    "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
                    "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
@@ -4077,10 +4105,7 @@ impl StacksChainState {
 
             receipts.extend(txs_receipts.into_iter());
 
-            let mut block_cost = clarity_tx.cost_so_far();
-            block_cost
-                .sub(&microblock_cost)
-                .expect("BUG: microblock cost + block cost < block cost");
+            let block_cost = clarity_tx.cost_so_far();
 
             // grant matured miner rewards
             let new_liquid_miner_ustx = if let Some((ref miner_reward, ref user_rewards, _)) =
