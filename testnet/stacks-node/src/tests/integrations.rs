@@ -802,31 +802,37 @@ fn contract_stx_transfer() {
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&contract_identifier.clone().into())
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
                                         .amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         1000
                     );
                     // check that 1000 stx _was_ debited from SK_3
                     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                     let addr_3 = to_addr(&sk_3).into();
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&addr_3).amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         99000
                     );
                 }
@@ -850,29 +856,35 @@ fn contract_stx_transfer() {
                     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
                     let addr_2 = to_addr(&sk_2).into();
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&addr_2).amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(&addr_2).amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         1
                     );
 
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&contract_identifier.clone().into())
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
                                         .amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         999
                     );
                 }
@@ -891,31 +903,37 @@ fn contract_stx_transfer() {
 
                     // check that 1000 stx were sent to the contract
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&contract_identifier.clone().into())
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
                                         .amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         25999
                     );
                     // check that 1000 stx _was_ debited from SK_3
                     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                     let addr_3 = to_addr(&sk_3).into();
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&addr_3).amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         69000
                     );
                 }
@@ -982,15 +1000,17 @@ fn mine_contract_twice() {
                 );
                 // check that the contract published!
                 assert_eq!(
-                    &chain_state.with_read_only_clarity_tx(
-                        burn_dbconn,
-                        &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                        |conn| {
-                            conn.with_clarity_db_readonly(|db| {
-                                db.get_contract_src(&contract_identifier).unwrap()
-                            })
-                        }
-                    ).unwrap(),
+                    &chain_state
+                        .with_read_only_clarity_tx(
+                            burn_dbconn,
+                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                            |conn| {
+                                conn.with_clarity_db_readonly(|db| {
+                                    db.get_contract_src(&contract_identifier).unwrap()
+                                })
+                            }
+                        )
+                        .unwrap(),
                     FAUCET_CONTRACT
                 );
             }
@@ -1116,31 +1136,37 @@ fn bad_contract_tx_rollback() {
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&contract_identifier.clone().into())
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
                                         .amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         1000
                     );
                     // check that 1000 stx _was_ debited from SK_3
                     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                     let addr_3 = to_addr(&sk_3).into();
                     assert_eq!(
-                        chain_state.with_read_only_clarity_tx(
-                            burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
-                            |conn| {
-                                conn.with_clarity_db_readonly(|db| {
-                                    db.get_account_stx_balance(&addr_3).amount_unlocked
-                                })
-                            }
-                        ).unwrap(),
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
                         99000
                     );
                 }

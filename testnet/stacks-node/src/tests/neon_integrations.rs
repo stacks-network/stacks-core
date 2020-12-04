@@ -786,7 +786,7 @@ fn size_check_integration_test() {
             panic!("");
         }
     }
-    
+
     sleep_ms(60_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
@@ -802,7 +802,6 @@ fn size_check_integration_test() {
     sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
 
     // let's figure out how many micro-only and anchor-only txs got accepted
     //   by examining our account nonces:
@@ -827,7 +826,10 @@ fn size_check_integration_test() {
         }
     }
 
-    eprintln!("anchor_block_txs: {}, micro_block_txs: {}", anchor_block_txs, micro_block_txs);
+    eprintln!(
+        "anchor_block_txs: {}, micro_block_txs: {}",
+        anchor_block_txs, micro_block_txs
+    );
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
