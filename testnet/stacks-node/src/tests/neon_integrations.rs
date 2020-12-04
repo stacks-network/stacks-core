@@ -21,9 +21,9 @@ use stacks::vm::database::ClarityDeserializable;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
-    config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
-    node::TESTNET_CHAIN_ID, operations::BurnchainOpSigner, BitcoinRegtestController,
-    BurnchainController, Config, Keychain,
+    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
+    config::EventObserverConfig, config::InitialBalance, neon, node::TESTNET_CHAIN_ID,
+    operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config, Keychain,
 };
 use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
 use stacks::util::hash::bytes_to_hex;
@@ -423,6 +423,8 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
 
     // now let's do a pre-stx-op and a transfer op in the same burnchain block...
+    // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
+    //    so we have to get a little creative...
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -436,19 +438,20 @@ fn stx_transfer_btc_integration_test() {
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
 
-    assert!(
-        btc_regtest_controller.submit_operation(
+    let pre_stx_tx = btc_regtest_controller
+        .submit_manual(
             BlockstackOperationType::PreStx(pre_stx_op),
             &mut miner_signer,
-            1
-        ),
-        "Pre-stx operation should submit successfully"
-    );
+            None,
+        )
+        .expect("Pre-stx operation should submit successfully");
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // sleep 2 seconds for bitcoin mempool?
-    //    thread::sleep(Duration::from_secs(2));
+    let transfer_stx_utxo = UTXO {
+        txid: pre_stx_tx.txid(),
+        vout: 1,
+        script_pub_key: pre_stx_tx.output[1].script_pubkey.clone(),
+        amount: pre_stx_tx.output[1].value,
+    };
 
     // let's fire off our transfer op.
     let transfer_stx_op = TransferStxOp {
@@ -465,16 +468,14 @@ fn stx_transfer_btc_integration_test() {
 
     let mut spender_signer = BurnchainOpSigner::new(spender_2_sk.clone(), false);
 
-    btc_regtest_controller.use_unsafe_utxos = true;
-
-    assert!(
-        btc_regtest_controller.submit_operation(
+    btc_regtest_controller
+        .submit_manual(
             BlockstackOperationType::TransferStx(transfer_stx_op),
             &mut spender_signer,
-            1
-        ),
-        "Transfer operation should submit successfully"
-    );
+            Some(transfer_stx_utxo),
+        )
+        .expect("Transfer operation should submit successfully");
+
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 

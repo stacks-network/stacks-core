@@ -62,7 +62,6 @@ pub struct BitcoinRegtestController {
     last_utxos: Vec<UTXO>,
     last_tx_len: u64,
     min_relay_fee: u64, // satoshis/byte
-    pub use_unsafe_utxos: bool,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -124,7 +123,6 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
-            use_unsafe_utxos: false,
         }
     }
 
@@ -162,7 +160,6 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
-            use_unsafe_utxos: false,
         }
     }
 
@@ -457,7 +454,7 @@ impl BitcoinRegtestController {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                self.use_unsafe_utxos,
+                false,
                 amount_required,
             );
 
@@ -579,8 +576,40 @@ impl BitcoinRegtestController {
         &mut self,
         _payload: TransferStxOp,
         _signer: &mut BurnchainOpSigner,
+        _utxo: Option<UTXO>,
     ) -> Option<Transaction> {
         unimplemented!()
+    }
+
+    #[cfg(test)]
+    pub fn submit_manual(
+        &mut self,
+        operation: BlockstackOperationType,
+        op_signer: &mut BurnchainOpSigner,
+        utxo: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let transaction = match operation {
+            BlockstackOperationType::LeaderBlockCommit(_)
+            | BlockstackOperationType::LeaderKeyRegister(_)
+            | BlockstackOperationType::StackStx(_)
+            | BlockstackOperationType::UserBurnSupport(_) => {
+                unimplemented!();
+            }
+            BlockstackOperationType::PreStx(payload) => {
+                self.build_pre_stacks_tx(payload, op_signer)
+            }
+            BlockstackOperationType::TransferStx(payload) => {
+                self.build_transfer_stacks_tx(payload, op_signer, utxo)
+            }
+        }?;
+
+        let ser_transaction = SerializedTx::new(transaction.clone());
+
+        if self.send_transaction(ser_transaction) {
+            Some(transaction)
+        } else {
+            None
+        }
     }
 
     #[cfg(test)]
@@ -594,10 +623,23 @@ impl BitcoinRegtestController {
         &mut self,
         payload: TransferStxOp,
         signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT, 1)?;
+        let (mut tx, utxos) = if let Some(utxo) = utxo_to_use {
+            (
+                Transaction {
+                    input: vec![],
+                    output: vec![],
+                    version: 1,
+                    lock_time: 0,
+                },
+                vec![utxo],
+            )
+        } else {
+            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, 1)?
+        };
 
         // Serialize the payload
         let op_bytes = {
@@ -1058,7 +1100,7 @@ impl BurnchainController for BitcoinRegtestController {
                 self.build_pre_stacks_tx(payload, op_signer)
             }
             BlockstackOperationType::TransferStx(payload) => {
-                self.build_transfer_stacks_tx(payload, op_signer)
+                self.build_transfer_stacks_tx(payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
         };
@@ -1137,10 +1179,10 @@ pub struct ParsedUTXO {
 
 #[derive(Clone)]
 pub struct UTXO {
-    txid: Sha256dHash,
-    vout: u32,
-    script_pub_key: Script,
-    amount: u64,
+    pub txid: Sha256dHash,
+    pub vout: u32,
+    pub script_pub_key: Script,
+    pub amount: u64,
 }
 
 impl ParsedUTXO {
