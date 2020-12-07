@@ -20,9 +20,9 @@ use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 pub const BNS_NAMESPACE_MIN_LEN: usize = 1;
-pub const BNS_NAMESPACE_MAX_LEN: usize = 19;
+pub const BNS_NAMESPACE_MAX_LEN: usize = 20;
 pub const BNS_NAME_MIN_LEN: usize = 1;
-pub const BNS_NAME_MAX_LEN: usize = 16;
+pub const BNS_NAME_MAX_LEN: usize = 32;
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 
 lazy_static! {
