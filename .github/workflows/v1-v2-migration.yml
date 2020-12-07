@@ -10,6 +10,7 @@ env:
   COMMIT_USER: Hiro DevOps
   COMMIT_EMAIL: 45208873+blockstack-devops@users.noreply.github.com
   UPDATE_BRANCH: auto/v1-v2-migration
+  CHAINSTATE_DIR: stx-genesis
   CHAINSTATE_URL: https://storage.googleapis.com/blockstack-v1-migration-data/chainstate.txt
   CHAINSTATE_METADATA_URL: https://storage.googleapis.com/storage/v1/b/blockstack-v1-migration-data/o/chainstate.txt
   CHAINSTATE_HASH_URL: https://storage.googleapis.com/blockstack-v1-migration-data/chainstate.txt.sha256
@@ -32,13 +33,13 @@ jobs:
 
       - name: Update files
         run: |
-          curl -s ${CHAINSTATE_URL} > testnet/stacks-node/chainstate.txt
+          curl -s ${CHAINSTATE_URL} > ${CHAINSTATE_DIR}/chainstate.txt
           echo "CHAINSTATE_TIME_CREATED=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.timeCreated')" >> $GITHUB_ENV
           echo "CHAINSTATE_SIZE=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.size')" >> $GITHUB_ENV
           echo "CHAINSTATE_MD5=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.md5Hash')" >> $GITHUB_ENV
           echo "CHAINSTATE_DOWNLOAD_LINK=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.mediaLink')" >> $GITHUB_ENV
 
-          curl -s ${CHAINSTATE_HASH_URL} > testnet/stacks-node/chainstate.txt.sha256
+          curl -s ${CHAINSTATE_HASH_URL} > ${CHAINSTATE_DIR}/chainstate.txt.sha256
           echo "CHAINSTATE_HASH_TIME_CREATED=$(curl -s ${CHAINSTATE_HASH_METADATA_URL} | jq -r '.timeCreated')" >> $GITHUB_ENV
           echo "CHAINSTATE_HASH_SIZE=$(curl -s ${CHAINSTATE_HASH_METADATA_URL} | jq -r '.size')" >> $GITHUB_ENV
           echo "CHAINSTATE_HASH_MD5=$(curl -s ${CHAINSTATE_HASH_METADATA_URL} | jq -r '.md5Hash')" >> $GITHUB_ENV
