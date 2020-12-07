@@ -1615,7 +1615,10 @@ impl<'a> SortitionHandleConn<'a> {
             debug!("Looking for winners at height = {}", height);
             let snapshot =
                 SortitionDB::get_ancestor_snapshot(self, height as u64, &self.context.chain_tip)?
-                    .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+                    .ok_or_else(|| {
+                    warn!("Missing parent"; "sortition_height" => %height);
+                    BurnchainError::MissingParentBlock
+                })?;
             if snapshot.sortition {
                 result.push((snapshot.winning_block_txid, snapshot.block_height));
             }
@@ -1634,9 +1637,12 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
-        let prepare_end_sortid = self
-            .get_sortition_id_for_bhh(prepare_end_bhh)?
-            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+        let prepare_end_sortid =
+            self.get_sortition_id_for_bhh(prepare_end_bhh)?
+                .ok_or_else(|| {
+                    warn!("Missing parent"; "burn_header_hash" => %prepare_end_bhh);
+                    BurnchainError::MissingParentBlock
+                })?;
         let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
@@ -2281,10 +2287,9 @@ impl SortitionDB {
     pub fn is_sortition_processed(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
-        sortition_tip: &SortitionId,
-    ) -> Result<bool, BurnchainError> {
-        self.get_sortition_id(burnchain_header_hash, sortition_tip)
-            .map(|x| x.is_some())
+    ) -> Result<Option<SortitionId>, BurnchainError> {
+        let qry = "SELECT sortition_id FROM snapshots WHERE burn_header_hash = ? AND pox_valid = 1";
+        query_row(self.conn(), qry, &[burnchain_header_hash]).map_err(BurnchainError::from)
     }
 
     fn get_block_height(
@@ -2421,7 +2426,10 @@ impl SortitionDB {
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
-            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+            .ok_or_else(|| {
+                warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                BurnchainError::MissingParentBlock
+            })?;
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
         let parent_snapshot = sortition_db_handle
