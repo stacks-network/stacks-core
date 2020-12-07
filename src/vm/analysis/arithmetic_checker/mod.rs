@@ -67,6 +67,11 @@ impl std::fmt::Display for Error {
 }
 
 impl ArithmeticOnlyChecker {
+    pub fn check_contract_cost_eligible(contract_analysis: &mut ContractAnalysis) {
+        let is_eligible = ArithmeticOnlyChecker::run(contract_analysis).is_ok();
+        contract_analysis.is_cost_contract_eligible = is_eligible;
+    }
+
     pub fn run(contract_analysis: &ContractAnalysis) -> Result<(), Error> {
         let checker = ArithmeticOnlyChecker();
         for exp in contract_analysis.expressions.iter() {

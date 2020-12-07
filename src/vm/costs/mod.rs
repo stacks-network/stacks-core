@@ -33,7 +33,7 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::database::{marf::NullBackingStore, ClarityDatabase, MemoryBackingStore};
 use vm::errors::{Error, InterpreterResult};
 use vm::types::Value::UInt;
-use vm::types::{QualifiedContractIdentifier, TypeSignature, NONE};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature, NONE};
 use vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
 type Result<T> = std::result::Result<T, CostErrors>;
@@ -211,6 +211,221 @@ pub enum CostErrors {
     CostContractLoadFailure,
 }
 
+use chainstate::stacks::boot::boot_code_id;
+
+fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+    let last_processed_at = match clarity_db.get_value(
+        "vm-costs::last-processed-at-height",
+        &TypeSignature::UIntType,
+    ) {
+        Some(v) => u32::try_from(v.expect_u128()).expect("Block height overflowed u32"),
+        None => return Ok(CostStateSummary::empty()),
+    };
+
+    match clarity_db.fetch_metadata_manual::<String>(
+        last_processed_at,
+        &boot_code_id("cost-vote"),
+        "state_summary",
+    )? {
+        Some(serialized) => Ok(serde_json::from_str(&serialized).unwrap()),
+        None => Ok(CostStateSummary::empty()),
+    }
+}
+
+fn store_state_summary(
+    clarity_db: &mut ClarityDatabase,
+    to_store: &CostStateSummary,
+) -> Result<()> {
+    let block_height = clarity_db.get_current_block_height();
+    clarity_db.put(
+        "vm-costs::last-processed-at-height",
+        &Value::UInt(block_height as u128),
+    );
+    let serialized_summary = serde_json::to_string(to_store)
+        .expect("BUG: failure to serialize cost state summary struct");
+    clarity_db.set_metadata(
+        &boot_code_id("cost-vote"),
+        "state_summary",
+        &serialized_summary,
+    );
+
+    Ok(())
+}
+
+///
+/// This method loads a cost state summary structure from the currently open stacks chain tip
+///   In doing so, it reads from the cost-voting contract to find any newly confirmed proposals,
+///    checks those proposals for validity, and then applies those changes to the cached set
+///    of cost functions.
+///
+fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+    let last_processed_count = clarity_db
+        .get_value("vm-costs::last-processed-count", &TypeSignature::UIntType)
+        .unwrap_or(Value::UInt(0))
+        .expect_u128();
+    let cost_voting_contract = boot_code_id("cost-vote");
+    let confirmed_proposals_count = clarity_db
+        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count")?
+        .expect_u128();
+
+    // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
+    let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
+    let mut state_summary = load_state_summary(clarity_db)?;
+    for confirmed_proposal in fetch_start..fetch_end {
+        // fetch the proposal data
+        let entry = clarity_db
+            .fetch_entry(
+                &cost_voting_contract,
+                "confirmed-proposals",
+                &Value::UInt(confirmed_proposal),
+            )
+            .expect("BUG: Failed querying confirmed-proposals")
+            .expect_optional()
+            .expect("BUG: confirmed-proposal-count exceeds stored proposals")
+            .expect_tuple();
+        let target_contract = match entry
+            .get("function-contract")
+            .unwrap()
+            .clone()
+            .expect_principal()
+        {
+            PrincipalData::Contract(contract_id) => contract_id,
+            _ => {
+                warn!("Confirmed cost proposal invalid: function-contract is not a contract principal";
+                          "confirmed_proposal_id" => confirmed_proposal);
+                continue;
+            }
+        };
+        let target_function = match ClarityName::try_from(
+            entry.get("function-name").unwrap().clone().expect_ascii(),
+        ) {
+            Ok(x) => x,
+            Err(_) => {
+                warn!("Confirmed cost proposal invalid: function-name is not a valid function name";
+                          "confirmed_proposal_id" => confirmed_proposal);
+                continue;
+            }
+        };
+        let cost_contract = match entry
+            .get("cost-function-contract")
+            .unwrap()
+            .clone()
+            .expect_principal()
+        {
+            PrincipalData::Contract(contract_id) => contract_id,
+            _ => {
+                warn!("Confirmed cost proposal invalid: cost-function-contract is not a contract principal";
+                          "confirmed_proposal_id" => confirmed_proposal);
+                continue;
+            }
+        };
+
+        let cost_function = match ClarityName::try_from(
+            entry
+                .get_owned("cost-function-name")
+                .unwrap()
+                .expect_ascii(),
+        ) {
+            Ok(x) => x,
+            Err(_) => {
+                warn!("Confirmed cost proposal invalid: cost-function-name is not a valid function name";
+                          "confirmed_proposal_id" => confirmed_proposal);
+                continue;
+            }
+        };
+
+        // Here is where we perform the required validity checks for a confirmed proposal:
+        //  * Replaced contract-calls _must_ be `define-read-only` _or_ refer to one of the boot code
+        //      cost functions
+        //  * cost-function contracts must be arithmetic only
+
+        // make sure the contract is "cost contract eligible" via the
+        //  arithmetic-checking analysis pass
+        let cost_func_ref = match clarity_db.load_contract_analysis(&cost_contract) {
+            Some(c) => {
+                if !c.is_cost_contract_eligible {
+                    warn!("Confirmed cost proposal invalid: cost-contract-name uses non-arithmetic or otherwise illegal operations";
+                          "confirmed_proposal_id" => confirmed_proposal,
+                          "contract_name" => %cost_contract,
+                    );
+                    continue;
+                }
+                if !c.public_function_types.contains_key(&cost_function)
+                    && !c.read_only_function_types.contains_key(&cost_function)
+                    && !c.private_function_types.contains_key(&cost_function)
+                {
+                    warn!("Confirmed cost proposal invalid: cost-contract-function not defined";
+                          "confirmed_proposal_id" => confirmed_proposal,
+                          "contract_name" => %cost_contract,
+                          "function_name" => %cost_function,
+                    );
+                    continue;
+                }
+                ClarityCostFunctionReference {
+                    contract_id: cost_contract,
+                    function_name: cost_function.to_string(),
+                }
+            }
+            None => {
+                warn!("Confirmed cost proposal invalid: cost-contract-name is not a published contract";
+                      "confirmed_proposal_id" => confirmed_proposal,
+                      "contract_name" => %cost_contract,
+                );
+                continue;
+            }
+        };
+
+        if target_contract == boot_code_id("costs") {
+            // refering to one of the boot code cost functions
+            let target = match ClarityCostFunction::lookup_by_name(&target_function) {
+                Some(cost_func) => cost_func,
+                None => {
+                    warn!("Confirmed cost proposal invalid: function-name does not reference a Clarity cost function";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "cost_function" => %target_function);
+                    continue;
+                }
+            };
+            state_summary
+                .cost_function_references
+                .insert(target, cost_func_ref);
+        } else {
+            // refering to a user-defined function
+            match clarity_db.load_contract_analysis(&target_contract) {
+                Some(c) => {
+                    if !c.read_only_function_types.contains_key(&target_function) {
+                        warn!("Confirmed cost proposal invalid: function-name not defined or is not read-only";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "target_contract_name" => %target_contract,
+                              "target_function_name" => %target_function,
+                        );
+                        continue;
+                    }
+                }
+                None => {
+                    warn!("Confirmed cost proposal invalid: contract-name not a published contract";
+                          "confirmed_proposal_id" => confirmed_proposal,
+                          "target_contract_name" => %target_contract,
+                    );
+                    continue;
+                }
+            }
+            state_summary
+                .contract_call_circuits
+                .insert((target_contract, target_function), cost_func_ref);
+        }
+    }
+    store_state_summary(clarity_db, &state_summary)?;
+    if confirmed_proposals_count > last_processed_count {
+        clarity_db.put(
+            "vm-costs::last_processed_count",
+            &Value::UInt(confirmed_proposals_count),
+        );
+    }
+
+    Ok(state_summary)
+}
+
 impl LimitedCostTracker {
     pub fn new(
         limit: ExecutionCost,
@@ -226,7 +441,7 @@ impl LimitedCostTracker {
             memory: 0,
             free: false,
         };
-        cost_tracker.load_boot_costs(clarity_db)?;
+        cost_tracker.load_costs(clarity_db)?;
         Ok(cost_tracker)
     }
     pub fn new_max_limit(clarity_db: &mut ClarityDatabase) -> Result<LimitedCostTracker> {
@@ -251,7 +466,7 @@ impl LimitedCostTracker {
             memory: 0,
             free: false,
         };
-        cost_tracker.load_boot_costs(clarity_db)?;
+        cost_tracker.load_costs(clarity_db)?;
         Ok(cost_tracker)
     }
 
@@ -267,31 +482,39 @@ impl LimitedCostTracker {
             free: true,
         }
     }
-    pub fn load_boot_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<()> {
+    pub fn load_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<()> {
         let boot_costs_id = (*STACKS_BOOT_COST_CONTRACT).clone();
 
         clarity_db.begin();
+        let CostStateSummary {
+            contract_call_circuits,
+            cost_function_references,
+        } = load_state_summary(clarity_db)?;
+
+        self.contract_call_circuits = contract_call_circuits;
 
         let mut cost_contracts = HashMap::new();
         let mut m = HashMap::new();
         for f in ClarityCostFunction::ALL.iter() {
-            m.insert(
-                f,
-                ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name()),
-            );
-            if !cost_contracts.contains_key(&boot_costs_id) {
-                let contract_context = match clarity_db.get_contract(&boot_costs_id) {
+            let cost_function_ref = cost_function_references.remove(&f).unwrap_or_else(|| {
+                ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
+            });
+            if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
+                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
+                {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
-                               "contract" => %boot_costs_id.to_string(),
-                               "error" => %format!("{:?}", e));
+                               "contract" => %cost_function_ref.contract_id,
+                               "error" => ?e);
                         clarity_db.roll_back();
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(boot_costs_id.clone(), contract_context);
+                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
             }
+
+            m.insert(f, cost_function_ref);
         }
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
@@ -313,7 +536,7 @@ impl LimitedCostTracker {
         self.cost_function_references = m;
         self.cost_contracts = cost_contracts;
 
-        clarity_db.roll_back();
+        clarity_db.commit();
 
         return Ok(());
     }
