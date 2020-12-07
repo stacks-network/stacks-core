@@ -33,6 +33,7 @@ jobs:
 
       - name: Update files
         run: |
+          mkdir -p ${CHAINSTATE_DIR}
           curl -s ${CHAINSTATE_URL} > ${CHAINSTATE_DIR}/chainstate.txt
           echo "CHAINSTATE_TIME_CREATED=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.timeCreated')" >> $GITHUB_ENV
           echo "CHAINSTATE_SIZE=$(curl -s ${CHAINSTATE_METADATA_URL} | jq -r '.size')" >> $GITHUB_ENV
