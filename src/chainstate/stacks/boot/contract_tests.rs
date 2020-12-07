@@ -921,7 +921,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![Value::UInt(0),])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -946,7 +946,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![Value::UInt(0),])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -988,7 +988,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![Value::UInt(0),])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1039,7 +1039,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-vetos",
-                &symbols_from_values(vec![Value::UInt(0),])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1053,7 +1053,7 @@ fn cost_voting_tests() {
                 (&MINER_KEY.clone()).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "veto",
-                &symbols_from_values(vec![Value::UInt(0),])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1103,7 +1103,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm",
-                &symbols_from_values(vec![Value::UInt(1),])
+                &symbols_from_values(vec![Value::UInt(1)])
             )
             .unwrap()
             .0,
@@ -1131,7 +1131,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm",
-                &symbols_from_values(vec![Value::UInt(1),])
+                &symbols_from_values(vec![Value::UInt(1)])
             )
             .unwrap()
             .0,

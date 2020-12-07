@@ -118,35 +118,13 @@
             proposal-id: proposal-id }) (err 1))))
         (sender tx-sender)
     )
-    (if (and
-            (>= cur-principal-votes amount)
-            (< burn-block-height expiration-block-height)
-            ;;(is-none (map-get? confirmed-proposals { proposal-id: proposal-id }))
-        )
+    (if (>= cur-principal-votes amount)
         (begin
             (unwrap! (as-contract (stx-transfer? amount tx-sender sender)) (err 1))
             (unwrap! (as-contract (ft-transfer? cost-vote-token amount sender tx-sender)) (err 1))
             (map-set proposal-votes { proposal-id: proposal-id } { votes: (- cur-votes amount) })
             (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id }
                                               { votes: (- cur-principal-votes amount) })
-            (ok true))
-        (err 1)))
-)
-
-;; Withdraw STX after vote is over
-(define-public (withdraw-after-votes (proposal-id uint))
-    (let (
-        (cur-principal-votes (default-to u0 (get votes (map-get? principal-proposal-votes {
-            address: tx-sender,
-            proposal-id: proposal-id }))))
-        (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err 1))))
-        (sender tx-sender)
-    )
-    (if (> burn-block-height expiration-block-height)
-        (begin
-            (unwrap! (as-contract (stx-transfer? cur-principal-votes tx-sender sender)) (err 1))
-            (unwrap! (as-contract (ft-transfer? cost-vote-token cur-principal-votes sender tx-sender)) (err 1))
             (ok true))
         (err 1)))
 )
