@@ -705,8 +705,6 @@ fn spawn_miner_relayer(
                                 parent_consensus_hash,
                                 anchored_block: mined_block,
                                 my_burn_hash: mined_burn_hash,
-                                consumed_execution,
-                                bytes_so_far,
                                 attempt: _,
                             } = last_mined_block;
                             if mined_block.block_hash() == block_header_hash
@@ -813,6 +811,7 @@ fn spawn_miner_relayer(
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     match coord_comms.kludgy_clarity_db_lock() {
                         Ok(_) => {
+                            let burn_header_hash = last_burn_block.burn_header_hash.clone();
                             debug!(
                                 "Relayer: Run tenure";
                                 "height" => last_burn_block.block_height,
