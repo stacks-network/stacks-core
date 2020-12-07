@@ -1008,8 +1008,8 @@ fn cost_voting_tests() {
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
-            "withdraw-after-votes",
-            &symbols_from_values(vec![Value::UInt(0)]),
+            "withdraw-votes",
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
         )
         .unwrap();
     });
