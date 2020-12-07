@@ -33,7 +33,7 @@ use monitoring::increment_stx_blocks_processed_counter;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc::sync_channel,
+    mpsc::channel,
     Arc, RwLock,
 };
 use util::vrf::*;
@@ -292,7 +292,7 @@ pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
-    let (tx, _) = sync_channel(1000);
+    let (tx, _) = channel();
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     ChainsCoordinator::test_new(&burnchain, path, OnChainRewardSetProvider(), tx)
 }
@@ -317,7 +317,7 @@ fn make_reward_set_coordinator<'a>(
     addrs: Vec<StacksAddress>,
     pox_consts: Option<PoxConstants>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
-    let (tx, _) = sync_channel(1000);
+    let (tx, _) = channel();
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
         path,
