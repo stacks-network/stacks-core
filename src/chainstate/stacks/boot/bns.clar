@@ -220,21 +220,21 @@
             (ok (unwrap-panic namespace-launched-at))
             (err ERR_NAME_EXPIRED)))))
 
-(define-private (compute-name-price (name (buff 32))
+(define-read-only (compute-name-price (name (buff 32))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
   (let (
     (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
     (no-vowel-discount (if (not (has-vowels-chars name)) (get no-vowel-discount price-function) u1))
     (nonalpha-discount (if (has-nonalpha-chars name) (get nonalpha-discount price-function) u1)))
-    (*
+    (ok (*
       (/
         (*
           (get coeff price-function)
           (pow (get base price-function) exponent))
         (max nonalpha-discount no-vowel-discount))
-      u10)))
+      u10))))
 
-(define-private (is-name-lease-expired? (namespace (buff 20)) (name (buff 32)))
+(define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
@@ -248,7 +248,7 @@
           (ok false)
           (ok (> block-height (+ lifetime lease-started-at)))))))
 
-(define-read-only (is-name-in-grace-period? (namespace (buff 20)) (name (buff 32)))
+(define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
@@ -571,7 +571,7 @@
       (if (is-none current-owner)
         true
         (asserts!
-          (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC))
+          (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC))
           (err ERR_NAME_UNAVAILABLE)))
       ;; The name's namespace must be launched
       (asserts!
@@ -591,7 +591,7 @@
         (err ERR_NAME_CLAIMABILITY_EXPIRED))
       ;; The amount burnt must be equal to or greater than the cost of the name
       (asserts!
-        (>= (get stx-burned preorder) (compute-name-price name (get price-function namespace-props)))
+        (>= (get stx-burned preorder) (unwrap-panic (compute-name-price name (get price-function namespace-props))))
         (err ERR_NAME_STX_BURNT_INSUFFICIENT))
       ;; The principal can register a name
       (asserts!
@@ -652,11 +652,11 @@
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) false)
+      (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
       (err ERR_NAME_GRACE_PERIOD))
     ;; The name must not be expired 
     (asserts!
-      (is-eq (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC)) false)
+      (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
       (err ERR_NAME_EXPIRED))
     ;; The name must not be revoked
     (asserts!
@@ -705,11 +705,11 @@
         (err ERR_NAME_OPERATION_UNAUTHORIZED))
       ;; The name must not be in the renewal grace period
       (asserts!
-        (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) false)
+        (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
         (err ERR_NAME_GRACE_PERIOD))
       ;; The name must not be expired
       (asserts!
-        (is-eq (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC)) false)
+        (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
         (err ERR_NAME_EXPIRED))
       ;; The name must not be revoked
       (asserts!
@@ -762,11 +762,11 @@
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; The name must not be expired
     (asserts!
-      (is-eq (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC)) false)
+      (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
       (err ERR_NAME_EXPIRED))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) false)
+      (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
       (err ERR_NAME_GRACE_PERIOD))
     ;; The name must not be revoked
     (asserts!
@@ -818,14 +818,14 @@
       (is-eq owner tx-sender)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
     ;; If expired, the name must not be in the renewal grace period.
-    (if (unwrap! (is-name-lease-expired? namespace name) (err ERR_PANIC))
+    (if (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC))
       (asserts!
-        (is-eq (unwrap! (is-name-in-grace-period? namespace name) (err ERR_PANIC)) true)
+        (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) true)
         (err ERR_NAME_EXPIRED))
       true)    
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (>= stx-to-burn (compute-name-price name (get price-function namespace-props)))
+      (>= stx-to-burn (unwrap-panic (compute-name-price name (get price-function namespace-props))))
       (err ERR_NAME_STX_BURNT_INSUFFICIENT))
     ;; The name must not be revoked
     (asserts!
@@ -863,7 +863,7 @@
         (name (unwrap-panic (get name current-owned-name))))
         ;; Early return if lease is expired
         (asserts! 
-          (not (try! (is-name-lease-expired? namespace name)))
+          (not (try! (is-name-lease-expired namespace name)))
           (ok true))
         (let (
           (name-props (unwrap-panic (map-get? name-properties ((namespace namespace) (name name))))))
@@ -885,7 +885,7 @@
         (match (get registered-at name-props) res 1 0)
         (match (get imported-at name-props)   res 1 0)) 1) (err ERR_PANIC))
       ;; Is lease expired?
-      (is-name-lease-expired? namespace name))))
+      (is-name-lease-expired namespace name))))
 
 (define-read-only (name-resolve (namespace (buff 20)) (name (buff 32)))
   (let (
@@ -898,13 +898,13 @@
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
       (err ERR_NAMESPACE_NOT_FOUND)))
-    (is-lease-expired (is-name-lease-expired? namespace name)))
+    (is-lease-expired (is-name-lease-expired namespace name)))
     ;; If the namespace is already launched
     (if (is-some (get launched-at namespace-props))
       (begin
         ;; The name must not be in the renewal grace period
         (asserts!
-          (is-eq (try! (is-name-in-grace-period? namespace name)) false)
+          (is-eq (try! (is-name-in-grace-period namespace name)) false)
           (err ERR_NAME_GRACE_PERIOD))
         ;; The name must not be expired
         (if (is-ok is-lease-expired)
