@@ -202,6 +202,11 @@ impl From<InterpreterError> for Error {
     }
 }
 
+#[cfg(test)]
+impl From<Error> for () {
+    fn from(err: Error) -> Self {}
+}
+
 impl Into<Value> for ShortReturnType {
     fn into(self) -> Value {
         match self {

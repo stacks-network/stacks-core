@@ -814,9 +814,13 @@ SIPs, but also held accountable through an official governance
 process.
 
 [1] https://www.python.org/dev/peps/pep-0001/
+
 [2] https://github.com/bitcoin/bips/blob/master/bip-0002.mediawiki
+
 [3] https://eips.ethereum.org/
+
 [4] https://www.zfnd.org/governance/
+
 [5] https://debian-handbook.info/browse/stable/sect.debian-internals.html
 
 # Activation
