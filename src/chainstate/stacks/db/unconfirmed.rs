@@ -825,8 +825,7 @@ mod test {
                     let signed_mempool_txs = signed_txs
                         .into_iter()
                         .map(|tx| {
-                            let mut bytes = vec![];
-                            tx.consensus_serialize(&mut bytes).unwrap();
+                            let bytes = tx.serialize_to_vec();
                             (tx, bytes.len() as u64)
                         })
                         .collect();

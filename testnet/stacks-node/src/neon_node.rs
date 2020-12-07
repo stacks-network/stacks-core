@@ -652,8 +652,10 @@ fn spawn_miner_relayer(
     let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
-    let mut last_mined_blocks: HashMap<BurnchainHeaderHash, Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>> =
-        HashMap::new();
+    let mut last_mined_blocks: HashMap<
+        BurnchainHeaderHash,
+        Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
+    > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
@@ -700,7 +702,9 @@ fn spawn_miner_relayer(
                     if let Some(last_mined_blocks_at_burn_hash) =
                         last_mined_blocks.remove(&burn_hash)
                     {
-                        for (last_mined_block, microblock_privkey) in last_mined_blocks_at_burn_hash.into_iter() {
+                        for (last_mined_block, microblock_privkey) in
+                            last_mined_blocks_at_burn_hash.into_iter()
+                        {
                             let AssembledAnchorBlock {
                                 parent_consensus_hash,
                                 anchored_block: mined_block,
@@ -774,8 +778,8 @@ fn spawn_miner_relayer(
                                     let ch = snapshot.consensus_hash.clone();
                                     let bh = mined_block.block_hash();
 
-                                    if let Err(e) =
-                                        relayer.broadcast_block(snapshot.consensus_hash, mined_block)
+                                    if let Err(e) = relayer
+                                        .broadcast_block(snapshot.consensus_hash, mined_block)
                                     {
                                         warn!("Failed to push new block: {}", e);
                                     }
