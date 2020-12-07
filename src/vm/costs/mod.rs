@@ -25,7 +25,7 @@ use std::{cmp, fmt};
 
 use std::collections::{BTreeMap, HashMap};
 
-use chainstate::stacks::boot::STACKS_BOOT_COST_CONTRACT;
+use chainstate::stacks::boot::{STACKS_BOOT_COST_CONTRACT, STACKS_BOOT_COST_VOTE_CONTRACT};
 
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
@@ -33,7 +33,7 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::database::{marf::NullBackingStore, ClarityDatabase, MemoryBackingStore};
 use vm::errors::{Error, InterpreterResult};
 use vm::types::Value::UInt;
-use vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature, NONE};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature, NONE};
 use vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
 type Result<T> = std::result::Result<T, CostErrors>;
@@ -152,11 +152,46 @@ impl ClarityCostFunctionReference {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CostStateSummary {
     pub contract_call_circuits:
         HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
     pub cost_function_references: HashMap<ClarityCostFunction, ClarityCostFunctionReference>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SerializedCostStateSummary {
+    contract_call_circuits: Vec<(
+        (QualifiedContractIdentifier, ClarityName),
+        ClarityCostFunctionReference,
+    )>,
+    cost_function_references: Vec<(ClarityCostFunction, ClarityCostFunctionReference)>,
+}
+
+impl From<CostStateSummary> for SerializedCostStateSummary {
+    fn from(other: CostStateSummary) -> SerializedCostStateSummary {
+        let CostStateSummary {
+            contract_call_circuits,
+            cost_function_references,
+        } = other;
+        SerializedCostStateSummary {
+            contract_call_circuits: contract_call_circuits.into_iter().collect(),
+            cost_function_references: cost_function_references.into_iter().collect(),
+        }
+    }
+}
+
+impl From<SerializedCostStateSummary> for CostStateSummary {
+    fn from(other: SerializedCostStateSummary) -> CostStateSummary {
+        let SerializedCostStateSummary {
+            contract_call_circuits,
+            cost_function_references,
+        } = other;
+        CostStateSummary {
+            contract_call_circuits: contract_call_circuits.into_iter().collect(),
+            cost_function_references: cost_function_references.into_iter().collect(),
+        }
+    }
 }
 
 impl CostStateSummary {
@@ -211,8 +246,6 @@ pub enum CostErrors {
     CostContractLoadFailure,
 }
 
-use chainstate::stacks::boot::boot_code_id;
-
 fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let last_processed_at = match clarity_db.get_value(
         "vm-costs::last-processed-at-height",
@@ -222,14 +255,18 @@ fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumma
         None => return Ok(CostStateSummary::empty()),
     };
 
-    match clarity_db.fetch_metadata_manual::<String>(
-        last_processed_at,
-        &boot_code_id("cost-vote"),
-        "state_summary",
-    )? {
-        Some(serialized) => Ok(serde_json::from_str(&serialized).unwrap()),
-        None => Ok(CostStateSummary::empty()),
-    }
+    let metadata_result = clarity_db
+        .fetch_metadata_manual::<String>(
+            last_processed_at,
+            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            "state_summary",
+        )
+        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
+    let serialized: SerializedCostStateSummary = match metadata_result {
+        Some(serialized) => serde_json::from_str(&serialized).unwrap(),
+        None => return Ok(CostStateSummary::empty()),
+    };
+    Ok(CostStateSummary::from(serialized))
 }
 
 fn store_state_summary(
@@ -237,14 +274,16 @@ fn store_state_summary(
     to_store: &CostStateSummary,
 ) -> Result<()> {
     let block_height = clarity_db.get_current_block_height();
+
     clarity_db.put(
         "vm-costs::last-processed-at-height",
         &Value::UInt(block_height as u128),
     );
-    let serialized_summary = serde_json::to_string(to_store)
-        .expect("BUG: failure to serialize cost state summary struct");
+    let serialized_summary =
+        serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
+            .expect("BUG: failure to serialize cost state summary struct");
     clarity_db.set_metadata(
-        &boot_code_id("cost-vote"),
+        &STACKS_BOOT_COST_VOTE_CONTRACT,
         "state_summary",
         &serialized_summary,
     );
@@ -260,13 +299,17 @@ fn store_state_summary(
 ///
 fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let last_processed_count = clarity_db
-        .get_value("vm-costs::last-processed-count", &TypeSignature::UIntType)
+        .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
         .unwrap_or(Value::UInt(0))
         .expect_u128();
-    let cost_voting_contract = boot_code_id("cost-vote");
+    let cost_voting_contract = &STACKS_BOOT_COST_VOTE_CONTRACT;
     let confirmed_proposals_count = clarity_db
-        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count")?
+        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count")
+        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         .expect_u128();
+    debug!("Check cost voting contract";
+           "confirmed_proposal_count" => confirmed_proposals_count,
+           "last_processed_count" => last_processed_count);
 
     // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
     let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
@@ -277,11 +320,20 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             .fetch_entry(
                 &cost_voting_contract,
                 "confirmed-proposals",
-                &Value::UInt(confirmed_proposal),
+                &Value::from(
+                    TupleData::from_data(vec![(
+                        "confirmed-id".into(),
+                        Value::UInt(confirmed_proposal),
+                    )])
+                    .unwrap(),
+                ),
             )
             .expect("BUG: Failed querying confirmed-proposals")
             .expect_optional()
             .expect("BUG: confirmed-proposal-count exceeds stored proposals")
+            .expect_tuple()
+            .get_owned("confirmed-proposal")
+            .unwrap()
             .expect_tuple();
         let target_contract = match entry
             .get("function-contract")
@@ -375,7 +427,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             }
         };
 
-        if target_contract == boot_code_id("costs") {
+        if target_contract == *STACKS_BOOT_COST_CONTRACT {
             // refering to one of the boot code cost functions
             let target = match ClarityCostFunction::lookup_by_name(&target_function) {
                 Some(cost_func) => cost_func,
@@ -415,8 +467,8 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                 .insert((target_contract, target_function), cost_func_ref);
         }
     }
-    store_state_summary(clarity_db, &state_summary)?;
     if confirmed_proposals_count > last_processed_count {
+        store_state_summary(clarity_db, &state_summary)?;
         clarity_db.put(
             "vm-costs::last_processed_count",
             &Value::UInt(confirmed_proposals_count),
@@ -488,8 +540,8 @@ impl LimitedCostTracker {
         clarity_db.begin();
         let CostStateSummary {
             contract_call_circuits,
-            cost_function_references,
-        } = load_state_summary(clarity_db)?;
+            mut cost_function_references,
+        } = load_cost_functions(clarity_db)?;
 
         self.contract_call_circuits = contract_call_circuits;
 

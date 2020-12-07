@@ -38,7 +38,10 @@ use chainstate::stacks::index::{MarfTrieId, TrieHash};
 use chainstate::stacks::StacksBlockId;
 
 #[cfg(test)]
-use chainstate::stacks::boot::{BOOT_CODE_COSTS, STACKS_BOOT_COST_CONTRACT};
+use chainstate::stacks::boot::{
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, STACKS_BOOT_COST_CONTRACT,
+    STACKS_BOOT_COST_VOTE_CONTRACT,
+};
 
 use std::error;
 use std::fmt;
@@ -335,6 +338,20 @@ impl ClarityInstance {
                     &*STACKS_BOOT_COST_CONTRACT,
                     &ast,
                     BOOT_CODE_COSTS,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&*STACKS_BOOT_COST_VOTE_CONTRACT, BOOT_CODE_COST_VOTING)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &*STACKS_BOOT_COST_VOTE_CONTRACT,
+                    &ast,
+                    BOOT_CODE_COST_VOTING,
                     |_, _| false,
                 )
                 .unwrap();
@@ -899,7 +916,7 @@ impl<'a> ClarityTransactionConnection<'a> {
     /// Initialize a contract in the current block.
     ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
+    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn initialize_smart_contract<F>(
         &mut self,

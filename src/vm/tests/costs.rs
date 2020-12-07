@@ -29,6 +29,7 @@ use vm::tests::{
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::boot::STACKS_BOOT_COST_VOTE_CONTRACT;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
@@ -251,15 +252,7 @@ fn test_cost_contract_short_circuits() {
         )
         .commit_block();
 
-    let mut marf_kv = clarity_instance.destroy();
-
-    marf_kv.begin(
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-        &StacksBlockId([1 as u8; 32]),
-    );
+    let marf_kv = clarity_instance.destroy();
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
@@ -274,9 +267,16 @@ fn test_cost_contract_short_circuits() {
     let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
-    {
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+    let mut marf_kv = {
+        let mut clarity_inst = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+        let mut block_conn = clarity_inst.begin_block(
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &StacksBlockId([1 as u8; 32]),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
         );
 
         let cost_definer_src = "
@@ -299,20 +299,27 @@ fn test_cost_contract_short_circuits() {
        (ok (contract-call? .intercepted intercepted-function a)))
     ";
 
-        owned_env
-            .initialize_contract(cost_definer.clone(), cost_definer_src)
-            .unwrap();
-        owned_env
-            .initialize_contract(intercepted.clone(), intercepted_src)
-            .unwrap();
-        owned_env
-            .initialize_contract(caller.clone(), caller_src)
-            .unwrap();
+        for (contract_name, contract_src) in [
+            (&cost_definer, cost_definer_src),
+            (&intercepted, intercepted_src),
+            (&caller, caller_src),
+        ]
+        .iter()
+        {
+            block_conn.as_transaction(|tx| {
+                let (ast, analysis) = tx
+                    .analyze_smart_contract(contract_name, contract_src)
+                    .unwrap();
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                    .unwrap();
+                tx.save_analysis(contract_name, &analysis).unwrap();
+            });
+        }
 
-        let (_db, _tracker) = owned_env.destruct().unwrap();
-    }
+        block_conn.commit_block();
+        clarity_inst.destroy()
+    };
 
-    marf_kv.test_commit();
     marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
     let without_interposing_5 = {
@@ -352,6 +359,34 @@ fn test_cost_contract_short_circuits() {
 
         tracker.get_total()
     };
+
+    {
+        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        db.begin();
+        db.set_variable(
+            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            "confirmed-proposal-count",
+            Value::UInt(1),
+        )
+        .unwrap();
+        let value = format!(
+            "{{ confirmed-proposal: 
+                               {{  function-contract: '{},
+                                   function-name: {},
+                                   cost-function-contract: '{},
+                                   cost-function-name: {},
+                                   confirmed-height: u1 }} }}",
+            intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
+        );
+        db.set_entry(
+            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            "confirmed-proposals",
+            execute("{ confirmed-id: u0 }"),
+            execute(&value),
+        )
+        .unwrap();
+        db.commit();
+    }
 
     marf_kv.test_commit();
     marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
