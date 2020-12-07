@@ -158,6 +158,26 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.result).include('true');
     // });
 
+    // Should still resolve 10 blocks later
+    await bns.mineBlocks(9);
+
+    receipt = await bns.getNameZonefile(
+      cases[0].namespace, 
+      "alpha", { sender: cases[0].nameOwner });
+
+    expect(receipt.result).include('0x36363636');
+    expect(receipt.success).eq(true);
+
+    // Should start erroring when entering grace period
+    await bns.mineBlocks(4);
+
+    receipt = await bns.getNameZonefile(
+      cases[0].namespace, 
+      "alpha", { sender: cases[0].nameOwner });
+
+    expect(receipt.error).include('2009');
+    expect(receipt.success).eq(false);
+
     // it("Resolving an imported name should fail after expiration", async () => {
       await bns.mineBlocks(100);
 
