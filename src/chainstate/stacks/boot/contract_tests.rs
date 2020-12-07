@@ -1009,8 +1009,19 @@ fn cost_voting_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(0),
                 ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(1)))})
+            Value::Optional(OptionalData { data: Some(Value::UInt(1).into())})
         );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&MINER_KEY.clone()).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "veto",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                ])).unwrap().0,
+            Value::Response(ResponseData { committed: false, data: Value::Int(1).into() })
+        )
     });
 
     // Test voting in a proposal

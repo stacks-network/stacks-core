@@ -41,6 +41,9 @@
 ;; cost-function proposal vetos
 (define-map proposal-vetos ((proposal-id uint)) ((vetos uint)))
 
+;; proposal vetos per block
+(define-map exercised-veto ((proposal-id uint) (veto-height uint)) ((vetoed bool)))
+
 ;; the number of votes a specific principal has committed to a proposal
 (define-map principal-proposal-votes ((address principal) (proposal-id uint)) ((votes uint)))
 
@@ -154,13 +157,18 @@
         (cur-vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
         (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
             proposal-id: proposal-id }) (err 1))))
+        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposal-id: proposal-id,
+                                                                         veto-height: block-height }))))
     )
     (if (and
+            (not vetoed)
             (is-eq contract-caller (unwrap! (get-block-info? miner-address (- block-height u1)) (err 1)))
             (> burn-block-height expiration-block-height)
             (is-none (map-get? proposal-confirmed-id { proposal-id: proposal-id })))
         (begin
             (map-set proposal-vetos { proposal-id: proposal-id } { vetos: (+ u1 cur-vetos) })
+            (map-set exercised-veto { proposal-id: proposal-id, veto-height: block-height }
+                                    { vetoed: true })
             (ok true)
         )
         (err 1)))
