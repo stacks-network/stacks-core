@@ -1053,10 +1053,14 @@ fn cost_voting_tests() {
                 (&MINER_KEY.clone()).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "veto",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                ])).unwrap().0,
-            Value::Response(ResponseData { committed: false, data: Value::Int(1).into() })
+                &symbols_from_values(vec![Value::UInt(0),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(1).into()
+            })
         )
     });
 
