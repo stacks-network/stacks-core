@@ -80,7 +80,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         cases[0].salt, 
         cases[0].zonefile, { sender: cases[0].nameOwner });
       expect(receipt.success).eq(false);
-      expect(receipt.error).include('2001');    
+      expect(receipt.error).include('1005');    
 
       receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);
@@ -228,7 +228,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
             "bob", 
             cases[0].salt, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
-          expect(receipt.error).include('2004');
+          expect(receipt.error).include('3001');
           expect(receipt.success).eq(false);
       //   });
 

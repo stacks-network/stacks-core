@@ -92,7 +92,7 @@ describe("BNS Test Suite - NAME_REVOKE", () => {
       expect(receipt.result).include('true');
       block_height+= 1;
 
-      receipt = await bns.nameImport(cases[0].namespace, "alice", cases[0].zonefile, { sender: cases[0].nameImporter })
+      receipt = await bns.nameImport(cases[0].namespace, "alice", cases[0].nameImporter, cases[0].zonefile, { sender: cases[0].nameImporter })
       expect(receipt.success).eq(true);
       block_height+= 1;
 

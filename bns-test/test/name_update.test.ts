@@ -93,7 +93,7 @@ describe("BNS Test Suite - NAME_UPDATE", () => {
     // });
 
     // it("should be possible for Alice to import a name", async () => {
-      receipt = await bns.nameImport(cases[0].namespace, "alice", "4444", { sender: alice });
+      receipt = await bns.nameImport(cases[0].namespace, "alice", alice, "4444", { sender: alice });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('true');
     // })
@@ -108,12 +108,12 @@ describe("BNS Test Suite - NAME_UPDATE", () => {
     // });
 
     // it("should not be possible for Bob to import a name", async () => {
-      receipt = await bns.nameImport(cases[0].namespace, "bob", "4444", { sender: bob });
+      receipt = await bns.nameImport(cases[0].namespace, "bob", bob, "4444", { sender: bob });
       expect(receipt.success).eq(false);
       expect(receipt.error).include('1011');
     // })
 
-    // it("should not resolve (namespace not launched yet)", async () => {
+    // it("should resolve - even if namespace was launched", async () => {
       receipt = await bns.getNameZonefile(
         cases[0].namespace, 
         "alice", { sender: cases[0].nameOwner });
@@ -138,7 +138,7 @@ describe("BNS Test Suite - NAME_UPDATE", () => {
       // });  
 
 
-      // it("Bob preordering 'bob.blockstack' waiting for the namespace to be launched should fail", async () => {
+      // it("Bob preordering 'bob.blockstack' waiting for the namespace to be launched should succeed", async () => {
 
         receipt = await bns.namePreorder(
           cases[0].namespace,

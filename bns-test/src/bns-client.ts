@@ -91,11 +91,12 @@ export class BNSClient extends Client {
   //              (name (buff 16))
   //              (zonefile-content (buff 40960)))
   async nameImport(namespace: string, 
-                   name: string, 
+                   name: string,
+                   beneficiary: string,
                    zonefileContent: string, 
                    params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-import", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
+      method: { name: "name-import", args: [`"${namespace}"`, `"${name}"`, `'${beneficiary}`, `"${zonefileContent}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);

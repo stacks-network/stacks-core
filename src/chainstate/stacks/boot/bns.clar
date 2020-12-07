@@ -220,6 +220,47 @@
             (ok (unwrap-panic namespace-launched-at))
             (err ERR_NAME_EXPIRED)))))
 
+(define-private (mint-or-transfer-name? (namespace (buff 20)) (name (buff 32)) (beneficiary principal))
+    (let (
+      (can-beneficiary-register-name (try! (can-register-name beneficiary)))
+      (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
+      ;; The name must only have valid chars
+      (asserts!
+        (not (has-invalid-chars name))
+        (err ERR_NAME_CHARSET_INVALID))
+      ;; The principal can register a name
+      (asserts!
+        can-beneficiary-register-name
+        (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
+      ;; The name must not exist yet, or be expired
+      (if (is-none current-owner)
+        ;; This is a new name, let's mint it
+        (begin
+          (unwrap! 
+            (nft-mint?
+              names 
+              (tuple (namespace namespace) (name name)) 
+              beneficiary)
+            (err ERR_NAME_COULD_NOT_BE_MINTED))
+          (map-set owner-name
+            ((owner tx-sender))
+            ((namespace namespace) (name name)))
+          (ok true))
+        (let ((is-lease-expired (is-name-lease-expired namespace name))
+              (previous-owner (unwrap-panic current-owner)))
+          ;; If the lease is expired or the namespace is not launched
+          (match is-lease-expired 
+            is-expired 
+              (asserts! is-expired 
+                (err ERR_NAME_UNAVAILABLE)) 
+            namespace-not-launched 
+              (asserts! (is-eq namespace-not-launched ERR_NAMESPACE_NOT_LAUNCHED) 
+                (err (unwrap-err-panic is-lease-expired))))
+          ;; New owner and beneficiary must be differents
+          (asserts! (not (is-eq beneficiary previous-owner)) (ok false))
+          ;; Transfer the name.
+          (update-name-ownership? namespace name previous-owner beneficiary)))))
+
 (define-read-only (compute-name-price (name (buff 32))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
   (let (
@@ -454,6 +495,7 @@
 ;; both an owner and some off-chain state. This step is optional; Namespace creators are not required to import names.
 (define-public (name-import (namespace (buff 20))
                             (name (buff 32))
+                            (beneficiary principal)
                             (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
@@ -472,9 +514,7 @@
         (< block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL))
         (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
       ;; Mint the new name
-      (if (is-ok (nft-mint? names (tuple (namespace namespace) (name name)) tx-sender))
-        true
-        false)
+      (try! (mint-or-transfer-name? namespace name beneficiary))
       ;; Update zonefile and props
       (update-zonefile-and-props
         namespace 
@@ -553,26 +593,14 @@
                               (salt (buff 20))
                               (zonefile-hash (buff 20)))
   (let (
-    (can-sender-register-name (try! (can-register-name tx-sender)))
-    (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt))))
+    (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt)))
+    (namespace-props (unwrap!
+          (map-get? namespaces ((namespace namespace)))
+          (err ERR_NAMESPACE_NOT_FOUND))))
     (let ( 
         (preorder (unwrap!
           (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))
-          (err ERR_NAME_PREORDER_NOT_FOUND)))
-        (namespace-props (unwrap!
-          (map-get? namespaces ((namespace namespace)))
-          (err ERR_NAMESPACE_NOT_FOUND)))
-        (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
-      ;; The name must only have valid chars
-      (asserts!
-        (not (has-invalid-chars name))
-        (err ERR_NAME_CHARSET_INVALID))
-      ;; The name must not exist yet, or be expired
-      (if (is-none current-owner)
-        true
-        (asserts!
-          (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC))
-          (err ERR_NAME_UNAVAILABLE)))
+          (err ERR_NAME_PREORDER_NOT_FOUND))))
       ;; The name's namespace must be launched
       (asserts!
         (is-some (get launched-at namespace-props))
@@ -593,32 +621,12 @@
       (asserts!
         (>= (get stx-burned preorder) (unwrap-panic (compute-name-price name (get price-function namespace-props))))
         (err ERR_NAME_STX_BURNT_INSUFFICIENT))
-      ;; The principal can register a name
-      (asserts!
-        can-sender-register-name
-        (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
       ;; Mint the name if new, transfer the name otherwise.
-      (if (is-none current-owner)
-        (begin
-          (unwrap! 
-            (nft-mint? 
-              names 
-              (tuple (namespace namespace) (name name)) 
-              tx-sender)
-            (err ERR_NAME_COULD_NOT_BE_MINTED))
-          (map-set owner-name
-            ((owner tx-sender))
-            ((namespace namespace) (name name))))
-        (if (is-eq tx-sender (unwrap! current-owner (err ERR_PANIC)))
-          true
-          (let ((previous-owner (unwrap! current-owner (err ERR_PANIC)))) 
-            (unwrap!
-              (update-name-ownership? namespace name previous-owner tx-sender)
-              (err ERR_NAME_COULD_NOT_BE_TRANSFERED)))))
+      (try! (mint-or-transfer-name? namespace name tx-sender))
       ;; Update name's metadata / properties
       (update-zonefile-and-props
         namespace 
-        name  
+        name
         (some block-height)
         none
         none
