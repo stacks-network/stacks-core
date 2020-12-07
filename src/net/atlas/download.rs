@@ -90,7 +90,7 @@ impl AttachmentsDownloader {
                         .map_err(|e| net_error::DBError(e))?;
                     network
                         .atlasdb
-                        .insert_instanciated_attachment(&attachment)
+                        .insert_instantiated_attachment(&attachment)
                         .map_err(|e| net_error::DBError(e))?;
                     resolved_attachments.append(&mut attachments_instances);
                     context
@@ -142,7 +142,7 @@ impl AttachmentsDownloader {
 
             // Do we already have a matching validated attachment
             if let Ok(Some(_entry)) =
-                atlasdb.find_instanciated_attachment(&attachment_instance.content_hash)
+                atlasdb.find_instantiated_attachment(&attachment_instance.content_hash)
             {
                 atlasdb
                     .insert_new_attachment_instance(&attachment_instance, true)
@@ -159,7 +159,7 @@ impl AttachmentsDownloader {
                 atlasdb.find_new_attachment(&attachment_instance.content_hash)
             {
                 atlasdb
-                    .insert_instanciated_attachment(&attachment)
+                    .insert_instantiated_attachment(&attachment)
                     .map_err(|e| net_error::DBError(e))?;
                 atlasdb
                     .insert_new_attachment_instance(&attachment_instance, true)

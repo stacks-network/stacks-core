@@ -35,7 +35,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     CREATE TABLE attachments(
         hash TEXT UNIQUE PRIMARY KEY,
         content BLOB NOT NULL,
-        was_instanciated INTEGER NOT NULL
+        was_instantiated INTEGER NOT NULL
     );"#,
     r#"
     CREATE TABLE attachment_instances(
@@ -236,7 +236,7 @@ impl AtlasDB {
     pub fn insert_new_attachment(&mut self, attachment: &Attachment) -> Result<(), db_error> {
         let tx = self.tx_begin()?;
         let res = tx.execute(
-            "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 0)",
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated) VALUES (?, ?, 0)",
             &[
                 &attachment.hash() as &dyn ToSql,
                 &attachment.content as &dyn ToSql,
@@ -247,13 +247,13 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn insert_instanciated_attachment(
+    pub fn insert_instantiated_attachment(
         &mut self,
         attachment: &Attachment,
     ) -> Result<(), db_error> {
         let tx = self.tx_begin()?;
         tx.execute(
-            "INSERT OR REPLACE INTO attachments (hash, content, was_instanciated) VALUES (?, ?, 1)",
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated) VALUES (?, ?, 1)",
             &[
                 &attachment.hash() as &dyn ToSql,
                 &attachment.content as &dyn ToSql,
@@ -274,7 +274,7 @@ impl AtlasDB {
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 0"
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 0"
             .to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
@@ -292,12 +292,12 @@ impl AtlasDB {
         Ok(rows)
     }
 
-    pub fn find_instanciated_attachment(
+    pub fn find_instantiated_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instanciated = 1"
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 1"
             .to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;

@@ -671,7 +671,7 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match atlasdb.find_instanciated_attachment(&content_hash) {
+        match atlasdb.find_instantiated_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
                 let response = HttpResponseType::GetAttachment(response_metadata, content);
