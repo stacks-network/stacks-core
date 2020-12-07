@@ -1726,20 +1726,32 @@ mod test {
         let (_, root_hash_5) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
         m.commit().unwrap();
 
-        merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_5, &k1, &another_v, None);
+        merkle_test_marf_key_value(
+            &mut m.borrow_storage_backend(),
+            &block_5,
+            &k1,
+            &another_v,
+            None,
+        );
         merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &old_v, None);
 
         let root_to_block = {
-            m.borrow_storage_backend().read_root_to_block_table().unwrap()
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
         };
-       
+
         // prove for latest k/v pair succeeds
-        let proof_5 = TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &another_v, &block_5).unwrap();
-        
+        let proof_5 =
+            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &another_v, &block_5)
+                .unwrap();
+
         let triepath_4 = TriePath::from_key(&k1);
         let marf_value_4 = MARFValue::from_value(&another_v);
         let root_to_block = {
-            m.borrow_storage_backend().read_root_to_block_table().unwrap()
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
         };
 
         println!("DEBUG: verify(another_v)");
@@ -1747,12 +1759,16 @@ mod test {
 
         // prepare a proof for the wrong root hash i.e. block2 instead of block5.
         // Should fail
-        let proof_5 = TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2).unwrap();
+        let proof_5 =
+            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2)
+                .unwrap();
 
         let triepath_4 = TriePath::from_key(&k1);
         let marf_value_4 = MARFValue::from_value(&old_v);
         let root_to_block = {
-            m.borrow_storage_backend().read_root_to_block_table().unwrap()
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
         };
 
         println!("DEBUG: verify(old_v)");
