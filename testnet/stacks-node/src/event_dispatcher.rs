@@ -357,13 +357,16 @@ impl EventDispatcher {
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
-        let mut boot_receipts = vec![];
-        if chain_tip.metadata.block_height == 1 {
+        let boot_receipts = if chain_tip.metadata.block_height == 1 {
             let mut boot_receipts_result = self.boot_receipts.borrow_mut();
-            if let Some(mut val) = boot_receipts_result.take() {
-                boot_receipts.append(&mut val);
+            if let Some(val) = boot_receipts_result.take() {
+                val
+            } else {
+                vec![]
             }
-        }
+        } else {
+            vec![]
+        };
 
         for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let tx_hash = receipt.transaction.txid();
