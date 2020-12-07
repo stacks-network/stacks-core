@@ -21,8 +21,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use util::db::DBConn;
@@ -73,7 +72,7 @@ impl LeaderKeyRegisterOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -227,16 +226,14 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     }
 }
 
-impl BlockstackOperation for LeaderKeyRegisterOp {
-    fn from_tx(
+impl LeaderKeyRegisterOp {
+    pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
-}
 
-impl LeaderKeyRegisterOp {
     pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
@@ -294,8 +291,7 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     pub struct OpFixture {
@@ -403,8 +399,8 @@ pub mod tests {
                 },
                 None => BurnchainBlockHeader {
                     block_height: 0,
-                    block_hash: BurnchainHeaderHash([0u8; 32]),
-                    parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                    block_hash: BurnchainHeaderHash::zero(),
+                    parent_block_hash: BurnchainHeaderHash::zero(),
                     num_txs: 0,
                     timestamp: get_epoch_time_secs(),
                 },
@@ -517,6 +513,7 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            first_block_timestamp: 0,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

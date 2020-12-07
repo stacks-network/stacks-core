@@ -5,7 +5,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
 
-use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
@@ -177,12 +176,12 @@ impl ConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("xenon.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
             ..BurnchainConfigFile::default()
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@xenon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -411,9 +410,6 @@ impl Config {
                     spv_headers_path: burnchain
                         .spv_headers_path
                         .unwrap_or(node.get_default_spv_headers_path()),
-                    first_block: burnchain
-                        .first_block
-                        .unwrap_or(default_burnchain_config.first_block),
                     magic_bytes: default_burnchain_config.magic_bytes,
                     local_mining_public_key: burnchain.local_mining_public_key,
                     burnchain_op_tx_fee: burnchain
@@ -654,9 +650,15 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
+        let dir_name = if self.burnchain.mode.as_str() == "mocknet" {
+            "mocknet".to_string()
+        } else {
+            let (network, _) = self.burnchain.get_bitcoin_network();
+            network
+        };
         format!(
             "{}/burnchain/db/{}/{}/sortition.db/",
-            self.node.working_dir, self.burnchain.chain, "regtest"
+            self.node.working_dir, self.burnchain.chain, dir_name
         )
     }
 
@@ -728,7 +730,6 @@ pub struct BurnchainConfig {
     pub password: Option<String>,
     pub timeout: u32,
     pub spv_headers_path: String,
-    pub first_block: u64,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
@@ -751,7 +752,6 @@ impl BurnchainConfig {
             password: None,
             timeout: 300,
             spv_headers_path: "./spv-headers.dat".to_string(),
-            first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
@@ -802,7 +802,6 @@ pub struct BurnchainConfigFile {
     pub password: Option<String>,
     pub timeout: Option<u32>,
     pub spv_headers_path: Option<String>,
-    pub first_block: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: Option<u64>,
@@ -882,7 +881,7 @@ impl NodeConfig {
                 port: addr.port(),
             },
             public_key: pubk,
-            expire_block: 99999,
+            expire_block: 9999999,
             last_contact_time: 0,
             allowed: 0,
             denied: 0,

@@ -37,18 +37,14 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
+pub const MINING_COMMITMENT_WINDOW: u8 = 6;
+
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
 pub const FIRST_BURNCHAIN_BLOCK_HEIGHT: u32 = 0;
 pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP: u64 = 0;
-
-pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET: BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
-pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST: BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
-
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_TESTNET: ConsensusHash = ConsensusHash([1u8; 20]);
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_REGTEST: ConsensusHash = ConsensusHash([2u8; 20]);
 
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
@@ -60,8 +56,11 @@ pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
 pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
 
+pub const POX_SUNSET_START: u64 = (FIRST_BURNCHAIN_BLOCK_HEIGHT as u64) + 100_000;
+pub const POX_SUNSET_END: u64 = POX_SUNSET_START + 400_000;
+
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
-pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
+pub const POX_REWARD_CYCLE_LENGTH: u32 = 2000;
 /// The maximum amount that PoX rewards can be scaled by.
 ///  That is, if participation is very low, rewards are:
 ///      POX_MAXIMAL_SCALING x (rewards with 100% participation)
@@ -70,6 +69,8 @@ pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
 pub const POX_MAXIMAL_SCALING: u128 = 4;
 /// This is the amount that PoX threshold adjustments are stepped by.
 pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
+
+pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

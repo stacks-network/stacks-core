@@ -286,7 +286,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait() {
 fn test_define_map_storing_trait_references() {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
-        (define-map kv-store ((key uint)) ((value <trait-1>)))";
+        (define-map kv-store { key: uint } { value: <trait-1> })";
 
     let dispatching_contract_id =
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();

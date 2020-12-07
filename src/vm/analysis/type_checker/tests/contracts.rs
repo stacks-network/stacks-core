@@ -25,7 +25,7 @@ use vm::ast::parse;
 use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
-const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance uint)))
+const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
@@ -55,10 +55,10 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
            (if (< name u100000) u1000 u100))
          
          (define-map name-map 
-           ((name uint)) ((owner principal)))
+           { name: uint } { owner: principal })
          (define-map preorder-map
-           ((name-hash (buff 20)))
-           ((buyer principal) (paid uint)))
+           { name-hash: (buff 20) }
+           { buyer: principal, paid: uint })
 
          (define-private (check-balance)
            (contract-call? .tokens my-get-token-balance tx-sender))
@@ -119,9 +119,9 @@ fn test_names_tokens_contracts_interface() {
         (define-data-var d-var2 int 2)
         (define-data-var d-var3 (buff 5) 0xdeadbeef)
 
-        (define-map map1 ((name int)) ((owner principal)) )
-        (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
-        (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple (n1 int) (n2 bool)))) )
+        (define-map map1 { name: int } { owner: principal })
+        (define-map map2 { k-name-1: bool } { v-name-1: (buff 33) })
+        (define-map map3 { k-name-2: bool } { v-name-2: (tuple (n1 int) (n2 bool)) })
 
         (define-private (f00 (a1 int)) true)
         (define-private (f01 (a1 bool)) true)
@@ -428,28 +428,28 @@ fn test_names_tokens_contracts_bad() {
 
 #[test]
 fn test_bad_map_usage() {
-    let bad_fetch = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_fetch = "(define-map tokens { account: principal } { balance: int })
          (define-private (my-get-token-balance (account int))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
               balance))";
-    let bad_delete = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_delete = "(define-map tokens { account: principal } { balance: int })
          (define-private (del-balance (account principal))
             (map-delete tokens (tuple (balance account))))";
-    let bad_set_1 = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_set_1 = "(define-map tokens { account: principal } { balance: int })
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_set_2 = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_set_2 = "(define-map tokens { account: principal } { balance: int })
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account \"abc\")) (tuple (balance 0))))";
-    let bad_insert_1 = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_insert_1 = "(define-map tokens { account: principal } { balance: int })
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_insert_2 = "(define-map tokens ((account principal)) ((balance int)))
+    let bad_insert_2 = "(define-map tokens { account: principal } { balance: int })
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account \"abc\")) (tuple (balance 0))))";
 
-    let unhandled_option = "(define-map tokens ((account principal)) ((balance int)))
+    let unhandled_option = "(define-map tokens { account: principal } { balance: int })
          (define-private (plus-balance (account principal))
            (+ (get balance (map-get? tokens (tuple (account account)))) 1))";
 
@@ -502,7 +502,7 @@ fn test_same_function_name() {
 #[test]
 fn test_expects() {
     use vm::analysis::type_check;
-    let okay = "(define-map tokens ((id int)) ((balance int)))
+    let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
                               (get balance (map-get? tokens (tuple (id 0))))
@@ -529,13 +529,13 @@ fn test_expects() {
           (+ (my-get-token-balance) (my-get-token-balance-2) (my-get-token-balance-5))";
 
     let bad_return_types_tests = [
-        "(define-map tokens ((id int)) ((balance int)))
+        "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
                               (get balance (map-get? tokens (tuple (id 0))))
                               false)))
               (+ 0 balance)))",
-        "(define-map tokens ((id int)) ((balance int)))
+        "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
                               (get balance (map-get? tokens (tuple (id 0))))
@@ -543,7 +543,7 @@ fn test_expects() {
               (err false)))",
     ];
 
-    let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
+    let bad_default_type = "(define-map tokens { id: int } { balance: int })
          (default-to false (get balance (map-get? tokens (tuple (id 0)))))";
 
     let notype_response_type = "

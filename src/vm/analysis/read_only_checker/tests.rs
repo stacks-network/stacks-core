@@ -72,73 +72,73 @@ fn test_simple_read_only_violations() {
     // note -- these examples have _type errors_ in addition to read-only errors,
     //    but the read only error should end up taking precedence
     let bad_contracts = [
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-read-only (not-reading-only)
             (let ((balance (map-set tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))))
                  (+ 1 2)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-read-only (not-reading-only)
             (or (map-insert tokens (tuple (account tx-sender))
                                    { balance: 10, }) false))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-read-only (not-reading-only)
             (tuple (result (map-delete tokens (tuple (account tx-sender))))))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (map func1 (list 1 2 3)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (map + (list 1 (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) 3)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (update-balance-and-get-tx-sender)
             (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
-        "(define-map tokens ((account principal)) ((balance int)))
+            (map-get? tokens { account: (update-balance-and-get-tx-sender) }))",
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (update-balance-and-get-tx-sender)
             (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               (tuple (account tx-sender))))
          (define-read-only (get-token-balance)
             (map-get? tokens (update-balance-and-get-tx-sender)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (update-balance-and-get-tx-sender)
             (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
-        "(define-map tokens ((account principal)) ((balance int)))
+            (map-get? tokens { account: (update-balance-and-get-tx-sender) }))",
+        "(define-map tokens { account: principal } { balance: int })
          (define-read-only (not-reading-only)
             (let ((x 1))
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               x))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (fold func1 (list 1 2 3) 1))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-read-only (not-reading-only)
             (asserts! (map-insert tokens (tuple (account tx-sender))
                                              (tuple (balance 10))) false))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
             (len (func1)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
             (append (func1) 3))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
             (concat (func1) (func1)))",
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
             (as-max-len? (func1) 3))",
@@ -175,7 +175,7 @@ fn test_nested_writing_closure() {
 
 #[test]
 fn test_contract_call_read_only_violations() {
-    let contract1 = "(define-map tokens ((account principal)) ((balance int)))
+    let contract1 = "(define-map tokens { account: principal } { balance: int })
          (define-read-only (get-token-balance)
             (get balance (map-get? tokens (tuple (account tx-sender))) ))
          (define-public (mint)

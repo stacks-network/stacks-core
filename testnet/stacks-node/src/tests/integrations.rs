@@ -34,13 +34,13 @@ use reqwest;
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
-          ((height uint))
-          ((stacks-hash (buff 32))
-           (id-hash (buff 32))
-           (btc-hash (buff 32))
-           (vrf-seed (buff 32))
-           (burn-block-time uint)
-           (stacks-miner principal)))
+          { height: uint }
+          { stacks-hash: (buff 32),
+            id-hash: (buff 32),
+            btc-hash: (buff 32),
+            vrf-seed: (buff 32),
+            burn-block-time: uint,
+            stacks-miner: principal })
         (define-private (test-1) (get-block-info? time u1))
         (define-private (test-2) (get-block-info? time block-height))
         (define-private (test-3) (get-block-info? time u100000))
@@ -871,7 +871,7 @@ fn contract_stx_transfer() {
                                 })
                             }
                         ),
-                        5999
+                        25999
                     );
                     // check that 1000 stx _was_ debited from SK_3
                     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -886,7 +886,7 @@ fn contract_stx_transfer() {
                                 })
                             }
                         ),
-                        93000
+                        69000
                     );
                 }
 

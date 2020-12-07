@@ -123,6 +123,7 @@ pub struct LocalContext<'a> {
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
+    apply_depth: usize,
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
@@ -840,12 +841,12 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = self
             .global_context
             .database
-            .set_block_hash(bhh)
+            .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
                 let result = eval(closure, self, local);
                 self.global_context
                     .database
-                    .set_block_hash(prior_bhh)
+                    .set_block_hash(prior_bhh, true)
                     .expect(
                     "ERROR: Failed to restore prior active block after time-shifted evaluation.",
                 );
@@ -1368,11 +1369,12 @@ impl CallStack {
         CallStack {
             stack: Vec::new(),
             set: HashSet::new(),
+            apply_depth: 0,
         }
     }
 
     pub fn depth(&self) -> usize {
-        self.stack.len()
+        self.stack.len() + self.apply_depth
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -1384,6 +1386,14 @@ impl CallStack {
         if track {
             self.set.insert(function.clone());
         }
+    }
+
+    pub fn incr_apply_depth(&mut self) {
+        self.apply_depth += 1;
+    }
+
+    pub fn decr_apply_depth(&mut self) {
+        self.apply_depth -= 1;
     }
 
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
