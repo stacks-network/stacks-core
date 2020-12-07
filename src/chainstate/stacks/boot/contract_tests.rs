@@ -6,7 +6,10 @@ use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature, TypeSignature, Value, NONE, ResponseData, TupleData};
+use vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
+    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+};
 
 use std::convert::TryInto;
 
@@ -29,12 +32,12 @@ use util::hash::to_hex;
 use vm::eval;
 use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 
+use address::AddressHashMode;
 use core::{
     FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
 use vm::types::Value::Response;
-use address::AddressHashMode;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -59,10 +62,12 @@ lazy_static! {
         &format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
     )
     .unwrap();
-    static ref COST_VOTING_CONTRACT: QualifiedContractIdentifier = QualifiedContractIdentifier::parse(
-        &format!("{}.cost-voting", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR)
-    )
-    .unwrap();
+    static ref COST_VOTING_CONTRACT: QualifiedContractIdentifier =
+        QualifiedContractIdentifier::parse(&format!(
+            "{}.cost-voting",
+            STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
+        ))
+        .unwrap();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)
@@ -77,7 +82,8 @@ lazy_static! {
         &AddressHashMode::SerializeP2PKH,
         1,
         &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
-    ).unwrap();
+    )
+    .unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
 }
@@ -875,15 +881,28 @@ fn cost_voting_tests() {
                 COST_VOTING_CONTRACT.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name").unwrap()),
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.function-name"
+                        )
+                        .unwrap()
+                    ),
                     Value::string_ascii_from_bytes("function-name".into()).unwrap(),
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name").unwrap()),
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.cost-function-name"
+                        )
+                        .unwrap()
+                    ),
                     Value::string_ascii_from_bytes("cost-function-name".into()).unwrap(),
                 ])
             )
-                .unwrap()
-                .0,
-            Value::Response(ResponseData { committed: true, data: Value::UInt(0).into() } )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::UInt(0).into()
+            })
         );
 
         // Vote on the proposal
@@ -891,10 +910,10 @@ fn cost_voting_tests() {
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
             "vote-proposal",
-            &symbols_from_values(vec![
-                Value::UInt(0),
-                Value::UInt(10),
-            ])).unwrap().0;
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
+        )
+        .unwrap()
+        .0;
 
         // Assert that the number of votes is correct
         assert_eq!(
@@ -902,10 +921,13 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+                &symbols_from_values(vec![Value::UInt(0),])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(10)))
+            })
         );
 
         // Vote again on the proposal
@@ -913,10 +935,10 @@ fn cost_voting_tests() {
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
             "vote-proposal",
-            &symbols_from_values(vec![
-                Value::UInt(0),
-                Value::UInt(5),
-            ])).unwrap().0;
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
+        )
+        .unwrap()
+        .0;
 
         // Assert that the number of votes is correct
         assert_eq!(
@@ -924,10 +946,13 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+                &symbols_from_values(vec![Value::UInt(0),])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(15)))
+            })
         );
 
         // Assert votes are assigned to principal
@@ -939,8 +964,13 @@ fn cost_voting_tests() {
                 &symbols_from_values(vec![
                     Value::Principal(StandardPrincipalData::from(&USER_KEYS[0]).into()),
                     Value::UInt(0),
-                ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(15)))})
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(15)))
+            })
         );
 
         // Withdraw votes
@@ -948,10 +978,9 @@ fn cost_voting_tests() {
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
             "withdraw-votes",
-            &symbols_from_values(vec![
-                Value::UInt(0),
-                Value::UInt(5),
-            ])).unwrap();
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
+        )
+        .unwrap();
 
         // Assert withdrawal worked
         assert_eq!(
@@ -959,16 +988,19 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-votes",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(10)))})
+                &symbols_from_values(vec![Value::UInt(0),])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(10)))
+            })
         );
     });
 
     // Fast forward to proposal expiration
     for _ in 0..2016 {
-        sim.execute_next_block(|_| { });
+        sim.execute_next_block(|_| {});
     }
 
     sim.execute_next_block(|env| {
@@ -977,10 +1009,9 @@ fn cost_voting_tests() {
             (&USER_KEYS[0]).into(),
             COST_VOTING_CONTRACT.clone(),
             "withdraw-after-votes",
-            &symbols_from_values(vec![
-                Value::UInt(0),
-            ])).unwrap();
-
+            &symbols_from_values(vec![Value::UInt(0)]),
+        )
+        .unwrap();
     });
 
     sim.execute_next_block(|env| {
@@ -989,7 +1020,9 @@ fn cost_voting_tests() {
             env.eval_read_only(
                 &COST_VOTING_CONTRACT,
                 &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
-            ).unwrap().0,
+            )
+            .unwrap()
+            .0,
             Value::UInt(1000000)
         );
 
@@ -997,19 +1030,22 @@ fn cost_voting_tests() {
             (&MINER_KEY.clone()).into(),
             COST_VOTING_CONTRACT.clone(),
             "veto",
-            &symbols_from_values(vec![
-                Value::UInt(0),
-            ])).unwrap();
+            &symbols_from_values(vec![Value::UInt(0)]),
+        )
+        .unwrap();
 
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-vetos",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                ])).unwrap().0,
-            Value::Optional(OptionalData { data: Some(Box::from(Value::UInt(1)))})
+                &symbols_from_values(vec![Value::UInt(0),])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(1)))
+            })
         );
     });
 
@@ -1022,15 +1058,28 @@ fn cost_voting_tests() {
                 COST_VOTING_CONTRACT.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.function-name2").unwrap()),
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.function-name2"
+                        )
+                        .unwrap()
+                    ),
                     Value::string_ascii_from_bytes("function-name2".into()).unwrap(),
-                    Value::Principal(PrincipalData::parse_qualified_contract_principal("ST000000000000000000002AMW42H.cost-function-name2").unwrap()),
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.cost-function-name2"
+                        )
+                        .unwrap()
+                    ),
                     Value::string_ascii_from_bytes("cost-function-name2".into()).unwrap(),
                 ])
             )
-                .unwrap()
-                .0,
-            Value::Response(ResponseData { committed: true, data: Value::UInt(1).into() } )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::UInt(1).into()
+            })
         );
 
         // Assert confirmation returns false
@@ -1039,10 +1088,14 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm",
-                &symbols_from_values(vec![
-                    Value::UInt(1),
-                ])).unwrap().0,
-            Value::Response(ResponseData { committed: true, data: Value::Bool(false).into() })
+                &symbols_from_values(vec![Value::UInt(1),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(false).into()
+            })
         );
 
         // Commit all liquid stacks to vote
@@ -1051,10 +1104,10 @@ fn cost_voting_tests() {
                 user.into(),
                 COST_VOTING_CONTRACT.clone(),
                 "vote-proposal",
-                &symbols_from_values(vec![
-                    Value::UInt(1),
-                    Value::UInt(USTX_PER_HOLDER),
-                ])).unwrap().0;
+                &symbols_from_values(vec![Value::UInt(1), Value::UInt(USTX_PER_HOLDER)]),
+            )
+            .unwrap()
+            .0;
         }
 
         // Assert confirmation returns true
@@ -1063,10 +1116,14 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm",
-                &symbols_from_values(vec![
-                    Value::UInt(1),
-                ])).unwrap().0,
-            Value::Response(ResponseData { committed: true, data: Value::Bool(true).into() })
+                &symbols_from_values(vec![Value::UInt(1),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
         );
 
         // TODO: add test asserting proposal was confirmed
