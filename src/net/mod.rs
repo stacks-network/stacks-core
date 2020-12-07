@@ -2335,7 +2335,7 @@ pub mod test {
             )
             .unwrap();
 
-            let (tx, _) = sync_channel(1000);
+            let (tx, _) = sync_channel(100000);
             let mut coord =
                 ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
             coord.handle_new_burnchain_block().unwrap();
