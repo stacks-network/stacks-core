@@ -71,13 +71,8 @@ impl Keychain {
     }
 
     pub fn rotate_vrf_keypair(&mut self, block_height: u64) -> VRFPublicKey {
-        self.rotations = self
-            .rotations
-            .checked_add(1)
-            .expect("Exhausted VRF keypairs"); // this would require quite the hash power...
         let mut seed = {
             let mut secret_state = self.hashed_secret_state.to_bytes().to_vec();
-            secret_state.extend_from_slice(&self.rotations.to_be_bytes());
             secret_state.extend_from_slice(&block_height.to_be_bytes());
             Sha256Sum::from_data(&secret_state)
         };

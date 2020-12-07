@@ -47,6 +47,8 @@ use net::StacksHttp;
 use net::StacksHttpMessage;
 use net::StacksMessageCodec;
 use net::StacksMessageType;
+use net::UnconfirmedTransactionResponse;
+use net::UnconfirmedTransactionStatus;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
@@ -76,8 +78,8 @@ use rusqlite::{DatabaseName, NO_PARAMS};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
-use util::hash::to_hex;
 use util::hash::Hash160;
+use util::hash::{hex_bytes, to_hex};
 
 use crate::version_string;
 
@@ -87,6 +89,8 @@ use vm::{
     database::{
         marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
     },
+    errors::Error as ClarityRuntimeError,
+    errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
@@ -181,9 +185,18 @@ impl RPCPeerInfoData {
         let stacks_tip_consensus_hash = burnchain_tip.canonical_stacks_tip_consensus_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
-        let unconfirmed_tip = match chainstate.unconfirmed_state {
-            Some(ref unconfirmed) => unconfirmed.unconfirmed_chain_tip.clone(),
-            None => StacksBlockId([0x00; 32]),
+        let (unconfirmed_tip, unconfirmed_seq) = match chainstate.unconfirmed_state {
+            Some(ref unconfirmed) => {
+                if unconfirmed.is_readable() {
+                    (
+                        unconfirmed.unconfirmed_chain_tip.clone(),
+                        unconfirmed.last_mblock_seq,
+                    )
+                } else {
+                    (StacksBlockId([0x00; 32]), 0)
+                }
+            }
+            None => (StacksBlockId([0x00; 32]), 0),
         };
 
         Ok(RPCPeerInfoData {
@@ -199,6 +212,7 @@ impl RPCPeerInfoData {
             stacks_tip,
             stacks_tip_consensus_hash: stacks_tip_consensus_hash.to_hex(),
             unanchored_tip: unconfirmed_tip,
+            unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
         })
     }
@@ -209,18 +223,20 @@ impl RPCPoxInfoData {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        options: &ConnectionOptions,
+        _options: &ConnectionOptions,
     ) -> Result<RPCPoxInfoData, net_error> {
         let contract_identifier = boot::boot_code_id("pox");
         let function = "get-pox-info";
-        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
+        let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
-                env.execute_contract(&contract_identifier, function, &vec![], true)
+        let data = chainstate
+            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
+                    env.execute_contract(&contract_identifier, function, &vec![], true)
+                })
             })
-        });
+            .ok_or(net_error::NotFoundError)?;
 
         let res = match data {
             Ok(res) => res.expect_result_ok().expect_tuple(),
@@ -852,45 +868,47 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
-                let (balance, balance_proof) = clarity_db
-                    .get_with_proof::<STXBalance>(&key)
-                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| (STXBalance::zero(), "".into()));
-                let balance_proof = if with_proof {
-                    Some(balance_proof)
-                } else {
-                    None
-                };
-                let key = ClarityDatabase::make_key_for_account_nonce(&account);
-                let (nonce, nonce_proof) = clarity_db
-                    .get_with_proof(&key)
-                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| (0, "".into()));
-                let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let key = ClarityDatabase::make_key_for_account_balance(&account);
+                    let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                    let (balance, balance_proof) = clarity_db
+                        .get_with_proof::<STXBalance>(&key)
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                        .unwrap_or_else(|| (STXBalance::zero(), "".into()));
+                    let balance_proof = if with_proof {
+                        Some(balance_proof)
+                    } else {
+                        None
+                    };
+                    let key = ClarityDatabase::make_key_for_account_nonce(&account);
+                    let (nonce, nonce_proof) = clarity_db
+                        .get_with_proof(&key)
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                        .unwrap_or_else(|| (0, "".into()));
+                    let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
-                let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
-                let (locked, unlock_height) =
-                    balance.get_locked_balance_at_burn_block(burn_block_height);
+                    let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
+                    let (locked, unlock_height) =
+                        balance.get_locked_balance_at_burn_block(burn_block_height);
 
-                let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
-                let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
+                    let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
+                    let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
 
-                AccountEntryResponse {
-                    balance,
-                    locked,
-                    unlock_height,
-                    nonce,
-                    balance_proof,
-                    nonce_proof,
-                }
-            })
-        });
-
-        let response = HttpResponseType::GetAccount(response_metadata, data);
+                    AccountEntryResponse {
+                        balance,
+                        locked,
+                        unlock_height,
+                        nonce,
+                        balance_proof,
+                        nonce_proof,
+                    }
+                })
+            }) {
+                Some(data) => HttpResponseType::GetAccount(response_metadata, data),
+                None => HttpResponseType::NotFound(response_metadata, "Chain tip not found".into()),
+            };
 
         response.send(http, fd).map(|_| ())
     }
@@ -914,37 +932,39 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                let key = ClarityDatabase::make_key_for_data_map_entry(
-                    &contract_identifier,
-                    map_name,
-                    key,
-                );
-                let (value, marf_proof) = clarity_db
-                    .get_with_proof::<Value>(&key)
-                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| {
-                        test_debug!("No value for '{}' in {}", &key, tip);
-                        (Value::none(), "".into())
-                    });
-                let marf_proof = if with_proof {
-                    test_debug!(
-                        "Return a MARF proof of '{}' of {} bytes",
-                        &key,
-                        marf_proof.as_bytes().len()
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let key = ClarityDatabase::make_key_for_data_map_entry(
+                        &contract_identifier,
+                        map_name,
+                        key,
                     );
-                    Some(marf_proof)
-                } else {
-                    None
-                };
+                    let (value, marf_proof) = clarity_db
+                        .get_with_proof::<Value>(&key)
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                        .unwrap_or_else(|| {
+                            test_debug!("No value for '{}' in {}", &key, tip);
+                            (Value::none(), "".into())
+                        });
+                    let marf_proof = if with_proof {
+                        test_debug!(
+                            "Return a MARF proof of '{}' of {} bytes",
+                            &key,
+                            marf_proof.as_bytes().len()
+                        );
+                        Some(marf_proof)
+                    } else {
+                        None
+                    };
 
-                let data = format!("0x{}", value.serialize());
-                MapEntryResponse { data, marf_proof }
-            })
-        });
-
-        let response = HttpResponseType::GetMapEntry(response_metadata, data);
+                    let data = format!("0x{}", value.serialize());
+                    MapEntryResponse { data, marf_proof }
+                })
+            }) {
+                Some(data) => HttpResponseType::GetMapEntry(response_metadata, data),
+                None => HttpResponseType::NotFound(response_metadata, "Chain tip not found".into()),
+            };
 
         response.send(http, fd).map(|_| ())
     }
@@ -969,33 +989,46 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
-
         let args: Vec<_> = args
             .iter()
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
-                env.execute_contract(&contract_identifier, function.as_str(), &args, true)
-            })
-        });
+        let data_opt =
+            chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let cost_track = clarity_tx
+                    .with_clarity_db_readonly(|clarity_db| {
+                        LimitedCostTracker::new(options.read_only_call_limit.clone(), clarity_db)
+                    })
+                    .map_err(|_| {
+                        ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
+                    })?;
 
-        let response = match data {
-            Ok(data) => CallReadOnlyResponse {
-                okay: true,
-                result: Some(format!("0x{}", data.serialize())),
-                cause: None,
-            },
-            Err(e) => CallReadOnlyResponse {
-                okay: false,
-                result: None,
-                cause: Some(e.to_string()),
-            },
+                clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
+                    env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                })
+            });
+
+        let response = match data_opt {
+            Some(Ok(data)) => HttpResponseType::CallReadOnlyFunction(
+                response_metadata,
+                CallReadOnlyResponse {
+                    okay: true,
+                    result: Some(format!("0x{}", data.serialize())),
+                    cause: None,
+                },
+            ),
+            Some(Err(e)) => HttpResponseType::CallReadOnlyFunction(
+                response_metadata,
+                CallReadOnlyResponse {
+                    okay: false,
+                    result: None,
+                    cause: Some(e.to_string()),
+                },
+            ),
+            None => HttpResponseType::NotFound(response_metadata, "Chain tip not found".into()),
         };
 
-        let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
         response.send(http, fd).map(|_| ())
     }
 
@@ -1016,34 +1049,35 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_clarity_db_readonly(|db| {
-                let source = db.get_contract_src(&contract_identifier)?;
-                let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
-                let (contract_commit, proof) = db
-                    .get_with_proof::<ContractCommitment>(&contract_commit_key)
-                    .expect("BUG: obtained source, but couldn't get MARF proof.");
-                let marf_proof = if with_proof {
-                    Some(proof.to_hex())
-                } else {
-                    None
-                };
-                let publish_height = contract_commit.block_height;
-                Some(ContractSrcResponse {
-                    source,
-                    publish_height,
-                    marf_proof,
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|db| {
+                    let source = db.get_contract_src(&contract_identifier)?;
+                    let contract_commit_key =
+                        MarfedKV::make_contract_hash_key(&contract_identifier);
+                    let (contract_commit, proof) = db
+                        .get_with_proof::<ContractCommitment>(&contract_commit_key)
+                        .expect("BUG: obtained source, but couldn't get MARF proof.");
+                    let marf_proof = if with_proof {
+                        Some(proof.to_hex())
+                    } else {
+                        None
+                    };
+                    let publish_height = contract_commit.block_height;
+                    Some(ContractSrcResponse {
+                        source,
+                        publish_height,
+                        marf_proof,
+                    })
                 })
-            })
-        });
-
-        let response = match data {
-            Some(data) => HttpResponseType::GetContractSrc(response_metadata, data),
-            None => HttpResponseType::NotFound(
-                response_metadata,
-                "No contract source data found".into(),
-            ),
-        };
+            }) {
+                Some(Some(data)) => HttpResponseType::GetContractSrc(response_metadata, data),
+                Some(None) => HttpResponseType::NotFound(
+                    response_metadata,
+                    "No contract source data found".into(),
+                ),
+                None => HttpResponseType::NotFound(response_metadata, "Chain tip not found".into()),
+            };
 
         response.send(http, fd).map(|_| ())
     }
@@ -1067,20 +1101,20 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_analysis_db_readonly(|db| {
-                let contract = db.load_contract(&contract_identifier)?;
-                contract.contract_interface
-            })
-        });
-
-        let response = match data {
-            Some(data) => HttpResponseType::GetContractABI(response_metadata, data),
-            None => HttpResponseType::NotFound(
-                response_metadata,
-                "No contract interface data found".into(),
-            ),
-        };
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_analysis_db_readonly(|db| {
+                    let contract = db.load_contract(&contract_identifier)?;
+                    contract.contract_interface
+                })
+            }) {
+                Some(Some(data)) => HttpResponseType::GetContractABI(response_metadata, data),
+                Some(None) => HttpResponseType::NotFound(
+                    response_metadata,
+                    "No contract interface data found".into(),
+                ),
+                None => HttpResponseType::NotFound(response_metadata, "Chain tip not found".into()),
+            };
 
         response.send(http, fd).map(|_| ())
     }
@@ -1171,6 +1205,57 @@ impl ConversationHttp {
                 response.send(http, fd).and_then(|_| Ok(stream_opt))
             }
         }
+    }
+
+    /// Handle a GET unconfirmed transaction.
+    /// The response will be synchronously written to the fd.
+    fn handle_gettransaction_unconfirmed<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &StacksChainState,
+        mempool: &MemPoolDB,
+        txid: &Txid,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // present in the unconfirmed state?
+        if let Some(ref unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+            if let Some((transaction, mblock_hash, seq)) =
+                unconfirmed.get_unconfirmed_transaction(txid)
+            {
+                let response = HttpResponseType::UnconfirmedTransaction(
+                    response_metadata,
+                    UnconfirmedTransactionResponse {
+                        status: UnconfirmedTransactionStatus::Microblock {
+                            block_hash: mblock_hash,
+                            seq: seq,
+                        },
+                        tx: to_hex(&transaction.serialize_to_vec()),
+                    },
+                );
+                return response.send(http, fd).map(|_| ());
+            }
+        }
+
+        // present in the mempool?
+        if let Some(txinfo) = MemPoolDB::get_tx(mempool.conn(), txid)? {
+            let response = HttpResponseType::UnconfirmedTransaction(
+                response_metadata,
+                UnconfirmedTransactionResponse {
+                    status: UnconfirmedTransactionStatus::Mempool,
+                    tx: to_hex(&txinfo.tx.serialize_to_vec()),
+                },
+            );
+            return response.send(http, fd).map(|_| ());
+        }
+
+        // not found
+        let response = HttpResponseType::NotFound(
+            response_metadata,
+            format!("No such unconfirmed transaction {}", txid),
+        );
+        return response.send(http, fd).map(|_| ());
     }
 
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
@@ -1436,6 +1521,17 @@ impl ConversationHttp {
                 *min_seq,
                 chainstate,
             )?,
+            HttpRequestType::GetTransactionUnconfirmed(ref _md, ref txid) => {
+                ConversationHttp::handle_gettransaction_unconfirmed(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    chainstate,
+                    mempool,
+                    txid,
+                )?;
+                None
+            }
             HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -2103,6 +2199,14 @@ impl ConversationHttp {
         )
     }
 
+    /// Make a new get-unconfirmed-tx request
+    pub fn new_gettransaction_unconfirmed(&self, txid: Txid) -> HttpRequestType {
+        HttpRequestType::GetTransactionUnconfirmed(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            txid,
+        )
+    }
+
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
         HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
@@ -2509,6 +2613,7 @@ mod test {
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
             let sortdb = peer_1.sortdb.take().unwrap();
+            PeerNetwork::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
             let mblock = {
                 let sort_iconn = sortdb.index_conn();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -2611,6 +2716,9 @@ mod test {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
+        PeerNetwork::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
+            .unwrap();
+
         convo_1
             .chat(
                 &view_1,
@@ -2633,6 +2741,9 @@ mod test {
         let mut peer_2_sortdb = peer_2.sortdb.take().unwrap();
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
+
+        PeerNetwork::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
+            .unwrap();
 
         convo_2
             .chat(
@@ -2670,6 +2781,9 @@ mod test {
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+
+        PeerNetwork::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
+            .unwrap();
 
         convo_1
             .chat(
@@ -3210,6 +3324,81 @@ mod test {
                             *microblocks,
                             (*server_microblocks_cell.borrow())[5..].to_vec()
                         );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_unconfirmed_transaction() {
+        let last_txid = RefCell::new(Txid([0u8; 32]));
+        let last_mblock = RefCell::new(BlockHeaderHash([0u8; 32]));
+
+        test_rpc(
+            "test_rpc_unconfirmed_transaction",
+            40052,
+            40053,
+            50052,
+            50053,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let privk = StacksPrivateKey::from_hex(
+                    "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+                )
+                .unwrap();
+
+                let sortdb = peer_server.sortdb.take().unwrap();
+                PeerNetwork::setup_unconfirmed_state(peer_server.chainstate(), &sortdb).unwrap();
+                peer_server.sortdb = Some(sortdb);
+
+                assert!(peer_server.chainstate().unconfirmed_state.is_some());
+                let (txid, mblock_hash) = match peer_server.chainstate().unconfirmed_state {
+                    Some(ref unconfirmed) => {
+                        assert!(unconfirmed.mined_txs.len() > 0);
+                        let mut txid = Txid([0u8; 32]);
+                        let mut mblock_hash = BlockHeaderHash([0u8; 32]);
+                        for (next_txid, (_, mbh, ..)) in unconfirmed.mined_txs.iter() {
+                            txid = next_txid.clone();
+                            mblock_hash = mbh.clone();
+                            break;
+                        }
+                        (txid, mblock_hash)
+                    }
+                    None => {
+                        panic!("No unconfirmed state");
+                    }
+                };
+
+                *last_txid.borrow_mut() = txid.clone();
+                *last_mblock.borrow_mut() = mblock_hash.clone();
+
+                convo_client.new_gettransaction_unconfirmed(txid)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::UnconfirmedTransaction(response_md, unconfirmed_resp) => {
+                        assert_eq!(
+                            unconfirmed_resp.status,
+                            UnconfirmedTransactionStatus::Microblock {
+                                block_hash: (*last_mblock.borrow()).clone(),
+                                seq: 0
+                            }
+                        );
+                        let tx = StacksTransaction::consensus_deserialize(
+                            &mut &hex_bytes(&unconfirmed_resp.tx).unwrap()[..],
+                        )
+                        .unwrap();
+                        assert_eq!(tx.txid(), *last_txid.borrow());
                         true
                     }
                     _ => {

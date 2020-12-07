@@ -1,6 +1,6 @@
 [neon]
 rpc_bind = "0.0.0.0:28443"
-block_time = 30000
+block_time = 60000
 miner_address = "mmNe3BjtYa8ZWtpQxfpsE8aWKgHh77LYTT"
 faucet_address = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg"
 bitcoind_rpc_host = "127.0.0.1:18443"

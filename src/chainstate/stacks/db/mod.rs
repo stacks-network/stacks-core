@@ -95,7 +95,7 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
-    clarity_state: ClarityInstance,
+    pub clarity_state: ClarityInstance,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
@@ -615,27 +615,6 @@ impl ChainStateBootData {
             post_flight_callback,
         }
     }
-
-    /// The callback post_flight_callback is invoked after initial balances are inserted, and after boot contracts are initialized
-    /// This method is used for inserting a callback before any other callback previously setup.
-    pub fn prepend_post_flight_callback(
-        &mut self,
-        new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-    ) {
-        match self.post_flight_callback.take() {
-            Some(initial_callback) => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                    initial_callback(clarity_tx);
-                }));
-            }
-            None => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                }));
-            }
-        }
-    }
 }
 
 impl StacksChainState {
@@ -784,7 +763,7 @@ impl StacksChainState {
         let mut receipts = vec![];
 
         {
-            let mut clarity_tx = chainstate.block_begin(
+            let mut clarity_tx = chainstate.genesis_block_begin(
                 &NULL_BURN_STATE_DB,
                 &BURNCHAIN_BOOT_CONSENSUS_HASH,
                 &BOOT_BLOCK_HASH,
@@ -1161,6 +1140,61 @@ impl StacksChainState {
         )
     }
 
+    /// Begin a transaction against the Clarity VM for initiating the genesis block
+    ///  the genesis block is special cased because it must be evaluated _before_ the
+    ///  cost contract is loaded in the boot code.
+    pub fn genesis_block_begin<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a> {
+        let conf = self.config();
+        let db = self.state_index.sqlite_conn();
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
     pub fn with_clarity_marf<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut MARF<StacksBlockId>) -> R,
@@ -1180,20 +1214,32 @@ impl StacksChainState {
         )
     }
 
-    /// Run to_do on the state of the Clarity VM at the given chain tip
+    /// Run to_do on the state of the Clarity VM at the given chain tip.
+    /// Returns Some(x: R) if the given parent_tip exists.
+    /// Returns None if not
     pub fn with_read_only_clarity_tx<F, R>(
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> R
+    ) -> Option<R>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
+        match StacksChainState::has_stacks_block(self.db(), parent_tip) {
+            Ok(true) => {}
+            Ok(false) => {
+                return None;
+            }
+            Err(e) => {
+                warn!("Failed to query for {}: {:?}", parent_tip, &e);
+                return None;
+            }
+        }
         let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
         let result = to_do(&mut conn);
         conn.done();
-        result
+        Some(result)
     }
 
     /// Run to_do on the unconfirmed Clarity VM state
@@ -1205,6 +1251,12 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
+        if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
+            if !unconfirmed.is_readable() {
+                return None;
+            }
+        }
+
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
             let mut conn = unconfirmed_state.clarity_inst.read_only_connection(
@@ -1230,19 +1282,19 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> R
+    ) -> Option<R>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         let unconfirmed = if let Some(ref unconfirmed_state) = self.unconfirmed_state {
             *parent_tip == unconfirmed_state.unconfirmed_chain_tip
+                && unconfirmed_state.is_readable()
         } else {
             false
         };
 
         if unconfirmed {
             self.with_read_only_unconfirmed_clarity_tx(burn_dbconn, to_do)
-                .expect("BUG: both have and do not have unconfirmed chain state")
         } else {
             self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do)
         }
@@ -1283,12 +1335,21 @@ impl StacksChainState {
     }
 
     /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
+    /// This marks the unconfirmed chainstate as "dirty" so that no future queries against it can
+    /// happen.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
     ) -> Option<ClarityTx<'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
+            if !unconfirmed.is_writable() {
+                debug!("Unconfirmed state is not writable; cannot begin unconfirmed Clarity Tx");
+                return None;
+            }
+
+            unconfirmed.set_dirty(true);
+
             Some(StacksChainState::chainstate_begin_unconfirmed(
                 conf,
                 self.state_index.sqlite_conn(),
@@ -1297,6 +1358,7 @@ impl StacksChainState {
                 &unconfirmed.confirmed_chain_tip,
             ))
         } else {
+            debug!("Unconfirmed state is not instantiated; cannot begin unconfirmed Clarity Tx");
             None
         }
     }

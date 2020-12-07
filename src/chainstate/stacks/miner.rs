@@ -24,6 +24,7 @@ use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::From;
 use std::fs;
 use std::mem;
 
@@ -63,13 +64,18 @@ struct MicroblockMinerRuntime {
     considered: Option<HashSet<Txid>>,
 }
 
-impl MicroblockMinerRuntime {
-    pub fn from_unconfirmed_state(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
+impl From<&UnconfirmedState> for MicroblockMinerRuntime {
+    fn from(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
+        let considered = unconfirmed
+            .mined_txs
+            .iter()
+            .map(|(txid, _)| txid.clone())
+            .collect();
         MicroblockMinerRuntime {
             consumed_execution: unconfirmed.cost_so_far.clone(),
             bytes_so_far: unconfirmed.bytes_so_far,
             prev_microblock_header: unconfirmed.last_mblock.clone(),
-            considered: Some(unconfirmed.considered.clone()),
+            considered: Some(considered),
         }
     }
 }
@@ -100,8 +106,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a dyn BurnStateDB,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
-        let runtime = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
-            MicroblockMinerRuntime::from_unconfirmed_state(unconfirmed_state)
+        let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
+            MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
             warn!("No unconfirmed state instantiated; cannot mine microblocks");
             return Err(Error::NoSuchBlockError);
@@ -113,8 +119,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &anchor_block_consensus_hash,
             &anchor_block,
         )?
-        .ok_or(Error::NoSuchBlockError)?
+        .ok_or_else(|| {
+            warn!(
+                "No such block: {}/{}",
+                &anchor_block_consensus_hash, &anchor_block
+            );
+            Error::NoSuchBlockError
+        })?
         .block_height;
+
+        // when we drop the miner, the underlying clarity instance will be rolled back
+        chainstate.set_unconfirmed_dirty(true);
 
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
@@ -146,8 +161,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a dyn BurnStateDB,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
-        let runtime = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
-            MicroblockMinerRuntime::from_unconfirmed_state(unconfirmed_state)
+        let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
+            MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
             warn!("No unconfirmed state instantiated; cannot mine microblocks");
             return Err(Error::NoSuchBlockError);
@@ -155,14 +170,19 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let (header_reader, _) = chainstate.reopen()?;
         let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
-            if let Some(ref unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
                 let header_info =
                     StacksChainState::get_stacks_block_header_info_by_index_block_hash(
                         chainstate.db(),
                         &unconfirmed.confirmed_chain_tip,
                     )?
-                    .ok_or(Error::NoSuchBlockError)?;
-
+                    .ok_or_else(|| {
+                        warn!(
+                            "No such confirmed block {}",
+                            &unconfirmed.confirmed_chain_tip
+                        );
+                        Error::NoSuchBlockError
+                    })?;
                 (
                     header_info.consensus_hash,
                     header_info.anchored_header.block_hash(),
@@ -170,12 +190,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 )
             } else {
                 // unconfirmed state needs to be initialized
+                debug!("Unconfirmed chainstate not initialized");
                 return Err(Error::NoSuchBlockError)?;
             };
 
-        let mut clarity_tx = chainstate
-            .begin_unconfirmed(burn_dbconn)
-            .ok_or(Error::NoSuchBlockError)?;
+        let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
+            warn!(
+                "Failed to begin-unconfirmed on {}/{}",
+                &anchored_consensus_hash, &anchored_block_hash
+            );
+            Error::NoSuchBlockError
+        })?;
 
         clarity_tx.reset_cost(runtime.consumed_execution.clone());
 
@@ -7268,11 +7293,13 @@ pub mod test {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
                 let stacks_block_id =
                     StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-                let acct = chainstate.with_read_only_clarity_tx(
-                    &sortdb.index_conn(),
-                    &stacks_block_id,
-                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
-                );
+                let acct = chainstate
+                    .with_read_only_clarity_tx(
+                        &sortdb.index_conn(),
+                        &stacks_block_id,
+                        |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                    )
+                    .unwrap();
                 Ok(acct)
             })
             .unwrap();
@@ -8019,10 +8046,8 @@ pub mod test {
         for (reporter_addr, chain_tip, seq) in reporters.into_iter() {
             test_debug!("Check {} in {} for report", &reporter_addr, &chain_tip);
             peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
-                chainstate.with_read_only_clarity_tx(
-                    &sortdb.index_conn(),
-                    &chain_tip,
-                    |clarity_tx| {
+                chainstate
+                    .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
                         // the key at height 1 should be reported as poisoned
                         let report = StacksChainState::get_poison_microblock_report(clarity_tx, 1)
                             .unwrap()
@@ -8030,8 +8055,8 @@ pub mod test {
                         assert_eq!(report.0, reporter_addr);
                         assert_eq!(report.1, seq);
                         Ok(())
-                    },
-                )
+                    })
+                    .unwrap()
             })
             .unwrap();
         }

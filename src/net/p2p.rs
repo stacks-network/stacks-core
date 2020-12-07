@@ -4030,7 +4030,7 @@ impl PeerNetwork {
     }
 
     /// Set up the unconfirmed chain state off of the canonical chain tip.
-    fn setup_unconfirmed_state(
+    pub fn setup_unconfirmed_state(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
     ) -> Result<(), Error> {

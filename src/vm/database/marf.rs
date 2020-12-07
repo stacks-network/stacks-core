@@ -22,7 +22,7 @@ use chainstate::stacks::index::marf::{MarfConnection, MARF};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::{Error as MarfError, MARFValue, MarfTrieId, TrieHash};
-use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 use std::convert::TryInto;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use vm::analysis::AnalysisDatabase;
@@ -31,11 +31,14 @@ use vm::database::{
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
+    InterpreterResult, RuntimeErrorType,
 };
 use vm::types::QualifiedContractIdentifier;
 
 use util::db::IndexDBConn;
+
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -55,6 +58,8 @@ pub struct MarfedKV {
 pub struct MemoryBackingStore {
     side_store: SqliteConnection,
 }
+
+pub struct NullBackingStore {}
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -455,6 +460,18 @@ impl ClarityBackingStore for MarfedKV {
         {
             Ok(Some(x)) => x,
             Ok(None) => {
+                let first_tip = StacksBlockHeader::make_index_block_hash(
+                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    &FIRST_STACKS_BLOCK_HASH,
+                );
+                if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
+                    // the current block height should always work, except if it's the first block
+                    // height (in which case, the current chain tip should match the first-ever
+                    // index block hash).
+                    return 0;
+                }
+
+                // should never happen
                 let msg = format!(
                     "Failed to obtain current block height of {} (got None)",
                     &self.chain_tip
@@ -622,5 +639,57 @@ impl ClarityBackingStore for MemoryBackingStore {
         for (key, value) in items.drain(..) {
             self.side_store.put(&key, &value);
         }
+    }
+}
+
+impl NullBackingStore {
+    pub fn new() -> Self {
+        NullBackingStore {}
+    }
+
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl ClarityBackingStore for NullBackingStore {
+    fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
+        panic!("NullBackingStore can't set block hash")
+    }
+
+    fn get(&mut self, _key: &str) -> Option<String> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_with_proof(&mut self, _key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_side_store(&mut self) -> &mut SqliteConnection {
+        panic!("NullBackingStore has no side store")
+    }
+
+    fn get_block_at_height(&mut self, _height: u32) -> Option<StacksBlockId> {
+        panic!("NullBackingStore can't get block at height")
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        panic!("NullBackingStore can't open chain tip")
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        panic!("NullBackingStore can't get open chain tip height")
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        panic!("NullBackingStore can't get current block height")
+    }
+
+    fn put_all(&mut self, mut _items: Vec<(String, String)>) {
+        panic!("NullBackingStore cannot put")
     }
 }

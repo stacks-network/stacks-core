@@ -402,6 +402,7 @@ pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Resul
         "DELETE FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
         &[bhh],
     )?;
+    debug!("Dropped unconfirmed trie sqlite blob {}", bhh);
     Ok(())
 }
 

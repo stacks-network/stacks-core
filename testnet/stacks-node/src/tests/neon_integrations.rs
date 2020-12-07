@@ -6,14 +6,17 @@ use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction,
+    StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
+
+use stacks::vm::database::ClarityDeserializable;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
@@ -271,6 +274,110 @@ fn bitcoind_integration_test() {
 
 #[test]
 #[ignore]
+fn bitcoind_forking_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    assert_eq!(res.nonce, 7);
+
+    // okay, let's figure out the burn block we want to fork away.
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_regtest_controller.build_next_block(5);
+
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // the fork reduced our block height
+    assert_eq!(res.nonce, 2);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // but we're able to keep on mining
+    assert_eq!(res.nonce, 3);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn microblock_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -280,7 +387,6 @@ fn microblock_integration_test() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    conf.node.wait_time_for_microblocks = 500;
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -596,27 +702,23 @@ fn microblock_integration_test() {
 
         // wait at least two p2p refreshes
         // so it can produce the microblock
-        for i in 0..11 {
+        for i in 0..30 {
             debug!(
                 "wait {} more seconds for microblock miner to find our transaction...",
-                11 - i
+                30 - i
             );
             sleep_ms(1000);
         }
-
-        let path = format!("{}/v2/info", &http_origin);
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
 
         // we can query _new_ unconfirmed state from the microblock we announced
         let path = format!(
             "{}/v2/accounts/{}?proof=0&tip={}",
             &http_origin, &spender_addr, &tip_info.unanchored_tip
         );
+        let res_text = client.get(&path).send().unwrap().text().unwrap();
+
+        eprintln!("text of {}\n{}", &path, &res_text);
+
         let res = client
             .get(&path)
             .send()
@@ -680,7 +782,6 @@ fn size_check_integration_test() {
         .collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    conf.node.wait_time_for_microblocks = 500;
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -691,6 +792,7 @@ fn size_check_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -707,7 +809,11 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .unwrap();
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, None));
@@ -781,6 +887,8 @@ fn size_check_integration_test() {
         }
     }
 
+    sleep_ms(60_000);
+
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -791,7 +899,7 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -817,6 +925,11 @@ fn size_check_integration_test() {
             panic!("Spender address nonce incremented past 1");
         }
     }
+
+    eprintln!(
+        "anchor_block_txs: {}, micro_block_txs: {}",
+        anchor_block_txs, micro_block_txs
+    );
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
@@ -858,6 +971,13 @@ fn pox_integration_test() {
     );
 
     let (mut conf, miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -1003,6 +1123,44 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our stacking operation...
+    let mut tested = false;
+    for block in blocks_observed.iter() {
+        if tested {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(_) = parsed.payload {
+            } else {
+                continue;
+            }
+
+            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+            assert_eq!(parsed.to_string(),
+                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
+                               &spender_addr));
+            tested = true;
+        }
+    }
+
+    assert!(tested);
 
     // let's stack with spender 2 and spender 3...
 

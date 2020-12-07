@@ -233,6 +233,17 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
+const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(log2 n)",
+    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    example: "(log2 u8) ;; Returns u3
+(log2 8) ;; Returns 3
+(log2 u1) ;; Returns u0
+(log2 1000) ;; Returns 9
+"
+};
+
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(xor i1 i2)",
@@ -1461,6 +1472,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
+        Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
         BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
@@ -1719,7 +1731,7 @@ mod test {
         let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
-        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
 
         global_context
             .execute(|g| {
