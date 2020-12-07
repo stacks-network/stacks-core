@@ -10,9 +10,6 @@
 (define-data-var proposal-count uint u0)
 (define-data-var confirmed-proposal-count uint u0)
 
-;; max confirmed cost-funciton ID
-(define-data-var cost-function-max-id uint u1000)
-
 ;; cost-function proposals
 (define-map proposals
     ((proposal-id uint))
