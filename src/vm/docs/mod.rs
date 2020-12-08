@@ -431,7 +431,8 @@ const LET_API: SpecialAPI = SpecialAPI {
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
 evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.",
+created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.
+Note: intermediary statements returning a response type must be checked",
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
 };
 
@@ -548,7 +549,8 @@ const BEGIN_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(begin expr1 expr2 expr3 ... expr-last)",
     description: "The `begin` function evaluates each of its input expressions, returning the
-return value of the last such expression.",
+return value of the last such expression.
+Note: intermediary statements returning a response type must be checked.",
     example: "(begin (+ 1 2) 4 5) ;; Returns 5",
 };
 

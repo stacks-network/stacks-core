@@ -102,7 +102,7 @@ const GET_INFO_CONTRACT: &'static str = "
 
         (define-public (update-info)
           (begin
-            (inner-update-info (- block-height u2))
+            (unwrap-panic (inner-update-info (- block-height u2)))
             (inner-update-info (- block-height u1))))
        ";
 
