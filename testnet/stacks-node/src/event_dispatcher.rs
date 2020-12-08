@@ -1,10 +1,13 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
-use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
+use std::collections::hash_map::Entry;
 use std::thread::sleep;
 use std::time::Duration;
-use std::{collections::hash_map::Entry};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
