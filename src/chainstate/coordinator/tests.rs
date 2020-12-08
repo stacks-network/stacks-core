@@ -557,7 +557,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
         &parent_block, &parents_sortition.sortition_id
     );
     let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
-        state.headers_db(),
+        state.db(),
         &parents_sortition.consensus_hash,
         parent_block,
     )
@@ -753,17 +753,19 @@ fn test_simple_setup() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1039,17 +1041,19 @@ fn test_sortition_with_reward_set() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         // we only got to block height 49, because of the little fork at the end.
         Value::UInt(49)
     );
@@ -1263,17 +1267,19 @@ fn test_sortition_with_burner_reward_set() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1440,18 +1446,20 @@ fn test_pox_btc_ops() {
             let stacks_tip =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
             let mut chainstate = get_chainstate(path);
-            let (stacker_balance, burn_height) = chainstate.with_read_only_clarity_tx(
-                &sort_db.index_conn(),
-                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-                |conn| {
-                    conn.with_clarity_db_readonly(|db| {
-                        (
-                            db.get_account_stx_balance(&stacker.clone().into()),
-                            db.get_current_block_height(),
-                        )
-                    })
-                },
-            );
+            let (stacker_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
 
             if ix > 2 && reward_cycle_count < 6 {
                 assert_eq!(
@@ -1462,7 +1470,7 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked, stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_block(burn_height as u64),
+                    stacker_balance.get_available_balance_at_burn_block(burn_height as u64),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -1516,17 +1524,19 @@ fn test_pox_btc_ops() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1749,17 +1759,19 @@ fn test_sortition_with_sunset() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(100)
     );
 
@@ -2559,18 +2571,20 @@ fn test_pox_fork_out_of_order() {
 fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -> Value {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(chainstate_path);
-    chainstate.with_read_only_clarity_tx(
-        &sort_db.index_conn(),
-        &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-        |conn| {
-            conn.with_readonly_clarity_env(
-                PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                LimitedCostTracker::new_free(),
-                |env| env.eval_raw(eval),
-            )
-            .unwrap()
-        },
-    )
+    chainstate
+        .with_read_only_clarity_tx(
+            &sort_db.index_conn(),
+            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+            |conn| {
+                conn.with_readonly_clarity_env(
+                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                    LimitedCostTracker::new_free(),
+                    |env| env.eval_raw(eval),
+                )
+                .unwrap()
+            },
+        )
+        .unwrap()
 }
 
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(

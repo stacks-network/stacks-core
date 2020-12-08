@@ -45,7 +45,7 @@ use vm::{eval, Environment, LocalContext};
 use address::AddressHashMode;
 use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use vm::costs::cost_functions::ClarityCostFunction;
-pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
+pub use vm::functions::assets::stx_transfer_consolidated;
 pub use vm::functions::special::handle_contract_call_special_cases;
 
 define_named_enum!(NativeFunctions {

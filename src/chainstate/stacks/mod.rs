@@ -67,8 +67,11 @@ use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalDat
 use vm::errors::Error as clarity_interpreter_error;
 
 use vm::clarity::Error as clarity_error;
+use vm::costs::CostErrors;
 use vm::costs::ExecutionCost;
 use vm::representations::{ClarityName, ContractName};
+
+use vm::contexts::GlobalContext;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -175,6 +178,18 @@ pub enum Error {
 impl From<marf_error> for Error {
     fn from(e: marf_error) -> Error {
         Error::MARFError(e)
+    }
+}
+
+impl From<clarity_error> for Error {
+    fn from(e: clarity_error) -> Error {
+        Error::ClarityError(e)
+    }
+}
+
+impl From<net_error> for Error {
+    fn from(e: net_error) -> Error {
+        Error::NetError(e)
     }
 }
 
@@ -303,6 +318,25 @@ impl From<db_error> for Error {
 impl From<clarity_interpreter_error> for Error {
     fn from(e: clarity_interpreter_error) -> Error {
         Error::ClarityError(clarity_error::Interpreter(e))
+    }
+}
+
+impl Error {
+    pub fn from_cost_error(
+        err: CostErrors,
+        cost_before: ExecutionCost,
+        context: &GlobalContext,
+    ) -> Error {
+        match err {
+            CostErrors::CostBalanceExceeded(used, budget) => {
+                Error::CostOverflowError(cost_before, used, budget)
+            }
+            _ => {
+                let cur_cost = context.cost_track.get_total();
+                let budget = context.cost_track.get_limit();
+                Error::CostOverflowError(cost_before, cur_cost, budget)
+            }
+        }
     }
 }
 
@@ -857,7 +891,8 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<Vec<MinerReward>>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>)>,
+    parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
 }
 

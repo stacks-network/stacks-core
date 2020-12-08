@@ -39,8 +39,11 @@ use vm::types::{
 use vm::{eval, is_reserved};
 
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
+use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
+use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::StacksMicroblockHeader;
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -479,13 +482,14 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    pub fn execute_in_env<F, A>(
+    pub fn execute_in_env<F, A, E>(
         &mut self,
         sender: Value,
         f: F,
-    ) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
+    ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        F: FnOnce(&mut Environment) -> Result<A>,
+        E: From<::vm::errors::Error>,
+        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
@@ -559,23 +563,29 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
+    pub fn handle_poison_microblock(
+        &mut self,
+        sender: &PrincipalData,
+        mblock_hdr_1: &StacksMicroblockHeader,
+        mblock_hdr_2: &StacksMicroblockHeader,
+    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
+        self.execute_in_env(Value::Principal(sender.clone()), |exec_env| {
+            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
+        })
+    }
+
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env(recipient.clone().into(), |env| {
-            let mut balance = env
+        self.execute_in_env::<_, _, ()>(recipient.clone().into(), |env| {
+            let mut snapshot = env
                 .global_context
                 .database
-                .get_account_stx_balance(recipient);
-            let block_height = env
-                .global_context
-                .database
-                .get_current_burnchain_block_height();
-            balance
-                .credit(amount, block_height as u64)
-                .expect("ERROR: Failed to credit balance");
-            env.global_context
-                .database
-                .set_account_stx_balance(recipient, &balance);
+                .get_stx_balance_snapshot(&recipient);
+
+            let mut balance = snapshot.balance().clone();
+            balance.amount_unlocked += amount;
+            snapshot.set_balance(balance);
+            snapshot.save();
             Ok(())
         })
         .unwrap();
@@ -997,6 +1007,27 @@ impl<'a, 'b> Environment<'a, 'b> {
                     Err(InterpreterError::InsufficientBalance.into())
                 }
             },
+            Err(e) => {
+                self.global_context.roll_back();
+                Err(e)
+            }
+        }
+    }
+
+    /// Top-level poison-microblock handler
+    pub fn handle_poison_microblock(
+        &mut self,
+        mblock_header_1: &StacksMicroblockHeader,
+        mblock_header_2: &StacksMicroblockHeader,
+    ) -> std::result::Result<Value, ChainstateError> {
+        self.global_context.begin();
+        let result =
+            StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
+        match result {
+            Ok(ret) => {
+                self.global_context.commit()?;
+                Ok(ret)
+            }
             Err(e) => {
                 self.global_context.roll_back();
                 Err(e)

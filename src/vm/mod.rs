@@ -64,7 +64,7 @@ pub use vm::representations::{
 use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::costs::cost_functions::ClarityCostFunction;
-pub use vm::functions::{get_stx_balance_snapshot, stx_transfer_consolidated};
+pub use vm::functions::stx_transfer_consolidated;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 

@@ -436,8 +436,7 @@ impl EventDispatcher {
                         json!({
                             "recipient": reward.address.to_string(),
                             "coinbase_amount": reward.coinbase.to_string(),
-                            "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
-                            "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
+                            "tx_fees_anchored": reward.tx_fees_anchored.to_string(),
                             "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
                             "from_stacks_block_hash": format!("0x{}", &rewards_info.from_stacks_block_hash),
                             "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&rewards_info.from_block_consensus_hash,
