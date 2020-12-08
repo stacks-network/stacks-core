@@ -3791,8 +3791,9 @@ impl StacksChainState {
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_transfer_ops(
         clarity_tx: &mut ClarityTx,
-        operations: Vec<TransferStxOp>,
+        mut operations: Vec<TransferStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
+        operations.sort_by_key(|op| op.vtxindex);
         let (all_receipts, _) =
             clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
                 operations
