@@ -47,12 +47,7 @@
 (define-constant NAME_PREORDER_CLAIMABILITY_TTL u10)
 (define-constant NAME_GRACE_PERIOD_DURATION u5)
 
-(define-constant ATTACHMENTS_INV_PAGE_SIZE u8)
-(define-data-var attachments-inv-index-cursor uint u0)
-(define-data-var attachments-inv-page-cursor uint u0)
-(define-map attachments-inv 
-    ((page uint) (index uint)) 
-    ((content-hash (buff 20))))
+(define-data-var attachment-index uint u0)
 
 ;; Price tables
 (define-constant NAMESPACE_PRICE_TIERS (list
@@ -328,45 +323,26 @@
                                            (revoked-at (optional uint)) 
                                            (zonefile-hash (buff 20)))
   (let 
-    ((current-page (var-get attachments-inv-page-cursor))
-    (current-index (var-get attachments-inv-index-cursor)))
-    (let 
-      ((next-page (if (is-eq (+ current-index u1) ATTACHMENTS_INV_PAGE_SIZE)
-        (+ current-page u1)
-        current-page))
-      (next-index (mod (+ current-index u1) ATTACHMENTS_INV_PAGE_SIZE)))
+    ((current-index (var-get attachment-index)))
       ;; Emit event used as a system hinter
       (print {
         attachment: {
           hash: zonefile-hash,
-          page-index: current-page,
-          position-in-page: current-index,
+          attachment-index: current-index,
           metadata: {
             name: name,
             namespace: namespace,
             tx-sender: tx-sender
           }
         }})
-      ;; Update attachments-inv
-      (map-set attachments-inv
-        ((page current-page) (index current-index))
-        ((content-hash zonefile-hash)))
-      ;; Update cursors
-      (var-set attachments-inv-page-cursor next-page)
-      (var-set attachments-inv-index-cursor next-index)
+      ;; Update cursor
+      (var-set attachment-index (+ u1 current-index))
       (map-set name-properties
         ((namespace namespace) (name name))
         ((registered-at registered-at)
           (imported-at imported-at)
           (revoked-at revoked-at)
-          (zonefile-hash zonefile-hash))))))
-
-(define-read-only (get-attachments-inv-info)
-  (ok { 
-    pages-count: (+ (var-get attachments-inv-page-cursor) u1),
-    last-page-len: (var-get attachments-inv-index-cursor),
-    page-size: ATTACHMENTS_INV_PAGE_SIZE
-  }))
+          (zonefile-hash zonefile-hash)))))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER

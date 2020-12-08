@@ -253,19 +253,22 @@ impl AttachmentsBatchStateContext {
                 None => continue,
                 Some(missing_attachments) => missing_attachments,
             };
-            for ((page_index, position_in_page), content_hash) in missing_attachments.iter() {
+            for (attachment_index, content_hash) in missing_attachments.iter() {
                 let mut sources = HashMap::new();
+                let page_index = attachment_index / AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+                let position_in_page =
+                    attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
                 for (peer_url, response) in peers_responses.iter() {
                     let index = response
                         .pages
                         .iter()
-                        .position(|page| page.index == *page_index);
+                        .position(|page| page.index == page_index);
 
                     let has_attachment = match index {
                         Some(index) => match response.pages[index]
                             .inventory
-                            .get(*position_in_page as usize)
+                            .get(position_in_page as usize)
                         {
                             Some(result) if *result == 1 => true,
                             _ => false,
@@ -889,7 +892,7 @@ pub struct AttachmentsBatch {
     pub block_height: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
-    pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<(u32, u32), Hash160>>,
+    pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
 }
 
@@ -915,7 +918,7 @@ impl AttachmentsBatch {
             assert_eq!(self.block_header_hash, attachment.block_header_hash);
         }
 
-        let inner_key = (attachment.page_index, attachment.position_in_page);
+        let inner_key = attachment.attachment_index;
         match self
             .attachments_instances
             .entry(attachment.contract_id.clone())
@@ -947,8 +950,9 @@ impl AttachmentsBatch {
     ) -> Vec<u32> {
         let mut pages_indexes = HashSet::new();
         if let Some(missing_attachments) = self.attachments_instances.get(&contract_id) {
-            for ((page_index, _), _) in missing_attachments.iter() {
-                pages_indexes.insert(*page_index);
+            for (attachment_index, _) in missing_attachments.iter() {
+                let page_index = attachment_index / AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+                pages_indexes.insert(page_index);
             }
         }
         pages_indexes.into_iter().collect()

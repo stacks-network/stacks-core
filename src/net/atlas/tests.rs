@@ -26,14 +26,12 @@ fn new_attachment_from(content: &str) -> Attachment {
 
 fn new_attachment_instance_from(
     attachment: &Attachment,
-    position_in_page: u32,
-    page_index: u32,
+    attachment_index: u32,
     block_height: u64,
 ) -> AttachmentInstance {
     AttachmentInstance {
         content_hash: attachment.hash().clone(),
-        page_index,
-        position_in_page,
+        attachment_index,
         block_height,
         consensus_hash: ConsensusHash::empty(),
         metadata: "".to_string(),
@@ -129,8 +127,7 @@ fn test_attachment_instance_parsing() {
         r#"
     {
         attachment: {
-            position-in-page: u1,
-            page-index: u1,
+            attachment-index: u1,
             hash: 0x,
             metadata: {
                 name: "stacks"
@@ -149,16 +146,14 @@ fn test_attachment_instance_parsing() {
         block_height,
     )
     .unwrap();
-    assert_eq!(attachment_instance_1.page_index, 1);
-    assert_eq!(attachment_instance_1.position_in_page, 1);
+    assert_eq!(attachment_instance_1.attachment_index, 1);
     assert_eq!(attachment_instance_1.content_hash, Hash160::empty());
 
     let value_2 = vm::execute(
         r#"
     {
         attachment: {
-            position-in-page: u2,
-            page-index: u2,
+            attachment-index: u2,
             hash: 0xd37581093088f5237a8dc885f38c231e42389cb2,
             metadata: {
                 name: "stacks"
@@ -177,8 +172,7 @@ fn test_attachment_instance_parsing() {
         block_height,
     )
     .unwrap();
-    assert_eq!(attachment_instance_2.page_index, 2);
-    assert_eq!(attachment_instance_2.position_in_page, 2);
+    assert_eq!(attachment_instance_2.attachment_index, 2);
     assert_eq!(
         attachment_instance_2.content_hash,
         Hash160::from_hex("d37581093088f5237a8dc885f38c231e42389cb2").unwrap()
@@ -188,8 +182,7 @@ fn test_attachment_instance_parsing() {
         r#"
     {
         attachment: {
-            position-in-page: u3,
-            page-index: u3,
+            attachment-index: u3,
             hash: 0xd37581093088f5237a8dc885f38c231e42389cb2
         }
     }
@@ -205,8 +198,7 @@ fn test_attachment_instance_parsing() {
         block_height,
     )
     .unwrap();
-    assert_eq!(attachment_instance_3.page_index, 3);
-    assert_eq!(attachment_instance_3.position_in_page, 3);
+    assert_eq!(attachment_instance_3.attachment_index, 3);
     assert_eq!(
         attachment_instance_3.content_hash,
         Hash160::from_hex("d37581093088f5237a8dc885f38c231e42389cb2").unwrap()
@@ -276,10 +268,10 @@ fn test_attachments_batch_ordering() {
     // Batch 1: 4 attachments, never tried, emitted at block #1
     let attachments_batch_1 = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade01"), 1, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade02"), 2, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade03"), 3, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade04"), 4, 1, 1),
+            new_attachment_instance_from(&new_attachment_from("facade01"), 1, 1),
+            new_attachment_instance_from(&new_attachment_from("facade02"), 2, 1),
+            new_attachment_instance_from(&new_attachment_from("facade03"), 3, 1),
+            new_attachment_instance_from(&new_attachment_from("facade04"), 4, 1),
         ],
         0,
     );
@@ -287,22 +279,22 @@ fn test_attachments_batch_ordering() {
     // Batch 2: 5 attachments, never tried, emitted at block #2
     let attachments_batch_2 = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1, 2),
-            new_attachment_instance_from(&new_attachment_from("facade12"), 2, 1, 2),
-            new_attachment_instance_from(&new_attachment_from("facade13"), 3, 1, 2),
-            new_attachment_instance_from(&new_attachment_from("facade14"), 4, 1, 2),
-            new_attachment_instance_from(&new_attachment_from("facade15"), 5, 1, 2),
+            new_attachment_instance_from(&new_attachment_from("facade11"), 1, 2),
+            new_attachment_instance_from(&new_attachment_from("facade12"), 2, 2),
+            new_attachment_instance_from(&new_attachment_from("facade13"), 3, 2),
+            new_attachment_instance_from(&new_attachment_from("facade14"), 4, 2),
+            new_attachment_instance_from(&new_attachment_from("facade15"), 5, 2),
         ],
         0,
     );
 
-    // Batch 3: 4 attachments, tried once, emitted at block #3
+    // Batch 3: 4 attachments, tried once, emitted at block #3, assuming page_size = 8
     let attachments_batch_3 = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade21"), 1, 2, 3),
-            new_attachment_instance_from(&new_attachment_from("facade22"), 2, 2, 3),
-            new_attachment_instance_from(&new_attachment_from("facade23"), 3, 2, 3),
-            new_attachment_instance_from(&new_attachment_from("facade24"), 4, 2, 3),
+            new_attachment_instance_from(&new_attachment_from("facade21"), 8, 3),
+            new_attachment_instance_from(&new_attachment_from("facade22"), 9, 3),
+            new_attachment_instance_from(&new_attachment_from("facade23"), 10, 3),
+            new_attachment_instance_from(&new_attachment_from("facade24"), 11, 3),
         ],
         1,
     );
@@ -310,10 +302,10 @@ fn test_attachments_batch_ordering() {
     // Batch 1: 4 attachments, never tried, emitted at block #4
     let attachments_batch_4 = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade31"), 1, 3, 4),
-            new_attachment_instance_from(&new_attachment_from("facade32"), 2, 3, 4),
-            new_attachment_instance_from(&new_attachment_from("facade33"), 3, 3, 4),
-            new_attachment_instance_from(&new_attachment_from("facade34"), 4, 3, 4),
+            new_attachment_instance_from(&new_attachment_from("facade31"), 16, 4),
+            new_attachment_instance_from(&new_attachment_from("facade32"), 17, 4),
+            new_attachment_instance_from(&new_attachment_from("facade33"), 18, 4),
+            new_attachment_instance_from(&new_attachment_from("facade34"), 19, 4),
         ],
         0,
     );
@@ -434,15 +426,15 @@ fn test_attachment_requests_ordering() {
 #[test]
 fn test_attachments_batch_constructs() {
     let attachment_instance_1 =
-        new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1);
     let attachment_instance_2 =
-        new_attachment_instance_from(&new_attachment_from("facade12"), 2, 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade12"), 2, 1);
     let attachment_instance_3 =
-        new_attachment_instance_from(&new_attachment_from("facade13"), 3, 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade13"), 3, 1);
     let attachment_instance_4 =
-        new_attachment_instance_from(&new_attachment_from("facade14"), 4, 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade14"), 4, 1);
     let attachment_instance_5 =
-        new_attachment_instance_from(&new_attachment_from("facade15"), 1, 2, 1);
+        new_attachment_instance_from(&new_attachment_from("facade15"), 9, 1);
 
     let mut attachments_batch = AttachmentsBatch::new();
     attachments_batch.track_attachment(&attachment_instance_1);
@@ -492,25 +484,25 @@ fn test_attachments_batch_constructs() {
 #[test]
 fn test_attachments_batch_pages() {
     let attachment_instance_1 =
-        new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1);
     let attachment_instance_2 =
-        new_attachment_instance_from(&new_attachment_from("facade12"), 2, 2, 1);
+        new_attachment_instance_from(&new_attachment_from("facade12"), 8, 1);
     let attachment_instance_3 =
-        new_attachment_instance_from(&new_attachment_from("facade13"), 3, 3, 1);
+        new_attachment_instance_from(&new_attachment_from("facade13"), 16, 1);
     let attachment_instance_4 =
-        new_attachment_instance_from(&new_attachment_from("facade14"), 4, 4, 1);
+        new_attachment_instance_from(&new_attachment_from("facade14"), 24, 1);
     let attachment_instance_5 =
-        new_attachment_instance_from(&new_attachment_from("facade15"), 1, 5, 1);
+        new_attachment_instance_from(&new_attachment_from("facade15"), 32, 1);
     let attachment_instance_6 =
-        new_attachment_instance_from(&new_attachment_from("facade16"), 1, 6, 1);
+        new_attachment_instance_from(&new_attachment_from("facade16"), 40, 1);
     let attachment_instance_7 =
-        new_attachment_instance_from(&new_attachment_from("facade17"), 2, 7, 1);
+        new_attachment_instance_from(&new_attachment_from("facade17"), 48, 1);
     let attachment_instance_8 =
-        new_attachment_instance_from(&new_attachment_from("facade18"), 3, 8, 1);
+        new_attachment_instance_from(&new_attachment_from("facade18"), 56, 1);
     let attachment_instance_9 =
-        new_attachment_instance_from(&new_attachment_from("facade19"), 4, 9, 1);
+        new_attachment_instance_from(&new_attachment_from("facade19"), 64, 1);
     let attachment_instance_10 =
-        new_attachment_instance_from(&new_attachment_from("facade20"), 1, 10, 1);
+        new_attachment_instance_from(&new_attachment_from("facade20"), 72, 1);
 
     let mut attachments_batch = AttachmentsBatch::new();
     attachments_batch.track_attachment(&attachment_instance_1);
@@ -559,10 +551,10 @@ fn test_downloader_context_attachment_inventories_requests() {
     let localhost = PeerHost::from_host_port("127.0.0.1".to_string(), 1024);
     let attachments_batch = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade01"), 1, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade02"), 2, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade03"), 3, 1, 1),
-            new_attachment_instance_from(&new_attachment_from("facade04"), 1, 2, 1),
+            new_attachment_instance_from(&new_attachment_from("facade01"), 8, 1),
+            new_attachment_instance_from(&new_attachment_from("facade02"), 9, 1),
+            new_attachment_instance_from(&new_attachment_from("facade03"), 10, 1),
+            new_attachment_instance_from(&new_attachment_from("facade04"), 16, 1),
         ],
         0,
     );
@@ -610,10 +602,10 @@ fn test_downloader_context_attachment_requests() {
     let localhost = PeerHost::from_host_port("127.0.0.1".to_string(), 1024);
     let attachments_batch = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&attachment_1, 0, 1, 1),
-            new_attachment_instance_from(&attachment_2, 1, 1, 1),
-            new_attachment_instance_from(&attachment_3, 2, 1, 1),
-            new_attachment_instance_from(&attachment_4, 0, 2, 1),
+            new_attachment_instance_from(&attachment_1, 0, 1),
+            new_attachment_instance_from(&attachment_2, 1, 1),
+            new_attachment_instance_from(&attachment_3, 2, 1),
+            new_attachment_instance_from(&attachment_4, 8, 1),
         ],
         0,
     );
@@ -640,15 +632,15 @@ fn test_downloader_context_attachment_requests() {
     let mut responses = HashMap::new();
 
     let response_1 =
-        new_attachments_inventory_response(vec![(1, vec![1, 1, 1]), (2, vec![0, 0, 0])]);
+        new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
     responses.insert(peer_url_1.clone(), Some(response_1));
 
     let response_2 =
-        new_attachments_inventory_response(vec![(1, vec![1, 1, 1]), (2, vec![0, 0, 0])]);
+        new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
     responses.insert(peer_url_2.clone(), Some(response_2));
 
     let response_3 =
-        new_attachments_inventory_response(vec![(1, vec![0, 1, 1]), (2, vec![1, 0, 0])]);
+        new_attachments_inventory_response(vec![(0, vec![0, 1, 1]), (1, vec![1, 0, 0])]);
     responses.insert(peer_url_3.clone(), Some(response_3));
     responses.insert(peer_url_4, None);
 

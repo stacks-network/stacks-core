@@ -24,9 +24,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 
 use core::mempool::*;
-use net::atlas::{
-    AtlasDB, Attachment, OnchainInventoryLookup, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
-};
+use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
@@ -554,13 +552,12 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        sortdb: &SortitionDB,
         atlasdb: &AtlasDB,
         chainstate: &mut StacksChainState,
         tip_consensus_hash: &ConsensusHash,
         tip_block_hash: &BlockHeaderHash,
         pages_indexes: &HashSet<u32>,
-        options: &ConnectionOptions,
+        _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
@@ -585,27 +582,12 @@ impl ConversationHttp {
                 pages_indexes.clone(),
             )
         } else {
-            // Pages indexes not provided. By default, we'll return the inventory of the latest page
-            // present on the canonical chain.
-            let res =
-                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    let cost_tracker =
-                        LimitedCostTracker::new(options.read_only_call_limit.clone());
-                    OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)
-                });
-            match res {
-                Ok(inv_info) => {
-                    let current_page = inv_info.pages_count - 1;
-                    (current_page, current_page, vec![current_page])
-                }
-                Err(_) => {
-                    let msg = format!("Unable to read contract BNS");
-                    warn!("{}", msg);
-                    let response = HttpResponseType::ServerError(response_metadata, msg.clone());
-                    response.send(http, fd)?;
-                    return Err(net_error::ChainstateError(msg));
-                }
-            }
+            // Pages indexes not provided, aborting
+            let msg = format!("Page indexes missing");
+            warn!("{}", msg);
+            let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+            response.send(http, fd)?;
+            return Err(net_error::ClientError(ClientError::Message(msg)));
         };
 
         // We need to rebuild an ancestry tree, but we're still missing some informations at this point
@@ -621,6 +603,8 @@ impl ConversationHttp {
                 return Err(net_error::DBError(e));
             }
         };
+
+        if (max_block_height - min_block_height) > 12 {}
 
         let mut blocks_ids = vec![];
         let mut headers_tx = chainstate.headers_tx_begin()?;
@@ -1655,7 +1639,6 @@ impl ConversationHttp {
                         &mut self.connection.protocol,
                         &mut reply,
                         &req,
-                        sortdb,
                         atlasdb,
                         chainstate,
                         &tip_consensus_hash,

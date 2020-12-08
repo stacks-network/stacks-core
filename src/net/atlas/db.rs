@@ -45,8 +45,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         consensus_hash STRING NOT NULL,
         block_header_hash STRING NOT NULL,
         index_block_hash STRING NOT NULL,
-        position_in_page INTEGER NOT NULL,
-        page_index INTEGER NOT NULL,
+        attachment_index INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
         metadata TEXT NOT NULL,
@@ -67,8 +66,7 @@ impl FromRow<Attachment> for Attachment {
 impl FromRow<AttachmentInstance> for AttachmentInstance {
     fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
         let hex_content_hash: String = row.get("content_hash");
-        let position_in_page: u32 = row.get("position_in_page");
-        let page_index: u32 = row.get("page_index");
+        let attachment_index: u32 = row.get("attachment_index");
         let block_height =
             u64::from_column(row, "block_height").map_err(|_| db_error::TypeError)?;
         let content_hash = Hash160::from_hex(&hex_content_hash).map_err(|_| db_error::TypeError)?;
@@ -79,8 +77,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
 
         Ok(AttachmentInstance {
             content_hash,
-            position_in_page,
-            page_index,
+            attachment_index,
             consensus_hash,
             block_header_hash,
             block_height,
@@ -181,11 +178,10 @@ impl AtlasDB {
         oldest_page_index: u32,
         newest_page_index: u32,
     ) -> Result<(u64, u64), db_error> {
-        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE page_index >= ?1 AND page_index <= ?2".to_string();
-        let args = [
-            &oldest_page_index as &dyn ToSql,
-            &newest_page_index as &dyn ToSql,
-        ];
+        let min = oldest_page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let max = (newest_page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2".to_string();
+        let args = [&min as &dyn ToSql, &max as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(&args)?;
         match rows.next() {
@@ -227,7 +223,9 @@ impl AtlasDB {
             .map(|index_block_hash| format!("'{}'", index_block_hash))
             .collect::<Vec<String>>()
             .join(", ");
-        let qry = format!("SELECT is_available FROM attachment_instances WHERE page_index = {} AND index_block_hash IN ({}) ORDER BY position_in_page ASC", page_index, ancestor_tree_sql);
+        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let max = min + AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let qry = format!("SELECT is_available FROM attachment_instances WHERE attachment_index >= {} AND attachment_index < {} AND index_block_hash IN ({}) ORDER BY attachment_index ASC", min, max, ancestor_tree_sql);
         let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
         let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
         Ok(res)
@@ -313,13 +311,12 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             &[
                 &hex_content_hash as &dyn ToSql,
                 &now as &dyn ToSql,
                 &attachment.get_stacks_block_id() as &dyn ToSql,
-                &attachment.position_in_page as &dyn ToSql,
-                &attachment.page_index as &dyn ToSql,
+                &attachment.attachment_index as &dyn ToSql,
                 &u64_to_sql(attachment.block_height)?,
                 &is_available as &dyn ToSql,
                 &attachment.metadata as &dyn ToSql,

@@ -1,10 +1,8 @@
 pub mod db;
 pub mod download;
-pub mod onchain;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
-pub use self::onchain::OnchainInventoryLookup;
 
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
@@ -66,8 +64,7 @@ impl Attachment {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
-    pub page_index: u32,
-    pub position_in_page: u32,
+    pub attachment_index: u32,
     pub block_height: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
@@ -76,6 +73,8 @@ pub struct AttachmentInstance {
 }
 
 impl AttachmentInstance {
+    const ATTACHMENTS_INV_PAGE_SIZE: u32 = 8;
+
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
         StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
@@ -91,13 +90,11 @@ impl AttachmentInstance {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
                 match (
                     attachment_data.get("hash"),
-                    attachment_data.get("page-index"),
-                    attachment_data.get("position-in-page"),
+                    attachment_data.get("attachment-index"),
                 ) {
                     (
                         Ok(Value::Sequence(SequenceData::Buffer(content_hash))),
-                        Ok(Value::UInt(page_index)),
-                        Ok(Value::UInt(position_in_page)),
+                        Ok(Value::UInt(attachment_index)),
                     ) => {
                         let content_hash = if content_hash.data.is_empty() {
                             Hash160::empty()
@@ -121,8 +118,7 @@ impl AttachmentInstance {
                             consensus_hash: consensus_hash.clone(),
                             block_header_hash: block_header_hash,
                             content_hash,
-                            page_index: *page_index as u32,
-                            position_in_page: *position_in_page as u32,
+                            attachment_index: *attachment_index as u32,
                             block_height,
                             metadata,
                             contract_id: contract_id.clone(),

@@ -1403,6 +1403,7 @@ fn atlas_integration_test() {
             &[
                 Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
                 Value::buff_from("johndoe".as_bytes().to_vec()).unwrap(),
+                Value::Principal(to_addr(&user_1).into()),
                 Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
             ],
         );
@@ -1587,6 +1588,7 @@ fn atlas_integration_test() {
         // executing the transactions, once mined.
         let namespace = "passport";
         for i in 1..10 {
+            let user = StacksPrivateKey::new();
             let zonefile_hex = format!("facade0{}", i);
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
             let name = format!("johndoe{}", i);
@@ -1600,6 +1602,7 @@ fn atlas_integration_test() {
                 &[
                     Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
                     Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::Principal(to_addr(&user).into()),
                     Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
                 ],
             );
