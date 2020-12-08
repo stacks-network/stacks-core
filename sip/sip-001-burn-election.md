@@ -28,12 +28,6 @@ based on the fraction of tokens it burned, which is used to
 (1) probabilistically select the next leader proportional to its normalized score
 and to (2) rank conflicting transaction histories by their total number of epochs
 to decide which one is the canonical transaction history.
-Over time, the system adjusts the tunable proof calculation such that the proof-of-work
-component is weighted more and more heavily as more and more
-leaders participate.  This allows the Stacks chain to leverage an established
-blockchain's security to preserve its transaction histories while leader
-participation is low (such as during the chain's infancy), and over time
-transition towards its own leader pool as the chain becomes more popular.
 
 ## Introduction
 
@@ -678,8 +672,8 @@ burns count towards the leader's total score for the election, thereby increasin
 that they will be selected (i.e. users submit their transactions alongside the
 leader's block commitment).  Users who submit proofs for a leader that wins the election
 will receive some Stacks tokens alongside the leader (but users whose leaders
-are not elected receive no reward).  Users are rewarded the same way as
-leaders -- they receive their tokens during the reward window (see below).
+are not elected receive no reward).  Users are rewarded alongside leaders by
+granting them a share of the block's coinbase.
 
 Allowing users to vote in support of leaders they prefer gives users and leaders
 an incentive to cooperate.  Leaders can woo users to submit proofs for them by committing
@@ -818,7 +812,7 @@ producing a block or fail to propagate a block during its tenure.
 
 However, there is a downside to this approach: it enables **selfish mining.**  A
 minority coalition of leaders can statistically gain more Stacks tokens than they are due from
-their tunable proof scores by attempting to build a hidden fork of blocks, and releasing it
+their burns by attempting to build a hidden fork of blocks, and releasing it
 once the honest majority comes within one block height difference of the hidden
 fork.  This orphans the majority fork, causing them to lose their Stacks tokens
 and re-build on top of the minority fork.
@@ -826,7 +820,7 @@ and re-build on top of the minority fork.
 ### Seflish mining mitigation strategies
 
 Fortunately, all peers in the Stacks blockchain have global knowledge of state,
- time, and tunable proofs.  Intuitively, this gives the Stacks blockchain some novel tools
+ time, and block-commit transactions.  Intuitively, this gives the Stacks blockchain some novel tools
 for dealing with selfish leaders:
 
 * Since all nodes know about all blocks that have been committed, a selfish leader coalition
@@ -839,7 +833,7 @@ of votes the selfish leaders wield below the point where selfish mining is profi
 conditions).
 
 * Since all nodes have global knowledge of the passage of time, honest leaders
-  can agree on a total ordering of all chain tip commits and tunable proofs.  In certain kinds of
+  can agree on a total ordering of all chain tip commits.  In certain kinds of
 selfish mining attacks, this gives honest leaders the ability to identify and reject an attack fork 
 with over 50% confidence.  In particular, honest leaders who have been online long
 enough to measure the expected block propagation time would _not_ build on top of
@@ -851,12 +845,6 @@ represents the "best" fork, since this would be the expected behavior of a selfi
 known-honest leaders' transactions.  This increases the chance that honest leaders will
 be elected, thereby increasing the fraction of honest voting power and making it
 harder for a selfish leader to get elected.
-
-* The Stacks chain reward system spreads out rewards for creating
-blocks and mining transactions across a large interval.  This "smooths over"
-short-lived selfish mining attacks -- while selfish leaders still receive more
-than their fair share of the rewards, the lower variance imposed by the
-reward window makes this discrepancy smaller.
 
 * All Stacks nodes relay all blocks that correspond to on-chain commitments,
 even if they suspect that they came from the attacker.  If an honest leader finds two chain tips of equal
@@ -887,7 +875,7 @@ quality of block _N_'s fork by the total amount of _blocks_ which _confirm_
 block _N_.
 
 Using chain length as the fork choice rule makes it time-consuming for alternative forks to
-overtake the "canonical" fork, no matter how much capacity they have to submit tunable proofs.
+overtake the "canonical" fork, no matter how many burn tokens the alternative-fork miners have at their disposal.
 In order to carry out a deep fork of _K_ blocks, the majority coalition of participants needs to spend
 at least _K_ epochs working on the new fork. We consider this acceptable
 because it also has the effect of keeping the chain history relatively stable, 
@@ -903,7 +891,7 @@ The expected cost of doing so can be calculated given the total amount of burned
 tokens put into producing blocks, and the expected fraction of the
 totals controlled by the attacker.  Note that the attacker is only guaranteed to
 reverse a transaction _K_ blocks back if they consistently control over 50% of the total
-tunable proof score.
+amount of tokens burned.
 
 ## Implementation
 

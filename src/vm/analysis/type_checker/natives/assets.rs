@@ -16,7 +16,8 @@
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
 use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
-use vm::costs::cost_functions;
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost};
 use vm::representations::SymbolicExpression;
 use vm::types::{BlockInfoProperty, TupleTypeSignature, TypeSignature, MAX_VALUE_SIZE};
 
@@ -35,10 +36,10 @@ pub fn check_special_get_owner(
         .cloned()
         .ok_or_else(|| CheckErrors::NoSuchNFT(asset_name.to_string()))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -59,7 +60,7 @@ pub fn check_special_get_balance(
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
     }
 
-    runtime_cost!(cost_functions::ANALYSIS_TYPE_LOOKUP, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     checker.type_check_expects(&args[1], context, &expected_owner_type)?;
@@ -83,10 +84,10 @@ pub fn check_special_mint_asset(
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
         .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -110,7 +111,7 @@ pub fn check_special_mint_token(
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
-    runtime_cost!(cost_functions::ANALYSIS_TYPE_LOOKUP, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
@@ -141,10 +142,10 @@ pub fn check_special_transfer_asset(
         .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()))?
         .clone();
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -169,7 +170,7 @@ pub fn check_special_transfer_token(
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
-    runtime_cost!(cost_functions::ANALYSIS_TYPE_LOOKUP, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner

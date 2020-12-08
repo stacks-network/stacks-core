@@ -1576,6 +1576,47 @@ fn test_tuple_map() {
 }
 
 #[test]
+fn test_non_tuple_map_get_set() {
+    let t = "(define-map entries uint (string-ascii 32))
+
+         (define-private (add-entry (entry-id uint) (content (string-ascii 32)))
+           (map-insert entries entry-id content))
+         (define-private (get-entry (entry-id uint))
+            (map-get? entries entry-id))
+
+
+         (add-entry u0 \"john\")
+         (add-entry u1 \"doe\")
+         (list      (get-entry u0)
+                    (get-entry u1))
+        ";
+    mem_type_check(t).unwrap();
+}
+
+#[test]
+fn test_non_tuple_map_kv_store() {
+    let contract = "(define-map kv-store int int)
+        (define-private (kv-add (key int) (value int))
+        (begin
+            (map-insert kv-store key value)
+            value))
+
+        (define-private (kv-get (key int))
+            (unwrap! (map-get? kv-store key) 0))
+
+        (define-private (kv-set (key int) (value int))
+            (begin
+                (map-set kv-store key value)
+                value))
+        (define-private (kv-del (key int))
+            (begin
+                (map-delete kv-store key)
+                key))
+   ";
+    mem_type_check(contract).unwrap();
+}
+
+#[test]
 fn test_explicit_tuple_map() {
     let contract = "(define-map kv-store { key: int } { value: int })
           (define-private (kv-add (key int) (value int))

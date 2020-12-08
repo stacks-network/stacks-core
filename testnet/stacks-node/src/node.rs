@@ -161,6 +161,8 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
+            get_bulk_initial_vesting_schedules: Some(Box::new(|| stx_genesis::read_vesting())),
+            get_bulk_initial_balances: Some(Box::new(|| stx_genesis::read_balances())),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(

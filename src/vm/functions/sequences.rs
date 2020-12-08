@@ -16,7 +16,8 @@
 
 use std::cmp;
 use std::convert::TryInto;
-use vm::costs::{cost_functions, CostOverflowingMath};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
@@ -41,7 +42,7 @@ pub fn list_cons(
         arg_size = arg_size.cost_overflow_add(a.size().into())?;
     }
 
-    runtime_cost!(cost_functions::LIST_CONS, env, arg_size)?;
+    runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
     Value::list_from(args)
 }
@@ -53,7 +54,7 @@ pub fn special_filter(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::FILTER, env, 0)?;
+    runtime_cost(ClarityCostFunction::Filter, env, 0)?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -84,7 +85,7 @@ pub fn special_fold(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    runtime_cost!(cost_functions::FOLD, env, 0)?;
+    runtime_cost(ClarityCostFunction::Fold, env, 0)?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -117,7 +118,7 @@ pub fn special_map(
 ) -> Result<Value> {
     check_arguments_at_least(2, args)?;
 
-    runtime_cost!(cost_functions::MAP, env, 0)?;
+    runtime_cost(ClarityCostFunction::Map, env, 0)?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
@@ -185,10 +186,10 @@ pub fn special_append(
             } = list;
             let (entry_type, size) = type_signature.destruct();
             let element_type = TypeSignature::type_of(&element);
-            runtime_cost!(
-                cost_functions::APPEND,
+            runtime_cost(
+                ClarityCostFunction::Append,
                 env,
-                u64::from(cmp::max(entry_type.size(), element_type.size()))
+                u64::from(cmp::max(entry_type.size(), element_type.size())),
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
@@ -220,10 +221,10 @@ pub fn special_concat(
     let mut wrapped_seq = eval(&args[0], env, context)?;
     let mut other_wrapped_seq = eval(&args[1], env, context)?;
 
-    runtime_cost!(
-        cost_functions::CONCAT,
+    runtime_cost(
+        ClarityCostFunction::Concat,
         env,
-        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?
+        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?,
     )?;
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
@@ -243,7 +244,7 @@ pub fn special_as_max_len(
 
     let mut sequence = eval(&args[0], env, context)?;
 
-    runtime_cost!(cost_functions::AS_MAX_LEN, env, 0)?;
+    runtime_cost(ClarityCostFunction::AsMaxLen, env, 0)?;
 
     if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
         let sequence_len = match sequence {

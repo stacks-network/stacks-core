@@ -17,7 +17,8 @@
 use vm::functions::tuples;
 
 use std::convert::TryFrom;
-use vm::costs::{cost_functions, CostTracker};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -60,27 +61,6 @@ macro_rules! clarity_ecode {
     };
 }
 
-/// Get the consolidated uSTX balance.
-/// That is, if the PoX lock has expired, then include the
-/// no-longer-locked uSTX in the balance.
-/// Returns (balance, is-consolidated?)
-pub fn get_stx_balance_snapshot(
-    db: &mut ClarityDatabase,
-    principal: &PrincipalData,
-) -> (STXBalance, u64) {
-    let stx_balance = db.get_account_stx_balance(principal);
-    let cur_burn_height = db.get_current_burnchain_block_height() as u64;
-    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})", 
-        principal,
-        stx_balance.amount_unlocked,
-        stx_balance.amount_locked,
-        stx_balance.unlock_height,
-        cur_burn_height,
-        stx_balance.get_available_balance_at_block(cur_burn_height),
-        stx_balance.has_locked_tokens_unlockable(cur_burn_height));
-    (stx_balance, cur_burn_height)
-}
-
 pub fn special_stx_balance(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -88,16 +68,19 @@ pub fn special_stx_balance(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::STX_BALANCE, env, 0)?;
+    runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
 
     let owner = eval(&args[0], env, context)?;
 
     if let Value::Principal(ref principal) = owner {
-        let (balance, block_height) =
-            get_stx_balance_snapshot(&mut env.global_context.database, principal);
-        Ok(Value::UInt(
-            balance.get_available_balance_at_block(block_height),
-        ))
+        let balance = {
+            let snapshot = env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
+            snapshot.get_available_balance()
+        };
+        Ok(Value::UInt(balance))
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
     }
@@ -129,18 +112,6 @@ pub fn stx_transfer_consolidated(
         return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
     }
 
-    let (mut sender, block_height) =
-        get_stx_balance_snapshot(&mut env.global_context.database, from);
-    let (mut recipient, _) = get_stx_balance_snapshot(&mut env.global_context.database, to);
-
-    if !sender.can_transfer(amount, block_height) {
-        return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
-    }
-
-    sender
-        .transfer_to(&mut recipient, amount, block_height)
-        .map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
-
     // loading from/to principals and balances
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
@@ -150,13 +121,12 @@ pub fn stx_transfer_consolidated(
     env.add_memory(STXBalance::size_of as u64)?;
     env.add_memory(STXBalance::size_of as u64)?;
 
-    // NOTE: this updates the balance with the unlocked tokens, if we did an unlock.
-    env.global_context
-        .database
-        .set_account_stx_balance(from, &sender);
-    env.global_context
-        .database
-        .set_account_stx_balance(to, &recipient);
+    let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
+    if !sender_snapshot.can_transfer(amount) {
+        return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
+    }
+
+    sender_snapshot.transfer_to(to, amount)?;
 
     env.global_context.log_stx_transfer(&from, amount)?;
     env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
@@ -170,7 +140,7 @@ pub fn special_stx_transfer(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    runtime_cost!(cost_functions::STX_TRANSFER, env, 0)?;
+    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
@@ -192,7 +162,7 @@ pub fn special_stx_burn(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::STX_TRANSFER, env, 0)?;
+    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
@@ -206,23 +176,16 @@ pub fn special_stx_burn(
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
         }
 
-        let (mut burner_balance, block_height) =
-            get_stx_balance_snapshot(&mut env.global_context.database, from);
-
-        if !burner_balance.can_transfer(amount, block_height) {
-            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
-        }
-
-        burner_balance
-            .debit(amount, block_height)
-            .expect("STX underflow");
-
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(STXBalance::size_of as u64)?;
 
-        env.global_context
-            .database
-            .set_account_stx_balance(from, &burner_balance);
+        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
+        if !burner_snapshot.can_transfer(amount) {
+            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
+        }
+
+        burner_snapshot.debit(amount);
+        burner_snapshot.save();
 
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
@@ -240,7 +203,7 @@ pub fn special_mint_token(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    runtime_cost!(cost_functions::FT_MINT, env, 0)?;
+    runtime_cost(ClarityCostFunction::FtMint, env, 0)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
 
@@ -305,7 +268,11 @@ pub fn special_mint_asset(
         .database
         .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
-    runtime_cost!(cost_functions::NFT_MINT, env, expected_asset_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::NftMint,
+        env,
+        expected_asset_type.size(),
+    )?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
@@ -362,10 +329,10 @@ pub fn special_transfer_asset(
         .database
         .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
-    runtime_cost!(
-        cost_functions::NFT_TRANSFER,
+    runtime_cost(
+        ClarityCostFunction::NftTransfer,
         env,
-        expected_asset_type.size()
+        expected_asset_type.size(),
     )?;
 
     if !expected_asset_type.admits(&asset) {
@@ -434,7 +401,7 @@ pub fn special_transfer_token(
 ) -> Result<Value> {
     check_argument_count(4, args)?;
 
-    runtime_cost!(cost_functions::FT_TRANSFER, env, 0)?;
+    runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
 
@@ -527,7 +494,7 @@ pub fn special_get_balance(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::FT_BALANCE, env, 0)?;
+    runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
 
@@ -560,7 +527,11 @@ pub fn special_get_owner(
         .database
         .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
-    runtime_cost!(cost_functions::NFT_OWNER, env, expected_asset_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::NftOwner,
+        env,
+        expected_asset_type.size(),
+    )?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());

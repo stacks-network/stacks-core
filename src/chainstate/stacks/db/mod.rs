@@ -28,10 +28,13 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
+
+use std::ops::{Deref, DerefMut};
 
 use core::*;
 
@@ -59,7 +62,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{
     db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBTx,
+    FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 use util::hash::to_hex;
@@ -85,6 +88,7 @@ use vm::database::{
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+use vm::types::TupleData;
 
 use core::CHAINSTATE_VERSION;
 
@@ -93,14 +97,12 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
-    clarity_state: ClarityInstance,
-    pub blocks_db: DBConn,
-    pub headers_state_index: MARF<StacksBlockId>,
+    pub clarity_state: ClarityInstance,
+    pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    cached_miner_payments: MinerPaymentCache,
     pub block_limit: ExecutionCost,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
@@ -142,6 +144,7 @@ pub struct StacksHeaderInfo {
     pub burn_header_height: u32,
     pub burn_header_timestamp: u64,
     pub total_liquid_ustx: u128,
+    pub anchored_block_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -184,6 +187,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             total_liquid_ustx,
+            anchored_block_size: 0,
         }
     }
 
@@ -204,6 +208,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
             total_liquid_ustx: initial_liquid_ustx,
+            anchored_block_size: 0,
         }
     }
 
@@ -242,6 +247,10 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let total_liquid_ustx = total_liquid_ustx_str
             .parse::<u128>()
             .map_err(|_| db_error::ParseError)?;
+        let anchored_block_size_str: String = row.get("block_size");
+        let anchored_block_size = anchored_block_size_str
+            .parse::<u64>()
+            .map_err(|_| db_error::ParseError)?;
 
         if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
@@ -257,43 +266,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height,
             burn_header_timestamp: burn_header_timestamp,
             total_liquid_ustx: total_liquid_ustx,
+            anchored_block_size: anchored_block_size,
         })
     }
 }
 
 pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
-
-pub struct BlocksDBTx<'a> {
-    pub tx: DBTx<'a>,
-    pub blocks_path: String,
-}
-
-impl<'a> Deref for BlocksDBTx<'a> {
-    type Target = DBTx<'a>;
-    fn deref(&self) -> &DBTx<'a> {
-        &self.tx
-    }
-}
-
-impl<'a> DerefMut for BlocksDBTx<'a> {
-    fn deref_mut(&mut self) -> &mut DBTx<'a> {
-        &mut self.tx
-    }
-}
-
-impl<'a> BlocksDBTx<'a> {
-    pub fn new(tx: DBTx, blocks_path: String) -> BlocksDBTx {
-        BlocksDBTx { tx, blocks_path }
-    }
-
-    pub fn get_blocks_path(&self) -> &String {
-        &self.blocks_path
-    }
-
-    pub fn commit(self) -> Result<(), db_error> {
-        self.tx.commit().map_err(db_error::SqliteError)
-    }
-}
+pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
 
 pub struct ClarityTx<'a> {
     block: ClarityBlockConnection<'a>,
@@ -366,19 +345,29 @@ impl<'a> ClarityTx<'a> {
 
 pub struct ChainstateTx<'a> {
     pub config: DBConfig,
-    pub headers_tx: StacksDBTx<'a>,
-    pub blocks_tx: BlocksDBTx<'a>,
-    pub miner_payment_cache: &'a mut MinerPaymentCache,
+    pub blocks_path: String,
+    pub tx: StacksDBTx<'a>,
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn get_config(&self) -> &DBConfig {
-        &self.config
+    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+        ChainstateTx {
+            config,
+            blocks_path,
+            tx,
+        }
+    }
+
+    pub fn get_blocks_path(&self) -> &String {
+        &self.blocks_path
     }
 
     pub fn commit(self) -> Result<(), db_error> {
-        self.headers_tx.commit()?;
-        self.blocks_tx.commit()
+        self.tx.commit()
+    }
+
+    pub fn get_config(&self) -> &DBConfig {
+        &self.config
     }
 
     #[cfg(feature = "tx_log")]
@@ -394,7 +383,7 @@ impl<'a> ChainstateTx<'a> {
             let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
             let result = tx_event.result.to_string();
             let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.headers_tx.tx().execute(insert, params) {
+            if let Err(e) = self.tx.tx().execute(insert, params) {
                 warn!("Failed to log TX: {}", e);
             }
         }
@@ -409,22 +398,37 @@ impl<'a> ChainstateTx<'a> {
     }
 }
 
+impl<'a> Deref for ChainstateTx<'a> {
+    type Target = StacksDBTx<'a>;
+    fn deref(&self) -> &StacksDBTx<'a> {
+        &self.tx
+    }
+}
+
+impl<'a> DerefMut for ChainstateTx<'a> {
+    fn deref_mut(&mut self) -> &mut StacksDBTx<'a> {
+        &mut self.tx
+    }
+}
+
 /// Opaque structure for streaming block and microblock data from disk
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
-    block_hash: StacksBlockId, // index block hash of the block or microblock stream head
-    rowid: Option<i64>,        // used when reading a blob out of staging
+    index_block_hash: StacksBlockId, // index block hash of the block to download
+    rowid: Option<i64>,              // used when reading a blob out of staging
     offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
     total_bytes: u64, // total number of bytes read.
 
     // used only for microblocks
     is_microblock: bool,
-    seq: u16,
-    in_staging: bool,
+    microblock_hash: BlockHeaderHash,
+    parent_index_block_hash: StacksBlockId,
+    seq: u16, // only used for unconfirmed microblocks
+    unconfirmed: bool,
+    num_mblocks_buf: [u8; 4],
+    num_mblocks_ptr: usize,
 }
 
-// TODO: keep track of when microblock equivocations occur (maybe in the MARF?), so that once we
-// process a PoisonMicroblock transaction, no further blocks may build off of any descendent fork.
 const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
@@ -454,12 +458,14 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
         total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
-        parent_block_id TEXT NOT NULL,        -- NOTE: this is the parent index_block_hash
+        parent_block_id TEXT NOT NULL,               -- NOTE: this is the parent index_block_hash
 
         cost TEXT NOT NULL,
+        block_size TEXT NOT NULL,       -- converted to/from u64
 
         PRIMARY KEY(consensus_hash,block_hash)
     );
+    CREATE UNIQUE INDEX index_block_hash_to_primary_key(index_block_hash,consensus_hash,block_hash);
     "#,
     #[cfg(feature = "tx_log")]
     r#"
@@ -519,6 +525,61 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         mainnet INTEGER NOT NULL,
         chain_id INTEGER NOT NULL
     )"#,
+    r#"
+    -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
+    CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
+                                     consensus_hash TEXT NOT NULL,          -- this is the hash of the burn chain block that holds the parent anchored block's block-commit
+                                     index_block_hash TEXT NOT NULL,        -- this is the anchored block's index hash
+                                     microblock_hash TEXT NOT NULL,
+                                     parent_hash TEXT NOT NULL,             -- previous microblock
+                                     index_microblock_hash TEXT NOT NULL,   -- this is the hash of consensus_hash and microblock_hash
+                                     sequence INT NOT NULL,
+                                     processed INT NOT NULL,
+                                     orphaned INT NOT NULL,
+                                     PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
+    );
+    "#,
+    r#"
+    -- Staging microblocks data
+    CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
+                                          block_data BLOB NOT NULL,
+                                          PRIMARY KEY(block_hash)
+    );
+    "#,
+    r#"
+    -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
+    CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
+                                parent_anchored_block_hash TEXT NOT NULL,
+                                consensus_hash TEXT NOT NULL,
+                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                parent_consensus_hash TEXT NOT NULL,
+                                parent_microblock_hash TEXT NOT NULL,
+                                parent_microblock_seq INT NOT NULL,
+                                microblock_pubkey_hash TEXT NOT NULL,
+                                height INT NOT NULL,
+                                attachable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
+                                orphaned INT NOT NULL,              -- set to 1 if this block can never be attached
+                                processed INT NOT NULL,
+                                commit_burn INT NOT NULL,
+                                sortition_burn INT NOT NULL,
+                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and block header
+                                download_time INT NOT NULL,               -- how long the block was in-flight
+                                arrival_time INT NOT NULL,                -- when this block was stored
+                                processed_time INT NOT NULL,              -- when this block was processed
+                                PRIMARY KEY(anchored_block_hash,consensus_hash)
+    );
+    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
+    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
+    "#,
+    r#"
+    -- users who burned in support of a block
+    CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
+                                           consensus_hash TEXT NOT NULL,
+                                           address TEXT NOT NULL,
+                                           burn_amount INT NOT NULL,
+                                           vtxindex INT NOT NULL
+    );
+    "#,
 ];
 
 #[cfg(test)]
@@ -527,15 +588,25 @@ pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
 #[cfg(not(test))]
 pub const MINER_REWARD_MATURITY: u64 = 100;
 
-#[cfg(test)]
-pub const MINER_REWARD_WINDOW: u64 = 5; // small for testing purposes
-
-#[cfg(not(test))]
-pub const MINER_REWARD_WINDOW: u64 = 16;
-
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
+
+// fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
+pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VestingSchedule {
+    pub address: StacksAddress,
+    pub amount: u64,
+    pub block_height: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountBalance {
+    pub address: StacksAddress,
+    pub amount: u64,
+}
 
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
@@ -543,6 +614,10 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub get_bulk_initial_vesting_schedules:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
+    pub get_bulk_initial_balances:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -557,12 +632,14 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             post_flight_callback,
+            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         }
     }
 }
 
 impl StacksChainState {
-    fn instantiate_headers_db(
+    fn instantiate_db(
         mainnet: bool,
         chain_id: u32,
         marf_path: &str,
@@ -592,7 +669,7 @@ impl StacksChainState {
         Ok(marf)
     }
 
-    fn open_headers_db(
+    fn open_db(
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
@@ -601,7 +678,7 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_headers_db(mainnet, chain_id, index_path)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
             let marf = StacksChainState::open_index(index_path)?;
             // sanity check
@@ -707,7 +784,7 @@ impl StacksChainState {
         let mut receipts = vec![];
 
         {
-            let mut clarity_tx = chainstate.block_begin(
+            let mut clarity_tx = chainstate.genesis_block_begin(
                 &NULL_BURN_STATE_DB,
                 &BURNCHAIN_BOOT_CONSENSUS_HASH,
                 &BOOT_BLOCK_HASH,
@@ -752,14 +829,152 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
+            info!(
+                "Initializing chain with {} config balances",
+                boot_data.initial_balances.len()
+            );
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::account_genesis_credit(clarity, address, *amount)
+                    StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
                 });
                 initial_liquid_ustx = initial_liquid_ustx
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
+                let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                    STXMintEventData {
+                        recipient: address.clone(),
+                        amount: *amount as u128,
+                    },
+                ));
+                allocation_events.push(mint_event);
             }
+
+            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                info!("Initializing chain with balances");
+                let mut balances_count = 0;
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let initial_balances = get_balances();
+                    for balance in initial_balances {
+                        balances_count = balances_count + 1;
+                        StacksChainState::account_genesis_credit(
+                            clarity,
+                            &balance.address.into(),
+                            balance.amount.into(),
+                        );
+                        initial_liquid_ustx = initial_liquid_ustx
+                            .checked_add(balance.amount as u128)
+                            .expect("FATAL: liquid STX overflow");
+                        let mint_event = StacksTransactionEvent::STXEvent(
+                            STXEventType::STXMintEvent(STXMintEventData {
+                                recipient: balance.address.into(),
+                                amount: balance.amount.into(),
+                            }),
+                        );
+                        allocation_events.push(mint_event);
+                    }
+                });
+                info!("Done initializing chain with {} balances", balances_count);
+            }
+
+            let allocations_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_auth.clone(),
+                TransactionPayload::TokenTransfer(
+                    PrincipalData::Standard(boot_code_address.into()),
+                    0,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            );
+            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
+                allocations_tx,
+                allocation_events,
+                Value::okay_true(),
+                ExecutionCost::zero(),
+            );
+            receipts.push(allocations_receipt);
+
+            let mut total_vesting_amount: u128 = 0;
+            if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
+                info!("Initializing chain with vesting schedules");
+                let mut vesting_schedule_count = 0;
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let initial_vesting_schedules = get_schedules();
+                    let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
+                    let lockup_contract_id = boot_code_id("lockup");
+                    for schedule in initial_vesting_schedules {
+                        total_vesting_amount = total_vesting_amount
+                            .checked_add(schedule.amount as u128)
+                            .expect("FATAL: vesting STX overflow");
+                        vesting_schedule_count = vesting_schedule_count + 1;
+                        let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
+                        let index = value + 1;
+                        unlocks_per_blocks.insert(schedule.block_height, index);
+
+                        clarity
+                            .with_clarity_db(|db| {
+                                let key = TupleData::from_data(vec![
+                                    (
+                                        "stx-height".into(),
+                                        Value::UInt(schedule.block_height.into()),
+                                    ),
+                                    ("index".into(), Value::UInt(index.into())),
+                                ])
+                                .unwrap();
+
+                                let value = TupleData::from_data(vec![
+                                    ("owner".into(), Value::Principal(schedule.address.into())),
+                                    ("metadata".into(), Value::buff_from_byte(0)),
+                                    ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
+                                ])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "internal-locked-stx",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
+
+                                let key = TupleData::from_data(vec![(
+                                    "stx-height".into(),
+                                    Value::UInt(schedule.block_height.into()),
+                                )])
+                                .unwrap();
+                                let value = TupleData::from_data(vec![(
+                                    "total-unlocked".into(),
+                                    Value::UInt(index.into()),
+                                )])
+                                .unwrap();
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "unlocked-stx-per-block",
+                                    Value::Tuple(key),
+                                    Value::Tuple(value),
+                                )?;
+
+                                Ok(())
+                            })
+                            .unwrap();
+                    }
+                });
+                info!(
+                    "Done initializing chain with {} vesting schedules",
+                    vesting_schedule_count
+                );
+            }
+
+            info!(
+                "Credit lockup contract with balance {}",
+                total_vesting_amount
+            );
+            clarity_tx.connection().as_transaction(|clarity| {
+                StacksChainState::account_genesis_credit(
+                    clarity,
+                    &PrincipalData::from(boot_code_id("lockup")),
+                    total_vesting_amount,
+                )
+            });
+
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
             }
@@ -769,7 +984,7 @@ impl StacksChainState {
 
         {
             // add a block header entry for the boot code
-            let mut headers_tx = chainstate.headers_tx_begin()?;
+            let mut tx = chainstate.index_tx_begin()?;
             let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -782,8 +997,8 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
-            let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+            tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
+            let first_root_hash = tx.put_indexed_all(&vec![], &vec![])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -800,12 +1015,12 @@ impl StacksChainState {
             );
 
             StacksChainState::insert_stacks_block_header(
-                &mut headers_tx,
+                &mut tx,
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::zero(),
             )?;
-            headers_tx.commit()?;
+            tx.commit()?;
         }
 
         debug!("Finish install boot code");
@@ -887,34 +1102,28 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        blocks_path.push("staging.db");
-        let blocks_db_path = blocks_path
+        let mut state_path = path.clone();
+
+        state_path.push("vm");
+        StacksChainState::mkdirs(&state_path)?;
+
+        state_path.push("clarity");
+        let clarity_state_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut headers_path = path.clone();
-
-        headers_path.push("vm");
-        StacksChainState::mkdirs(&headers_path)?;
-
-        headers_path.push("clarity");
-        let clarity_state_index_root = headers_path
+        state_path.push("marf");
+        let clarity_state_index_marf = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        headers_path.push("marf");
-        let clarity_state_index_marf = headers_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
+        state_path.pop();
+        state_path.pop();
 
-        headers_path.pop();
-        headers_path.pop();
-
-        headers_path.push("index");
-        let header_index_root = headers_path
+        state_path.push("index");
+        let header_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
@@ -924,9 +1133,7 @@ impl StacksChainState {
             Err(_) => true,
         };
 
-        let headers_state_index =
-            StacksChainState::open_headers_db(mainnet, chain_id, &header_index_root)?;
-        let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
+        let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
@@ -943,13 +1150,11 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
-            blocks_db: blocks_db,
-            headers_state_index: headers_state_index,
+            state_index: state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            cached_miner_payments: MinerPaymentCache::new(),
             block_limit: block_limit,
             unconfirmed_state: None,
         };
@@ -981,14 +1186,15 @@ impl StacksChainState {
     }
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
-    pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        Ok(StacksDBTx::new(&mut self.headers_state_index, ()))
+    /// Does not create a Clarity instance.
+    pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
+        Ok(StacksDBTx::new(&mut self.state_index, ()))
     }
 
-    /// Begin a transaction against our staging block index DB.
-    pub fn blocks_tx_begin<'a>(&'a mut self) -> Result<BlocksDBTx<'a>, Error> {
-        let tx = tx_begin_immediate(&mut self.blocks_db)?;
-        Ok(BlocksDBTx::new(tx, self.blocks_path.clone()))
+    /// Begin a transaction against the underlying DB
+    /// Does not create a Clarity instance, and does not affect the MARF.
+    pub fn db_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, Error> {
+        self.state_index.storage_tx().map_err(Error::DBError)
     }
 
     /// Simultaneously begin a transaction against both the headers and blocks.
@@ -997,19 +1203,11 @@ impl StacksChainState {
         &'a mut self,
     ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
-
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
-        let headers_tx = StacksDBTx::new(&mut self.headers_state_index, ());
-        let blocks_tx = BlocksDBTx::new(blocks_inner_tx, blocks_path);
+        let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx {
-            config: config,
-            headers_tx: headers_tx,
-            blocks_tx: blocks_tx,
-            miner_payment_cache: &mut self.cached_miner_payments,
-        };
+        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
 
         Ok((chainstate_tx, clarity_instance))
     }
@@ -1025,7 +1223,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             burn_dbconn,
             contract,
             code,
@@ -1043,7 +1241,7 @@ impl StacksChainState {
         self.clarity_state
             .eval_read_only(
                 parent_id_bhh,
-                self.headers_state_index.sqlite_conn(),
+                self.state_index.sqlite_conn(),
                 burn_dbconn,
                 contract,
                 code,
@@ -1051,8 +1249,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn headers_db(&self) -> &DBConn {
-        self.headers_state_index.sqlite_conn()
+    pub fn db(&self) -> &DBConn {
+        self.state_index.sqlite_conn()
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
@@ -1068,7 +1266,7 @@ impl StacksChainState {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            chainstate_tx.headers_tx.deref().deref(),
+            chainstate_tx.deref().deref(),
             clarity_instance,
             burn_dbconn,
             parent_consensus_hash,
@@ -1091,7 +1289,7 @@ impl StacksChainState {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             &mut self.clarity_state,
             burn_dbconn,
             parent_consensus_hash,
@@ -1099,6 +1297,61 @@ impl StacksChainState {
             new_consensus_hash,
             new_block,
         )
+    }
+
+    /// Begin a transaction against the Clarity VM for initiating the genesis block
+    ///  the genesis block is special cased because it must be evaluated _before_ the
+    ///  cost contract is loaded in the boot code.
+    pub fn genesis_block_begin<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a> {
+        let conf = self.config();
+        let db = self.state_index.sqlite_conn();
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
     }
 
     pub fn with_clarity_marf<F, R>(&mut self, f: F) -> R
@@ -1115,25 +1368,37 @@ impl StacksChainState {
     ) -> ClarityReadOnlyConnection<'a> {
         self.clarity_state.read_only_connection(
             &index_block,
-            self.headers_state_index.sqlite_conn(),
+            self.state_index.sqlite_conn(),
             burn_dbconn,
         )
     }
 
-    /// Run to_do on the state of the Clarity VM at the given chain tip
+    /// Run to_do on the state of the Clarity VM at the given chain tip.
+    /// Returns Some(x: R) if the given parent_tip exists.
+    /// Returns None if not
     pub fn with_read_only_clarity_tx<F, R>(
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> R
+    ) -> Option<R>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
+        match StacksChainState::has_stacks_block(self.db(), parent_tip) {
+            Ok(true) => {}
+            Ok(false) => {
+                return None;
+            }
+            Err(e) => {
+                warn!("Failed to query for {}: {:?}", parent_tip, &e);
+                return None;
+            }
+        }
         let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
         let result = to_do(&mut conn);
         conn.done();
-        result
+        Some(result)
     }
 
     /// Run to_do on the unconfirmed Clarity VM state
@@ -1145,11 +1410,17 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
+        if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
+            if !unconfirmed.is_readable() {
+                return None;
+            }
+        }
+
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
             let mut conn = unconfirmed_state.clarity_inst.read_only_connection(
                 &unconfirmed_state.unconfirmed_chain_tip,
-                self.headers_db(),
+                self.db(),
                 burn_dbconn,
             );
             let result = to_do(&mut conn);
@@ -1170,19 +1441,19 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> R
+    ) -> Option<R>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         let unconfirmed = if let Some(ref unconfirmed_state) = self.unconfirmed_state {
             *parent_tip == unconfirmed_state.unconfirmed_chain_tip
+                && unconfirmed_state.is_readable()
         } else {
             false
         };
 
         if unconfirmed {
             self.with_read_only_unconfirmed_clarity_tx(burn_dbconn, to_do)
-                .expect("BUG: both have and do not have unconfirmed chain state")
         } else {
             self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do)
         }
@@ -1208,7 +1479,7 @@ impl StacksChainState {
     }
 
     /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
-    pub fn begin_unconfirmed<'a>(
+    pub fn chainstate_begin_unconfirmed<'a>(
         conf: DBConfig,
         headers_db: &'a dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
@@ -1219,6 +1490,35 @@ impl StacksChainState {
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
+        }
+    }
+
+    /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
+    /// This marks the unconfirmed chainstate as "dirty" so that no future queries against it can
+    /// happen.
+    pub fn begin_unconfirmed<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+    ) -> Option<ClarityTx<'a>> {
+        let conf = self.config();
+        if let Some(ref mut unconfirmed) = self.unconfirmed_state {
+            if !unconfirmed.is_writable() {
+                debug!("Unconfirmed state is not writable; cannot begin unconfirmed Clarity Tx");
+                return None;
+            }
+
+            unconfirmed.set_dirty(true);
+
+            Some(StacksChainState::chainstate_begin_unconfirmed(
+                conf,
+                self.state_index.sqlite_conn(),
+                &mut unconfirmed.clarity_inst,
+                burn_dbconn,
+                &unconfirmed.confirmed_chain_tip,
+            ))
+        } else {
+            debug!("Unconfirmed state is not instantiated; cannot begin unconfirmed Clarity Tx");
+            None
         }
     }
 
@@ -1233,8 +1533,8 @@ impl StacksChainState {
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a> {
-        // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        // mix consensus hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -1288,37 +1588,38 @@ impl StacksChainState {
         }
     }
 
-    /// See if a microblock public key hash was used in this fork already
-    pub fn has_microblock_pubkey_hash<'a>(
-        headers_tx: &mut StacksDBTx<'a>,
-        tip_consensus_hash: &ConsensusHash,
-        tip_header: &StacksBlockHeader,
-        pubkey_hash: &Hash160,
-    ) -> Result<bool, Error> {
-        // we cannot have used this microblock public key hash before in this fork.
-        // (this restriction is required to ensure that a poison microblock transaction can only apply to
-        // a single epoch)
-        let parent_hash = StacksChainState::get_index_hash(tip_consensus_hash, tip_header);
-        match headers_tx
-            .get_indexed(
-                &parent_hash,
-                &format!("chainstate::pubkey_hash::{}", pubkey_hash),
-            )
-            .map_err(Error::DBError)?
-        {
-            Some(_) => {
-                // pubkey hash was seen before
-                debug!(
-                    "Public key hash {} already used (index hash {})",
-                    pubkey_hash, &parent_hash
-                );
-                return Ok(true);
-            }
-            None => {
-                // pubkey hash was never before seen
-                return Ok(false);
-            }
-        }
+    /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
+    pub fn insert_microblock_pubkey_hash(
+        clarity_tx: &mut ClarityTx,
+        height: u32,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<(), Error> {
+        clarity_tx
+            .connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|ref mut db| {
+                    db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
+                        .expect("FATAL: failed to store microblock public key hash to Clarity DB");
+                    Ok(())
+                })
+            })
+            .expect("FATAL: failed to store microblock public key hash");
+        Ok(())
+    }
+
+    /// Get the block height at which a microblock public key hash was used, if any
+    pub fn has_microblock_pubkey_hash(
+        clarity_tx: &mut ClarityTx,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<Option<u32>, Error> {
+        let height_opt = clarity_tx
+            .connection()
+            .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
+                let height_opt = db.get_microblock_pubkey_hash_height(mblock_pubkey_hash);
+                Ok(height_opt)
+            })
+            .expect("FATAL: failed to query microblock public key hash");
+        Ok(height_opt)
     }
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
@@ -1337,6 +1638,7 @@ impl StacksChainState {
         user_burns: &Vec<StagingUserBurnSupport>,
         total_liquid_ustx: u128,
         anchor_block_cost: &ExecutionCost,
+        anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1353,12 +1655,6 @@ impl StacksChainState {
         );
 
         let parent_hash = StacksChainState::get_index_hash(parent_consensus_hash, parent_tip);
-        let indexed_keys = vec![format!(
-            "chainstate::pubkey_hash::{}",
-            new_tip.microblock_pubkey_hash
-        )];
-
-        let indexed_values = vec!["1".to_string()];
 
         // store each indexed field
         test_debug!(
@@ -1368,7 +1664,7 @@ impl StacksChainState {
         );
         headers_tx
             .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
-        let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)?;
+        let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
             &parent_hash,
@@ -1385,6 +1681,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             total_liquid_ustx,
+            anchored_block_size: anchor_block_size,
         };
 
         StacksChainState::insert_stacks_block_header(
@@ -1447,6 +1744,8 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_balances: None,
         };
 
         StacksChainState::open_and_exec(

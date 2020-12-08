@@ -762,7 +762,7 @@ pub mod test {
                 let h = Sha256Sum::from_data(&buf[..]);
                 StacksPrivateKey::from_slice(h.as_bytes()).unwrap()
             } else {
-                // next key is the hash of teh last
+                // next key is the hash of the last
                 let h = Sha256Sum::from_data(
                     &self.microblock_privks[self.microblock_privks.len() - 1].to_bytes(),
                 );

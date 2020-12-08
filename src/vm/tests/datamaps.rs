@@ -689,3 +689,84 @@ fn bad_tuples() {
         assert_eq!(outcome, expected_err.into());
     }
 }
+
+#[test]
+fn test_non_tuple_map_get_set() {
+    let test1 = "(define-map entries uint (string-ascii 5))
+        (define-private (add-entry (entry-id uint) (content (string-ascii 5)))
+        (map-insert entries entry-id content))
+        (define-private (get-entry (entry-id uint))
+        (default-to \"\" (map-get? entries entry-id)))
+
+        (add-entry u0 \"john\")
+        (add-entry u1 \"doe\")
+        (list      (get-entry u0)
+                (get-entry u1))
+        ";
+
+    let mut test_value_too_big = test1.to_string();
+    test_value_too_big.push_str("(add-entry u2 \"abcdef\")");
+
+    let mut test_bad_value = test1.to_string();
+    test_bad_value.push_str("(map-insert entries u2 u\"acde\")");
+
+    let mut test_bad_key = test1.to_string();
+    test_bad_key.push_str("(map-get? entries 2)");
+
+    let expected = || {
+        let buff1 = Value::string_ascii_from_bytes("john".to_string().into_bytes())?;
+        let buff2 = Value::string_ascii_from_bytes("doe".to_string().into_bytes())?;
+        Value::list_from(vec![buff1, buff2])
+    };
+
+    assert_executes(expected(), test1);
+
+    let type_error_tests = [test_value_too_big, test_bad_value, test_bad_key];
+
+    for test in type_error_tests.iter() {
+        let expected_type_error = match execute(test) {
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            _ => {
+                println!("{:?}", execute(test));
+                false
+            }
+        };
+
+        assert!(expected_type_error);
+    }
+}
+
+#[test]
+fn test_non_tuple_map_kv_store() {
+    let test = "(define-map kv-store int int)
+         (define-private (kv-add (key int) (value int))
+            (begin
+                (map-insert kv-store key value)
+                value))
+         (define-private (kv-get (key int))
+            (unwrap! (map-get? kv-store key) 0))
+         (define-private (kv-set (key int) (value int))
+            (begin
+                (map-set kv-store key value)
+                value))
+         (define-private (kv-del (key int))
+            (begin
+                (map-delete kv-store key)
+                key))
+        ";
+
+    let mut test_add_set_del = test.to_string();
+    test_add_set_del.push_str("(list (kv-add 1 1) (kv-set 1 2) (kv-del 1) (kv-add 1 1))");
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1),
+    ]);
+    assert_executes(expected, &test_add_set_del);
+
+    let mut test_get = test.to_string();
+    test_get.push_str("(list (kv-get 1))");
+    let expected = Value::list_from(vec![Value::Int(0)]);
+    assert_executes(expected, &test_get);
+}

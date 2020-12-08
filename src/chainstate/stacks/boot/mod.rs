@@ -31,10 +31,14 @@ use vm::types::{
     Value,
 };
 
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::StacksBlockId;
 
 use burnchains::Burnchain;
 
+use vm::clarity::ClarityConnection;
+use vm::contexts::ContractContext;
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::representations::ContractName;
 
 use util::hash::Hash160;
@@ -50,6 +54,7 @@ const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_CONTRACT_ADDRESS: StacksAddress =
@@ -58,14 +63,17 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 2] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 3] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
-        ("lockup", BOOT_CODE_LOCKUP)
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS)
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 2] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 3] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
-        ("lockup", BOOT_CODE_LOCKUP)
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS)
     ];
+    pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
 }
 
 pub fn boot_code_addr() -> StacksAddress {
@@ -133,12 +141,16 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_conn();
-        self.clarity_eval_read_only_checked(
-            &iconn,
-            &stacks_block_id,
-            &boot_code_id(boot_contract_name),
-            code,
-        )
+        let dbconn = self.state_index.sqlite_conn();
+        self.clarity_state
+            .eval_read_only(
+                &stacks_block_id,
+                dbconn,
+                &iconn,
+                &boot_code_id(boot_contract_name),
+                code,
+            )
+            .map_err(Error::ClarityError)
     }
 
     /// Determine which reward cycle this particular block lives in.
@@ -661,11 +673,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
-            )
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_account(clarity_tx, addr)
+                })
+                .unwrap()
         });
         account
     }
@@ -676,11 +688,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
-            )
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_contract(clarity_tx, addr).unwrap()
+                })
+                .unwrap()
         });
         contract_opt
     }
@@ -860,7 +872,8 @@ pub mod test {
             )
             (begin
                 ;; take the stx from the tx-sender
-                (stx-transfer? amount-ustx tx-sender this-contract)
+                
+                (unwrap-panic (stx-transfer? amount-ustx tx-sender this-contract))
 
                 ;; this contract stacks the stx given to it
                 (as-contract
@@ -874,8 +887,9 @@ pub mod test {
                 (recipient tx-sender)
             )
             (begin
-                (as-contract
-                    (stx-transfer? amount-ustx tx-sender recipient))
+                (unwrap-panic
+                    (as-contract
+                        (stx-transfer? amount-ustx tx-sender recipient)))
                 (ok true)
             ))
         )
@@ -954,7 +968,7 @@ pub mod test {
     ) -> StacksHeaderInfo {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
-            None => StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap(),
+            None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
             Some(block) => {
                 let ic = sortdb.index_conn();
                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -965,7 +979,7 @@ pub mod test {
                 .unwrap()
                 .unwrap(); // succeeds because we don't fork
                 StacksChainState::get_anchored_block_header_info(
-                    chainstate.headers_db(),
+                    chainstate.db(),
                     &snapshot.consensus_hash,
                     &snapshot.winning_stacks_block_hash,
                 )
@@ -1032,7 +1046,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1219,7 +1233,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1227,13 +1241,13 @@ pub mod test {
     }
 
     fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
-        let parent_block_id = StacksChainState::get_parent_block_id(state.headers_db(), block_id)
+        let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();
 
         let parent_header_info =
             StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                state.headers_db(),
+                state.db(),
                 &parent_block_id,
             )
             .unwrap()
@@ -1398,7 +1412,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -1596,7 +1610,7 @@ pub mod test {
                     // alice's tokens are locked for only one reward cycle
                     if cur_reward_cycle == alice_reward_cycle {
                         // this will grow as more miner rewards are unlocked, so be wary
-                        if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                        if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                             // height at which earliest miner rewards mature.
                             // miner rewards increased liquid supply, so less than 25% is locked.
                             // minimum participation decreases.
@@ -1863,7 +1877,7 @@ pub mod test {
 
                 if cur_reward_cycle >= first_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2261,7 +2275,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2411,6 +2425,15 @@ pub mod test {
                             1,
                         );
                         block_txs.push(charlie_stack);
+                    } else if tenure_id == 10 {
+                        let charlie_withdraw = make_pox_withdraw_stx_contract_call(
+                            &charlie,
+                            1,
+                            &key_to_stacks_addr(&bob),
+                            "do-lockup",
+                            1024 * 1000000,
+                        );
+                        block_txs.push(charlie_withdraw);
                     } else if tenure_id == 11 {
                         // Alice locks up half of her tokens
                         let alice_lockup = make_pox_lockup(
@@ -2427,7 +2450,7 @@ pub mod test {
                         // Charlie locks up half of his tokens
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
-                            1,
+                            2,
                             &key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * 1000000,
@@ -2472,10 +2495,11 @@ pub mod test {
                 .get_reward_cycle(&burnchain, tip_burn_block_height);
 
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-            let charlie_balance = get_balance(
+            let charlie_contract_balance = get_balance(
                 &mut peer,
                 &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
             );
+            let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
@@ -2496,7 +2520,7 @@ pub mod test {
                     assert_eq!(alice_balance, 1024 * 1000000);
 
                     // Charlie's contract has not locked up STX
-                    assert_eq!(charlie_balance, 0);
+                    assert_eq!(charlie_contract_balance, 0);
                 }
 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -2523,7 +2547,10 @@ pub mod test {
                 // Alice has unlocked
                 assert_eq!(alice_balance, 1024 * 1000000);
 
-                // Charlie's contract has unlocked
+                // Charlie's contract was unlocked and wiped
+                assert_eq!(charlie_contract_balance, 0);
+
+                // Charlie's balance
                 assert_eq!(charlie_balance, 1024 * 1000000);
             } else if tenure_id == 11 {
                 // should have just re-locked
@@ -2552,7 +2579,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2579,7 +2606,11 @@ pub mod test {
 
                     // in Charlie's first reward cycle
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
-                        get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
+                        get_stacker_info(
+                            &mut peer,
+                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        )
+                        .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                     assert_eq!(first_reward_cycle, first_pox_reward_cycle);
@@ -2606,7 +2637,7 @@ pub mod test {
 
                     // All of Alice's and Charlie's tokens are locked
                     assert_eq!(alice_balance, 0);
-                    assert_eq!(charlie_balance, 0);
+                    assert_eq!(charlie_contract_balance, 0);
 
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -2638,7 +2669,7 @@ pub mod test {
                     // After Alice's first reward cycle, but before her second.
                     // unlock should have happened
                     assert_eq!(alice_balance, 1024 * 1000000);
-                    assert_eq!(charlie_balance, 1024 * 1000000);
+                    assert_eq!(charlie_contract_balance, 0);
 
                     // alice shouldn't be a stacker
                     assert!(
@@ -2673,13 +2704,8 @@ pub mod test {
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
-                    assert_eq!(charlie_account.stx_balance.amount_locked, 1024 * 1000000);
-                    assert_eq!(
-                        charlie_account.stx_balance.unlock_height as u128,
-                        (first_reward_cycle + 1)
-                            * (burnchain.pox_constants.reward_cycle_length as u128)
-                            + (burnchain.first_block_height as u128)
-                    );
+                    assert_eq!(charlie_account.stx_balance.amount_locked, 0);
+                    assert_eq!(charlie_account.stx_balance.unlock_height as u128, 0);
                 }
             } else if second_reward_cycle > 0 {
                 if cur_reward_cycle == second_reward_cycle {
@@ -2727,6 +2753,7 @@ pub mod test {
 
                     // Half of Alice's tokens are locked
                     assert_eq!(alice_balance, 512 * 1000000);
+                    assert_eq!(charlie_contract_balance, 0);
                     assert_eq!(charlie_balance, 512 * 1000000);
 
                     // Lock-up is consistent with stacker state
@@ -2745,7 +2772,7 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 512 * 1000000);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked, 512 * 1000000);
                     assert_eq!(
                         charlie_account.stx_balance.unlock_height as u128,
@@ -2759,7 +2786,8 @@ pub mod test {
                     // After Alice's second reward cycle
                     // unlock should have happened
                     assert_eq!(alice_balance, 1024 * 1000000);
-                    assert_eq!(charlie_balance, 1024 * 1000000);
+                    assert_eq!(charlie_contract_balance, 512 * 1000000);
+                    assert_eq!(charlie_balance, 512 * 1000000);
 
                     // alice and charlie shouldn't be stackers
                     assert!(
@@ -2793,7 +2821,7 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 512 * 1000000);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked, 512 * 1000000);
                     assert_eq!(
                         charlie_account.stx_balance.unlock_height as u128,
@@ -2950,7 +2978,7 @@ pub mod test {
                             0,
                             "charlie-test",
                             &format!(
-                                "(begin (stx-transfer? u1 tx-sender '{}))",
+                                "(begin (unwrap-panic (stx-transfer? u1 tx-sender '{})))",
                                 &key_to_stacks_addr(&alice)
                             ),
                         );
@@ -3460,7 +3488,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
