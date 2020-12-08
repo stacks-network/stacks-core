@@ -64,7 +64,7 @@ impl AssetIdentifier {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    type_map: BTreeMap<ClarityName, TypeSignature>,
+    pub type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -556,6 +556,10 @@ impl TupleTypeSignature {
         } else {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
         }
+    }
+
+    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+        self.type_map.append(&mut update.type_map);
     }
 }
 

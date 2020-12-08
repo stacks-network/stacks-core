@@ -156,21 +156,20 @@ fn check_special_merge(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let base = checker.type_check(&args[0], context)?;
-    match base {
-        TypeSignature::TupleType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedTuple(base.clone())),
+    let res = checker.type_check(&args[0], context)?;
+    let mut base = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
     }?;
 
-    let update = checker.type_check(&args[1], context)?;
-    match update {
-        TypeSignature::TupleType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedTuple(update.clone())),
+    let res = checker.type_check(&args[1], context)?;
+    let mut update = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
     }?;
 
-    TypeSignature::least_supertype(&update, &base)?;
-
-    Ok(base)
+    base.shallow_merge(&mut update);
+    Ok(TypeSignature::TupleType(base))
 }
 
 pub fn check_special_tuple_cons(

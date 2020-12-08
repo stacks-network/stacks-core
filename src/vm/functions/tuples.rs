@@ -87,6 +87,6 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update))),
     }?;
 
-    let combined = TupleData::deep_merge(initial_values, new_values)?;
+    let combined = TupleData::shallow_merge(initial_values, new_values)?;
     Ok(Value::Tuple(combined))
 }

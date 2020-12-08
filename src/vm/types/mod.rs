@@ -1140,31 +1140,10 @@ impl TupleData {
         })
     }
 
-    pub fn deep_merge(base: TupleData, updates: TupleData) -> Result<TupleData> {
+    pub fn shallow_merge(base: TupleData, updates: TupleData) -> Result<TupleData> {
         let mut base = base;
         for (name, value) in updates.data_map.into_iter() {
-            let (_, existing_value) =
-                base.data_map
-                    .remove_entry(&name)
-                    .ok_or(CheckErrors::NoSuchTupleField(
-                        name.to_string(),
-                        base.type_signature.clone(),
-                    ))?;
-
-            let new_value = match existing_value {
-                Value::Tuple(nested_base) => {
-                    let deeply_merged = match value {
-                        Value::Tuple(nested_updates) => {
-                            TupleData::deep_merge(nested_base, nested_updates)
-                        }
-                        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into()),
-                    }?;
-                    Value::Tuple(deeply_merged)
-                }
-                _ => value,
-            };
-
-            base.data_map.insert(name, new_value);
+            base.data_map.insert(name, value);
         }
         Ok(base)
     }
