@@ -216,6 +216,20 @@ pub struct LimitedCostTracker {
     free: bool,
 }
 
+#[cfg(test)]
+impl LimitedCostTracker {
+    pub fn contract_call_circuits(
+        &self,
+    ) -> HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference> {
+        self.contract_call_circuits.clone()
+    }
+    pub fn cost_function_references(
+        &self,
+    ) -> HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference> {
+        self.cost_function_references.clone()
+    }
+}
+
 impl fmt::Debug for LimitedCostTracker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LimitedCostTracker")
@@ -396,7 +410,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
         let cost_func_ref = match clarity_db.load_contract_analysis(&cost_contract) {
             Some(c) => {
                 if !c.is_cost_contract_eligible {
-                    warn!("Confirmed cost proposal invalid: cost-contract-name uses non-arithmetic or otherwise illegal operations";
+                    warn!("Confirmed cost proposal invalid: cost-function-contract uses non-arithmetic or otherwise illegal operations";
                           "confirmed_proposal_id" => confirmed_proposal,
                           "contract_name" => %cost_contract,
                     );
@@ -406,7 +420,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                     && !c.read_only_function_types.contains_key(&cost_function)
                     && !c.private_function_types.contains_key(&cost_function)
                 {
-                    warn!("Confirmed cost proposal invalid: cost-contract-function not defined";
+                    warn!("Confirmed cost proposal invalid: cost-function-name not defined";
                           "confirmed_proposal_id" => confirmed_proposal,
                           "contract_name" => %cost_contract,
                           "function_name" => %cost_function,
@@ -419,7 +433,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                 }
             }
             None => {
-                warn!("Confirmed cost proposal invalid: cost-contract-name is not a published contract";
+                warn!("Confirmed cost proposal invalid: cost-function-contract is not a published contract";
                       "confirmed_proposal_id" => confirmed_proposal,
                       "contract_name" => %cost_contract,
                 );

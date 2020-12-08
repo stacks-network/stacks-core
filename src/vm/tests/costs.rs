@@ -29,7 +29,7 @@ use vm::tests::{
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::boot::STACKS_BOOT_COST_VOTE_CONTRACT;
+use chainstate::stacks::boot::{STACKS_BOOT_COST_CONTRACT, STACKS_BOOT_COST_VOTE_CONTRACT};
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
@@ -43,6 +43,7 @@ use vm::database::{
 use chainstate::stacks::StacksBlockHeader;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use vm::functions::NativeFunctions::*;
@@ -392,21 +393,8 @@ fn test_cost_contract_short_circuits() {
     marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
 
     let with_interposing_5 = {
-        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
-            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
-            vec![(
-                (intercepted.clone(), "intercepted-function".into()),
-                ClarityCostFunctionReference {
-                    contract_id: cost_definer.clone(),
-                    function_name: "cost-definition".into(),
-                },
-            )],
-        )
-        .unwrap();
-
-        let mut owned_env = OwnedEnvironment::new_cost_limited(
+        let mut owned_env = OwnedEnvironment::new_max_limit(
             marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
-            cost_tracker,
         );
 
         execute_transaction(
@@ -424,21 +412,8 @@ fn test_cost_contract_short_circuits() {
     };
 
     let with_interposing_10 = {
-        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
-            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
-            vec![(
-                (intercepted.clone(), "intercepted-function".into()),
-                ClarityCostFunctionReference {
-                    contract_id: cost_definer.clone(),
-                    function_name: "cost-definition".into(),
-                },
-            )],
-        )
-        .unwrap();
-
-        let mut owned_env = OwnedEnvironment::new_cost_limited(
+        let mut owned_env = OwnedEnvironment::new_max_limit(
             marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
-            cost_tracker,
         );
 
         execute_transaction(
@@ -460,4 +435,349 @@ fn test_cost_contract_short_circuits() {
 
     assert_eq!(with_interposing_5, with_interposing_10);
     assert!(without_interposing_5 != without_interposing_10);
+}
+
+#[test]
+fn test_cost_voting_integration() {
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    let marf_kv = clarity_instance.destroy();
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+
+    let cost_definer =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
+    let bad_cost_definer =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-definer".into());
+    let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
+    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
+
+    let mut marf_kv = {
+        let mut clarity_inst = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+        let mut block_conn = clarity_inst.begin_block(
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &StacksBlockId([1 as u8; 32]),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+
+        let cost_definer_src = "
+    (define-read-only (cost-definition (size uint))
+       {
+         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
+       })
+    (define-read-only (cost-definition-le (size uint))
+       {
+         runtime: u2, write_length: u0, write_count: u0, read_count: u0, read_length: u0
+       })
+
+    ";
+
+        let bad_cost_definer_src = "
+    (define-data-var my-var uint u10)
+    (define-read-only (cost-definition (size uint))
+       {
+         runtime: (var-get my-var), write_length: u1, write_count: u1, read_count: u1, read_length: u1
+       })
+    ";
+
+        let intercepted_src = "
+    (define-read-only (intercepted-function (a uint))
+       (if (>= a u10)
+           (+ (+ a a) (+ a a)
+              (+ a a) (+ a a))
+           u0))
+    (define-public (non-read-only) (ok (+ 1 2 3)))
+    ";
+
+        let caller_src = "
+    (define-public (execute (a uint))
+       (ok (contract-call? .intercepted intercepted-function a)))
+    ";
+
+        for (contract_name, contract_src) in [
+            (&cost_definer, cost_definer_src),
+            (&intercepted, intercepted_src),
+            (&caller, caller_src),
+            (&bad_cost_definer, bad_cost_definer_src),
+        ]
+        .iter()
+        {
+            block_conn.as_transaction(|tx| {
+                let (ast, analysis) = tx
+                    .analyze_smart_contract(contract_name, contract_src)
+                    .unwrap();
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                    .unwrap();
+                tx.save_analysis(contract_name, &analysis).unwrap();
+            });
+        }
+
+        block_conn.commit_block();
+        clarity_inst.destroy()
+    };
+
+    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
+
+    let bad_cases = vec![
+        // non existent "replacement target"
+        (
+            PrincipalData::from(QualifiedContractIdentifier::local("non-existent").unwrap()),
+            "non-existent-func",
+            PrincipalData::from(cost_definer.clone()),
+            "cost-definition",
+        ),
+        // replacement target isn't a contract principal
+        (
+            p1_principal.clone().into(),
+            "non-existent-func",
+            cost_definer.clone().into(),
+            "cost-definition",
+        ),
+        // cost defining contract isn't a contract principal
+        (
+            intercepted.clone().into(),
+            "intercepted-function",
+            p1_principal.clone().into(),
+            "cost-definition",
+        ),
+        // replacement function doesn't exist
+        (
+            intercepted.clone().into(),
+            "non-existent-func",
+            cost_definer.clone().into(),
+            "cost-definition",
+        ),
+        // replacement function isn't read-only
+        (
+            intercepted.clone().into(),
+            "non-read-only",
+            cost_definer.clone().into(),
+            "cost-definition",
+        ),
+        // "boot cost" function doesn't exist
+        (
+            (*STACKS_BOOT_COST_CONTRACT).clone().into(),
+            "non-existent-func",
+            cost_definer.clone().into(),
+            "cost-definition",
+        ),
+        // cost defining contract doesn't exist
+        (
+            intercepted.clone().into(),
+            "intercepted-function",
+            QualifiedContractIdentifier::local("non-existent")
+                .unwrap()
+                .into(),
+            "cost-definition",
+        ),
+        // cost defining function doesn't exist
+        (
+            intercepted.clone().into(),
+            "intercepted-function",
+            cost_definer.clone().into(),
+            "cost-definition-2",
+        ),
+        // cost defining contract isn't arithmetic-only
+        (
+            intercepted.clone().into(),
+            "intercepted-function",
+            bad_cost_definer.clone().into(),
+            "cost-definition",
+        ),
+    ];
+
+    let bad_proposals = bad_cases.len();
+
+    {
+        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        db.begin();
+
+        db.set_variable(
+            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            "confirmed-proposal-count",
+            Value::UInt(bad_proposals as u128),
+        )
+        .unwrap();
+
+        for (ix, (intercepted_ct, intercepted_f, cost_ct, cost_f)) in
+            bad_cases.into_iter().enumerate()
+        {
+            let value = format!(
+                "{{ confirmed-proposal: 
+                               {{  function-contract: '{},
+                                   function-name: \"{}\",
+                                   cost-function-contract: '{},
+                                   cost-function-name: \"{}\",
+                                   confirmed-height: u1 }} }}",
+                intercepted_ct, intercepted_f, cost_ct, cost_f
+            );
+            db.set_entry(
+                &STACKS_BOOT_COST_VOTE_CONTRACT,
+                "confirmed-proposals",
+                execute(&format!("{{ confirmed-id: u{} }}", ix)),
+                execute(&value),
+            )
+            .unwrap();
+        }
+        db.commit();
+    }
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
+
+    {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        assert!(
+            tracker.contract_call_circuits().is_empty(),
+            "No contract call circuits should have been processed"
+        );
+        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
+            assert_eq!(
+                &referenced_function.contract_id, &*STACKS_BOOT_COST_CONTRACT,
+                "All cost functions should still point to the boot costs"
+            );
+            assert_eq!(
+                &referenced_function.function_name,
+                target.get_name_str(),
+                "All cost functions should still point to the boot costs"
+            );
+        }
+    };
+
+    let good_cases = vec![
+        (
+            intercepted.clone(),
+            "intercepted-function",
+            cost_definer.clone(),
+            "cost-definition",
+        ),
+        (
+            (*STACKS_BOOT_COST_CONTRACT).clone(),
+            "cost_le",
+            cost_definer.clone(),
+            "cost-definition-le",
+        ),
+    ];
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
+
+    {
+        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        db.begin();
+
+        let good_proposals = good_cases.len() as u128;
+        db.set_variable(
+            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            "confirmed-proposal-count",
+            Value::UInt(bad_proposals as u128 + good_proposals),
+        )
+        .unwrap();
+
+        for (ix, (intercepted_ct, intercepted_f, cost_ct, cost_f)) in
+            good_cases.into_iter().enumerate()
+        {
+            let value = format!(
+                "{{ confirmed-proposal: 
+                               {{  function-contract: '{},
+                                   function-name: \"{}\",
+                                   cost-function-contract: '{},
+                                   cost-function-name: \"{}\",
+                                   confirmed-height: u1 }} }}",
+                intercepted_ct, intercepted_f, cost_ct, cost_f
+            );
+            db.set_entry(
+                &STACKS_BOOT_COST_VOTE_CONTRACT,
+                "confirmed-proposals",
+                execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
+                execute(&value),
+            )
+            .unwrap();
+        }
+        db.commit();
+    }
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
+
+    {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        let circuits = tracker.contract_call_circuits();
+        assert_eq!(circuits.len(), 1);
+        for (target, referenced_function) in circuits.into_iter() {
+            assert_eq!(&target.0, &intercepted);
+            assert_eq!(&target.1.to_string(), "intercepted-function");
+            assert_eq!(&referenced_function.contract_id, &cost_definer);
+            assert_eq!(&referenced_function.function_name, "cost-definition");
+        }
+
+        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
+            if target == &ClarityCostFunction::Le {
+                assert_eq!(&referenced_function.contract_id, &cost_definer);
+                assert_eq!(&referenced_function.function_name, "cost-definition-le");
+            } else {
+                assert_eq!(
+                    &referenced_function.contract_id, &*STACKS_BOOT_COST_CONTRACT,
+                    "Cost function should still point to the boot costs"
+                );
+                assert_eq!(
+                    &referenced_function.function_name,
+                    target.get_name_str(),
+                    "Cost function should still point to the boot costs"
+                );
+            }
+        }
+    };
+
+    marf_kv.test_commit();
 }
