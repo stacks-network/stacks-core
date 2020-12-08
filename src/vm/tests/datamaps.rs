@@ -713,12 +713,7 @@ fn test_combines_tuples() {
             ("c".into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            (
-                "a".into(),
-                make_tuple(vec![
-                    ("x".into(), Value::Int(5)),
-                ]),
-            ),
+            ("a".into(), make_tuple(vec![("x".into(), Value::Int(5))])),
             ("b".into(), Value::Int(2)),
             ("c".into(), Value::Int(3)),
         ]),
