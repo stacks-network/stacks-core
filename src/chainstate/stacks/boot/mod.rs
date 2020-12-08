@@ -381,6 +381,7 @@ pub mod test {
     use vm::contracts::Contract;
     use vm::types::*;
 
+    use std::collections::HashMap;
     use std::convert::From;
     use std::fs;
 
@@ -1000,6 +1001,7 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * 1000000 * (keys.len() as u128);
+        let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
@@ -1017,6 +1019,12 @@ pub mod test {
                  ref parent_opt,
                  ref parent_microblock_header_opt| {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+
+                    if tip.total_burn > 0 && missed_initial_blocks == 0 {
+                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        missed_initial_blocks = tip.block_height;
+                    }
+
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let block_txs = vec![coinbase_tx];
@@ -1040,15 +1048,18 @@ pub mod test {
                 },
             );
 
-            peer.next_burnchain_block(burn_ops.clone());
+            let (burn_ht, _, _) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
+                let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
+                let expected_bonus = (missed_initial_blocks as u128) * block_reward
+                    / (INITIAL_MINING_BONUS_WINDOW as u128);
                 // add mature coinbases
-                expected_liquid_ustx += 500 * 1000000;
+                expected_liquid_ustx += block_reward + expected_bonus;
             }
         }
     }
@@ -1175,6 +1186,7 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * 1000000 * (keys.len() as u128);
+        let mut missed_initial_blocks = 0;
 
         let alice = keys.pop().unwrap();
 
@@ -1194,6 +1206,12 @@ pub mod test {
                  ref parent_opt,
                  ref parent_microblock_header_opt| {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+
+                    if tip.total_burn > 0 && missed_initial_blocks == 0 {
+                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        missed_initial_blocks = tip.block_height;
+                    }
+
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let burn_tx = make_bare_contract(
@@ -1234,8 +1252,11 @@ pub mod test {
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
+                let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
+                let expected_bonus = (missed_initial_blocks as u128) * block_reward
+                    / (INITIAL_MINING_BONUS_WINDOW as u128);
                 // add mature coinbases
-                expected_liquid_ustx += 500 * 1000000;
+                expected_liquid_ustx += block_reward + expected_bonus;
             }
         }
     }
@@ -3291,7 +3312,10 @@ pub mod test {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.pox_rejection_fraction = 25;
+        // used to be set to 25, but test at 5 here, because the increased coinbase
+        //   and, to a lesser extent, the initial block bonus altered the relative fraction
+        //   owned by charlie.
+        burnchain.pox_constants.pox_rejection_fraction = 5;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-reject", 6024);
 
@@ -3503,8 +3527,11 @@ pub mod test {
                     eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                     if cur_reward_cycle == alice_reward_cycle {
-                        // charlie rejected in this cycle, so no reward address
-                        assert_eq!(reward_addrs.len(), 0);
+                        assert_eq!(
+                            reward_addrs.len(),
+                            0,
+                            "charlie rejected in this cycle, so no reward address"
+                        );
                     } else {
                         // charlie didn't reject this cycle, so Alice's reward address should be
                         // present
