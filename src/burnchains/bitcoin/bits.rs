@@ -520,6 +520,9 @@ impl BitcoinTxInput {
 }
 
 fn to_txid(txin: &BtcTxIn) -> (Txid, u32) {
+    // bitcoin-rs library (which deps::bitcoin is based on)
+    //   operates in a different endian-ness for txids than the rest of
+    //   the codebase. so this method reverses the txid bits.
     let mut bits = txin.previous_output.txid.0.clone();
     bits.reverse();
     (Txid(bits), txin.previous_output.vout)

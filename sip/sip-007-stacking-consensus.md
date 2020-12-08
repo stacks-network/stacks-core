@@ -541,13 +541,13 @@ operations on Bitcoin as well as on the Stacks blockchain. The Stacks
 chain also allows addresses to submit STX transfers on the Bitcoin
 chain. Such operations are only evaluated by the miner of an anchor block
 elected in the burn block that immediately follows the burn block that included the
-operations. For example, if a TransferStxOp occurs in burnchain block 100, then the
+operations. For example, if a `TransferStxOp` occurs in burnchain block 100, then the
 Stacks block elected by burnchain block 101 will process that transfer.
 
 In order to submit on the Bitcoin chain, stackers must submit two Bitcoin transactions:
 
 * `PreStxOp`: this operation prepares the Stacks blockchain node to validate the subsequent
-  StackStxOp or TransferStxOp.
+  `StackStxOp` or `TransferStxOp`.
 * `StackStxOp`: this operation executes the `stack-stx` operation.
 * `TransferStxOp`: this operation transfers STX from a sender to a recipient
 
@@ -606,4 +606,6 @@ Where `op = $` (ascii encoded).
 
 Where the unsigned integer is big-endian encoded.
 
-The second Bitcoin output is the B58-encoding of the recipient Stacks address.
+The second Bitcoin output is either a `p2pkh` or `p2sh` output such
+that the recipient Stacks address can be derived from the
+corresponding 20-byte hash (hash160).

@@ -1718,50 +1718,54 @@ fn test_stx_transfer_btc_ops() {
             let stacks_tip =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
             let mut chainstate = get_chainstate(path);
-            let (sender_balance, burn_height) = chainstate.with_read_only_clarity_tx(
-                &sort_db.index_conn(),
-                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-                |conn| {
-                    conn.with_clarity_db_readonly(|db| {
-                        (
-                            db.get_account_stx_balance(&stacker.clone().into()),
-                            db.get_current_block_height(),
-                        )
-                    })
-                },
-            );
+            let (sender_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
 
-            let (recipient_balance, burn_height) = chainstate.with_read_only_clarity_tx(
-                &sort_db.index_conn(),
-                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-                |conn| {
-                    conn.with_clarity_db_readonly(|db| {
-                        (
-                            db.get_account_stx_balance(&recipient.clone().into()),
-                            db.get_current_block_height(),
-                        )
-                    })
-                },
-            );
+            let (recipient_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&recipient.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_block(burn_height as u64),
+                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_block(burn_height as u64),
+                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_block(burn_height as u64),
+                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_block(burn_height as u64),
+                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
                     0,
                 );
             }
@@ -1814,17 +1818,19 @@ fn test_stx_transfer_btc_ops() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_free(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 

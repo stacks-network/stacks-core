@@ -146,7 +146,6 @@ impl TransferStxOp {
     }
 
     /// parse a StackStxOp
-    /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,

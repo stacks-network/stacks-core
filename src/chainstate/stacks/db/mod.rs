@@ -302,10 +302,26 @@ impl<'a> ClarityTx<'a> {
         self.block.cost_so_far()
     }
 
-    /// set the clarity tx's cost tracker
-    ///   returns the replaced cost tracker
-    pub fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {
+    /// Set the ClarityTx's cost tracker.
+    /// Returns the replaced cost tracker.
+    fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {
         self.block.set_cost_tracker(new_tracker)
+    }
+
+    /// Run `todo` in this ClarityTx with `new_tracker`.
+    /// Returns the result of `todo` and the `new_tracker`
+    pub fn with_temporary_cost_tracker<F, R>(
+        &mut self,
+        new_tracker: LimitedCostTracker,
+        todo: F,
+    ) -> (R, LimitedCostTracker)
+    where
+        F: FnOnce(&mut ClarityTx) -> R,
+    {
+        let original_tracker = self.set_cost_tracker(new_tracker);
+        let result = todo(self);
+        let new_tracker = self.set_cost_tracker(original_tracker);
+        (result, new_tracker)
     }
 
     #[cfg(test)]

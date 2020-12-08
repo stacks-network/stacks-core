@@ -641,7 +641,7 @@ impl Burnchain {
 
     /// Try to parse a burnchain transaction into a Blockstack operation
     /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
-    ///   the currently-being-evaluated tx.
+    ///   the currently-being-evaluated tx in the same burn block.
     pub fn classify_transaction(
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
