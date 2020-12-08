@@ -71,6 +71,7 @@ pub trait BurnchainIndexer {
 
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self) -> Result<u64, burnchain_error>;
+    fn get_highest_header_height(&self) -> Result<u64, burnchain_error>;
     fn find_chain_reorg(&mut self) -> Result<u64, burnchain_error>;
     fn sync_headers(
         &mut self,

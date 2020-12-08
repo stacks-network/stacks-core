@@ -851,6 +851,21 @@ impl BurnchainIndexer for BitcoinIndexer {
             .map_err(burnchain_error::Bitcoin)
     }
 
+    fn get_highest_header_height(&self) -> Result<u64, burnchain_error> {
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )
+        .map_err(burnchain_error::Bitcoin)?;
+        spv_client
+            .get_highest_header_height()
+            .map_err(burnchain_error::Bitcoin)
+    }
+
     /// Get the first block height
     fn get_first_block_height(&self) -> u64 {
         self.config.first_block

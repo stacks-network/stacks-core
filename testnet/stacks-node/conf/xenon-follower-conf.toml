@@ -1,19 +1,19 @@
 [node]
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
-seed = "<YOUR_SEED>"
-local_peer_seed = "<YOUR_SEED>"
-miner = true
+seed = "037435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d"
+local_peer_seed = "037435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d"
+miner = false
 bootstrap_node = "047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444"
 
 [burnchain]
 chain = "bitcoin"
 mode = "xenon"
-peer_host = "127.0.0.1"
+peer_host = "bitcoind.xenon.blockstack.org"
+username = "blockstack"
+password = "blockstacksystem"
 rpc_port = 18332
 peer_port = 18333
-username = "xenon"
-password = "password"
 
 [[mstx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
@@ -30,3 +30,8 @@ amount = 10000000000000000
 [[mstx_balance]]
 address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
 amount = 10000000000000000
+
+
+# [[events_observer]]
+# endpoint = "127.0.0.1:8080"
+# events_keys = ["*"]

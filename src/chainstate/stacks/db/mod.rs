@@ -559,27 +559,6 @@ impl ChainStateBootData {
             post_flight_callback,
         }
     }
-
-    /// The callback post_flight_callback is invoked after initial balances are inserted, and after boot contracts are initialized
-    /// This method is used for inserting a callback before any other callback previously setup.
-    pub fn prepend_post_flight_callback(
-        &mut self,
-        new_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-    ) {
-        match self.post_flight_callback.take() {
-            Some(initial_callback) => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                    initial_callback(clarity_tx);
-                }));
-            }
-            None => {
-                self.post_flight_callback = Some(Box::new(|clarity_tx| {
-                    new_callback(clarity_tx);
-                }));
-            }
-        }
-    }
 }
 
 impl StacksChainState {

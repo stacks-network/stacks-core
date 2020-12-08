@@ -128,6 +128,7 @@ pub struct LocalContext<'a> {
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
+    apply_depth: usize,
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
@@ -1447,11 +1448,12 @@ impl CallStack {
         CallStack {
             stack: Vec::new(),
             set: HashSet::new(),
+            apply_depth: 0,
         }
     }
 
     pub fn depth(&self) -> usize {
-        self.stack.len()
+        self.stack.len() + self.apply_depth
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -1463,6 +1465,14 @@ impl CallStack {
         if track {
             self.set.insert(function.clone());
         }
+    }
+
+    pub fn incr_apply_depth(&mut self) {
+        self.apply_depth += 1;
+    }
+
+    pub fn decr_apply_depth(&mut self) {
+        self.apply_depth -= 1;
     }
 
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {

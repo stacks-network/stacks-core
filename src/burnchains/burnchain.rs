@@ -96,6 +96,8 @@ impl BurnchainStateTransitionOps {
     }
 }
 
+use core::MINING_COMMITMENT_WINDOW;
+
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
         BurnchainStateTransition {
@@ -109,6 +111,7 @@ impl BurnchainStateTransition {
         sort_tx: &mut SortitionHandleTx,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
+        sunset_end: u64,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
@@ -153,14 +156,55 @@ impl BurnchainStateTransition {
         let consumed_leader_keys =
             sort_tx.get_consumed_leader_keys(&parent_snapshot, &block_commits)?;
 
+        // assemble the commit windows
+        let mut windowed_block_commits = vec![block_commits];
+        let mut windowed_user_burns = vec![user_burns];
+
+        for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
+            if parent_snapshot.block_height < (blocks_back as u64) {
+                debug!("Mining commitment window shortened because block height is less than window size";
+                       "block_height" => %parent_snapshot.block_height,
+                       "window_size" => %MINING_COMMITMENT_WINDOW);
+                break;
+            }
+            let block_height = parent_snapshot.block_height - (blocks_back as u64);
+            let sortition_id = match sort_tx.get_block_snapshot_by_height(block_height)? {
+                Some(sn) => sn.sortition_id,
+                None => break,
+            };
+            windowed_block_commits.push(SortitionDB::get_block_commits_by_block(
+                sort_tx.tx(),
+                &sortition_id,
+            )?);
+            windowed_user_burns.push(SortitionDB::get_user_burns_by_block(
+                sort_tx.tx(),
+                &sortition_id,
+            )?);
+        }
+
+        // reverse vecs so that windows are in ascending block height order
+        windowed_block_commits.reverse();
+        windowed_user_burns.reverse();
+
+        // figure out if the PoX sunset finished during the window
+        let window_end_height = parent_snapshot.block_height + 1;
+        let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
+        let sunset_finished_at = if sunset_end <= window_start_height {
+            Some(0)
+        } else if sunset_end > window_end_height {
+            None
+        } else {
+            Some((sunset_end - window_start_height) as u8)
+        };
+
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits, and
         // will only contain block commits that consume one leader key (multiple block commits that
         // consume the same key will be rejected)
-        let burn_dist = BurnSamplePoint::make_distribution(
-            block_commits,
-            consumed_leader_keys.clone(),
-            user_burns,
+        let burn_dist = BurnSamplePoint::make_min_median_distribution(
+            windowed_block_commits,
+            windowed_user_burns,
+            sunset_finished_at,
         );
 
         // find out which user burns and block commits we're going to take
@@ -505,12 +549,12 @@ impl Burnchain {
         let headers_pathbuf = PathBuf::from(&headers_path);
 
         let headers_height = if headers_pathbuf.exists() {
-            indexer.get_headers_height()?
+            indexer.get_highest_header_height()?
         } else {
             0
         };
 
-        if !headers_pathbuf.exists() || headers_height < self.first_block_height {
+        if headers_height == 0 || headers_height < self.first_block_height {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
@@ -841,16 +885,18 @@ impl Burnchain {
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
-        // sanity check -- how many headers do we have?
-        // Note that this value is 1-indexed -- the smallest possible value it returns is 1,
-        // So, subtract 1.
-        let headers_height = indexer.get_headers_height().map_err(|e| {
+        // sanity check -- what is the height of our highest header
+        let headers_height = indexer.get_highest_header_height().map_err(|e| {
             error!(
                 "Failed to read headers height from {}: {:?}",
                 headers_path, &e
             );
             e
-        })? - 1;
+        })?;
+
+        if headers_height == 0 {
+            return Ok(0);
+        }
 
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
         // remote bitcoin peer's chain state.
@@ -1715,7 +1761,8 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
@@ -1754,7 +1801,8 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
@@ -1793,7 +1841,8 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 23456,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "0283d603abdd2392646dbdd0dc80beb39c25bfab96a8a921ea5e7517ce533f8cd5",
                 )
@@ -2098,6 +2147,7 @@ pub mod tests {
                 block_122_snapshot.consensus_hash.clone(),
                 ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ];
+
             let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
                 let bf = match op {
                     BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
@@ -2233,7 +2283,8 @@ pub mod tests {
                 memo: vec![i],
 
                 burn_fee: (i + 1) as u64,
-                input: BurnchainSigner {
+                input: (Txid([0; 32]), 0),
+                apparent_sender: BurnchainSigner {
                     public_keys: vec![StacksPublicKey::from_hex(
                         "02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c",
                     )
@@ -2266,7 +2317,8 @@ pub mod tests {
             memo: vec![0x00],
 
             burn_fee: 256,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c",
                 )
@@ -2490,7 +2542,8 @@ pub mod tests {
                     memo: vec![i],
 
                     burn_fee: i as u64,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             &leader_bitcoin_public_keys[(i - 1) as usize].clone(),
                         )

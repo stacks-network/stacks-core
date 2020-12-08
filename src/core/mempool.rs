@@ -57,7 +57,7 @@ use rusqlite::Error as SqliteError;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
-pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 5;
+pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
 
 pub struct MemPoolAdmitter {
     // mempool admission should have its own chain state view.

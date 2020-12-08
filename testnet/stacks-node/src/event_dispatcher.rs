@@ -145,18 +145,15 @@ impl EventObserver {
     ) -> serde_json::Value {
         let tx = &receipt.transaction;
 
-        let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+        let success = match (receipt.post_condition_aborted, &receipt.result) {
             (false, Value::Response(response_data)) => {
-                let status = if response_data.committed {
+                if response_data.committed {
                     STATUS_RESP_TRUE
                 } else {
                     STATUS_RESP_NOT_COMMITTED
-                };
-                (status, response_data.data.clone())
+                }
             }
-            (true, Value::Response(response_data)) => {
-                (STATUS_RESP_POST_CONDITION, response_data.data.clone())
-            }
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => unreachable!(), // Transaction results should always be a Value::Response type
         };
 
@@ -164,19 +161,14 @@ impl EventObserver {
             TransactionOrigin::Burn(txid) => (txid.to_string(), "00".to_string()),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
-                let mut bytes = vec![];
-                tx.consensus_serialize(&mut bytes).unwrap();
-                let formatted_bytes: Vec<String> =
-                    bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                (txid, formatted_bytes.join(""))
+                let bytes = tx.serialize_to_vec();
+                (txid, bytes_to_hex(&bytes))
             }
         };
 
         let raw_result = {
-            let mut bytes = vec![];
-            result.consensus_serialize(&mut bytes).unwrap();
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            formatted_bytes
+            let bytes = receipt.result.serialize_to_vec();
+            bytes_to_hex(&bytes)
         };
         let contract_interface_json = {
             match &receipt.contract_analysis {
@@ -188,7 +180,7 @@ impl EventObserver {
             "txid": format!("0x{}", &txid),
             "tx_index": tx_index,
             "status": success,
-            "raw_result": format!("0x{}", raw_result.join("")),
+            "raw_result": format!("0x{}", &raw_result),
             "raw_tx": format!("0x{}", &raw_tx),
             "contract_abi": contract_interface_json,
         })

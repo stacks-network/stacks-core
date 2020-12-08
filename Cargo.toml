@@ -1,14 +1,14 @@
 [package]
 name = "blockstack-core"
 version = "0.0.1"
-authors = [ "Jude Nelson <jude@blockstack.com>",
+authors = [ "Jude Nelson <jude@stacks.org>",
             "Aaron Blankstein <aaron@blockstack.com>",
             "Ludo Galabru <ludovic@blockstack.com>" ]
 license = "GPLv3"
-homepage = "https://github.com/blockstack/blockstack-core"
-repository = "https://github.com/blockstack/blockstack-core"
-description = "Reference implementation of Blockstack Core"
-keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+homepage = "https://github.com/blockstack/stacks-blockchain"
+repository = "https://github.com/blockstack/stacks-blockchain"
+description = "Reference implementation of the Stacks 2.0 Blockchain"
+keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
 [profile.release]

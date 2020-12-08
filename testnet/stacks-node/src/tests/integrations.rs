@@ -871,7 +871,7 @@ fn contract_stx_transfer() {
                                 })
                             }
                         ),
-                        5999
+                        25999
                     );
                     // check that 1000 stx _was_ debited from SK_3
                     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -886,7 +886,7 @@ fn contract_stx_transfer() {
                                 })
                             }
                         ),
-                        93000
+                        69000
                     );
                 }
 

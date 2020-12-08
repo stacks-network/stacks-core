@@ -56,7 +56,7 @@ use chainstate::burn::operations::{
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
 
 use burnchains::{
-    Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner, BurnchainStateTransition,
+    Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
@@ -234,6 +234,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let memo_hex: String = row.get("memo");
         let burn_fee_str: String = row.get("burn_fee");
         let input_json: String = row.get("input");
+        let apparent_sender_json: String = row.get("apparent_sender");
         let sunset_burn_str: String = row.get("sunset_burn");
 
         let commit_outs = serde_json::from_value(row.get("commit_outs"))
@@ -243,7 +244,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let memo = memo_bytes.to_vec();
 
-        let input = serde_json::from_str::<BurnchainSigner>(&input_json)
+        let input =
+            serde_json::from_str(&input_json).map_err(|e| db_error::SerializationError(e))?;
+
+        let apparent_sender = serde_json::from_str(&apparent_sender_json)
             .map_err(|e| db_error::SerializationError(e))?;
 
         let burn_fee = burn_fee_str
@@ -265,6 +269,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
             burn_fee,
             input,
+            apparent_sender,
             commit_outs,
             sunset_burn,
             txid,
@@ -451,7 +456,8 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
         sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
-        input TEXT NOT NULL,        -- must match `address` in leader_keys
+        input TEXT NOT NULL,
+        apparent_sender TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -1149,7 +1155,7 @@ impl<'a> SortitionHandleTx<'a> {
         return Ok(false);
     }
 
-    fn get_block_snapshot_by_height(
+    pub fn get_block_snapshot_by_height(
         &mut self,
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
@@ -1423,14 +1429,47 @@ impl<'a> SortitionHandleConn<'a> {
             // no winner
             return Ok(vec![]);
         }
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2";
+        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &snapshot.winning_block_txid];
+        let winning_commit: LeaderBlockCommitOp = query_row(self, qry, &args)?
+            .expect("BUG: sortition exists, but winner cannot be found");
 
         let winning_block_hash160 =
             Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
 
-        let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 ORDER BY vtxindex ASC";
-        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &winning_block_hash160];
+        let qry = "SELECT * FROM user_burn_support
+                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4
+                   ORDER BY vtxindex ASC";
+        let args: [&dyn ToSql; 4] = [
+            &snapshot.sortition_id,
+            &winning_block_hash160,
+            &winning_commit.key_vtxindex,
+            &winning_commit.key_block_ptr,
+        ];
 
-        query_rows(self, qry, &args)
+        let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
+
+        // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
+        let qry = "SELECT COUNT(*) FROM block_commits
+                   WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
+        let args: [&dyn ToSql; 4] = [
+            &snapshot.sortition_id,
+            &snapshot.winning_stacks_block_hash,
+            &winning_commit.key_vtxindex,
+            &winning_commit.key_block_ptr,
+        ];
+        let shared_miners = query_count(self, qry, &args)? as u64;
+
+        assert!(
+            shared_miners >= 1,
+            "BUG: Should be at least 1 matching miner for the winning block commit"
+        );
+
+        for winning_user_burn in winning_user_burns.iter_mut() {
+            winning_user_burn.burn_fee /= shared_miners;
+        }
+
+        Ok(winning_user_burns)
     }
 
     /// Get the block snapshot of the parent stacks block of the given stacks block
@@ -1576,7 +1615,10 @@ impl<'a> SortitionHandleConn<'a> {
             debug!("Looking for winners at height = {}", height);
             let snapshot =
                 SortitionDB::get_ancestor_snapshot(self, height as u64, &self.context.chain_tip)?
-                    .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+                    .ok_or_else(|| {
+                    warn!("Missing parent"; "sortition_height" => %height);
+                    BurnchainError::MissingParentBlock
+                })?;
             if snapshot.sortition {
                 result.push((snapshot.winning_block_txid, snapshot.block_height));
             }
@@ -1595,9 +1637,12 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
-        let prepare_end_sortid = self
-            .get_sortition_id_for_bhh(prepare_end_bhh)?
-            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+        let prepare_end_sortid =
+            self.get_sortition_id_for_bhh(prepare_end_bhh)?
+                .ok_or_else(|| {
+                    warn!("Missing parent"; "burn_header_hash" => %prepare_end_bhh);
+                    BurnchainError::MissingParentBlock
+                })?;
         let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
@@ -2242,10 +2287,9 @@ impl SortitionDB {
     pub fn is_sortition_processed(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
-        sortition_tip: &SortitionId,
-    ) -> Result<bool, BurnchainError> {
-        self.get_sortition_id(burnchain_header_hash, sortition_tip)
-            .map(|x| x.is_some())
+    ) -> Result<Option<SortitionId>, BurnchainError> {
+        let qry = "SELECT sortition_id FROM snapshots WHERE burn_header_hash = ? AND pox_valid = 1";
+        query_row(self.conn(), qry, &[burnchain_header_hash]).map_err(BurnchainError::from)
     }
 
     fn get_block_height(
@@ -2382,7 +2426,10 @@ impl SortitionDB {
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
-            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+            .ok_or_else(|| {
+                warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                BurnchainError::MissingParentBlock
+            })?;
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
         let parent_snapshot = sortition_db_handle
@@ -3167,6 +3214,10 @@ impl<'a> SortitionHandleTx<'a> {
         let tx_input_str = serde_json::to_string(&block_commit.input)
             .map_err(|e| db_error::SerializationError(e))?;
 
+        // serialize tx input to JSON
+        let apparent_sender_str = serde_json::to_string(&block_commit.apparent_sender)
+            .map_err(|e| db_error::SerializationError(e))?;
+
         let args: &[&dyn ToSql] = &[
             &block_commit.txid,
             &block_commit.vtxindex,
@@ -3184,10 +3235,11 @@ impl<'a> SortitionHandleTx<'a> {
             sort_id,
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
             &block_commit.sunset_burn.to_string(),
+            &apparent_sender_str,
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)", args)?;
 
         Ok(())
     }
@@ -3592,7 +3644,7 @@ mod tests {
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::BitcoinNetworkType;
 
-    use burnchains::{BurnchainHeaderHash, Txid};
+    use burnchains::*;
     use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
     use util::hash::{hex_bytes, Hash160};
     use util::vrf::*;
@@ -3794,7 +3846,8 @@ mod tests {
 
             commit_outs: vec![],
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
@@ -4580,7 +4633,8 @@ mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
