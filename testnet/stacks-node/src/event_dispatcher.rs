@@ -361,7 +361,10 @@ impl EventDispatcher {
         let mut i: usize = 0;
 
         let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            let mut boot_receipts_result = self.boot_receipts.lock().unwrap();
+            let mut boot_receipts_result = self
+                .boot_receipts
+                .lock()
+                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
             if let Some(val) = boot_receipts_result.take() {
                 val
             } else {
