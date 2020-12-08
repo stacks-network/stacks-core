@@ -215,8 +215,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 self.check_all_read_only(&args[1..args.len()])
             }
-            Map | Filter => {
-                check_argument_count(2, args)?;
+            Map => {
+                check_arguments_at_least(2, args)?;
 
                 // note -- we do _not_ check here to make sure we're not mapping on
                 //      a special function. that check is performed by the type checker.
@@ -224,6 +224,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _mapping function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
+                self.check_function_application_read_only(args)
+            }
+            Filter => {
+                check_argument_count(2, args)?;
                 self.check_function_application_read_only(args)
             }
             Fold => {
