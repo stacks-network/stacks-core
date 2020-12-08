@@ -301,51 +301,61 @@ fn test_names_tokens_contracts_interface() {
         "maps": [
             {
                 "name": "map1",
-                "key": [ {
-                    "name": "name",
-                    "type": "int128"
-                } ],
-                "value": [ {
-                    "name": "owner",
-                    "type": "principal"
-                } ]
+                "key": {
+                    "tuple": [{
+                        "name": "name",
+                        "type": "int128"
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "owner",
+                        "type": "principal"
+                    }]
+                }
             },
             {
                 "name": "map2",
-                "key": [ {
-                    "name": "k-name-1",
-                    "type": "bool"
-                } ],
-                "value": [ {
-                    "name": "v-name-1",
-                    "type": {
-                        "buffer": { "length": 33 }
-                    }
-                } ]
+                "key": {
+                    "tuple": [{
+                        "name": "k-name-1",
+                        "type": "bool"
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "v-name-1",
+                        "type": {
+                            "buffer": { "length": 33 }
+                        }
+                    }]
+                }
             },
             {
                 "name": "map3",
-                "key": [
-                    {
+                "key": {
+                    "tuple": [{
                         "name": "k-name-2",
                         "type": "bool"
-                    }
-                ],
-                "value": [ {
-                    "name": "v-name-2",
-                    "type": {
-                        "tuple": [
-                            {
-                                "name": "n1",
-                                "type": "int128"
-                            },
-                            {
-                                "name": "n2",
-                                "type": "bool"
-                            }
-                        ] }
-                    }
-                ]
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "v-name-2",
+                        "type": {
+                            "tuple": [
+                                {
+                                    "name": "n1",
+                                    "type": "int128"
+                                },
+                                {
+                                    "name": "n2",
+                                    "type": "bool"
+                                }
+                            ] 
+                        }
+                    }]
+                }
             }
         ],
         "variables": [
