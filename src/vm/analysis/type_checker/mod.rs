@@ -33,7 +33,7 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
 };
 use vm::variables::NativeVariables;
 
@@ -97,6 +97,15 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
+    }
+    fn short_circuit_contract_call(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        function: &ClarityName,
+        input: &[u64],
+    ) -> std::result::Result<bool, CostErrors> {
+        self.cost_track
+            .short_circuit_contract_call(contract, function, input)
     }
 }
 
