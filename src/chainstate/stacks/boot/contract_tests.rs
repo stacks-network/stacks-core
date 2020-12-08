@@ -1048,6 +1048,7 @@ fn cost_voting_tests() {
             })
         );
 
+        // assert error if already vetoed in this block
         assert_eq!(
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
@@ -1059,7 +1060,7 @@ fn cost_voting_tests() {
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(1).into()
+                data: Value::Int(9).into()
             })
         )
     });
@@ -1097,7 +1098,7 @@ fn cost_voting_tests() {
             })
         );
 
-        // Assert confirmation returns false
+        // Assert confirmation fails
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
@@ -1108,8 +1109,8 @@ fn cost_voting_tests() {
             .unwrap()
             .0,
             Value::Response(ResponseData {
-                committed: true,
-                data: Value::Bool(false).into()
+                committed: false,
+                data: Value::Int(11).into()
             })
         );
 

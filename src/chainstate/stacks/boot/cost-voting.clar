@@ -1,7 +1,19 @@
 ;; The .cost-voting contract
 
 ;; error codes
-(define-constant ERR_PROPOSE 1)
+(define-constant ERR_NO_SUCH_PROPOSAL        1)
+(define-constant ERR_AMOUNT_NOT_POSITIVE     2)
+(define-constant ERR_PROPOSAL_EXPIRED        3)
+(define-constant ERR_PROPOSAL_CONFIRMED      4)
+(define-constant ERR_INSUFFICIENT_FUNDS      5)
+(define-constant ERR_FT_MINT                 6)
+(define-constant ERR_FT_TRANSFER             7)
+(define-constant ERR_STX_TRANSFER            8)
+(define-constant ERR_ALREADY_VETOED          9)
+(define-constant ERR_NOT_LAST_MINER          10)
+(define-constant ERR_INSUFFICIENT_VOTES      11)
+(define-constant ERR_PROPOSAL_VETOED         12)
+(define-constant ERR_FETCHING_BLOCK_INFO     13)
 
 ;; cost vote token
 (define-fungible-token cost-vote-token)
@@ -91,20 +103,21 @@
             address: tx-sender,
             proposal-id: proposal-id }))))
         (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err 1))))
+            proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL))))
     )
-    (if (and
-            (< burn-block-height expiration-block-height)
-            (is-none (map-get? proposal-confirmed-id { proposal-id: proposal-id }))
-        )
-        (begin
-            (unwrap! (stx-transfer? amount tx-sender (as-contract tx-sender)) (err 1))
-            (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err 1))
-            (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
-            (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
-                                            { votes: (+ amount cur-principal-votes)})
-            (ok true))
-    (err 1)))
+
+    (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
+    (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+    (asserts! (is-none (map-get? proposal-confirmed-id { proposal-id: proposal-id }))
+        (err ERR_PROPOSAL_CONFIRMED))
+
+    (unwrap! (stx-transfer? amount tx-sender (as-contract tx-sender)) (err ERR_INSUFFICIENT_FUNDS))
+    (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err ERR_FT_MINT))
+
+    (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
+    (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
+                                    { votes: (+ amount cur-principal-votes)})
+    (ok true))
 )
 
 ;; Withdraw votes
@@ -115,18 +128,21 @@
             address: tx-sender,
             proposal-id: proposal-id }))))
         (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err 1))))
+            proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL))))
         (sender tx-sender)
     )
-    (if (>= cur-principal-votes amount)
-        (begin
-            (unwrap! (as-contract (stx-transfer? amount tx-sender sender)) (err 1))
-            (unwrap! (as-contract (ft-transfer? cost-vote-token amount sender tx-sender)) (err 1))
-            (map-set proposal-votes { proposal-id: proposal-id } { votes: (- cur-votes amount) })
-            (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id }
-                                              { votes: (- cur-principal-votes amount) })
-            (ok true))
-        (err 1)))
+
+    (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
+    (asserts! (>= cur-principal-votes amount) (err ERR_INSUFFICIENT_FUNDS))
+
+    (unwrap! (as-contract (stx-transfer? amount tx-sender sender)) (err ERR_STX_TRANSFER))
+    (unwrap! (as-contract (ft-transfer? cost-vote-token amount sender tx-sender))
+        (err ERR_FT_TRANSFER))
+
+    (map-set proposal-votes { proposal-id: proposal-id } { votes: (- cur-votes amount) })
+    (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id }
+                                        { votes: (- cur-principal-votes amount) })
+    (ok true))
 )
 
 ;; Miner veto
@@ -134,22 +150,23 @@
     (let (
         (cur-vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
         (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err 1))))
+            proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL))))
         (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposal-id: proposal-id,
                                                                          veto-height: block-height }))))
+        (last-miner (unwrap! (get-block-info? miner-address (- block-height u1))
+            (err ERR_FETCHING_BLOCK_INFO)))
     )
-    (if (and
-            (not vetoed)
-            (is-eq contract-caller (unwrap! (get-block-info? miner-address (- block-height u1)) (err 1)))
-            (> burn-block-height expiration-block-height)
-            (is-none (map-get? proposal-confirmed-id { proposal-id: proposal-id })))
-        (begin
-            (map-set proposal-vetos { proposal-id: proposal-id } { vetos: (+ u1 cur-vetos) })
-            (map-set exercised-veto { proposal-id: proposal-id, veto-height: block-height }
-                                    { vetoed: true })
-            (ok true)
-        )
-        (err 1)))
+    
+    (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
+    (asserts! (is-eq contract-caller last-miner) (err ERR_NOT_LAST_MINER))
+    (asserts! (> burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+    (asserts! (is-none (map-get? proposal-confirmed-id { proposal-id: proposal-id }))
+        (err ERR_PROPOSAL_CONFIRMED))
+
+    (map-set proposal-vetos { proposal-id: proposal-id } { vetos: (+ u1 cur-vetos) })
+    (map-set exercised-veto { proposal-id: proposal-id, veto-height: block-height }
+                            { vetoed: true })
+    (ok true))
 )
 
 ;; Confirm proposal has reached required vote count
@@ -157,35 +174,32 @@
     (let (
         (votes (default-to u0 (get votes (map-get? proposal-votes { proposal-id: proposal-id }))))
         (vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
-        (expiration-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err 1))))
-        (proposal (unwrap! (map-get? proposals { proposal-id: proposal-id }) (err 1)))
+        (proposal (unwrap! (map-get? proposals { proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL)))
         (confirmed-count (var-get confirmed-proposal-count))
+    )
+    (let (
+        (expiration-block-height (get expiration-block-height proposal))
     )
     (let (
         (blocks-since-proposal (- block-height (- expiration-block-height u2016)))
     )
-    (begin
-        (if (and
-            (< burn-block-height expiration-block-height)
-            (>= (/ (* votes u100) stx-liquid-supply) u20)
-            (< (/ (* vetos u100) blocks-since-proposal) u80)
-        )
-        (begin
-            (map-insert confirmed-proposals { confirmed-id: confirmed-count }
-                { confirmed-proposal:
-                    { 
-                        function-contract: (get function-contract proposal),
-                        function-name: (get function-name proposal),
-                        cost-function-contract: (get cost-function-contract proposal),
-                        cost-function-name: (get cost-function-name proposal),
-                        confirmed-height: block-height
-                    }
-                })
-            (map-insert proposal-confirmed-id { proposal-id: proposal-id } { confirmed-id: confirmed-count })
-            (var-set confirmed-proposal-count (+ confirmed-count u1))
-            (ok true)
-        )
-        (ok false))
-    )))
+
+    (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+    (asserts! (>= (/ (* votes u100) stx-liquid-supply) u20) (err ERR_INSUFFICIENT_VOTES))
+    (asserts! (< (/ (* vetos u100) blocks-since-proposal) u80) (err ERR_PROPOSAL_VETOED))
+
+    (map-insert confirmed-proposals { confirmed-id: confirmed-count }
+        { confirmed-proposal:
+            { 
+                function-contract: (get function-contract proposal),
+                function-name: (get function-name proposal),
+                cost-function-contract: (get cost-function-contract proposal),
+                cost-function-name: (get cost-function-name proposal),
+                confirmed-height: block-height
+            }
+        })
+
+    (map-insert proposal-confirmed-id { proposal-id: proposal-id } { confirmed-id: confirmed-count })
+    (var-set confirmed-proposal-count (+ confirmed-count u1))
+    (ok true))))
 )
