@@ -75,10 +75,19 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    {
-        let mut conn = clarity_instance.begin_block(
+    clarity_instance
+        .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([0 as u8; 32]),
+            &StacksBlockId([1 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
@@ -99,8 +108,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([2 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
@@ -121,8 +130,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
+            &StacksBlockId([3 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );

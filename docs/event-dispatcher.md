@@ -73,8 +73,7 @@ Example:
     {
       "recipient": "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96",
       "coinbase_amount": "1000",
-      "tx_fees_anchored_shared": "800",
-      "tx_fees_anchored_exclusive": "0",
+      "tx_fees_anchored": "800",
       "tx_fees_streamed_confirmed": "0",
       "from_stacks_block_hash": "0xf5d4ce0efe1d42c963d615ce57f0d014f263a985175e4ece766eceff10e0a358",
       "from_index_block_hash": "0x329efcbcc6daf5ac3f264522e0df50eddb5be85df6ee8a9fc2384c54274d7afc",

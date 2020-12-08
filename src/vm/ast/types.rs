@@ -26,7 +26,7 @@ pub trait BuildASTPass {
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()>;
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAST {
     pub contract_identifier: QualifiedContractIdentifier,
     pub pre_expressions: Vec<PreSymbolicExpression>,

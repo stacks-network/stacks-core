@@ -304,7 +304,7 @@ pub struct PeerNetwork {
     // when did we send it?
     antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
     antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
-    antientropy_last_burnchain_tip: BurnchainHeaderHash,
+    pub antientropy_last_burnchain_tip: BurnchainHeaderHash,
 
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
@@ -2517,29 +2517,70 @@ impl PeerNetwork {
                 }
             };
 
-            let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                &ancestor_sn.consensus_hash,
-                &ancestor_sn.winning_stacks_block_hash,
-            );
-
-            // TODO: this is getting rewritten once PoisonMicroblocks are fully materialized
-            let microblocks = match StacksChainState::load_staging_microblock_stream(
-                &chainstate.blocks_db,
-                &chainstate.blocks_path,
-                &ancestor_sn.consensus_hash,
-                &ancestor_sn.winning_stacks_block_hash,
-                u16::max_value(),
-            )? {
-                Some(mblocks) => mblocks,
-                None => {
+            let block_info = match StacksChainState::load_staging_block_info(
+                &chainstate.db(),
+                &StacksBlockHeader::make_index_block_hash(
+                    &ancestor_sn.consensus_hash,
+                    &ancestor_sn.winning_stacks_block_hash,
+                ),
+            ) {
+                Ok(Some(x)) => x,
+                Ok(None) => {
                     debug!(
-                        "{:?}: Failed to load microblock stream off of {}",
-                        &self.local_peer, &index_block_hash
+                        "{:?}: No block stored for {}/{}",
+                        &self.local_peer,
+                        &ancestor_sn.consensus_hash,
+                        &ancestor_sn.winning_stacks_block_hash,
+                    );
+                    return Ok(None);
+                }
+                Err(e) => {
+                    debug!(
+                        "{:?}: Failed to query header info of {}/{}: {:?}",
+                        &self.local_peer,
+                        &ancestor_sn.consensus_hash,
+                        &ancestor_sn.winning_stacks_block_hash,
+                        &e
                     );
                     return Ok(None);
                 }
             };
 
+            let microblocks = match StacksChainState::load_processed_microblock_stream_fork(
+                &chainstate.db(),
+                &block_info.parent_consensus_hash,
+                &block_info.parent_anchored_block_hash,
+                &block_info.parent_microblock_hash,
+            ) {
+                Ok(Some(mblocks)) => mblocks,
+                Ok(None) => {
+                    debug!(
+                        "{:?}: No processed microblocks in-between {}/{} and {}/{}",
+                        &self.local_peer,
+                        &block_info.parent_consensus_hash,
+                        &block_info.parent_anchored_block_hash,
+                        &block_info.consensus_hash,
+                        &block_info.anchored_block_hash,
+                    );
+                    return Ok(None);
+                }
+                Err(e) => {
+                    debug!("{:?}: Failed to load processed microblocks in-between {}/{} and {}/{}: {:?}",
+                           &self.local_peer,
+                           &block_info.parent_consensus_hash,
+                           &block_info.parent_anchored_block_hash,
+                           &block_info.consensus_hash,
+                           &block_info.anchored_block_hash,
+                           &e
+                    );
+                    return Ok(None);
+                }
+            };
+
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &block_info.parent_consensus_hash,
+                &block_info.parent_anchored_block_hash,
+            );
             debug!(
                 "{:?}: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
@@ -3538,7 +3579,7 @@ impl PeerNetwork {
                     true
                 } else {
                     debug!(
-                        "{:?}: Will drop MicroblocksData({})",
+                        "{:?}: Will not buffer MicroblocksData({})",
                         &self.local_peer, &new_microblocks.index_anchor_block
                     );
                     false
@@ -3826,7 +3867,9 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height > self.chain_view.burn_block_height {
+        if sn.block_height > self.chain_view.burn_block_height
+            || sn.burn_header_hash != self.antientropy_last_burnchain_tip
+        {
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
@@ -3986,6 +4029,90 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Set up the unconfirmed chain state off of the canonical chain tip.
+    pub fn setup_unconfirmed_state(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+    ) -> Result<(), Error> {
+        let (canonical_consensus_hash, canonical_block_hash) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(
+            &canonical_consensus_hash,
+            &canonical_block_hash,
+        );
+        // setup unconfirmed state off of this tip
+        debug!(
+            "Reload unconfirmed state off of {}/{}",
+            &canonical_consensus_hash, &canonical_block_hash
+        );
+        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
+        Ok(())
+    }
+
+    /// Store a single transaction
+    /// Return true if stored; false if it was a dup.
+    /// Has to be done here, since only the p2p network has the unconfirmed state.
+    fn store_transaction(
+        mempool: &mut MemPoolDB,
+        chainstate: &mut StacksChainState,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+        tx: StacksTransaction,
+    ) -> bool {
+        let txid = tx.txid();
+        if mempool.has_tx(&txid) {
+            debug!("Already have tx {}", txid);
+            return false;
+        }
+
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, tx) {
+            info!("Reject transaction {}: {:?}", txid, &e;
+                  "txid" => %txid
+            );
+            return false;
+        }
+
+        debug!("Stored tx {}", txid);
+        return true;
+    }
+
+    /// Store all inbound transactions, and return the ones that we actually stored so they can be
+    /// relayed.
+    fn store_transactions(
+        mempool: &mut MemPoolDB,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        network_result: &mut NetworkResult,
+    ) -> Result<(), net_error> {
+        let (canonical_consensus_hash, canonical_block_hash) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+
+        let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
+            HashMap::new();
+
+        // messages pushed via the p2p network
+        for (nk, tx_data) in network_result.pushed_transactions.drain() {
+            for (relayers, tx) in tx_data.into_iter() {
+                if PeerNetwork::store_transaction(
+                    mempool,
+                    chainstate,
+                    &canonical_consensus_hash,
+                    &canonical_block_hash,
+                    tx.clone(),
+                ) {
+                    if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
+                        new_tx_data.push((relayers, tx));
+                    } else {
+                        ret.insert(nk.clone(), vec![(relayers, tx)]);
+                    }
+                }
+            }
+        }
+
+        network_result.pushed_transactions.extend(ret);
+        Ok(())
+    }
+
     /// Top-level main-loop circuit to take.
     /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
     /// -- carries out network conversations
@@ -4049,6 +4176,14 @@ impl PeerNetwork {
             download_backpressure,
             p2p_poll_state,
         )?;
+
+        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut result) {
+            warn!("Failed to store transactions: {:?}", &e);
+        }
+
+        if let Err(e) = PeerNetwork::setup_unconfirmed_state(chainstate, sortdb) {
+            warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+        }
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(result)

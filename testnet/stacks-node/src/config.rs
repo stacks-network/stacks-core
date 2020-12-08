@@ -352,6 +352,12 @@ impl Config {
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
+                    microblock_frequency: node
+                        .microblock_frequency
+                        .unwrap_or(default_node_config.microblock_frequency),
+                    max_microblocks: node
+                        .max_microblocks
+                        .unwrap_or(default_node_config.max_microblocks),
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
@@ -823,6 +829,8 @@ pub struct NodeConfig {
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
+    pub microblock_frequency: u64,
+    pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
@@ -858,6 +866,8 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
+            microblock_frequency: 5000,
+            max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 5000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
@@ -986,6 +996,8 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
+    pub microblock_frequency: Option<u64>,
+    pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,

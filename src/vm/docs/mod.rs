@@ -233,6 +233,17 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
+const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(log2 n)",
+    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    example: "(log2 u8) ;; Returns u3
+(log2 8) ;; Returns 3
+(log2 u1) ;; Returns u0
+(log2 1000) ;; Returns 9
+"
+};
+
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(xor i1 i2)",
@@ -1461,6 +1472,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
+        Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
         BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
@@ -1625,8 +1637,10 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
-        eval_all, execute, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
+        eval_all, execute,
+        types::PrincipalData,
+        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
+        Value,
     };
 
     struct DocHeadersDB {}
@@ -1717,7 +1731,7 @@ mod test {
         let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
-        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
 
         global_context
             .execute(|g| {
@@ -1767,17 +1781,19 @@ mod test {
         {
             let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+            let docs_principal_id = PrincipalData::Contract(docs_test_id);
             let mut env = OwnedEnvironment::new(conn);
             let balance = STXBalance::initial(1000);
-            env.execute_in_env(
+            env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
                 |e| {
-                    e.global_context.database.set_account_stx_balance(
-                        &QualifiedContractIdentifier::local("docs-test")
-                            .unwrap()
-                            .into(),
-                        &balance,
-                    );
+                    let mut snapshot = e
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                    snapshot.set_balance(balance);
+                    snapshot.save();
                     Ok(())
                 },
             )

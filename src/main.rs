@@ -479,7 +479,7 @@ fn main() {
 
         let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
         let all_stacks_blocks =
-            StacksChainState::get_all_staging_block_headers(&old_chainstate.blocks_db).unwrap();
+            StacksChainState::get_all_staging_block_headers(&old_chainstate.db()).unwrap();
 
         // order block hashes by arrival index
         let mut stacks_blocks_arrival_indexes = vec![];
@@ -540,15 +540,8 @@ fn main() {
             loop {
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
-                let (canonical_burn_tip, canonical_block_tip) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(p2p_new_sortition_db.conn())
-                        .expect("Failed to read canonical stacks chain tip");
-                let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                    &canonical_burn_tip,
-                    &canonical_block_tip,
-                );
                 p2p_chainstate
-                    .refresh_unconfirmed_state_readonly(canonical_tip)
+                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_conn())
                     .expect("Failed to open unconfirmed Clarity state");
 
                 sleep_ms(100);
@@ -680,8 +673,6 @@ fn main() {
                     }
                 }
             }
-
-            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db).unwrap();
         }
 
         eprintln!(
