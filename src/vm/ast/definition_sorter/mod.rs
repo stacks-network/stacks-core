@@ -261,7 +261,7 @@ impl<'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }
-                                NativeFunctions::TupleSet => {
+                                NativeFunctions::TupleMerge => {
                                     // Args: [expr, expr]: ignore key-name
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(&function_args[0], tle_index)?;

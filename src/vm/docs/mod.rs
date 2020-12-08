@@ -656,15 +656,15 @@ the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
 "
 };
 
-const TUPLE_SET_API: SpecialAPI = SpecialAPI {
+const TUPLE_MERGE_API: SpecialAPI = SpecialAPI {
     input_type: "tuple, tuple",
     output_type: "tuple",
-    signature: "(set tuple { key1: val1 })",
-    description: "The `set` function returns a new tuple with the combined fields, without mutating the supplied tuples.",
+    signature: "(merge tuple { key1: val1 })",
+    description: "The `merge` function returns a new tuple with the combined fields, without mutating the supplied tuples.",
     example: "(define-map users { id: int } { name: (string-ascii 12), address: (optional principal) })
 (map-insert users { id: 1337 } { name: \"john\", address: none }) ;; Returns true
 (let ((user (unwrap-panic (map-get? users { id: 1337 }))))
-    (set user { address: (some 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) })) ;; Returns (tuple (address (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)) (name \"john\"))"
+    (merge user { address: (some 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) })) ;; Returns (tuple (address (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)) (name \"john\"))"
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
@@ -1509,7 +1509,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         DeleteEntry => make_for_special(&DELETE_ENTRY_API, name),
         TupleCons => make_for_special(&TUPLE_CONS_API, name),
         TupleGet => make_for_special(&TUPLE_GET_API, name),
-        TupleSet => make_for_special(&TUPLE_SET_API, name),
+        TupleMerge => make_for_special(&TUPLE_MERGE_API, name),
         Begin => make_for_special(&BEGIN_API, name),
         Hash160 => make_for_special(&HASH160_API, name),
         Sha256 => make_for_special(&SHA256_API, name),
