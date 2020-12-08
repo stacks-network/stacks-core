@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 
 use std::convert::TryFrom;
 use vm::costs::cost_functions::ClarityCostFunction;

@@ -571,10 +571,10 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
-(map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+(map-get? names-map { name: \"blockstack\" }) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -588,9 +588,9 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
-(map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -605,10 +605,10 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
-(map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -619,11 +619,11 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns false
-(map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+(map-delete names-map (tuple (name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -648,7 +648,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
-    example: "(define-map names-map ((name (string-ascii 12))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
@@ -825,7 +825,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (define-private (get-name-or-err (name (string-ascii 12)))
   (let ((raw-name (unwrap! (map-get? names-map { name: name }) (err 1))))
@@ -845,7 +845,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (try! (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
@@ -869,7 +869,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
@@ -957,7 +957,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
@@ -1012,7 +1012,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
         "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
 (is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true",
@@ -1036,7 +1036,7 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
 (is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
@@ -1198,9 +1198,9 @@ field of type `int`.
 Like other kinds of definition statements, `define-map` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
-(define-map squares ((x int)) ((square int)))
+(define-map squares { x: int } { square: int })
 (define-private (add-entry (x int))
-  (map-insert squares ((x 2)) ((square (* x x)))))
+  (map-insert squares { x: 2 } { square: (* x x) }))
 (add-entry 1)
 (add-entry 2)
 (add-entry 3)

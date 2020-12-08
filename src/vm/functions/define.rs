@@ -98,7 +98,7 @@ pub enum DefineFunctionsParsed<'a> {
 pub enum DefineResult {
     Variable(ClarityName, Value),
     Function(ClarityName, DefinedFunction),
-    Map(ClarityName, TupleTypeSignature, TupleTypeSignature),
+    Map(ClarityName, TypeSignature, TypeSignature),
     PersistedVariable(ClarityName, TypeSignature, Value),
     FungibleToken(ClarityName, Option<u128>),
     NonFungibleAsset(ClarityName, TypeSignature),
@@ -227,8 +227,8 @@ fn handle_define_map(
 ) -> Result<DefineResult> {
     check_legal_define(&map_str, &env.contract_context)?;
 
-    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type, env)?;
-    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type, env)?;
+    let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
+    let value_type_signature = TypeSignature::parse_type_repr(value_type, env)?;
 
     Ok(DefineResult::Map(
         map_str.clone(),

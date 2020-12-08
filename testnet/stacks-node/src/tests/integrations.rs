@@ -34,13 +34,13 @@ use reqwest;
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
-          ((height uint))
-          ((stacks-hash (buff 32))
-           (id-hash (buff 32))
-           (btc-hash (buff 32))
-           (vrf-seed (buff 32))
-           (burn-block-time uint)
-           (stacks-miner principal)))
+          { height: uint }
+          { stacks-hash: (buff 32),
+            id-hash: (buff 32),
+            btc-hash: (buff 32),
+            vrf-seed: (buff 32),
+            burn-block-time: uint,
+            stacks-miner: principal })
         (define-private (test-1) (get-block-info? time u1))
         (define-private (test-2) (get-block-info? time block-height))
         (define-private (test-3) (get-block-info? time u100000))
@@ -54,7 +54,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-11) burn-block-height)
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
-          (get id-hash (map-get? block-data ((height height))))))
+          (get id-hash (map-get? block-data { height: height }))))
 
         ;; should always return true!
         ;;   evaluates 'block-height' at the block in question.
@@ -71,7 +71,7 @@ const GET_INFO_CONTRACT: &'static str = "
 
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
-                (block-info (unwrap-panic (map-get? block-data ((height (- height u1)))))))
+                (block-info (unwrap-panic (map-get? block-data { height: (- height u1) }))))
             (and (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? id-header-hash (- block-height u1)))))
                         (print (get id-hash block-info)))
                  (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? header-hash (- block-height u1)))))
@@ -98,7 +98,7 @@ const GET_INFO_CONTRACT: &'static str = "
               (vrf-seed (unwrap-panic (get-block-info? vrf-seed height)))
               (burn-block-time (unwrap-panic (get-block-info? time height)))
               (stacks-miner (unwrap-panic (get-block-info? miner-address height))))))
-             (ok (map-set block-data ((height height)) value))))
+             (ok (map-set block-data { height: height } value))))
 
         (define-public (update-info)
           (begin

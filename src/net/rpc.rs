@@ -2351,16 +2351,16 @@ mod test {
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)
-        (define-map unit-map ((account principal)) ((units int)))
+        (define-map unit-map { account: principal } { units: int })
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
           (begin 
-            (map-set unit-map ((account tx-sender)) ((units 1)) )
+            (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin
-          (map-set unit-map ((account 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R)) ((units 123))))";
+          (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
 
     fn convo_send_recv(
         sender: &mut ConversationHttp,

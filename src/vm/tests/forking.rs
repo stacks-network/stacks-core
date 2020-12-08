@@ -194,7 +194,7 @@ fn test_at_block_missing_defines() {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
 
-        let contract = "(define-map datum ((id bool)) ((value int)))
+        let contract = "(define-map datum { id: bool } { value: int })
 
              (define-public (flip)
                (let ((current (default-to (get value (map-get?! datum {id: true})) 0)))

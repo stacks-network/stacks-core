@@ -593,14 +593,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
 
-        let key_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list::<()>(key_type, &mut ())
-                .map_err(|_| CheckErrors::BadMapTypeDefinition)?,
-        );
-        let value_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list::<()>(value_type, &mut ())
-                .map_err(|_| CheckErrors::BadMapTypeDefinition)?,
-        );
+        let key_type = TypeSignature::parse_type_repr(key_type, &mut ())
+            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
+        let value_type = TypeSignature::parse_type_repr(value_type, &mut ())
+            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
 
         Ok((map_name.clone(), (key_type, value_type)))
     }

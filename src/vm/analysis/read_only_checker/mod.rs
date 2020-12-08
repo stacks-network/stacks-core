@@ -17,7 +17,6 @@
 use vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
@@ -155,25 +154,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(result)
     }
 
-    fn is_implicit_tuple_definition_read_only(
-        &mut self,
-        tuples: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
-        for tuple_expr in tuples.iter() {
-            let pair = tuple_expr
-                .match_list()
-                .ok_or(CheckErrors::TupleExpectsPairs)?;
-            if pair.len() != 2 {
-                return Err(CheckErrors::TupleExpectsPairs.into());
-            }
-
-            if !self.check_read_only(&pair[1])? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
     fn try_native_function_check(
         &mut self,
         function: &str,
@@ -213,14 +193,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FetchEntry => {
                 check_argument_count(2, args)?;
-
-                let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-                    Implicit(ref tuple_expr) => {
-                        self.is_implicit_tuple_definition_read_only(tuple_expr)
-                    }
-                    Explicit => self.check_all_read_only(args),
-                };
-                res
+                self.check_all_read_only(args)
             }
             StxTransfer | StxBurn | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
             | MintToken | TransferAsset | TransferToken => Ok(false),
