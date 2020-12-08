@@ -118,7 +118,7 @@ pub fn special_map(
 ) -> Result<Value> {
     check_arguments_at_least(2, args)?;
 
-    runtime_cost(ClarityCostFunction::Map, env, 0)?;
+    runtime_cost(ClarityCostFunction::Map, env, args.len())?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
