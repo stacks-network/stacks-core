@@ -65,7 +65,11 @@ pub fn check_special_map(
     // we will only lookup native or defined functions here.
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
-    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, args.len())?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisIterableFunc,
+        checker,
+        args.len(),
+    )?;
 
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
