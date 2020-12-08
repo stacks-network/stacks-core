@@ -1,12 +1,5 @@
-use std::fs::File;
 use std::io::prelude::*;
-use std::io::LineWriter;
-use std::io::Write;
-use std::{
-    convert::TryFrom,
-    io::{self, BufReader, Cursor},
-    time::SystemTime,
-};
+use std::io::{self, BufReader};
 
 use libflate::deflate;
 
@@ -14,8 +7,6 @@ use stacks::{
     burnchains::{bitcoin::address::BitcoinAddress, Address},
     chainstate::stacks::db::{AccountBalance, VestingSchedule},
     chainstate::stacks::StacksAddress,
-    util::hash::Sha256Sum,
-    vm::types::StandardPrincipalData,
 };
 
 pub fn read_balances() -> Box<dyn Iterator<Item = AccountBalance>> {
