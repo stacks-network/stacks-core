@@ -338,12 +338,10 @@ impl ContractInterfaceMap {
         map: &BTreeMap<ClarityName, (TypeSignature, TypeSignature)>,
     ) -> Vec<ContractInterfaceMap> {
         map.iter()
-            .map(|(name, (key_sig, val_sig))| {
-                ContractInterfaceMap {
-                    name: name.clone().into(),
-                    key: ContractInterfaceAtomType::from_type_signature(key_sig),
-                    value: ContractInterfaceAtomType::from_type_signature(val_sig),
-                }
+            .map(|(name, (key_sig, val_sig))| ContractInterfaceMap {
+                name: name.clone().into(),
+                key: ContractInterfaceAtomType::from_type_signature(key_sig),
+                value: ContractInterfaceAtomType::from_type_signature(val_sig),
             })
             .collect()
     }

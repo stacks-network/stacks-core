@@ -721,11 +721,7 @@ fn test_non_tuple_map_get_set() {
 
     assert_executes(expected(), test1);
 
-    let type_error_tests = [
-        test_value_too_big,
-        test_bad_value,
-        test_bad_key,
-    ];
+    let type_error_tests = [test_value_too_big, test_bad_value, test_bad_key];
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
@@ -774,4 +770,3 @@ fn test_non_tuple_map_kv_store() {
     let expected = Value::list_from(vec![Value::Int(0)]);
     assert_executes(expected, &test_get);
 }
-
