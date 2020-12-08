@@ -47,8 +47,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                    (map-set tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300))";
+         (begin (unwrap-panic (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000))
+                (unwrap-panic (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300)))";
 
 const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
@@ -301,51 +301,61 @@ fn test_names_tokens_contracts_interface() {
         "maps": [
             {
                 "name": "map1",
-                "key": [ {
-                    "name": "name",
-                    "type": "int128"
-                } ],
-                "value": [ {
-                    "name": "owner",
-                    "type": "principal"
-                } ]
+                "key": {
+                    "tuple": [{
+                        "name": "name",
+                        "type": "int128"
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "owner",
+                        "type": "principal"
+                    }]
+                }
             },
             {
                 "name": "map2",
-                "key": [ {
-                    "name": "k-name-1",
-                    "type": "bool"
-                } ],
-                "value": [ {
-                    "name": "v-name-1",
-                    "type": {
-                        "buffer": { "length": 33 }
-                    }
-                } ]
+                "key": {
+                    "tuple": [{
+                        "name": "k-name-1",
+                        "type": "bool"
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "v-name-1",
+                        "type": {
+                            "buffer": { "length": 33 }
+                        }
+                    }]
+                }
             },
             {
                 "name": "map3",
-                "key": [
-                    {
+                "key": {
+                    "tuple": [{
                         "name": "k-name-2",
                         "type": "bool"
-                    }
-                ],
-                "value": [ {
-                    "name": "v-name-2",
-                    "type": {
-                        "tuple": [
-                            {
-                                "name": "n1",
-                                "type": "int128"
-                            },
-                            {
-                                "name": "n2",
-                                "type": "bool"
-                            }
-                        ] }
-                    }
-                ]
+                    }]
+                },
+                "value": {
+                    "tuple": [{
+                        "name": "v-name-2",
+                        "type": {
+                            "tuple": [
+                                {
+                                    "name": "n1",
+                                    "type": "int128"
+                                },
+                                {
+                                    "name": "n2",
+                                    "type": "bool"
+                                }
+                            ] 
+                        }
+                    }]
+                }
             }
         ],
         "variables": [

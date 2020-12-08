@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 
 use address::c32;
 use util::hash;
-use vm::costs::{cost_functions, CostOverflowingMath};
+use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
 use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -938,7 +938,7 @@ impl TypeSignature {
         x: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TypeSignature> {
-        runtime_cost!(cost_functions::TYPE_PARSE_STEP, accounting, 0)?;
+        runtime_cost(ClarityCostFunction::TypeParseStep, accounting, 0)?;
 
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
@@ -1212,6 +1212,7 @@ impl TupleTypeSignature {
     }
 }
 
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::CostTracker;
 
 pub fn parse_name_type_pairs<A: CostTracker>(

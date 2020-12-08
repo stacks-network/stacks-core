@@ -2,9 +2,12 @@ use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::thread::sleep;
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -145,18 +148,15 @@ impl EventObserver {
     ) -> serde_json::Value {
         let tx = &receipt.transaction;
 
-        let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+        let success = match (receipt.post_condition_aborted, &receipt.result) {
             (false, Value::Response(response_data)) => {
-                let status = if response_data.committed {
+                if response_data.committed {
                     STATUS_RESP_TRUE
                 } else {
                     STATUS_RESP_NOT_COMMITTED
-                };
-                (status, response_data.data.clone())
+                }
             }
-            (true, Value::Response(response_data)) => {
-                (STATUS_RESP_POST_CONDITION, response_data.data.clone())
-            }
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => unreachable!(), // Transaction results should always be a Value::Response type
         };
 
@@ -164,19 +164,14 @@ impl EventObserver {
             TransactionOrigin::Burn(txid) => (txid.to_string(), "00".to_string()),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
-                let mut bytes = vec![];
-                tx.consensus_serialize(&mut bytes).unwrap();
-                let formatted_bytes: Vec<String> =
-                    bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                (txid, formatted_bytes.join(""))
+                let bytes = tx.serialize_to_vec();
+                (txid, bytes_to_hex(&bytes))
             }
         };
 
         let raw_result = {
-            let mut bytes = vec![];
-            result.consensus_serialize(&mut bytes).unwrap();
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            formatted_bytes
+            let bytes = receipt.result.serialize_to_vec();
+            bytes_to_hex(&bytes)
         };
         let contract_interface_json = {
             match &receipt.contract_analysis {
@@ -188,7 +183,7 @@ impl EventObserver {
             "txid": format!("0x{}", &txid),
             "tx_index": tx_index,
             "status": success,
-            "raw_result": format!("0x{}", raw_result.join("")),
+            "raw_result": format!("0x{}", &raw_result),
             "raw_tx": format!("0x{}", &raw_tx),
             "contract_abi": contract_interface_json,
         })
@@ -207,7 +202,7 @@ impl EventObserver {
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
-        boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
+        boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
     ) {
@@ -222,18 +217,10 @@ impl EventObserver {
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
             serialized_txs.push(payload);
             tx_index += 1;
-        }
-
-        if let Some(boot_receipts) = boot_receipts {
-            for receipt in boot_receipts.iter() {
-                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
-                serialized_txs.push(payload);
-                tx_index += 1;
-            }
         }
 
         // Wrap events
@@ -267,7 +254,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
-    boot_receipts: Vec<StacksTransactionReceipt>,
+    boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -320,7 +307,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
-            boot_receipts: vec![],
+            boot_receipts: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -374,12 +361,20 @@ impl EventDispatcher {
         let mut i: usize = 0;
 
         let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            Some(&self.boot_receipts)
+            let mut boot_receipts_result = self
+                .boot_receipts
+                .lock()
+                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
+            if let Some(val) = boot_receipts_result.take() {
+                val
+            } else {
+                vec![]
+            }
         } else {
-            None
+            vec![]
         };
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
@@ -447,8 +442,7 @@ impl EventDispatcher {
                         json!({
                             "recipient": reward.address.to_string(),
                             "coinbase_amount": reward.coinbase.to_string(),
-                            "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
-                            "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
+                            "tx_fees_anchored": reward.tx_fees_anchored.to_string(),
                             "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
                             "from_stacks_block_hash": format!("0x{}", &rewards_info.from_stacks_block_hash),
                             "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&rewards_info.from_block_consensus_hash,
@@ -472,7 +466,7 @@ impl EventDispatcher {
                     filtered_events,
                     chain_tip,
                     parent_index_hash,
-                    boot_receipts,
+                    &boot_receipts,
                     &winner_txid,
                     &mature_rewards,
                 );
@@ -503,7 +497,7 @@ impl EventDispatcher {
     }
 
     pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.boot_receipts = receipts;
+        self.boot_receipts = Arc::new(Mutex::new(Some(receipts)));
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(

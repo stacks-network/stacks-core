@@ -21,7 +21,9 @@ use vm::functions::tuples;
 
 use chainstate::stacks::StacksBlockId;
 use vm::callables::DefineType;
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
@@ -33,6 +35,7 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext};
 
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::functions::special::handle_contract_call_special_cases;
 
 pub fn special_contract_call(
@@ -45,7 +48,7 @@ pub fn special_contract_call(
     // the second part of the contract_call cost (i.e., the load contract cost)
     //   is checked in `execute_contract`, and the function _application_ cost
     //   is checked in callables::DefinedFunction::execute_apply.
-    runtime_cost!(cost_functions::CONTRACT_CALL, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
     let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let rest_args: Vec<_> = {
@@ -157,10 +160,16 @@ pub fn special_contract_call(
     let contract_principal = Value::Principal(PrincipalData::Contract(
         env.contract_context.contract_identifier.clone(),
     ));
-    let mut nested_env = env.nest_with_caller(contract_principal.clone());
 
+    let mut nested_env = env.nest_with_caller(contract_principal.clone());
     let result =
-        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)?;
+        if nested_env.short_circuit_contract_call(&contract_identifier, function_name, &[])? {
+            nested_env.run_free(|free_env| {
+                free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+            })
+        } else {
+            nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+        }?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
@@ -196,7 +205,11 @@ pub fn special_fetch_variable(
         .global_context
         .database
         .load_variable(contract, var_name)?;
-    runtime_cost!(cost_functions::FETCH_VAR, env, data_types.value_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::FetchVar,
+        env,
+        data_types.value_type.size(),
+    )?;
 
     env.global_context
         .database
@@ -227,7 +240,11 @@ pub fn special_set_variable(
         .global_context
         .database
         .load_variable(contract, var_name)?;
-    runtime_cost!(cost_functions::SET_VAR, env, data_types.value_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::SetVar,
+        env,
+        data_types.value_type.size(),
+    )?;
 
     env.add_memory(value.get_memory_use())?;
 
@@ -253,10 +270,10 @@ pub fn special_fetch_entry(
     //   in the contract object, so that it gets loaded in when the contract
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
-    runtime_cost!(
-        cost_functions::FETCH_ENTRY,
+    runtime_cost(
+        ClarityCostFunction::FetchEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.global_context
@@ -271,7 +288,7 @@ pub fn special_at_block(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::AT_BLOCK, env, 0)?;
+    runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
 
     let bhh = match eval(&args[0], env, &context)? {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
@@ -314,10 +331,10 @@ pub fn special_set_entry(
     //   in the contract object, so that it gets loaded in when the contract
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
-    runtime_cost!(
-        cost_functions::SET_ENTRY,
+    runtime_cost(
+        ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.add_memory(key.get_memory_use())?;
@@ -351,10 +368,10 @@ pub fn special_insert_entry(
     //   in the contract object, so that it gets loaded in when the contract
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
-    runtime_cost!(
-        cost_functions::SET_ENTRY,
+    runtime_cost(
+        ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size()
+        data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
     env.add_memory(key.get_memory_use())?;
@@ -386,7 +403,11 @@ pub fn special_delete_entry(
     //   in the contract object, so that it gets loaded in when the contract
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
-    runtime_cost!(cost_functions::SET_ENTRY, env, data_types.key_type.size())?;
+    runtime_cost(
+        ClarityCostFunction::SetEntry,
+        env,
+        data_types.key_type.size(),
+    )?;
 
     env.add_memory(key.get_memory_use())?;
 
@@ -401,7 +422,7 @@ pub fn special_get_block_info(
     context: &LocalContext,
 ) -> Result<Value> {
     // (get-block-info? property-name block-height-int)
-    runtime_cost!(cost_functions::BLOCK_INFO, env, 0)?;
+    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
 

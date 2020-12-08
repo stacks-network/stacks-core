@@ -220,11 +220,21 @@ macro_rules! make_arithmetic_ops {
                     Some(result) => Self::make_value(result),
                     None => {
                         return Err(RuntimeErrorType::Arithmetic(
-                            "sqrti must be passed a positive number".to_string(),
+                            "sqrti must be passed a positive integer".to_string(),
                         )
                         .into())
                     }
                 }
+            }
+            fn log2(n: $type) -> InterpreterResult<Value> {
+                if n < 1 {
+                    return Err(RuntimeErrorType::Arithmetic(
+                        "log2 must be passed a positive integer".to_string(),
+                    )
+                    .into());
+                }
+                let size = std::mem::size_of::<$type>() as u32;
+                Self::make_value((size * 8 - 1 - n.leading_zeros()) as $type)
             }
         }
     };
@@ -265,6 +275,9 @@ pub fn native_pow(a: Value, b: Value) -> InterpreterResult<Value> {
 }
 pub fn native_sqrti(n: Value) -> InterpreterResult<Value> {
     type_force_unary_arithmetic!(sqrti, n)
+}
+pub fn native_log2(n: Value) -> InterpreterResult<Value> {
+    type_force_unary_arithmetic!(log2, n)
 }
 pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)
