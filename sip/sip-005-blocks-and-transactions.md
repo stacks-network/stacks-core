@@ -811,7 +811,7 @@ microblcoks.  An anchored block is comprised of the following two fields:
 
 A _block header_ is encoded as follows:
 * A 1-byte **version number** to describe how to validate the block.
-* The **cumulative tunable proof score** for this block's fork, described below.
+* The **cumulative work score** for this block's fork, described below.
 * An 80-byte **VRF proof** which must match the burn commitment transaction on the burn
   chain (in particular, it must hash to its VRF seed), described below.
 * A 32-byte **parent block hash**, which must be the SHA512/256 hash of the last _anchored_ block
@@ -833,9 +833,10 @@ The _VRF proof_ field contains the following fields:
 * A 16-byte **c scalar**, an unsigned integer (encoded big-endian)
 * A 32-byte **s scalar**, an unsigned integer mod 2^255 - 19 (big-endian)
 
-The _cumulative tunable proof score_ contains the following two fields:
-* An 8-byte unsigned integer that encodes the sum of all burnchain tokens burned
-  in this fork of the Stacks blockchain.
+The _cumulative work score_ contains the following two fields:
+* An 8-byte unsigned integer that encodes the sum of all burnchain tokens
+  burned or transferred in this fork of the Stacks blockchain (i.e. by means of
+  proof-of-burn or proof-of-transfer, whichever is in effect).
 * An 8-byte unsigned integer that encodes the total proof-of-work done in this
   fork of the burn chain.
 
@@ -879,7 +880,7 @@ network, the peer must confirm that:
   transaction Merkle root.
 * The first transaction is a coinbase transaction.
 * The block version is supported.
-* The cumulative tunable proof score is equal to the sum of all tunable proof
+* The cumulative work score is equal to the sum of all work
   scores on this fork.
 * The block header's VRF proof hashes to the burn commitment transaction's VRF
   seed.  Note that this is the VRF seed produced by the burnchain block just before the
@@ -1030,9 +1031,7 @@ as 40% of the microblock transaction fees they produce, as well as 60% of the
 microblock transaction fees they validate by building upon. 
 
 Leaders do not receive their block rewards immediately.  Instead, they must
-mature for 100 Stacks epochs.  The block rewards are stored into a special smart
-contract in the chain's "boot code", which the leader can withdraw from once the
-rewards are matured.
+mature for 100 Stacks epochs before they become spendable.
 
 ### Calculating the Materialized View
 

@@ -49,7 +49,7 @@ use stacks::util::sleep_ms;
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
 #[cfg(test)]
-use stacks::chainstate::burn::Opcodes;
+use stacks::{burnchains::BurnchainHeaderHash, chainstate::burn::Opcodes};
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -780,7 +780,8 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_block_commit op - {}",
+            "Miner node: submitting leader_block_commit op for {} - {}",
+            &payload.block_header_hash,
             public_key.to_hex()
         );
 
@@ -1005,6 +1006,40 @@ impl BitcoinRegtestController {
             Ok(_) => {}
             Err(e) => {
                 error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
+        info!("Invalidating block {}", &block);
+        let request = BitcoinRPCRequest {
+            method: "invalidateblock".into(),
+            params: vec![json!(&block.to_string())],
+            id: "stacks-forker".into(),
+            jsonrpc: "2.0".into(),
+        };
+        if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
+            error!("Bitcoin RPC failure: error invalidating block {:?}", e);
+            panic!();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
+        let request = BitcoinRPCRequest {
+            method: "getblockhash".into(),
+            params: vec![json!(height)],
+            id: "stacks-forker".into(),
+            jsonrpc: "2.0".into(),
+        };
+        match BitcoinRPCRequest::send(&self.config, request) {
+            Ok(v) => {
+                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
+            }
+            Err(e) => {
+                error!("Bitcoin RPC failure: error invalidating block {:?}", e);
                 panic!();
             }
         }

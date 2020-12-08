@@ -136,6 +136,8 @@ impl StacksChainState {
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
         let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
+        let block_size_str = format!("{}", tip_info.anchored_block_size);
+
         let block_hash = header.block_hash();
 
         let index_block_hash =
@@ -164,6 +166,7 @@ impl StacksChainState {
             &(block_height as i64),
             &index_root,
             anchored_block_cost,
+            &block_size_str,
             parent_id,
         ];
 
@@ -188,8 +191,9 @@ impl StacksChainState {
                     block_height, \
                     index_root,
                     cost,
+                    block_size,
                     parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -203,37 +207,6 @@ impl StacksChainState {
         conn.query_row(qry, &[block], |row| row.get(0))
             .optional()
             .map_err(|e| Error::from(db_error::from(e)))
-    }
-
-    /// Insert a microblock header that is paired with an already-existing block header
-    pub fn insert_stacks_microblock_header<'a>(
-        tx: &mut StacksDBTx<'a>,
-        microblock_header: &StacksMicroblockHeader,
-        parent_block_hash: &BlockHeaderHash,
-        parent_consensus_hash: &ConsensusHash,
-        block_height: u64,
-        index_root: &TrieHash,
-    ) -> Result<(), Error> {
-        assert!(block_height < (i64::max_value() as u64));
-
-        let args: &[&dyn ToSql] = &[
-            &microblock_header.version,
-            &microblock_header.sequence,
-            &microblock_header.prev_block,
-            &microblock_header.tx_merkle_root,
-            &microblock_header.signature,
-            &microblock_header.block_hash(),
-            &parent_block_hash,
-            &parent_consensus_hash,
-            &(block_height as i64),
-            &index_root,
-        ];
-        tx.execute("INSERT OR REPLACE INTO microblock_headers \
-                    (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_consensus_hash, block_height, index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
     }
 
     pub fn is_stacks_block_processed(
@@ -336,5 +309,16 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[block_id];
         let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
         Ok(rows.pop())
+    }
+
+    /// Is this block present and processed?
+    pub fn has_stacks_block(conn: &Connection, block_id: &StacksBlockId) -> Result<bool, Error> {
+        let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[block_id];
+        Ok(conn
+            .query_row(sql, args, |_r| ())
+            .optional()
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
+            .is_some())
     }
 }

@@ -141,10 +141,11 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_conn();
+        let dbconn = self.state_index.sqlite_conn();
         self.clarity_state
             .eval_read_only(
                 &stacks_block_id,
-                self.headers_state_index.sqlite_conn(),
+                dbconn,
                 &iconn,
                 &boot_code_id(boot_contract_name),
                 code,
@@ -672,11 +673,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
-            )
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_account(clarity_tx, addr)
+                })
+                .unwrap()
         });
         account
     }
@@ -687,11 +688,11 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
-            chainstate.with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &stacks_block_id,
-                |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
-            )
+            chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                    StacksChainState::get_contract(clarity_tx, addr).unwrap()
+                })
+                .unwrap()
         });
         contract_opt
     }
@@ -965,7 +966,7 @@ pub mod test {
     ) -> StacksHeaderInfo {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
-            None => StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap(),
+            None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
             Some(block) => {
                 let ic = sortdb.index_conn();
                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -976,7 +977,7 @@ pub mod test {
                 .unwrap()
                 .unwrap(); // succeeds because we don't fork
                 StacksChainState::get_anchored_block_header_info(
-                    chainstate.headers_db(),
+                    chainstate.db(),
                     &snapshot.consensus_hash,
                     &snapshot.winning_stacks_block_hash,
                 )
@@ -1043,7 +1044,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1230,7 +1231,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1238,13 +1239,13 @@ pub mod test {
     }
 
     fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
-        let parent_block_id = StacksChainState::get_parent_block_id(state.headers_db(), block_id)
+        let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();
 
         let parent_header_info =
             StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                state.headers_db(),
+                state.db(),
                 &parent_block_id,
             )
             .unwrap()
@@ -1409,7 +1410,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -1607,7 +1608,7 @@ pub mod test {
                     // alice's tokens are locked for only one reward cycle
                     if cur_reward_cycle == alice_reward_cycle {
                         // this will grow as more miner rewards are unlocked, so be wary
-                        if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                        if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                             // height at which earliest miner rewards mature.
                             // miner rewards increased liquid supply, so less than 25% is locked.
                             // minimum participation decreases.
@@ -1874,7 +1875,7 @@ pub mod test {
 
                 if cur_reward_cycle >= first_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2272,7 +2273,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2563,7 +2564,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -3471,7 +3472,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);

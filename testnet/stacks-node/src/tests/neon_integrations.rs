@@ -12,7 +12,6 @@ use stacks::core;
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
@@ -28,6 +27,7 @@ use crate::{
 use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
 use stacks::util::hash::bytes_to_hex;
 use stacks::util::hash::Hash160;
+use stacks::util::sleep_ms;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -495,6 +495,110 @@ fn stx_transfer_btc_integration_test() {
 
 #[test]
 #[ignore]
+fn bitcoind_forking_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    assert_eq!(res.nonce, 7);
+
+    // okay, let's figure out the burn block we want to fork away.
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_regtest_controller.build_next_block(5);
+
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // the fork reduced our block height
+    assert_eq!(res.nonce, 2);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    // but we're able to keep on mining
+    assert_eq!(res.nonce, 3);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn microblock_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -511,6 +615,7 @@ fn microblock_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
 
     test_observer::spawn();
 
@@ -634,21 +739,24 @@ fn microblock_integration_test() {
     // put it into a microblock
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
+        let tip_hash =
+            StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
         let privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
             StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
-        // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
-        // block's cost (and it's not like we're going to overflow the block budget in this test).
+        chainstate
+            .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
+            .unwrap();
+
         make_microblock(
             &privk,
             &mut chainstate,
             &btc_regtest_controller.sortdb_ref().index_conn(),
             consensus_hash,
             stacks_block,
-            ExecutionCost::zero(),
             vec![unconfirmed_tx],
         )
     };
@@ -776,6 +884,79 @@ fn microblock_integration_test() {
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
 
+    // limited by chaining
+    for next_nonce in 2..5 {
+        // verify that the microblock miner can automatically pick up transactions
+        debug!(
+            "Try to send unconfirmed tx from {} to {}",
+            &spender_addr, &recipient
+        );
+        let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+            &spender_sk,
+            next_nonce,
+            1000,
+            &recipient.into(),
+            1000,
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(unconfirmed_tx_bytes.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // wait at least two p2p refreshes
+        // so it can produce the microblock
+        for i in 0..30 {
+            debug!(
+                "wait {} more seconds for microblock miner to find our transaction...",
+                30 - i
+            );
+            sleep_ms(1000);
+        }
+
+        // we can query _new_ unconfirmed state from the microblock we announced
+        let path = format!(
+            "{}/v2/accounts/{}?proof=0&tip={}",
+            &http_origin, &spender_addr, &tip_info.unanchored_tip
+        );
+        let res_text = client.get(&path).send().unwrap().text().unwrap();
+
+        eprintln!("text of {}\n{}", &path, &res_text);
+
+        let res = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<AccountEntryResponse>()
+            .unwrap();
+        eprintln!("{:?}", &path);
+        eprintln!("{:#?}", res);
+
+        // advanced!
+        assert_eq!(res.nonce, next_nonce + 1);
+        assert_eq!(
+            u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+            (96300 - 2000 * (next_nonce - 1)) as u128
+        );
+    }
+
     channel.stop_chains_coordinator();
 }
 
@@ -807,13 +988,16 @@ fn size_check_integration_test() {
             if ix % 2 == 0 {
                 make_contract_publish(spender_sk, 0, 1049230, "large-0", &giant_contract)
             } else {
-                make_contract_publish_microblock_only(
+                let tx = make_contract_publish_microblock_only(
                     spender_sk,
                     0,
                     1049230,
                     "large-0",
                     &giant_contract,
-                )
+                );
+                let parsed_tx = StacksTransaction::consensus_deserialize(&mut &tx[..]).unwrap();
+                debug!("Mine transaction {} in a microblock", &parsed_tx.txid());
+                tx
             }
         })
         .collect();
@@ -828,6 +1012,8 @@ fn size_check_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -844,7 +1030,11 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .unwrap();
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, None));
@@ -918,8 +1108,10 @@ fn size_check_integration_test() {
         }
     }
 
+    sleep_ms(60_000);
+
     // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _one_ transaction from the microblock
+    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
     //  be added),
     //  and _two_ transactions from the two anchor blocks that got mined (and processed)
@@ -928,7 +1120,7 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -955,8 +1147,13 @@ fn size_check_integration_test() {
         }
     }
 
+    eprintln!(
+        "anchor_block_txs: {}, micro_block_txs: {}",
+        anchor_block_txs, micro_block_txs
+    );
+
     assert_eq!(anchor_block_txs, 2);
-    assert_eq!(micro_block_txs, 1);
+    assert_eq!(micro_block_txs, 2);
 
     channel.stop_chains_coordinator();
 }

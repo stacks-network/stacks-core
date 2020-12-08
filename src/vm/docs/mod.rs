@@ -1637,8 +1637,10 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
-        eval_all, execute, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
+        eval_all, execute,
+        types::PrincipalData,
+        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
+        Value,
     };
 
     struct DocHeadersDB {}
@@ -1779,17 +1781,19 @@ mod test {
         {
             let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+            let docs_principal_id = PrincipalData::Contract(docs_test_id);
             let mut env = OwnedEnvironment::new(conn);
             let balance = STXBalance::initial(1000);
-            env.execute_in_env(
+            env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
                 |e| {
-                    e.global_context.database.set_account_stx_balance(
-                        &QualifiedContractIdentifier::local("docs-test")
-                            .unwrap()
-                            .into(),
-                        &balance,
-                    );
+                    let mut snapshot = e
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                    snapshot.set_balance(balance);
+                    snapshot.save();
                     Ok(())
                 },
             )
