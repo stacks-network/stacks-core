@@ -1,10 +1,10 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
 use std::thread::sleep;
 use std::time::Duration;
-use std::{cell::RefCell, collections::hash_map::Entry};
+use std::{collections::hash_map::Entry};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -251,7 +251,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
-    boot_receipts: RefCell<Option<Vec<StacksTransactionReceipt>>>,
+    boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -304,7 +304,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
-            boot_receipts: RefCell::new(None),
+            boot_receipts: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -358,7 +358,7 @@ impl EventDispatcher {
         let mut i: usize = 0;
 
         let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            let mut boot_receipts_result = self.boot_receipts.borrow_mut();
+            let mut boot_receipts_result = self.boot_receipts.lock().unwrap();
             if let Some(val) = boot_receipts_result.take() {
                 val
             } else {
@@ -491,7 +491,7 @@ impl EventDispatcher {
     }
 
     pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.boot_receipts = RefCell::new(Some(receipts));
+        self.boot_receipts = Arc::new(Mutex::new(Some(receipts)));
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(
