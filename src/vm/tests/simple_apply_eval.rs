@@ -40,7 +40,7 @@ fn test_doubly_defined_persisted_vars() {
         "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
         "(define-fungible-token cursor) (define-fungible-token cursor)",
         "(define-data-var cursor int 0) (define-data-var cursor int 0)",
-        "(define-map cursor ((cursor int)) ((place uint))) (define-map cursor ((cursor int)) ((place uint)))" ];
+        "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })" ];
     for p in tests.iter() {
         assert_eq!(
             vm_execute(p).unwrap_err(),
@@ -380,7 +380,7 @@ fn test_simple_if_functions() {
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
-            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
+            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .functions
@@ -477,6 +477,12 @@ fn test_simple_arithmetic_functions() {
         // from https://en.wikipedia.org/wiki/128-bit_computing
         "(sqrti 170141183460469231731687303715884105727)", // max i128
         "(sqrti u340282366920938463463374607431768211455)", // max u128
+        "(log2 u8)",
+        "(log2 u9)",
+        "(log2 8)",
+        "(log2 9)",
+        "(log2 170141183460469231731687303715884105727)", // max i128
+        "(log2 u340282366920938463463374607431768211455)", // max u128
         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
         "(+ (to-uint 127) u10)",
         "(to-int (- (pow u2 u127) u1))",
@@ -510,6 +516,12 @@ fn test_simple_arithmetic_functions() {
         Value::Int(8),
         Value::Int(13_043_817_825_332_782_212),
         Value::UInt(18_446_744_073_709_551_615),
+        Value::UInt(3),
+        Value::UInt(3),
+        Value::Int(3),
+        Value::Int(3),
+        Value::Int(126),
+        Value::UInt(127),
         Value::UInt(u128::max_value()),
         Value::UInt(137),
         Value::Int(i128::max_value()),
@@ -540,6 +552,9 @@ fn test_simple_arithmetic_errors() {
         "(sqrti)",
         "(sqrti 256 16)",
         "(sqrti -1)",
+        "(log2)",
+        "(log2 8 9)",
+        "(log2 -8)",
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
@@ -561,7 +576,10 @@ fn test_simple_arithmetic_errors() {
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::IncorrectArgumentCount(1, 0).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        RuntimeErrorType::Arithmetic("sqrti must be passed a positive number".to_string()).into(),
+        RuntimeErrorType::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         RuntimeErrorType::Arithmetic(
             "Power argument to (pow ...) must be a u32 integer".to_string(),

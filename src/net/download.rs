@@ -132,7 +132,8 @@ pub struct BlockRequestKey {
     pub consensus_hash: ConsensusHash,
     pub anchor_block_hash: BlockHeaderHash,
     pub index_block_hash: StacksBlockId,
-    pub child_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
+    pub parent_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
+    pub parent_consensus_hash: Option<ConsensusHash>,   // ditto
     pub sortition_height: u64,
     pub download_start: u64,
     pub kind: BlockRequestKeyKind,
@@ -145,7 +146,8 @@ impl BlockRequestKey {
         consensus_hash: ConsensusHash,
         anchor_block_hash: BlockHeaderHash,
         index_block_hash: StacksBlockId,
-        child_block_header: Option<StacksBlockHeader>,
+        parent_block_header: Option<StacksBlockHeader>,
+        parent_consensus_hash: Option<ConsensusHash>,
         sortition_height: u64,
         kind: BlockRequestKeyKind,
     ) -> BlockRequestKey {
@@ -155,7 +157,8 @@ impl BlockRequestKey {
             consensus_hash: consensus_hash,
             anchor_block_hash: anchor_block_hash,
             index_block_hash: index_block_hash,
-            child_block_header: child_block_header,
+            parent_block_header: parent_block_header,
+            parent_consensus_hash: parent_consensus_hash,
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
@@ -994,7 +997,7 @@ impl PeerNetwork {
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         if StacksChainState::has_stored_block(
-            &chainstate.blocks_db,
+            &chainstate.db(),
             &chainstate.blocks_path,
             consensus_hash,
             block_hash,
@@ -1007,11 +1010,8 @@ impl PeerNetwork {
                 &index_block_hash
             );
             return Ok(false);
-        } else if StacksChainState::has_staging_block(
-            &chainstate.blocks_db,
-            consensus_hash,
-            block_hash,
-        )? {
+        } else if StacksChainState::has_staging_block(&chainstate.db(), consensus_hash, block_hash)?
+        {
             test_debug!(
                 "{:?}: Block already stored (but not processed): {}/{} ({})",
                 _local_peer,
@@ -1098,7 +1098,9 @@ impl PeerNetwork {
                 }
             };
 
-            let mut child_block_header = None;
+            let mut parent_block_header_opt = None;
+            let mut parent_consensus_hash_opt = None;
+
             let index_block_hash =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
             if downloader.is_inflight(&index_block_hash, microblocks) {
@@ -1198,26 +1200,9 @@ impl PeerNetwork {
                 };
 
                 if let Some((parent_header, parent_consensus_hash)) = parent_header_opt {
-                    if StacksChainState::get_microblock_stream_head_hash(
-                        &chainstate.blocks_db,
-                        &parent_consensus_hash,
-                        &parent_header.block_hash(),
-                    )?
-                    .is_some()
-                    {
-                        // we already have the first block in the stream that descends from the parent, which indicates that we have already fetched this stream (but possibly out-of-order).
-                        // Verify this by checking that we also have the tail that connects to this anchored block.
-                        if StacksChainState::load_staging_microblock(
-                            &chainstate.blocks_db,
-                            &parent_consensus_hash,
-                            &parent_header.block_hash(),
-                            &block_header.parent_microblock,
-                        )?
-                        .is_some()
-                        {
-                            test_debug!("{:?}: Already have microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &consensus_hash, &block_hash, &parent_consensus_hash, &parent_header.block_hash());
-                            continue;
-                        }
+                    if chainstate.has_processed_microblocks(&index_block_hash)? {
+                        test_debug!("{:?}: Already have microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &consensus_hash, &block_hash, &parent_consensus_hash, &parent_header.block_hash());
+                        continue;
                     }
 
                     // ask for the microblocks _confirmed_ by this block (by asking for the
@@ -1226,8 +1211,8 @@ impl PeerNetwork {
                         Some(ref inv_state) => BlockDownloader::get_microblock_stream_availability(
                             inv_state,
                             sortdb,
-                            &parent_consensus_hash,
-                            &parent_header.block_hash(),
+                            &consensus_hash,
+                            &block_hash,
                         )?,
                         None => vec![],
                     };
@@ -1245,8 +1230,9 @@ impl PeerNetwork {
                         &block_hash
                     );
 
-                    child_block_header = Some(block_header);
-                    (parent_consensus_hash, parent_header.block_hash())
+                    parent_block_header_opt = Some(parent_header);
+                    parent_consensus_hash_opt = Some(parent_consensus_hash);
+                    (consensus_hash, block_hash)
                 } else {
                     // we don't have the block that produced this stream
                     test_debug!(
@@ -1334,7 +1320,8 @@ impl PeerNetwork {
                     target_consensus_hash.clone(),
                     target_block_hash.clone(),
                     target_index_block_hash.clone(),
-                    child_block_header.clone(),
+                    parent_block_header_opt.clone(),
+                    parent_consensus_hash_opt.clone(),
                     (i as u64) + start_sortition_height,
                     if microblocks {
                         BlockRequestKeyKind::ConfirmedMicroblockStream
@@ -1605,7 +1592,7 @@ impl PeerNetwork {
                             }
                         }
 
-                        debug!("{:?}: will request microblock stream produced by sortition {}: {}/{} ({})", 
+                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({})", 
                                &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash);
 
                         downloader
@@ -1949,7 +1936,10 @@ impl PeerNetwork {
                     .blocks_to_try
                     .remove(&request_key.sortition_height);
             }
-            for (request_key, microblock_stream) in downloader.microblocks.drain() {
+            for (request_key, mut microblock_stream) in downloader.microblocks.drain() {
+                // NOTE: microblock streams are served in reverse order, since they're forks
+                microblock_stream.reverse();
+
                 let block_header = StacksChainState::load_block_header(
                     &chainstate.blocks_path,
                     &request_key.consensus_hash,
@@ -1961,14 +1951,16 @@ impl PeerNetwork {
                 ));
 
                 assert!(
-                    request_key.child_block_header.is_some(),
+                    request_key.parent_block_header.is_some()
+                        && request_key.parent_consensus_hash.is_some(),
                     "BUG: requested a microblock but didn't set the child block header"
                 );
-                let child_block_header = request_key.child_block_header.unwrap();
+                let parent_block_header = request_key.parent_block_header.unwrap();
+                let parent_consensus_hash = request_key.parent_consensus_hash.unwrap();
 
                 if StacksChainState::validate_parent_microblock_stream(
+                    &parent_block_header,
                     &block_header,
-                    &child_block_header,
                     &microblock_stream,
                     true,
                 )
@@ -1976,13 +1968,13 @@ impl PeerNetwork {
                 {
                     // stream is valid!
                     debug!(
-                        "Downloaded valid microblock stream {}/{} at sortition height {}",
+                        "Downloaded valid microblock stream confirmed by {}/{} at sortition height {}",
                         &request_key.consensus_hash,
                         &request_key.anchor_block_hash,
                         request_key.sortition_height
                     );
                     microblocks.push((
-                        request_key.consensus_hash.clone(),
+                        parent_consensus_hash,
                         microblock_stream,
                         now.saturating_sub(request_key.download_start),
                     ));
@@ -1990,7 +1982,7 @@ impl PeerNetwork {
                 } else {
                     // stream is not well-formed
                     debug!(
-                        "Microblock stream {:?}: {}/{} is invalid",
+                        "Microblock stream {:?}: confirmed by {}/{} is invalid",
                         request_key.sortition_height,
                         &request_key.consensus_hash,
                         &request_key.anchor_block_hash
@@ -2315,15 +2307,23 @@ impl PeerNetwork {
 pub mod test {
     use super::*;
     use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::*;
+    use chainstate::stacks::miner::test::*;
     use chainstate::stacks::*;
     use net::codec::*;
     use net::inv::*;
     use net::relay::*;
     use net::test::*;
     use net::*;
+    use rand::Rng;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
+    use util::hash::*;
     use util::sleep_ms;
+    use util::strings::*;
     use util::test::*;
+    use vm::costs::ExecutionCost;
+    use vm::representations::*;
 
     fn get_peer_availability(
         peer: &mut TestPeer,
@@ -2712,8 +2712,9 @@ pub mod test {
                         ) {
                             if block_data[b].1.is_some() {
                                 test_debug!(
-                                    "Peer {} is missing block {} (between {} and {})",
+                                    "Peer {} is missing block {} at sortition height {} (between {} and {})",
                                     i,
+                                    b,
                                     (b as u64) + first_stacks_block_height - first_sortition_height,
                                     first_stacks_block_height - first_sortition_height,
                                     first_stacks_block_height - first_sortition_height
@@ -2723,7 +2724,7 @@ pub mod test {
                             }
                         }
                     }
-                    for b in 0..(num_blocks - 1) {
+                    for b in 1..(num_blocks - 1) {
                         if !peer_invs[i].has_ith_microblock_stream(
                             ((b as u64) + first_stacks_block_height - first_sortition_height)
                                 as u16,
@@ -2887,7 +2888,6 @@ pub mod test {
         })
     }
 
-    // TODO: hint on PoX inv change to advance downloader?
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_5_peers_star() {
@@ -3205,7 +3205,6 @@ pub mod test {
     #[ignore]
     #[should_panic(expected = "blocked URL")]
     pub fn test_get_blocks_and_microblocks_ban_url() {
-        use std::convert::TryFrom;
         use std::net::TcpListener;
         use std::thread;
 
@@ -3292,5 +3291,231 @@ pub mod test {
 
         endpoint_thread_1.join().unwrap();
         endpoint_thread_2.join().unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_descendants() {
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks(
+                "test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_descendants",
+                3260,
+                2,
+                |ref mut peer_configs| {
+                    // build initial network topology
+                    assert_eq!(peer_configs.len(), 2);
+
+                    peer_configs[0].connection_opts.disable_block_advertisement = true;
+                    peer_configs[1].connection_opts.disable_block_advertisement = true;
+
+                    let peer_0 = peer_configs[0].to_neighbor();
+                    let peer_1 = peer_configs[1].to_neighbor();
+                    peer_configs[0].add_neighbor(&peer_1);
+                    peer_configs[1].add_neighbor(&peer_0);
+                },
+                |num_blocks, ref mut peers| {
+                    // build up block data to replicate.
+                    // chainstate looks like this:
+                    //
+                    // [tenure-1] <- [mblock] <- [mblock] <- [mblock] <- [mblock] <- ...
+                    //             \           \           \           \
+                    //              \           \           \           \
+                    //               [tenure-2]  [tenure-3]  [tenure-4]  [tenure-5]  ...
+                    //
+                    let mut block_data = vec![];
+                    let mut microblock_stream = vec![];
+                    let mut first_block_height = 0;
+                    for i in 0..num_blocks {
+                        if i == 0 {
+                            let (mut burn_ops, stacks_block, mut microblocks) =
+                                peers[1].make_default_tenure();
+
+                            // extend to 10 microblocks
+                            while microblocks.len() != num_blocks {
+                                let next_microblock_payload =
+                                    TransactionPayload::SmartContract(TransactionSmartContract {
+                                        name: ContractName::try_from(format!(
+                                            "hello-world-{}",
+                                            thread_rng().gen::<u64>()
+                                        ))
+                                        .expect("FATAL: valid name"),
+                                        code_body: StacksString::from_str(
+                                            "(begin (print \"hello world\"))",
+                                        )
+                                        .expect("FATAL: valid code"),
+                                    });
+                                let mut mblock = microblocks.last().unwrap().clone();
+                                let last_nonce = mblock
+                                    .txs
+                                    .last()
+                                    .as_ref()
+                                    .unwrap()
+                                    .auth()
+                                    .get_origin_nonce();
+                                let prev_block = mblock.block_hash();
+
+                                let signed_tx = sign_standard_singlesig_tx(
+                                    next_microblock_payload,
+                                    &peers[1].miner.privks[0],
+                                    last_nonce + 1,
+                                    0,
+                                );
+                                let txids = vec![signed_tx.txid().as_bytes().to_vec()];
+                                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
+                                let tx_merkle_root = merkle_tree.root();
+
+                                mblock.txs = vec![signed_tx];
+                                mblock.header.tx_merkle_root = tx_merkle_root;
+                                mblock.header.prev_block = prev_block;
+                                mblock.header.sequence += 1;
+                                mblock
+                                    .header
+                                    .sign(peers[1].miner.microblock_privks.last().as_ref().unwrap())
+                                    .unwrap();
+
+                                microblocks.push(mblock);
+                            }
+
+                            let (_, burn_header_hash, consensus_hash) =
+                                peers[1].next_burnchain_block(burn_ops.clone());
+
+                            peers[1].process_stacks_epoch(
+                                &stacks_block,
+                                &consensus_hash,
+                                &microblocks,
+                            );
+
+                            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                            peers[0].next_burnchain_block_raw(burn_ops);
+
+                            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                                &peers[1].sortdb.as_ref().unwrap().conn(),
+                            )
+                            .unwrap();
+
+                            microblock_stream = microblocks.clone();
+                            first_block_height = sn.block_height as u32;
+
+                            block_data.push((
+                                sn.consensus_hash.clone(),
+                                Some(stacks_block),
+                                Some(microblocks),
+                            ));
+                        } else {
+                            test_debug!("Build child block {}", i);
+                            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                                &peers[1].sortdb.as_ref().unwrap().conn(),
+                            )
+                            .unwrap();
+
+                            let chainstate_path = peers[1].chainstate_path.clone();
+
+                            let (mut burn_ops, stacks_block, _) = peers[1].make_tenure(
+                                |ref mut miner,
+                                 ref mut sortdb,
+                                 ref mut chainstate,
+                                 vrf_proof,
+                                 ref parent_opt,
+                                 ref parent_microblock_header_opt| {
+                                    let mut parent_tip =
+                                        StacksChainState::get_anchored_block_header_info(
+                                            chainstate.db(),
+                                            &block_data[0].0,
+                                            &block_data[0].1.as_ref().unwrap().block_hash(),
+                                        )
+                                        .unwrap()
+                                        .unwrap();
+
+                                    parent_tip.microblock_tail =
+                                        Some(microblock_stream[i - 1].header.clone());
+
+                                    let mempool =
+                                        MemPoolDB::open(false, 0x80000000, &chainstate_path)
+                                            .unwrap();
+                                    let coinbase_tx =
+                                        make_coinbase_with_nonce(miner, i, (i + 2) as u64);
+
+                                    let (anchored_block, block_size, block_execution_cost) =
+                                        StacksBlockBuilder::build_anchored_block(
+                                            chainstate,
+                                            &sortdb.index_conn(),
+                                            &mempool,
+                                            &parent_tip,
+                                            parent_tip.anchored_header.total_work.burn + 1000,
+                                            vrf_proof,
+                                            Hash160([i as u8; 20]),
+                                            &coinbase_tx,
+                                            ExecutionCost::max_value(),
+                                        )
+                                        .unwrap();
+                                    (anchored_block, vec![])
+                                },
+                            );
+
+                            for burn_op in burn_ops.iter_mut() {
+                                if let BlockstackOperationType::LeaderBlockCommit(ref mut op) =
+                                    burn_op
+                                {
+                                    op.parent_block_ptr = first_block_height;
+                                    op.block_header_hash = stacks_block.block_hash();
+                                }
+                            }
+
+                            let (_, burn_header_hash, consensus_hash) =
+                                peers[1].next_burnchain_block(burn_ops.clone());
+
+                            peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &vec![]);
+
+                            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                            peers[0].next_burnchain_block_raw(burn_ops);
+
+                            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                                &peers[1].sortdb.as_ref().unwrap().conn(),
+                            )
+                            .unwrap();
+
+                            block_data.push((
+                                sn.consensus_hash.clone(),
+                                Some(stacks_block),
+                                Some(vec![]),
+                            ));
+                        }
+                    }
+                    block_data
+                },
+                |_| {},
+                |peer| {
+                    // check peer health
+                    // nothing should break
+                    match peer.network.block_downloader {
+                        Some(ref dl) => {
+                            assert_eq!(dl.broken_peers.len(), 0);
+                            assert_eq!(dl.dead_peers.len(), 0);
+                        }
+                        None => {}
+                    }
+
+                    // no block advertisements (should be disabled)
+                    let _ = peer.for_each_convo_p2p(|event_id, convo| {
+                        let cnt = *(convo
+                            .stats
+                            .msg_rx_counts
+                            .get(&StacksMessageID::BlocksAvailable)
+                            .unwrap_or(&0));
+                        assert_eq!(
+                            cnt, 0,
+                            "neighbor event={} got {} BlocksAvailable messages",
+                            event_id, cnt
+                        );
+                        Ok(())
+                    });
+
+                    true
+                },
+                |_| true,
+            );
+        })
     }
 }

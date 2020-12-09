@@ -1,4 +1,4 @@
-(define-map tokens ((account principal)) ((balance uint)))
+(define-map tokens { account: principal } { balance: uint })
 (define-private (get-balance (account principal))
   (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
 

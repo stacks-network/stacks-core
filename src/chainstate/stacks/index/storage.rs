@@ -719,6 +719,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         &self.db
     }
 
+    pub fn sqlite_tx<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+        tx_begin_immediate(&mut self.db)
+    }
+
     fn open_opts(
         db_path: &str,
         readonly: bool,
@@ -923,9 +927,6 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // Runs once -- subsequent calls are no-ops.
         // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
         // fails).
-        // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
-        // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
-        // reordered.
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
@@ -1133,6 +1134,17 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     pub fn sqlite_tx(&self) -> &Transaction<'a> {
         match &self.0.db {
             SqliteConnection::Tx(ref tx) => tx,
+            SqliteConnection::ConnRef(_) => {
+                unreachable!(
+                    "BUG: Constructed TrieStorageTransaction with a bare sqlite connection ref."
+                );
+            }
+        }
+    }
+
+    pub fn sqlite_tx_mut(&mut self) -> &mut Transaction<'a> {
+        match &mut self.0.db {
+            SqliteConnection::Tx(ref mut tx) => tx,
             SqliteConnection::ConnRef(_) => {
                 unreachable!(
                     "BUG: Constructed TrieStorageTransaction with a bare sqlite connection ref."
@@ -1357,7 +1369,11 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // opening a different Trie than the one we're extending
-        self.data.cur_block_id = Some(trie_sql::get_block_identifier(&self.db, bhh)?);
+        self.data.cur_block_id =
+            Some(trie_sql::get_block_identifier(&self.db, bhh).map_err(|e| {
+                warn!("Failed to load identifier for block {}", &bhh);
+                e
+            })?);
         self.data.cur_block = bhh.clone();
 
         Ok(())

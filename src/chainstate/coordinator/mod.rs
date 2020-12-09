@@ -212,7 +212,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
         let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-            chainstate.headers_db(),
+            chainstate.db(),
             block_id,
         )?
         .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
@@ -287,8 +287,19 @@ impl<'a, T: BlockEventDispatcher>
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    if let Err(e) = inst.handle_new_stacks_block() {
-                        warn!("Error processing new stacks block: {:?}", e);
+                    match comms.kludgy_clarity_db_lock() {
+                        Ok(_) => {
+                            if let Err(e) = inst.handle_new_stacks_block() {
+                                warn!("Error processing new stacks block: {:?}", e);
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}",
+                                &e
+                            );
+                            panic!();
+                        }
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
@@ -404,7 +415,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.headers_db(),
+                &chain_state.db(),
                 &consensus_hash,
                 &stacks_block_hash,
             )?;
@@ -479,22 +490,20 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
-
-        // Retrieve canonical pox id (<=> reward cycle id)
-        let mut canonical_sortition_tip = self
-            .canonical_sortition_tip
-            .clone()
-            .expect("FAIL: no canonical sortition tip");
+        debug!("Handle new canonical burnchain tip";
+               "height" => %canonical_burnchain_tip.block_height,
+               "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
         let mut sortitions_to_process = VecDeque::new();
 
         // We halt the ancestry research as soon as we find a processed parent
-        while !(self
-            .sortition_db
-            .is_sortition_processed(&cursor, &canonical_sortition_tip)?)
-        {
+        let mut last_processed_ancestor = loop {
+            if let Some(found_sortition) = self.sortition_db.is_sortition_processed(&cursor)? {
+                break found_sortition;
+            }
+
             let current_block = self
                 .burnchain_blocks_db
                 .get_burnchain_block(&cursor)
@@ -509,20 +518,24 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             let parent = current_block.header.parent_block_hash.clone();
             sortitions_to_process.push_front(current_block);
             cursor = parent;
-        }
+        };
 
-        for unprocessed_block in sortitions_to_process.drain(..) {
+        let burn_header_hashes: Vec<_> = sortitions_to_process
+            .iter()
+            .map(|block| block.header.block_hash.to_string())
+            .collect();
+
+        debug!(
+            "Unprocessed burn chain blocks [{}]",
+            burn_header_hashes.join(", ")
+        );
+
+        for unprocessed_block in sortitions_to_process.into_iter() {
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
             if let Some(dispatcher) = self.dispatcher {
                 dispatcher_announce_burn_ops(dispatcher, &header, &ops);
             }
-
-            let sortition_tip_snapshot = SortitionDB::get_block_snapshot(
-                self.sortition_db.conn(),
-                &canonical_sortition_tip,
-            )?
-            .expect("BUG: no data for sortition");
 
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
@@ -533,7 +546,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     &header,
                     ops,
                     &self.burnchain,
-                    &canonical_sortition_tip,
+                    &last_processed_ancestor,
                     reward_cycle_info,
                 )
                 .map_err(|e| {
@@ -547,15 +560,17 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             self.notifier.notify_sortition_processed();
 
             debug!(
-                "Sortition processed: {} (tip {} height {})",
-                &sortition_id, &next_snapshot.burn_header_hash, next_snapshot.block_height
+                "Sortition processed";
+                "sortition_id" => &sortition_id.to_string(),
+                "burn_header_hash" => &next_snapshot.burn_header_hash.to_string(),
+                "burn_height" => next_snapshot.block_height
             );
 
-            if sortition_tip_snapshot.block_height < header.block_height {
-                // bump canonical sortition...
-                self.canonical_sortition_tip = Some(sortition_id.clone());
-                canonical_sortition_tip = sortition_id;
-            }
+            // always bump canonical sortition tip:
+            //   if this code path is invoked, the canonical burnchain tip
+            //   has moved, so we should move our canonical sortition tip as well.
+            self.canonical_sortition_tip = Some(sortition_id.clone());
+            last_processed_ancestor = sortition_id;
 
             if let Some(pox_anchor) = self.process_ready_blocks()? {
                 return self.process_new_pox_anchor(pox_anchor);

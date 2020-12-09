@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use core::*;
@@ -45,56 +45,37 @@ pub struct UnconfirmedState {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
     pub clarity_inst: ClarityInstance,
+    pub mined_txs: HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>,
+    pub cost_so_far: ExecutionCost,
+    pub bytes_so_far: u64,
 
-    last_mblock: Option<BlockHeaderHash>,
-    last_mblock_seq: u16,
+    pub last_mblock: Option<StacksMicroblockHeader>,
+    pub last_mblock_seq: u16,
+
+    dirty: bool,
 }
 
 impl UnconfirmedState {
-    pub fn new(
-        chainstate: &StacksChainState,
-        tip: StacksBlockId,
-        cost_so_far: ExecutionCost,
-    ) -> Result<UnconfirmedState, Error> {
+    /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
+    /// call .refresh() to instatiate and store the underlying state trie.
+    fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let mut microblock_budget = chainstate.block_limit.clone();
-        microblock_budget.sub(&cost_so_far).map_err(|_e| {
-            Error::CostOverflowError(
-                chainstate.block_limit.clone(),
-                cost_so_far.clone(),
-                cost_so_far.clone(),
-            )
-        })?;
-
-        let clarity_instance = ClarityInstance::new(marf, microblock_budget);
+        let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
+            mined_txs: HashMap::new(),
+            cost_so_far: ExecutionCost::zero(),
+            bytes_so_far: 0,
 
             last_mblock: None,
             last_mblock_seq: 0,
-        })
-    }
 
-    pub fn open_readonly(
-        chainstate: &StacksChainState,
-        tip: StacksBlockId,
-    ) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
-        let clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
-        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-
-        Ok(UnconfirmedState {
-            confirmed_chain_tip: tip,
-            unconfirmed_chain_tip: unconfirmed_tip,
-            clarity_inst: clarity_instance,
-
-            last_mblock: None,
-            last_mblock_seq: u16::max_value(),
+            dirty: false,
         })
     }
 
@@ -127,11 +108,14 @@ impl UnconfirmedState {
         let mut total_fees = 0;
         let mut total_burns = 0;
         let mut all_receipts = vec![];
+        let mut mined_txs = HashMap::new();
+        let new_cost;
+        let mut new_bytes = 0;
 
         {
-            let mut clarity_tx = StacksChainState::begin_unconfirmed(
+            let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                chainstate.headers_db(),
+                chainstate.db(),
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
@@ -141,16 +125,27 @@ impl UnconfirmedState {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq)
                     || (last_mblock.is_none() && mblock.header.sequence != 0)
                 {
+                    debug!(
+                        "Skip {} at {} (already represented)",
+                        &mblock.block_hash(),
+                        mblock.header.sequence
+                    );
                     continue;
                 }
 
                 let seq = mblock.header.sequence;
                 let mblock_hash = mblock.block_hash();
+                let mblock_header = mblock.header.clone();
+
+                debug!(
+                    "Apply microblock {} ({}) to unconfirmed state",
+                    &mblock_hash, mblock.header.sequence
+                );
 
                 let (stx_fees, stx_burns, mut receipts) =
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
-                        &vec![mblock],
+                        &vec![mblock.clone()],
                     ) {
                         Ok(x) => x,
                         Err((Error::InvalidStacksMicroblock(msg, _), hdr)) => {
@@ -166,15 +161,36 @@ impl UnconfirmedState {
                 total_burns += stx_burns;
                 all_receipts.append(&mut receipts);
 
-                last_mblock = Some(mblock_hash);
+                last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
+                new_bytes = {
+                    let mut total = 0;
+                    for tx in mblock.txs.iter() {
+                        let mut bytes = vec![];
+                        tx.consensus_serialize(&mut bytes)
+                            .expect("BUG: failed to serialize valid microblock");
+                        total += bytes.len();
+                    }
+                    total as u64
+                };
+
+                for tx in &mblock.txs {
+                    mined_txs.insert(
+                        tx.txid(),
+                        (tx.clone(), mblock.block_hash(), mblock.header.sequence),
+                    );
+                }
             }
 
+            new_cost = clarity_tx.cost_so_far();
             clarity_tx.commit_unconfirmed();
         };
 
         self.last_mblock = last_mblock;
         self.last_mblock_seq = last_mblock_seq;
+        self.mined_txs.extend(mined_txs);
+        self.cost_so_far = new_cost;
+        self.bytes_so_far += new_bytes;
 
         Ok((total_fees, total_burns, all_receipts))
     }
@@ -192,11 +208,10 @@ impl UnconfirmedState {
                 }
             };
 
-        StacksChainState::load_staging_microblock_stream(
-            &chainstate.blocks_db,
-            &chainstate.blocks_path,
-            &consensus_hash,
-            &anchored_block_hash,
+        StacksChainState::load_descendant_staging_microblock_stream(
+            &chainstate.db(),
+            &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
+            0,
             u16::max_value(),
         )
     }
@@ -217,16 +232,54 @@ impl UnconfirmedState {
             None => Ok((0, 0, vec![])),
         }
     }
+
+    /// Is there any state to read?
+    pub fn is_readable(&self) -> bool {
+        self.has_data() && !self.dirty
+    }
+
+    /// Can we write to this unconfirmed state?
+    pub fn is_writable(&self) -> bool {
+        !self.dirty
+    }
+
+    /// Mark this unconfirmed state as "dirty", forcing it to be re-instantiated on the next read
+    /// or write
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+    }
+
+    /// Does the unconfirmed state represent any data?
+    fn has_data(&self) -> bool {
+        self.last_mblock.is_some()
+    }
+
+    /// Get information about an unconfirmed transaction
+    pub fn get_unconfirmed_transaction(
+        &self,
+        txid: &Txid,
+    ) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
+        self.mined_txs.get(txid).map(|x| x.clone())
+    }
 }
 
 impl StacksChainState {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
+        if !unconfirmed.has_data() {
+            debug!(
+                "Dropping empty unconfirmed state off of {} ({})",
+                &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
+            );
+            return;
+        }
+
+        // not empty, so do explicit rollback
         debug!(
-            "Drop unconfirmed state off of {}",
-            &unconfirmed.confirmed_chain_tip
+            "Dropping unconfirmed state off of {} ({})",
+            &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
-        let clarity_tx = StacksChainState::begin_unconfirmed(
+        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
             self.config(),
             &NULL_HEADER_DB,
             &mut unconfirmed.clarity_inst,
@@ -234,6 +287,10 @@ impl StacksChainState {
             &unconfirmed.confirmed_chain_tip,
         );
         clarity_tx.rollback_unconfirmed();
+        debug!(
+            "Dropped unconfirmed state off of {} ({})",
+            &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
+        );
     }
 
     /// Instantiate the unconfirmed state of a given chain tip.
@@ -242,11 +299,14 @@ impl StacksChainState {
         &self,
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
-        anchored_block_cost: ExecutionCost,
     ) -> Result<(UnconfirmedState, u128, u128, Vec<StacksTransactionReceipt>), Error> {
-        let mut unconfirmed_state =
-            UnconfirmedState::new(self, anchored_block_id, anchored_block_cost)?;
+        debug!("Make new unconfirmed state off of {}", &anchored_block_id);
+        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
+        debug!(
+            "Made new unconfirmed state off of {} (at {})",
+            &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip
+        );
         Ok((unconfirmed_state, fees, burns, receipts))
     }
 
@@ -263,28 +323,42 @@ impl StacksChainState {
         debug!("Reload unconfirmed state off of {}", &canonical_tip);
 
         let unconfirmed_state = self.unconfirmed_state.take();
-
         if let Some(mut unconfirmed_state) = unconfirmed_state {
-            if canonical_tip == unconfirmed_state.confirmed_chain_tip {
-                // refresh with latest microblocks
-                let res = unconfirmed_state.refresh(self, burn_dbconn);
-                self.unconfirmed_state = Some(unconfirmed_state);
-                return res;
+            if unconfirmed_state.is_readable() {
+                if canonical_tip == unconfirmed_state.confirmed_chain_tip {
+                    // refresh with latest microblocks
+                    let res = unconfirmed_state.refresh(self, burn_dbconn);
+                    debug!(
+                        "Unconfirmed state off of {} ({}) refreshed",
+                        canonical_tip, &unconfirmed_state.unconfirmed_chain_tip
+                    );
+
+                    self.unconfirmed_state = Some(unconfirmed_state);
+                    return res;
+                } else {
+                    // got a new tip; will imminently drop
+                    self.unconfirmed_state = Some(unconfirmed_state);
+                }
             } else {
-                self.unconfirmed_state = Some(unconfirmed_state);
+                // will need to drop this anyway -- it's dirty, or not instantiated
+                self.drop_unconfirmed_state(unconfirmed_state);
             }
         }
 
-        let block_cost =
-            StacksChainState::get_stacks_block_anchored_cost(self.headers_db(), &canonical_tip)?
-                .ok_or_else(|| Error::NoSuchBlockError)?;
-
-        // tip changed, or we don't have unconfirmed state yet
-        let (new_unconfirmed_state, fees, burns, receipts) =
-            self.make_unconfirmed_state(burn_dbconn, canonical_tip, block_cost)?;
+        // tip changed, or we don't have unconfirmed state yet, or we do and it's dirty, or it was
+        // never instantiated anyway
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
+
+        let (new_unconfirmed_state, fees, burns, receipts) =
+            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
+
+        debug!(
+            "Unconfirmed state off of {} reloaded (new unconfirmed tip is {})",
+            canonical_tip, &new_unconfirmed_state.unconfirmed_chain_tip
+        );
+
         self.unconfirmed_state = Some(new_unconfirmed_state);
         Ok((fees, burns, receipts))
     }
@@ -296,11 +370,23 @@ impl StacksChainState {
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut unconfirmed_state = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state {
+            if !unconfirmed_state.is_readable() {
+                warn!("Unconfirmed state is not readable; it will soon be refreshed");
+                return Ok((0, 0, vec![]));
+            }
+
             debug!(
-                "Refresh unconfirmed state off of {}",
-                &unconfirmed_state.confirmed_chain_tip
+                "Refresh unconfirmed state off of {} ({})",
+                &unconfirmed_state.confirmed_chain_tip, &unconfirmed_state.unconfirmed_chain_tip
             );
-            unconfirmed_state.refresh(self, burn_dbconn)
+            let res = unconfirmed_state.refresh(self, burn_dbconn);
+            if res.is_ok() {
+                debug!(
+                    "Unconfirmed chain tip is {}",
+                    &unconfirmed_state.unconfirmed_chain_tip
+                );
+            }
+            res
         } else {
             warn!("No unconfirmed state instantiated");
             Ok((0, 0, vec![]))
@@ -309,32 +395,9 @@ impl StacksChainState {
         res
     }
 
-    /// Refresh the current unconfirmed state in a read-only fashion -- just make sure it's
-    /// pointing to the given stacks block ID.
-    /// Don't apply any new microblocks.
-    pub fn refresh_unconfirmed_state_readonly(
-        &mut self,
-        canonical_tip: StacksBlockId,
-    ) -> Result<(), Error> {
-        debug!(
-            "Refresh read-only unconfirmed state off of {}",
-            &canonical_tip
-        );
-
-        let unconfirmed_state_opt = self.unconfirmed_state.take();
-        if let Some(unconfirmed_state) = unconfirmed_state_opt {
-            if unconfirmed_state.confirmed_chain_tip == canonical_tip {
-                self.unconfirmed_state = Some(unconfirmed_state);
-                Ok(())
-            } else {
-                let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-                self.unconfirmed_state = Some(new_unconfirmed_state);
-                Ok(())
-            }
-        } else {
-            let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
-            self.unconfirmed_state = Some(new_unconfirmed_state);
-            Ok(())
+    pub fn set_unconfirmed_dirty(&mut self, dirty: bool) {
+        if let Some(ref mut unconfirmed) = self.unconfirmed_state.as_mut() {
+            unconfirmed.dirty = dirty;
         }
     }
 }
@@ -425,8 +488,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.headers_db())
-                            .unwrap(),
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -438,7 +500,7 @@ mod test {
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
                             StacksChainState::get_anchored_block_header_info(
-                                chainstate.headers_db(),
+                                chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
                             )
@@ -475,6 +537,11 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+            );
+
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
@@ -482,14 +549,17 @@ mod test {
             let microblocks = {
                 let sortdb = peer.sortdb.take().unwrap();
                 let sort_iconn = sortdb.index_conn();
+
+                peer.chainstate()
+                    .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
+                    .unwrap();
+
                 let microblock = {
                     let mut microblock_builder = StacksMicroblockBuilder::new(
                         stacks_block.block_hash(),
                         consensus_hash.clone(),
                         peer.chainstate(),
                         &sort_iconn,
-                        anchor_cost.clone(),
-                        anchor_size,
                     )
                     .unwrap();
 
@@ -519,16 +589,15 @@ mod test {
                     signer.sign_origin(&privk).unwrap();
 
                     let signed_tx = signer.get_tx().unwrap();
+                    let signed_tx_len = {
+                        let mut bytes = vec![];
+                        signed_tx.consensus_serialize(&mut bytes).unwrap();
+                        bytes.len() as u64
+                    };
 
                     let microblock = microblock_builder
                         .mine_next_microblock_from_txs(
-                            vec![MemPoolTxInfo::from_tx(
-                                signed_tx,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tenure_id as u64,
-                            )],
+                            vec![(signed_tx, signed_tx_len)],
                             &microblock_privkey,
                         )
                         .unwrap();
@@ -552,10 +621,6 @@ mod test {
 
             // process microblock stream to generate unconfirmed state
             let sortdb = peer.sortdb.take().unwrap();
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
             peer.chainstate()
                 .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
                 .unwrap();
@@ -576,15 +641,14 @@ mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
             let sortdb = peer.sortdb.take().unwrap();
-            let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(
-                &sortdb.index_conn(),
-                &canonical_tip,
-                |clarity_tx| {
+            let confirmed_recv_balance = peer
+                .chainstate()
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db.get_account_stx_balance(&recv_addr.into())
                     })
-                },
-            );
+                })
+                .unwrap();
             peer.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
@@ -653,8 +717,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.headers_db())
-                            .unwrap(),
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -666,7 +729,7 @@ mod test {
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
                             StacksChainState::get_anchored_block_header_info(
-                                chainstate.headers_db(),
+                                chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
                             )
@@ -703,6 +766,11 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+            );
+
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
@@ -710,13 +778,15 @@ mod test {
             let sortdb = peer.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb.index_conn();
+                peer.chainstate()
+                    .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+                    .unwrap();
+
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
                     consensus_hash.clone(),
                     peer.chainstate(),
                     &sort_iconn,
-                    anchor_cost.clone(),
-                    anchor_size,
                 )
                 .unwrap();
                 let mut microblocks = vec![];
@@ -755,13 +825,8 @@ mod test {
                     let signed_mempool_txs = signed_txs
                         .into_iter()
                         .map(|tx| {
-                            MemPoolTxInfo::from_tx(
-                                tx,
-                                0,
-                                consensus_hash.clone(),
-                                stacks_block.block_hash(),
-                                tenure_id as u64,
-                            )
+                            let bytes = tx.serialize_to_vec();
+                            (tx, bytes.len() as u64)
                         })
                         .collect();
 
@@ -786,10 +851,6 @@ mod test {
 
                 // process microblock stream to generate unconfirmed state
                 let sortdb = peer.sortdb.take().unwrap();
-                let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &stacks_block.block_hash(),
-                );
                 peer.chainstate()
                     .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
                     .unwrap();
@@ -813,15 +874,14 @@ mod test {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
                 let sortdb = peer.sortdb.take().unwrap();
-                let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(
-                    &sortdb.index_conn(),
-                    &canonical_tip,
-                    |clarity_tx| {
+                let confirmed_recv_balance = peer
+                    .chainstate()
+                    .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                         clarity_tx.with_clarity_db_readonly(|clarity_db| {
                             clarity_db.get_account_stx_balance(&recv_addr.into())
                         })
-                    },
-                );
+                    })
+                    .unwrap();
                 peer.sortdb = Some(sortdb);
 
                 assert_eq!(

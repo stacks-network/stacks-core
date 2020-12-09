@@ -101,6 +101,7 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::strings::UrlString;
 
 use util::get_epoch_time_secs;
+use util::hash::{hex_bytes, to_hex};
 
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
@@ -1002,6 +1003,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: String,
     pub unanchored_tip: StacksBlockId,
+    pub unanchored_seq: u16,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1075,6 +1077,21 @@ pub struct AccountEntryResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub nonce_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum UnconfirmedTransactionStatus {
+    Microblock {
+        block_hash: BlockHeaderHash,
+        seq: u16,
+    },
+    Mempool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnconfirmedTransactionResponse {
+    pub tx: String,
+    pub status: UnconfirmedTransactionStatus,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1181,6 +1198,7 @@ pub enum HttpRequestType {
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
+    GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(
@@ -1313,6 +1331,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),

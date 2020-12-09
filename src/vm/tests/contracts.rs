@@ -38,7 +38,7 @@ use vm::types::{
 
 use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
 
-const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
+const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
            (print (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
@@ -56,7 +56,7 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5))";
 
-const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance uint)))
+const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
@@ -192,7 +192,7 @@ fn test_simple_token_system() {
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
     {
-        let mut block = clarity.begin_block(
+        let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &test_block_headers(0),
             &NULL_HEADER_DB,
@@ -569,10 +569,10 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
            (if (< name 100000) u1000 u100))
 
          (define-map name-map
-           ((name int)) ((owner principal)))
+           { name: int } { owner: principal })
          (define-map preorder-map
-           ((name-hash (buff 20)))
-           ((buyer principal) (paid uint)))
+           { name-hash: (buff 20) }
+           { buyer: principal, paid: uint })
 
          (define-public (preorder
                         (name-hash (buff 20))
@@ -808,7 +808,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
 
 fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let contract_1 = "
-(define-map data ((id int)) ((value int)))
+(define-map data { id: int } { value: int })
 
 ;; this will return false if id != value,
 ;;   which _aborts_ any data that is modified during

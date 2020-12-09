@@ -18,6 +18,7 @@ use std::convert::TryInto;
 use std::io::Write;
 use util::hash::{hex_bytes, to_hex};
 use vm::contracts::Contract;
+use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE};
 
@@ -116,14 +117,16 @@ pub struct STXBalance {
     pub unlock_height: u64,
 }
 
-#[derive(Debug)]
-pub enum STXBalanceError {
-    Overflow,
-    Underflow,
-    LockActive,
+/// Lifetime-limited handle to an uncommitted balance structure.
+/// All balance mutations (debits, credits, locks, unlocks) must go through this structure.
+pub struct STXBalanceSnapshot<'db, 'conn> {
+    principal: PrincipalData,
+    balance: STXBalance,
+    burn_block_height: u64,
+    db_ref: &'conn mut ClarityDatabase<'db>,
 }
 
-type Result<T> = std::result::Result<T, STXBalanceError>;
+type Result<T> = std::result::Result<T, Error>;
 
 impl ClaritySerializable for STXBalance {
     fn serialize(&self) -> String {
@@ -170,6 +173,155 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
     }
 }
 
+impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
+    pub fn new(
+        principal: &PrincipalData,
+        balance: STXBalance,
+        burn_height: u64,
+        db_ref: &'conn mut ClarityDatabase<'db>,
+    ) -> STXBalanceSnapshot<'db, 'conn> {
+        STXBalanceSnapshot {
+            principal: principal.clone(),
+            balance: balance,
+            burn_block_height: burn_height,
+            db_ref: db_ref,
+        }
+    }
+
+    pub fn balance(&self) -> &STXBalance {
+        &self.balance
+    }
+
+    pub fn save(self) -> () {
+        let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
+        self.db_ref.put(&key, &self.balance)
+    }
+
+    pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
+        if !self.can_transfer(amount) {
+            return Err(InterpreterError::InsufficientBalance.into());
+        }
+
+        let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
+        let mut recipient_balance = self
+            .db_ref
+            .get(&recipient_key)
+            .unwrap_or(STXBalance::zero());
+
+        recipient_balance.amount_unlocked =
+            recipient_balance
+                .amount_unlocked
+                .checked_add(amount)
+                .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
+
+        self.debit(amount);
+        self.db_ref.put(&recipient_key, &recipient_balance);
+        self.save();
+        Ok(())
+    }
+
+    pub fn get_available_balance(&self) -> u128 {
+        if self.has_unlockable_tokens() {
+            self.balance.get_total_balance()
+        } else {
+            self.balance.amount_unlocked
+        }
+    }
+
+    pub fn has_locked_tokens(&self) -> bool {
+        self.balance
+            .has_locked_tokens_at_burn_block(self.burn_block_height)
+    }
+
+    pub fn has_unlockable_tokens(&self) -> bool {
+        self.balance
+            .has_unlockable_tokens_at_burn_block(self.burn_block_height)
+    }
+
+    pub fn can_transfer(&self, amount: u128) -> bool {
+        self.get_available_balance() >= amount
+    }
+
+    pub fn debit(&mut self, amount: u128) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-debit");
+        }
+
+        self.balance.amount_unlocked = self
+            .balance
+            .amount_unlocked
+            .checked_sub(amount)
+            .expect("BUG: STX underflow");
+    }
+
+    pub fn credit(&mut self, amount: u128) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-credit");
+        }
+
+        self.balance.amount_unlocked = self
+            .balance
+            .amount_unlocked
+            .checked_add(amount)
+            .expect("BUG: STX overflow");
+    }
+
+    pub fn set_balance(&mut self, balance: STXBalance) {
+        self.balance = balance;
+    }
+
+    pub fn lock_tokens(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        // caller needs to have checked this
+        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            panic!("FATAL: cannot set a lock with expired unlock burn height");
+        }
+
+        if self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account already has locked tokens");
+        }
+
+        self.balance.unlock_height = unlock_burn_height;
+        self.balance.amount_unlocked = self
+            .balance
+            .amount_unlocked
+            .checked_sub(amount_to_lock)
+            .expect("STX underflow");
+
+        self.balance.amount_locked = amount_to_lock;
+    }
+
+    fn unlock_available_tokens_if_any(&mut self) -> u128 {
+        if !self
+            .balance
+            .has_unlockable_tokens_at_burn_block(self.burn_block_height)
+        {
+            return 0;
+        }
+
+        let unlocked = self.balance.amount_locked;
+        self.balance.unlock_height = 0;
+        self.balance.amount_unlocked = self
+            .balance
+            .amount_unlocked
+            .checked_add(unlocked)
+            .expect("STX overflow");
+        self.balance.amount_locked = 0;
+        unlocked
+    }
+}
+
+// NOTE: do _not_ add mutation methods to this struct. Put them in STXBalanceSnapshot!
 impl STXBalance {
     pub const size_of: usize = 40;
 
@@ -189,61 +341,20 @@ impl STXBalance {
         }
     }
 
-    pub fn get_available_balance_at_block(&self, block_height: u64) -> u128 {
-        match self.has_locked_tokens_unlockable(block_height) {
-            true => self.get_total_balance(),
-            false => self.amount_unlocked,
+    pub fn get_available_balance_at_burn_block(&self, burn_block_height: u64) -> u128 {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+            self.get_total_balance()
+        } else {
+            self.amount_unlocked
         }
     }
 
-    pub fn get_locked_balance_at_block(&self, block_height: u64) -> (u128, u64) {
-        match self.has_locked_tokens_unlockable(block_height) {
-            true => (0, 0),
-            false => (self.amount_locked, self.unlock_height),
+    pub fn get_locked_balance_at_burn_block(&self, burn_block_height: u64) -> (u128, u64) {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+            (0, 0)
+        } else {
+            (self.amount_locked, self.unlock_height)
         }
-    }
-
-    pub fn lock_tokens(
-        &mut self,
-        amount_to_lock: u128,
-        unlock_height: u64,
-        current_height: u64,
-    ) -> Result<()> {
-        let unlocked = self.unlock_available_tokens_if_any(current_height);
-        if unlocked > 0 {
-            debug!("Consolidated after account-token-lock");
-        }
-
-        if unlock_height <= current_height {
-            panic!("FATAL: Can't set a lock with expired unlock_height");
-        }
-
-        if self.has_locked_tokens(current_height) {
-            return Err(STXBalanceError::LockActive);
-        }
-
-        self.unlock_height = unlock_height;
-        self.amount_unlocked = self
-            .amount_unlocked
-            .checked_sub(amount_to_lock)
-            .expect("STX overflow");
-        self.amount_locked = amount_to_lock;
-        Ok(())
-    }
-
-    pub fn unlock_available_tokens_if_any(&mut self, block_height: u64) -> u128 {
-        if !self.has_locked_tokens_unlockable(block_height) {
-            return 0;
-        }
-
-        let unlocked = self.amount_locked;
-        self.unlock_height = 0;
-        self.amount_unlocked = self
-            .amount_unlocked
-            .checked_add(unlocked)
-            .expect("STX overflow");
-        self.amount_locked = 0;
-        unlocked
     }
 
     pub fn get_total_balance(&self) -> u128 {
@@ -252,52 +363,15 @@ impl STXBalance {
             .expect("STX overflow")
     }
 
-    pub fn has_locked_tokens(&self, block_height: u64) -> bool {
-        self.amount_locked > 0 && self.unlock_height > block_height
+    pub fn has_locked_tokens_at_burn_block(&self, burn_block_height: u64) -> bool {
+        self.amount_locked > 0 && self.unlock_height > burn_block_height
     }
 
-    pub fn has_locked_tokens_unlockable(&self, block_height: u64) -> bool {
-        self.amount_locked > 0 && self.unlock_height <= block_height
+    pub fn has_unlockable_tokens_at_burn_block(&self, burn_block_height: u64) -> bool {
+        self.amount_locked > 0 && self.unlock_height <= burn_block_height
     }
 
-    pub fn can_transfer(&self, amount: u128, block_height: u64) -> bool {
-        self.get_available_balance_at_block(block_height) >= amount
-    }
-
-    pub fn debit(&mut self, amount: u128, block_height: u64) -> Result<()> {
-        let unlocked = self.unlock_available_tokens_if_any(block_height);
-        if unlocked > 0 {
-            debug!("Consolidated after account-debit");
-        }
-
-        self.amount_unlocked = self
-            .amount_unlocked
-            .checked_sub(amount)
-            .ok_or_else(|| STXBalanceError::Underflow)?;
-        Ok(())
-    }
-
-    pub fn credit(&mut self, amount: u128, block_height: u64) -> Result<()> {
-        let unlocked = self.unlock_available_tokens_if_any(block_height);
-        if unlocked > 0 {
-            debug!("Consolidated after account-credit");
-        }
-
-        self.amount_unlocked = self
-            .amount_unlocked
-            .checked_add(amount)
-            .ok_or_else(|| STXBalanceError::Overflow)?;
-        Ok(())
-    }
-
-    pub fn transfer_to(
-        &mut self,
-        recipient: &mut STXBalance,
-        amount: u128,
-        block_height: u64,
-    ) -> Result<()> {
-        self.debit(amount, block_height)?;
-        recipient.credit(amount, block_height)?;
-        Ok(())
+    pub fn can_transfer_at_burn_block(&self, amount: u128, burn_block_height: u64) -> bool {
+        self.get_available_balance_at_burn_block(burn_block_height) >= amount
     }
 }

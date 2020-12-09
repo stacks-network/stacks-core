@@ -62,6 +62,7 @@ pub enum ParseErrors {
     ColonSeparatorUnexpected,
     InvalidCharactersDetected,
     InvalidEscaping,
+    CostComputationFailed(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -134,6 +135,12 @@ impl From<CostErrors> for ParseError {
             CostErrors::MemoryBalanceExceeded(a, b) => {
                 ParseError::new(ParseErrors::MemoryBalanceExceeded(a, b))
             }
+            CostErrors::CostComputationFailed(s) => {
+                ParseError::new(ParseErrors::CostComputationFailed(s))
+            }
+            CostErrors::CostContractLoadFailure => ParseError::new(
+                ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
+            ),
         }
     }
 }
@@ -230,6 +237,7 @@ impl DiagnosableError for ParseErrors {
             ),
             ParseErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             ParseErrors::InvalidEscaping => format!("invalid escaping detected in string"),
+            ParseErrors::CostComputationFailed(s) => format!("Cost computation failed: {}", s),
         }
     }
 

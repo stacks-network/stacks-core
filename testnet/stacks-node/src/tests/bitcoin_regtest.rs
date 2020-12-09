@@ -128,7 +128,7 @@ fn bitcoind_integration_test() {
     let _res = controller.start_bitcoind();
 
     let num_rounds = 6;
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new(conf.clone());
 
     run_loop
         .callbacks
@@ -276,26 +276,27 @@ fn bitcoind_integration_test() {
 
     // Use tenure's hook for submitting transactions
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+        let mut chainstate_copy = tenure.open_chainstate();
         match round {
             1 => {
                 // On round 1, publish the KV contract
                 // $ cat /tmp/out.clar
-                // (define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+                // (define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
                 // (define-public (get-value (key (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Getting key " key))
-                //         (match (map-get? store ((key key)))
+                //         (match (map-get? store { key: key })
                 //             entry (ok (get value entry))
                 //             (err 0))))
                 // (define-public (set-value (key (string-ascii 32)) (value (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Setting key " key))
-                //         (map-set store ((key key)) ((value value)))
+                //         (map-set store { key: key } { value: value })
                 //         (ok 'true)))
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
@@ -303,7 +304,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
@@ -311,7 +312,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010076df7ad6ddf5cf3d2eb5b96bed15c95bdb975470add5bedeee0b6f00e884c0213b6718ffd75fbb98783168bca19559798ac44647b330e481b19d3eba1b2248c6030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
-                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
@@ -319,7 +320,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000101fd27e1727f78c38620dc155ca9940a02e964d08fcd35ac4fc8fbc56d62caac585891f537751626dc87fc7f212b3e7586845d36800e742c3f2b0c0a05cf81435e030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             5 => {
                 // On round 5, publish a stacks transaction
@@ -327,7 +328,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let transfer_1000_stx = "80800000000400b71a091b4b8b7661a661c620966ab6573bc2dcd3000000000000000000000000000000000000cf44fd240b404ec42a4e419ef2059add056980fed6f766e2f11e4b03a41afb885cfd50d2552ec3fff5c470d6975dfe4010cd17bef45e24e0c6e30c8ae6604b2f03020000000000051a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
-                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec()).unwrap();
             },
             _ => {}
         };

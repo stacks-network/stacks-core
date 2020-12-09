@@ -489,6 +489,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_register_deregister() {
         let mut ns = NetworkState::new(100).unwrap();
         let mut server_events = vec![];
@@ -555,6 +556,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_register_too_many_peers() {
         let mut ns = NetworkState::new(10).unwrap();
         let mut event_ids = HashSet::new();
