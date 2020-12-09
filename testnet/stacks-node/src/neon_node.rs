@@ -558,7 +558,7 @@ fn spawn_peer(
                         download_backpressure,
                         poll_ms,
                         &handler_args,
-                			&mut expected_attachments,
+                        &mut expected_attachments,
                     ) {
                         Ok(res) => res,
                         Err(e) => {

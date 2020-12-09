@@ -4269,7 +4269,9 @@ impl PeerNetwork {
             p2p_poll_state,
         )?;
 
-        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut network_result) {
+        if let Err(e) =
+            PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut network_result)
+        {
             warn!("Failed to store transactions: {:?}", &e);
         }
 

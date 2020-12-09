@@ -26,8 +26,8 @@ use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::util::hash::Hash160;
-use stacks::util::sleep_ms;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::util::sleep_ms;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
