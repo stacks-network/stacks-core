@@ -40,7 +40,7 @@
     (runtime u1))
 
 (define-read-only (cost_analysis_iterable_func (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_analysis_option_cons (n uint))
     (runtime u1))
@@ -151,7 +151,7 @@
     (runtime u1))
 
 (define-read-only (cost_map (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_filter (n uint))
     (runtime u1))

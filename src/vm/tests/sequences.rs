@@ -312,6 +312,49 @@ fn test_simple_map_list() {
 }
 
 #[test]
+fn test_variadic_map_list() {
+    let test = "(define-private (area (w int) (h int)) (* w h))
+         (map area (list 5 10 1 2) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(25),
+        Value::Int(20),
+        Value::Int(30),
+        Value::Int(6),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(define-private (u+ (a uint) (b int)) (+ a (to-uint b)))
+    (map u+ (list u5 u10 u1 u2) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![
+        Value::UInt(10),
+        Value::UInt(12),
+        Value::UInt(31),
+        Value::UInt(5),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(map + (list 5 10) (list 5 2 30 3))";
+
+    let expected = Value::list_from(vec![Value::Int(10), Value::Int(12)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    let test = "(map pow (list 2 2 2 2) (list 1 2 3 4 5 6 7))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(2),
+        Value::Int(4),
+        Value::Int(8),
+        Value::Int(16),
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+}
+
+#[test]
 fn test_simple_map_append() {
     let tests = [
         "(append (list 1 2) 6)",
@@ -641,11 +684,15 @@ fn test_eval_func_arg_panic() {
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    let e: Error = CheckErrors::IncorrectArgumentCount(2, 3).into();
+    let e: Error = CheckErrors::UndefinedFunction("square".to_string()).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
     let e: Error = CheckErrors::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());
+
+    let test5 = "(map + (list 1 2 3 4) 2)";
+    let e: Error = CheckErrors::ExpectedSequence(IntType).into();
+    assert_eq!(e, execute(test5).unwrap_err());
 }

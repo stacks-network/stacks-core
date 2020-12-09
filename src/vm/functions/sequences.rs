@@ -19,7 +19,8 @@ use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{
-    check_argument_count, CheckErrors, InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    RuntimeErrorType,
 };
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
@@ -115,23 +116,57 @@ pub fn special_map(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    check_arguments_at_least(2, args)?;
 
-    runtime_cost(ClarityCostFunction::Map, env, 0)?;
+    runtime_cost(ClarityCostFunction::Map, env, args.len())?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let mut sequence = eval(&args[1], env, context)?;
     let function = lookup_function(&function_name, env)?;
 
-    let mapped_sequence: Vec<_> = match sequence {
-        Value::Sequence(ref mut sequence_data) => sequence_data
-            .atom_values()
-            .into_iter()
-            .map(|argument| apply(&function, &[argument], env, context))
-            .collect(),
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
-    }?;
-    Value::list_from(mapped_sequence)
+    // Let's consider a function f (f a b c ...)
+    // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
+    // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
+    let mut mapped_func_args = vec![];
+    let mut min_args_len = usize::MAX;
+    for map_arg in args[1..].iter() {
+        let mut sequence = eval(map_arg, env, context)?;
+        match sequence {
+            Value::Sequence(ref mut sequence_data) => {
+                min_args_len = min_args_len.min(sequence_data.len());
+                for (apply_index, value) in sequence_data.atom_values().into_iter().enumerate() {
+                    if apply_index > min_args_len {
+                        break;
+                    }
+                    if apply_index >= mapped_func_args.len() {
+                        mapped_func_args.push(vec![value]);
+                    } else {
+                        mapped_func_args[apply_index].push(value);
+                    }
+                }
+            }
+            _ => {
+                return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+            }
+        }
+    }
+
+    // We can now apply the map
+    let mut mapped_results = vec![];
+    let mut previous_len = None;
+    for arguments in mapped_func_args.iter() {
+        // Stop iterating when we are done with the shortest sequence
+        if let Some(previous_len) = previous_len {
+            if previous_len != arguments.len() {
+                break;
+            }
+        } else {
+            previous_len = Some(arguments.len());
+        }
+        let res = apply(&function, &arguments, env, context)?;
+        mapped_results.push(res);
+    }
+
+    Value::list_from(mapped_results)
 }
 
 pub fn special_append(
