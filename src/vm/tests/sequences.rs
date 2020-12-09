@@ -141,8 +141,8 @@ fn test_string_utf8_filter() {
 #[test]
 fn test_string_ascii_fold() {
     let test1 =
-        "(define-private (merge (x (string-ascii 1)) (acc (string-ascii 5))) (concat acc x))
-        (fold merge (list \"A\" \"B\" \"C\" \"D\" \"E\") \"\")";
+        "(define-private (merge-str (x (string-ascii 1)) (acc (string-ascii 5))) (concat acc x))
+        (fold merge-str (list \"A\" \"B\" \"C\" \"D\" \"E\") \"\")";
 
     let expected = Value::string_ascii_from_bytes("ABCDE".into()).unwrap();
 
