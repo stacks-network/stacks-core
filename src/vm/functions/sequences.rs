@@ -277,6 +277,17 @@ pub fn native_len(sequence: Value) -> Result<Value> {
     }
 }
 
+pub fn native_contains(sequence: Value, to_find: Value) -> Result<Value> {
+    if let Value::Sequence(sequence_data) = sequence {
+        match sequence_data.contains(to_find)? {
+            Some(index) => Value::some(Value::UInt(index as u128)),
+            None => Ok(Value::none()),
+        }
+    } else {
+        Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+    }
+}
+
 pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data

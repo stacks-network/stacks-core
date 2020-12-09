@@ -713,6 +713,7 @@ impl TypedNativeFunction {
             AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
             ElementAt => Special(SpecialNativeFunction(&sequences::check_special_element_at)),
+            Contains => Special(SpecialNativeFunction(&sequences::check_special_contains)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),

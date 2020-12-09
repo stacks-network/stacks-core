@@ -624,6 +624,61 @@ fn test_simple_lets() {
 }
 
 #[test]
+fn test_contains() {
+    let good = [
+        "(contains (list 1 2 3 4 5 4) 100)",
+        "(contains (list 1 2 3 4 5 4) 4)",
+        "(contains \"abcd\" \"a\")",
+        "(contains u\"abcd\" u\"a\")",
+        "(contains 0xfedb 0xdb)",
+        "(contains \"abcd\" \"\")",
+        "(contains u\"abcd\" u\"\")",
+        "(contains 0xfedb 0x)",
+        "(contains \"abcd\" \"z\")",
+        "(contains u\"abcd\" u\"e\")",
+        "(contains 0xfedb 0x01)",
+    ];
+
+    let expected = "(optional uint)";
+
+    for good_test in good.iter() {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(contains 3 \"a\")",
+        "(contains (list 1 2 3 4) u1)",
+        "(contains 0xfedb \"a\")",
+        "(contains u\"a\" \"a\")",
+        "(contains \"a\" u\"a\")",
+    ];
+
+    let bad_expected = [
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::TypeError(
+            TypeSignature::min_buffer(),
+            TypeSignature::min_string_ascii(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8(),
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
 fn test_element_at() {
     let good = [
         "(element-at (list 1 2 3 4 5) u100)",

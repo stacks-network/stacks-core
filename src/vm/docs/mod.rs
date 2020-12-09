@@ -565,6 +565,23 @@ For strings and buffers, this function will return 1-length strings or buffers."
 ",
 };
 
+const CONTAINS_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, buff|A",
+    output_type: "(optional uint)",
+    signature: "(contains sequence item)",
+    description: "The `contains` function returns the first index at which `item` can be
+found in the provided sequence (using `is-eq` checks).
+
+If this item is not found in the sequence (or an empty string/buffer is supplied), this
+function returns `none`.",
+    example: "(contains \"blockstack\" \"b\") ;; Returns (some u0)
+(contains \"blockstack\" \"k\") ;; Returns (some u4)
+(contains \"blockstack\" \"\") ;; Returns none
+(contains (list 1 2 3 4 5) 6) ;; Returns none
+(contains 0xfb01 0x01) ;; Returns (some u1)
+",
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -1534,6 +1551,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
         ElementAt => make_for_special(&ELEMENT_AT_API, name),
+        Contains => make_for_special(&CONTAINS_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),

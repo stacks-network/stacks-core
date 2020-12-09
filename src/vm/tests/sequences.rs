@@ -55,6 +55,76 @@ fn test_simple_list_admission() {
 }
 
 #[test]
+fn test_contains() {
+    let good = [
+        "(contains (list 1 2 3 4 5 4) 100)",
+        "(contains (list 1 2 3 4 5 4) 4)",
+        "(contains \"abcd\" \"a\")",
+        "(contains u\"abcd\" u\"a\")",
+        "(contains 0xfedb 0xdb)",
+        "(contains \"abcd\" \"\")",
+        "(contains u\"abcd\" u\"\")",
+        "(contains 0xfedb 0x)",
+        "(contains \"abcd\" \"z\")",
+        "(contains u\"abcd\" u\"e\")",
+        "(contains 0xfedb 0x01)",
+    ];
+
+    let expected = [
+        "none",
+        "(some u3)",
+        "(some u0)",
+        "(some u0)",
+        "(some u1)",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", execute(&good_test).unwrap().unwrap())
+        );
+    }
+
+    let bad = [
+        "(contains 3 \"a\")",
+        "(contains 0xfedb \"a\")",
+        "(contains u\"a\" \"a\")",
+        "(contains \"a\" u\"a\")",
+    ];
+
+    let bad_expected = [
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrors::TypeValueError(
+            TypeSignature::min_buffer(),
+            execute("\"a\"").unwrap().unwrap(),
+        ),
+        CheckErrors::TypeValueError(
+            TypeSignature::min_string_utf8(),
+            execute("\"a\"").unwrap().unwrap(),
+        ),
+        CheckErrors::TypeValueError(
+            TypeSignature::min_string_ascii(),
+            execute("u\"a\"").unwrap().unwrap(),
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        match execute(&bad_test).unwrap_err() {
+            Error::Unchecked(check_error) => {
+                assert_eq!(&check_error, expected);
+            }
+            _ => unreachable!("Should have raised unchecked errors"),
+        }
+    }
+}
+
+#[test]
 fn test_element_at() {
     let good = [
         "(element-at (list 1 2 3 4 5) u100)",

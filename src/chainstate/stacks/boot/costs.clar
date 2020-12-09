@@ -162,6 +162,9 @@
 (define-read-only (cost_element_at (n uint))
     (runtime (linear n u1 u1)))
 
+(define-read-only (cost_contains (n uint))
+    (runtime (linear n u1 u1)))
+
 (define-read-only (cost_fold (n uint))
     (runtime u1))
 

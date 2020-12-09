@@ -274,6 +274,75 @@ impl SequenceData {
         Some(result)
     }
 
+    pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
+        match self {
+            SequenceData::Buffer(ref data) => {
+                if let Value::Sequence(SequenceData::Buffer(to_find_vec)) = to_find {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(CheckErrors::TypeValueError(TypeSignature::min_buffer(), to_find).into())
+                }
+            }
+            SequenceData::List(ref data) => {
+                for (index, entry) in data.data.iter().enumerate() {
+                    if entry == &to_find {
+                        return Ok(Some(index));
+                    }
+                }
+                Ok(None)
+            }
+            SequenceData::String(CharType::ASCII(ref data)) => {
+                if let Value::Sequence(SequenceData::String(CharType::ASCII(to_find_vec))) = to_find
+                {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_ascii(), to_find)
+                            .into(),
+                    )
+                }
+            }
+            SequenceData::String(CharType::UTF8(ref data)) => {
+                if let Value::Sequence(SequenceData::String(CharType::UTF8(to_find_vec))) = to_find
+                {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_utf8(), to_find)
+                            .into(),
+                    )
+                }
+            }
+        }
+    }
+
     pub fn filter<F>(&mut self, filter: &mut F) -> Result<()>
     where
         F: FnMut(SymbolicExpression) -> Result<bool>,

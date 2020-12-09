@@ -383,3 +383,23 @@ pub fn check_special_element_at(
         _ => Err(CheckErrors::ExpectedSequence(collection_type).into()),
     }
 }
+
+pub fn check_special_contains(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
+    let list_type = checker.type_check(&args[0], context)?;
+
+    let expected_input_type = match list_type {
+        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+        _ => Err(CheckErrors::ExpectedSequence(list_type.clone())),
+    }?;
+
+    checker.type_check_expects(&args[1], context, &expected_input_type)?;
+
+    TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
+}
