@@ -282,7 +282,8 @@
                                            (registered-at (optional uint)) 
                                            (imported-at (optional uint)) 
                                            (revoked-at (optional uint)) 
-                                           (zonefile-hash (buff 20)))
+                                           (zonefile-hash (buff 20))
+                                           (op (string-ascii 16)))
   (let 
     ((current-index (var-get attachment-index)))
       ;; Emit event used as a system hinter
@@ -293,7 +294,8 @@
           metadata: {
             name: name,
             namespace: namespace,
-            tx-sender: tx-sender
+            tx-sender: tx-sender,
+            op: op
           }
         }})
       ;; Update cursor
@@ -459,7 +461,8 @@
         none
         (some block-height) ;; Set imported-at
         none
-        zonefile-hash)
+        zonefile-hash
+        "name-import")
       (ok true)))
 
 ;; NAMESPACE_READY
@@ -481,16 +484,13 @@
     ;; Less than 1 year must have passed since the namespace was "revealed"
     (asserts!
       (< block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL))
-      (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
-    ;; The namespace will be set to "launched"
-    (map-set namespaces
-      { namespace: namespace }
-      { launched-at: (some block-height),
-        namespace-import: (get namespace-import namespace-props),
-        revealed-at: (get revealed-at namespace-props),
-        lifetime: (get lifetime namespace-props),
-        price-function: (get price-function namespace-props) })
-    (ok true)))
+      (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))        
+    (let ((namespace-props-updated (merge namespace-props { launched-at: (some block-height) })))
+      ;; The namespace will be set to "launched"
+      (map-set namespaces { namespace: namespace } namespace-props-updated)
+      ;; Emit an event
+      (print { namespace: namespace, status: "ready", properties: namespace-props-updated })
+      (ok true)))
 
 ;;;; NAMES
 
@@ -567,7 +567,8 @@
         (some block-height)
         none
         none
-        zonefile-hash)
+        zonefile-hash
+        "name-register")
       (ok true))))
 
 ;; NAME_UPDATE
@@ -586,7 +587,8 @@
       (get registered-at (get name-props data))
       (get imported-at (get name-props data))
       none
-      zonefile-hash)
+      zonefile-hash
+      "name-update")
     (ok true)))
 
 ;; NAME_TRANSFER
@@ -619,7 +621,8 @@
         none
         (if (is-none zonefile-hash)
           0x00
-          (unwrap-panic zonefile-hash)))
+          (unwrap-panic zonefile-hash))
+        "name-transfer")
     (ok true)))
 
 ;; NAME_REVOKE
@@ -638,7 +641,8 @@
         (get registered-at (get name-props data))
         (get imported-at (get name-props data))
         (some block-height)
-        0x00)
+        0x00
+        "name-revoke")
     (ok true)))
 
 ;; NAME_RENEWAL
@@ -708,7 +712,8 @@
               (some block-height)
               none
               none
-              (unwrap-panic zonefile-hash)))  
+              (unwrap-panic zonefile-hash)
+              "name-renewal"))  
     (ok true)))
 
 ;; Additionals public methods
