@@ -41,6 +41,13 @@ fn should_succeed_sorting_contract_call() {
 }
 
 #[test]
+fn should_fix_2123() {
+    let contract = "(define-fungible-token limited-supply-stacks (supply))
+    (define-read-only (supply) u100)";
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
 fn should_succeed_sorting_contract_case_1() {
     let contract = r#"
         (define-private (wrapped-kv-del (key int))

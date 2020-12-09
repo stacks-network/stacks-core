@@ -200,30 +200,19 @@ impl<'a> DefinitionSorter {
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
                                     return Ok(())
                                 }
-                                DefineFunctions::NonFungibleToken
-                                | DefineFunctions::FungibleToken => return Ok(()),
+                                DefineFunctions::NonFungibleToken => return Ok(()),
+                                DefineFunctions::FungibleToken => {
+                                    // probe_for_dependencies if the supply arg (optional) is being passed
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                },
                             }
                         } else if let Some(native_function) =
                             NativeFunctions::lookup_by_name(function_name)
                         {
                             match native_function {
-                                NativeFunctions::FetchEntry | NativeFunctions::DeleteEntry => {
-                                    // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
-                                    if function_args.len() == 2 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
-                                    }
-                                    return Ok(());
-                                }
-                                NativeFunctions::SetEntry | NativeFunctions::InsertEntry => {
-                                    // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
-                                    if function_args.len() == 3 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
-                                        self.probe_for_dependencies(&function_args[2], tle_index)?;
-                                    }
-                                    return Ok(());
-                                }
                                 NativeFunctions::ContractCall => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
                                     if function_args.len() > 2 {
@@ -247,24 +236,9 @@ impl<'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }
-                                NativeFunctions::Len => {
-                                    // Args: buffer | list
-                                    if function_args.len() == 1 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                    }
-                                    return Ok(());
-                                }
                                 NativeFunctions::TupleGet => {
                                     // Args: [key-name, expr]: ignore key-name
                                     if function_args.len() == 2 {
-                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
-                                    }
-                                    return Ok(());
-                                }
-                                NativeFunctions::TupleMerge => {
-                                    // Args: [expr, expr]: ignore key-name
-                                    if function_args.len() == 2 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
                                         self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
