@@ -256,50 +256,6 @@
           ;; Transfer the name.
           (update-name-ownership? namespace name previous-owner beneficiary)))))
 
-(define-read-only (compute-name-price (name (buff 32))
-                                    (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
-  (let (
-    (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
-    (no-vowel-discount (if (not (has-vowels-chars name)) (get no-vowel-discount price-function) u1))
-    (nonalpha-discount (if (has-nonalpha-chars name) (get nonalpha-discount price-function) u1)))
-    (ok (*
-      (/
-        (*
-          (get coeff price-function)
-          (pow (get base price-function) exponent))
-        (max nonalpha-discount no-vowel-discount))
-      u10))))
-
-(define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
-  (let (
-    (namespace-props (unwrap! 
-      (map-get? namespaces ((namespace namespace))) 
-      (err ERR_NAMESPACE_NOT_FOUND)))
-    (name-props (unwrap! 
-      (map-get? name-properties ((namespace namespace) (name name))) 
-      (err ERR_NAME_NOT_FOUND))))
-    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
-          (lifetime (get lifetime namespace-props)))
-        (if (is-eq lifetime u0)
-          (ok false)
-          (ok (> block-height (+ lifetime lease-started-at)))))))
-
-(define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 32)))
-  (let (
-    (namespace-props (unwrap! 
-      (map-get? namespaces ((namespace namespace))) 
-      (err ERR_NAMESPACE_NOT_FOUND)))
-    (name-props (unwrap! 
-      (map-get? name-properties ((namespace namespace) (name name))) 
-      (err ERR_NAME_NOT_FOUND))))
-    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
-          (lifetime (get lifetime namespace-props)))
-        (if (is-eq lifetime u0)
-          (ok false)
-          (ok (and 
-            (> block-height (+ lifetime lease-started-at)) 
-            (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION))))))))
-
 (define-private (update-name-ownership? (namespace (buff 20)) 
                                         (name (buff 32)) 
                                         (from principal) 
@@ -360,7 +316,7 @@
       (if (is-none former-preorder)
         true
         (>= block-height (+ NAMESPACE_PREORDER_CLAIMABILITY_TTL
-                            (unwrap! (get created-at former-preorder) (err ERR_PANIC)))))
+                            (unwrap-panic (get created-at former-preorder)))))
       (err ERR_NAMESPACE_PREORDER_ALREADY_EXISTS))
     ;; Ensure that the hashed namespace is 20 bytes long
     (asserts! (is-eq (len hashed-salted-namespace) u20) (err ERR_NAMESPACE_HASH_MALFORMED))
@@ -546,7 +502,7 @@
       (if (is-none former-preorder)
         true
         (>= block-height (+ NAME_PREORDER_CLAIMABILITY_TTL
-                            (unwrap! (get created-at former-preorder) (err ERR_PANIC)))))
+                            (unwrap-panic (get created-at former-preorder)))))
       (err ERR_NAME_PREORDER_ALREADY_EXISTS))
           (asserts! (> stx-to-burn u0) (err ERR_NAMESPACE_STX_BURNT_INSUFFICIENT))    
     ;; Ensure that the hashed fqn is 20 bytes long
@@ -583,7 +539,7 @@
         (err ERR_NAMESPACE_NOT_LAUNCHED))
       ;; The preorder must have been created after the launch of the namespace
       (asserts!
-        (> (get created-at preorder) (unwrap! (get launched-at namespace-props) (err ERR_PANIC)))
+        (> (get created-at preorder) (unwrap-panic (get launched-at namespace-props)))
         (err ERR_NAME_PREORDERED_BEFORE_NAMESPACE_LAUNCH))
       ;; The preorder entry must be unclaimed
       (asserts!
@@ -617,41 +573,13 @@
                             (name (buff 32))
                             (zonefile-hash (buff 20)))
   (let (
-    (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
-      (err ERR_NAMESPACE_NOT_FOUND))) ;; The namespace must exist
-    (owner (unwrap!
-      (nft-get-owner? names (tuple (name name) (namespace namespace)))
-      (err ERR_NAME_NOT_FOUND))) ;; The name must exist
-    (name-props (unwrap!
-      (map-get? name-properties ((name name) (namespace namespace)))
-      (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
-    ;; The name's namespace must be launched
-    (asserts!
-      (is-some (get launched-at namespace-props))
-      (err ERR_NAMESPACE_NOT_LAUNCHED))
-    ;; The sender must match the name's current owner
-    (asserts!
-      (is-eq owner tx-sender)
-      (err ERR_NAME_OPERATION_UNAUTHORIZED))
-    ;; The name must not be in the renewal grace period
-    (asserts!
-      (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
-      (err ERR_NAME_GRACE_PERIOD))
-    ;; The name must not be expired 
-    (asserts!
-      (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
-      (err ERR_NAME_EXPIRED))
-    ;; The name must not be revoked
-    (asserts!
-      (is-none (get revoked-at name-props))
-      (err ERR_NAME_REVOKED))
+    (data (try! (check-name-ops-preconditions namespace name))))
     ;; Update the zonefile
     (update-zonefile-and-props
       namespace 
       name  
-      (get registered-at name-props)
-      (get imported-at name-props)
+      (get registered-at (get name-props data))
+      (get imported-at (get name-props data))
       none
       zonefile-hash)
     (ok true)))
@@ -667,57 +595,27 @@
                               (new-owner principal)
                               (zonefile-hash (optional (buff 20))))
   (let (
-    (current-owned-name (map-get? owner-name ((owner new-owner))))
-    (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
-      (err ERR_NAMESPACE_NOT_FOUND))))
-    (let (
-      (owner (unwrap!
-        (nft-get-owner? names (tuple (name name) (namespace namespace)))
-        (err ERR_NAME_NOT_FOUND))) ;; The name must exist
-      (name-props (unwrap!
-        (map-get? name-properties ((name name) (namespace namespace)))
-        (err ERR_NAME_NOT_FOUND))) ;; The name must exist
-      (can-new-owner-get-name (try! (can-register-name new-owner))))
-      ;; The namespace must be launched
-      (asserts!
-        (is-some (get launched-at namespace-props))
-        (err ERR_NAMESPACE_NOT_LAUNCHED))
-      ;; The sender must match the name's current owner
-      (asserts!
-        (is-eq owner tx-sender)
-        (err ERR_NAME_OPERATION_UNAUTHORIZED))
-      ;; The name must not be in the renewal grace period
-      (asserts!
-        (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
-        (err ERR_NAME_GRACE_PERIOD))
-      ;; The name must not be expired
-      (asserts!
-        (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
-        (err ERR_NAME_EXPIRED))
-      ;; The name must not be revoked
-      (asserts!
-        (is-none (get revoked-at name-props))
-        (err ERR_NAME_REVOKED))
-      ;; The new owner does not own a name
-      (asserts!
-        can-new-owner-get-name
-        (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
-      ;; Transfer the name
-      (unwrap!
-        (update-name-ownership? namespace name tx-sender new-owner)
-        (err ERR_NAME_TRANSFER_FAILED))
-      ;; Update or clear the zonefile
-      (update-zonefile-and-props
-          namespace 
-          name  
-          (get registered-at name-props)
-          (get imported-at name-props)
-          none
-          (if (is-none zonefile-hash)
-            0x
-            (unwrap! zonefile-hash (err ERR_PANIC))))
-      (ok true))))
+    (data (try! (check-name-ops-preconditions namespace name)))
+    (can-new-owner-get-name (try! (can-register-name new-owner))))
+    ;; The new owner does not own a name
+    (asserts!
+      can-new-owner-get-name
+      (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
+    ;; Transfer the name
+    (unwrap!
+      (update-name-ownership? namespace name tx-sender new-owner)
+      (err ERR_NAME_TRANSFER_FAILED))
+    ;; Update or clear the zonefile
+    (update-zonefile-and-props
+        namespace 
+        name  
+        (get registered-at (get name-props data))
+        (get imported-at (get name-props data))
+        none
+        (if (is-none zonefile-hash)
+          0x00
+          (unwrap-panic zonefile-hash)))
+    (ok true)))
 
 ;; NAME_REVOKE
 ;; A NAME_REVOKE transaction makes a name unresolvable. The BNS consensus rules stipulate that once a name 
@@ -727,43 +625,15 @@
 (define-public (name-revoke (namespace (buff 20))
                             (name (buff 32)))
   (let (
-    (owner (unwrap!
-      (nft-get-owner? names (tuple (name name) (namespace namespace)))
-      (err ERR_NAME_NOT_FOUND))) ;; The name must exist
-    (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
-      (err ERR_NAMESPACE_NOT_FOUND)))
-    (name-props (unwrap!
-      (map-get? name-properties ((name name) (namespace namespace)))
-      (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
-    ;; The namespace must be launched
-    (asserts!
-      (is-some (get launched-at namespace-props))
-      (err ERR_NAMESPACE_NOT_LAUNCHED))
-    ;; The sender must match the name's current owner
-    (asserts!
-      (is-eq owner tx-sender)
-      (err ERR_NAME_OPERATION_UNAUTHORIZED))
-    ;; The name must not be expired
-    (asserts!
-      (is-eq (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC)) false)
-      (err ERR_NAME_EXPIRED))
-    ;; The name must not be in the renewal grace period
-    (asserts!
-      (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) false)
-      (err ERR_NAME_GRACE_PERIOD))
-    ;; The name must not be revoked
-    (asserts!
-      (is-none (get revoked-at name-props))
-      (err ERR_NAME_REVOKED))
+    (data (try! (check-name-ops-preconditions namespace name))))
     ;; Clear the zonefile
     (update-zonefile-and-props
         namespace 
         name  
-        (get registered-at name-props)
-        (get imported-at name-props)
+        (get registered-at (get name-props data))
+        (get imported-at (get name-props data))
         (some block-height)
-        0x)
+        0x00)
     (ok true)))
 
 ;; NAME_RENEWAL
@@ -801,12 +671,12 @@
     (asserts!
       (is-eq owner tx-sender)
       (err ERR_NAME_OPERATION_UNAUTHORIZED))
-    ;; If expired, the name must not be in the renewal grace period.
-    (if (unwrap! (is-name-lease-expired namespace name) (err ERR_PANIC))
+    ;; If expired, the name must be in the renewal grace period.
+    (if (try! (is-name-lease-expired namespace name))
       (asserts!
-        (is-eq (unwrap! (is-name-in-grace-period namespace name) (err ERR_PANIC)) true)
+        (is-eq (try! (is-name-in-grace-period namespace name)) true)
         (err ERR_NAME_EXPIRED))
-      true)    
+      true)
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
       (>= stx-to-burn (unwrap-panic (compute-name-price name (get price-function namespace-props))))
@@ -833,10 +703,90 @@
               (some block-height)
               none
               none
-              (unwrap! zonefile-hash (err ERR_PANIC))))  
+              (unwrap-panic zonefile-hash)))  
     (ok true)))
 
 ;; Additionals public methods
+(define-read-only (check-name-ops-preconditions (namespace (buff 20)) (name (buff 32)))
+  (let (
+    (owner (unwrap!
+      (nft-get-owner? names (tuple (name name) (namespace namespace)))
+      (err ERR_NAME_NOT_FOUND))) ;; The name must exist
+    (namespace-props (unwrap!
+      (map-get? namespaces ((namespace namespace)))
+      (err ERR_NAMESPACE_NOT_FOUND)))
+    (name-props (unwrap!
+      (map-get? name-properties ((name name) (namespace namespace)))
+      (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
+      ;; The namespace must be launched
+      (asserts!
+        (is-some (get launched-at namespace-props))
+        (err ERR_NAMESPACE_NOT_LAUNCHED))
+      ;; The sender must match the name's current owner
+      (asserts!
+        (is-eq owner tx-sender)
+        (err ERR_NAME_OPERATION_UNAUTHORIZED))
+      ;; The name must not be in the renewal grace period
+      (asserts!
+        (is-eq (try! (is-name-in-grace-period namespace name)) false)
+        (err ERR_NAME_GRACE_PERIOD))
+      ;; The name must not be expired
+      (asserts!
+        (is-eq (try! (is-name-lease-expired namespace name)) false)
+        (err ERR_NAME_EXPIRED))
+      ;; The name must not be revoked
+      (asserts!
+        (is-none (get revoked-at name-props))
+        (err ERR_NAME_REVOKED))
+      (ok { namespace-props: namespace-props, name-props: name-props, owner: owner })))
+
+(define-read-only (compute-name-price (name (buff 32))
+                                      (price-function (tuple (buckets (list 16 uint)) 
+                                                             (base uint) 
+                                                             (coeff uint) 
+                                                             (nonalpha-discount uint) 
+                                                             (no-vowel-discount uint))))
+  (let (
+    (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
+    (no-vowel-discount (if (not (has-vowels-chars name)) (get no-vowel-discount price-function) u1))
+    (nonalpha-discount (if (has-nonalpha-chars name) (get nonalpha-discount price-function) u1)))
+    (ok (*
+      (/
+        (*
+          (get coeff price-function)
+          (pow (get base price-function) exponent))
+        (max nonalpha-discount no-vowel-discount))
+      u10))))
+
+(define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
+  (let (
+    (namespace-props (unwrap! 
+      (map-get? namespaces ((namespace namespace))) 
+      (err ERR_NAMESPACE_NOT_FOUND)))
+    (name-props (unwrap! 
+      (map-get? name-properties ((namespace namespace) (name name))) 
+      (err ERR_NAME_NOT_FOUND))))
+    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
+          (lifetime (get lifetime namespace-props)))
+        (if (is-eq lifetime u0)
+          (ok false)
+          (ok (> block-height (+ lifetime lease-started-at)))))))
+
+(define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 32)))
+  (let (
+    (namespace-props (unwrap! 
+      (map-get? namespaces ((namespace namespace))) 
+      (err ERR_NAMESPACE_NOT_FOUND)))
+    (name-props (unwrap! 
+      (map-get? name-properties ((namespace namespace) (name name))) 
+      (err ERR_NAME_NOT_FOUND))))
+    (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
+          (lifetime (get lifetime namespace-props)))
+        (if (is-eq lifetime u0)
+          (ok false)
+          (ok (and 
+            (> block-height (+ lifetime lease-started-at)) 
+            (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION))))))))
 
 (define-read-only (can-register-name (owner principal))
   (let ((current-owned-name (map-get? owner-name ((owner owner)))))
@@ -863,7 +813,7 @@
     (unwrap! (get launched-at namespace-props) (ok false))
     ;; Early return - Name has never be minted
     (asserts! (is-some (nft-get-owner? names (tuple (name name) (namespace namespace)))) (ok true))
-    (let ((name-props (unwrap! wrapped-name-props (err ERR_PANIC))))
+    (let ((name-props (unwrap-panic wrapped-name-props)))
       ;; Integrity check - Ensure that the name was either "imported" or "registered".
       (asserts! (is-eq (xor 
         (match (get registered-at name-props) res 1 0)
