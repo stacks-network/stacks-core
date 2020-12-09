@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
+pub use vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
 use vm::types::{FunctionType, TypeSignature};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 use vm::types::{Value, MAX_VALUE_SIZE};
@@ -278,7 +278,7 @@ pub fn check_special_as_max_len(
     let expected_len = u32::try_from(expected_len).map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
     let sequence = checker.type_check(&args[0], context)?;
-    analysis_typecheck_cost(checker, &sequence, &sequence)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match sequence {
         TypeSignature::SequenceType(ListType(list)) => {
@@ -321,4 +321,52 @@ pub fn check_special_len(
     }?;
 
     Ok(TypeSignature::UIntType)
+}
+
+pub fn check_special_element_at(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    match args[1].expr {
+        SymbolicExpressionType::LiteralValue(Value::UInt(_index)) => (),
+        _ => {
+            let expected_len_type = checker.type_check(&args[1], context)?;
+            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into());
+        }
+    };
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeAnnotate,
+        checker,
+        TypeSignature::UIntType.type_size()?,
+    )?;
+    checker
+        .type_map
+        .set_type(&args[1], TypeSignature::UIntType)?;
+
+    let collection_type = checker.type_check(&args[0], context)?;
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
+
+    match collection_type {
+        TypeSignature::SequenceType(ListType(list)) => {
+            let (entry_type, _) = list.destruct();
+            TypeSignature::new_option(entry_type).map_err(|e| e.into())
+        }
+        TypeSignature::SequenceType(BufferType(_)) => {
+            Ok(TypeSignature::OptionalType(Box::new(BUFF_1.clone())))
+        }
+        TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
+            Box::new(TypeSignature::SequenceType(StringType(ASCII(
+                BufferLength::try_from(1u32).unwrap(),
+            )))),
+        )),
+        TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
+            Box::new(TypeSignature::SequenceType(StringType(UTF8(
+                StringUTF8Length::try_from(1u32).unwrap(),
+            )))),
+        )),
+        _ => Err(CheckErrors::ExpectedSequence(collection_type).into()),
+    }
 }

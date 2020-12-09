@@ -712,6 +712,7 @@ impl TypedNativeFunction {
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),
             AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
+            ElementAt => Special(SpecialNativeFunction(&sequences::check_special_element_at)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),

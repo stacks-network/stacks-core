@@ -51,6 +51,7 @@ define_named_enum!(ClarityCostFunction {
     Map("cost_map"),
     Filter("cost_filter"),
     Len("cost_len"),
+    ElementAt("cost_element_at"),
     Fold("cost_fold"),
     ListCons("cost_list_cons"),
     TypeParseStep("cost_type_parse_step"),

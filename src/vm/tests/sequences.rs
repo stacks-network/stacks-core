@@ -55,6 +55,56 @@ fn test_simple_list_admission() {
 }
 
 #[test]
+fn test_element_at() {
+    let good = [
+        "(element-at (list 1 2 3 4 5) u100)",
+        "(element-at \"abcd\" u100)",
+        "(element-at 0xfedb u100)",
+        "(element-at u\"abcd\" u100)",
+        "(element-at (list 1 2 3 4 5) u0)",
+        "(element-at (list 1 2 3 4 5) u1)",
+        "(element-at \"abcd\" u1)",
+        "(element-at 0xfedb u1)",
+        "(element-at u\"abcd\" u1)",
+    ];
+
+    let expected = [
+        "none",
+        "none",
+        "none",
+        "none",
+        "(some 1)",
+        "(some 2)",
+        "(some \"b\")",
+        "(some 0xdb)",
+        "(some u\"b\")",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", execute(&good_test).unwrap().unwrap())
+        );
+    }
+
+    let bad = ["(element-at 3 u1)", "(element-at (list 1 2 3) 1)"];
+
+    let bad_expected = [
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(1)),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        match execute(&bad_test).unwrap_err() {
+            Error::Unchecked(check_error) => {
+                assert_eq!(&check_error, expected);
+            }
+            _ => unreachable!("Should have raised unchecked errors"),
+        }
+    }
+}
+
+#[test]
 fn test_string_ascii_admission() {
     let defines = "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);

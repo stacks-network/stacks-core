@@ -77,6 +77,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Concat => "(concat list-bar list-bar)",
         AsMaxLen => "(as-max-len? list-bar u3)",
         Len => "(len list-bar)",
+        ElementAt => "(element-at list-bar u2)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo {a: 1})",
         SetEntry => "(map-set map-foo {a: 1} {b: 2})",

@@ -253,6 +253,27 @@ impl SequenceData {
         }
     }
 
+    pub fn element_at(self, index: usize) -> Option<Value> {
+        if self.len() <= index {
+            return None;
+        }
+        let result = match self {
+            SequenceData::Buffer(data) => Value::buff_from_byte(data.data[index]),
+            SequenceData::List(mut data) => data.data.remove(index),
+            SequenceData::String(CharType::ASCII(data)) => {
+                Value::string_ascii_from_bytes(vec![data.data[index]])
+                    .expect("BUG: failed to initialize single-byte ASCII buffer")
+            }
+            SequenceData::String(CharType::UTF8(mut data)) => {
+                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+                    data: vec![data.data.remove(index)],
+                })))
+            }
+        };
+
+        Some(result)
+    }
+
     pub fn filter<F>(&mut self, filter: &mut F) -> Result<()>
     where
         F: FnMut(SymbolicExpression) -> Result<bool>,

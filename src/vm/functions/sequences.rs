@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{
@@ -239,5 +239,29 @@ pub fn native_len(sequence: Value) -> Result<Value> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
         _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
+    }
+}
+
+pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
+    let sequence_data = if let Value::Sequence(sequence_data) = sequence {
+        sequence_data
+    } else {
+        return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into());
+    };
+
+    let index = if let Value::UInt(index_u128) = index {
+        if let Ok(index_usize) = usize::try_from(index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index).into());
+    };
+
+    if let Some(result) = sequence_data.element_at(index) {
+        Value::some(result)
+    } else {
+        Ok(Value::none())
     }
 }

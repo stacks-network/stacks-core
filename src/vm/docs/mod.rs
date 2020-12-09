@@ -547,6 +547,22 @@ const LEN_API: SpecialAPI = SpecialAPI {
 ",
 };
 
+const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, uint",
+    output_type: "(optional buff|A)",
+    signature: "(element-at sequence index)",
+    description:
+        "The `element-at` function returns the element at `index` in the provided sequence.
+If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
+For strings and buffers, this function will return 1-length strings or buffers.",
+    example: "(element-at \"blockstack\" u5) ;; Returns (some \"s\")
+(element-at (list 1 2 3 4 5) u5) ;; Returns none
+(element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
+(element-at \"abcd\" u1) ;; Returns (some \"b\")
+(element-at 0xfb01 u1) ;; Returns (some 0x01)
+",
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -1515,6 +1531,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Concat => make_for_special(&CONCAT_API, name),
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
+        ElementAt => make_for_special(&ELEMENT_AT_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),

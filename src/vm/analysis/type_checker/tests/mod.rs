@@ -624,6 +624,41 @@ fn test_simple_lets() {
 }
 
 #[test]
+fn test_element_at() {
+    let good = [
+        "(element-at (list 1 2 3 4 5) u100)",
+        "(element-at \"abcd\" u100)",
+        "(element-at 0xfedb u100)",
+        "(element-at u\"abcd\" u100)",
+    ];
+
+    let expected = [
+        "(optional int)",
+        "(optional (string-ascii 1))",
+        "(optional (buff 1))",
+        "(optional (string-utf8 1))",
+    ];
+
+    let bad = ["(element-at (list 1 2 3 4 5) 100)", "(element-at 3 u100)"];
+
+    let bad_expected = [
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
 fn test_eqs() {
     let good = [
         "(is-eq (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
