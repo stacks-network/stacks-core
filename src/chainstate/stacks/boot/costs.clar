@@ -57,6 +57,9 @@
 (define-read-only (cost_analysis_check_tuple_get (n uint))
     (runtime (logn n u1 u1)))
 
+(define-read-only (cost_analysis_check_tuple_merge (n uint)) 
+    (runtime (linear n u1 u1)))
+
 (define-read-only (cost_analysis_check_tuple_cons (n uint))
     (runtime (nlogn n u1 u1)))
 
@@ -170,6 +173,9 @@
 
 (define-read-only (cost_tuple_get (n uint))
     (runtime (nlogn n u1 u1)))
+
+(define-read-only (cost_tuple_merge (n uint))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_tuple_cons (n uint))
     (runtime (nlogn n u1 u1)))

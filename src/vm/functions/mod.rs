@@ -243,9 +243,9 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
             TupleMerge => NativeFunction(
-                "special_set-tuple",
+                "native_merge-tuple",
                 NativeHandle::DoubleArg(&tuples::tuple_merge),
-                ClarityCostFunction::Len,
+                ClarityCostFunction::TupleMerge,
             ),
             Begin => NativeFunction(
                 "native_begin",

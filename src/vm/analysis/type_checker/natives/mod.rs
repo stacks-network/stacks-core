@@ -167,6 +167,11 @@ fn check_special_merge(
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(res.clone())),
     }?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleMerge,
+        checker,
+        update.len(),
+    )?;
 
     base.shallow_merge(&mut update);
     Ok(TypeSignature::TupleType(base))
