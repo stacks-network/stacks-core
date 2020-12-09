@@ -149,6 +149,34 @@ fn check_special_get(
     }
 }
 
+fn check_special_merge(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let res = checker.type_check(&args[0], context)?;
+    let mut base = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+
+    let res = checker.type_check(&args[1], context)?;
+    let mut update = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleMerge,
+        checker,
+        update.len(),
+    )?;
+
+    base.shallow_merge(&mut update);
+    Ok(TypeSignature::TupleType(base))
+}
+
 pub fn check_special_tuple_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -665,6 +693,7 @@ impl TypedNativeFunction {
             DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
             TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
             TupleGet => Special(SpecialNativeFunction(&check_special_get)),
+            TupleMerge => Special(SpecialNativeFunction(&check_special_merge)),
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),

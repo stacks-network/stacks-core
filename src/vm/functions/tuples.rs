@@ -75,3 +75,18 @@ pub fn tuple_get(
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into()),
     }
 }
+
+pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
+    let initial_values = match base {
+        Value::Tuple(initial_values) => Ok(initial_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base))),
+    }?;
+
+    let new_values = match update {
+        Value::Tuple(new_values) => Ok(new_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update))),
+    }?;
+
+    let combined = TupleData::shallow_merge(initial_values, new_values)?;
+    Ok(Value::Tuple(combined))
+}
