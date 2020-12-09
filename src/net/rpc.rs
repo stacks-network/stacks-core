@@ -601,7 +601,7 @@ impl ConversationHttp {
             // Pages indexes not provided, aborting
             let msg = format!("Page indexes missing");
             warn!("{}", msg);
-            let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+            let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
             response.send(http, fd)?;
             return Err(net_error::ClientError(ClientError::Message(msg)));
         };
@@ -619,8 +619,6 @@ impl ConversationHttp {
                 return Err(net_error::DBError(e));
             }
         };
-
-        if (max_block_height - min_block_height) > 12 {}
 
         let mut blocks_ids = vec![];
         let mut headers_tx = chainstate.index_tx_begin()?;

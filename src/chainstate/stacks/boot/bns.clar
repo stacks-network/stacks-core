@@ -80,6 +80,9 @@
 
 ;; Rule 1-1 -> 1 principal, 1 name
 (define-map owner-name { owner: principal } { name: (buff 32), namespace: (buff 20) })
+;; Only applies to non-revoked, non-expired names. 
+;; A principal can own many expired names (but they will be transferred away once someone re-registers them), 
+;; and can own many revoked names (but they do not resolve and cannot be transferred or updated).
 
 (define-map name-properties
   { name: (buff 32), namespace: (buff 20) }
@@ -253,7 +256,7 @@
             namespace-not-launched 
               (asserts! (is-eq namespace-not-launched ERR_NAMESPACE_NOT_LAUNCHED) 
                 (err (unwrap-err-panic is-lease-expired))))
-          ;; New owner and beneficiary must be differents
+          ;; New owner and beneficiary must be different
           (asserts! (not (is-eq beneficiary previous-owner)) (ok false))
           ;; Transfer the name.
           (update-name-ownership? namespace name previous-owner beneficiary)))))
