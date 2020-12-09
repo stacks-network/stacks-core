@@ -94,6 +94,8 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -595,17 +597,15 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct VestingSchedule {
-    pub address: StacksAddress,
+pub struct ChainStateAccountBalance {
+    pub address: String,
     pub amount: u64,
-    pub block_height: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct AccountBalance {
-    pub address: StacksAddress,
+pub struct ChainStateAccountVesting {
+    pub address: String,
     pub amount: u64,
+    pub block_height: u64,
 }
 
 pub struct ChainStateBootData {
@@ -615,9 +615,9 @@ pub struct ChainStateBootData {
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_vesting_schedules:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = VestingSchedule>>>>,
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountVesting>>>>,
     pub get_bulk_initial_balances:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = AccountBalance>>>>,
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -748,6 +748,20 @@ impl StacksChainState {
         Ok(path_str)
     }
 
+    fn parse_genesis_address(addr: &str) -> PrincipalData {
+        // Typical entries are BTC encoded addresses that need converted to STX
+        let stacks_address = match BitcoinAddress::from_b58(&addr) {
+            Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
+            // A few addresses (from legacy placeholder accounts) are already STX addresses
+            _ => match StacksAddress::from_string(addr) {
+                Some(addr) => addr,
+                None => panic!("Failed to parsed genesis address {}", addr),
+            },
+        };
+        let principal: PrincipalData = stacks_address.into();
+        return principal;
+    }
+
     /// Install the boot code into the chain history.
     fn install_boot_code(
         chainstate: &mut StacksChainState,
@@ -857,9 +871,10 @@ impl StacksChainState {
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
+                        let stx_address = StacksChainState::parse_genesis_address(&balance.address);
                         StacksChainState::account_genesis_credit(
                             clarity,
-                            &balance.address.into(),
+                            &stx_address,
                             balance.amount.into(),
                         );
                         initial_liquid_ustx = initial_liquid_ustx
@@ -867,7 +882,7 @@ impl StacksChainState {
                             .expect("FATAL: liquid STX overflow");
                         let mint_event = StacksTransactionEvent::STXEvent(
                             STXEventType::STXMintEvent(STXMintEventData {
-                                recipient: balance.address.into(),
+                                recipient: stx_address,
                                 amount: balance.amount.into(),
                             }),
                         );
@@ -910,7 +925,8 @@ impl StacksChainState {
                         let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                         let index = value + 1;
                         unlocks_per_blocks.insert(schedule.block_height, index);
-
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address);
                         clarity
                             .with_clarity_db(|db| {
                                 let key = TupleData::from_data(vec![
@@ -923,7 +939,7 @@ impl StacksChainState {
                                 .unwrap();
 
                                 let value = TupleData::from_data(vec![
-                                    ("owner".into(), Value::Principal(schedule.address.into())),
+                                    ("owner".into(), Value::Principal(stx_address)),
                                     ("metadata".into(), Value::buff_from_byte(0)),
                                     ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
                                 ])

@@ -6,7 +6,6 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -25,6 +24,10 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
     db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
+};
+use stacks::{
+    burnchains::{Burnchain, BurnchainHeaderHash, Txid},
+    chainstate::stacks::db::{ChainStateAccountBalance, ChainStateAccountVesting},
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -77,6 +80,25 @@ pub struct Node {
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
     nonce: u64,
+}
+
+pub fn get_account_vesting() -> Box<dyn Iterator<Item = ChainStateAccountVesting>> {
+    Box::new(
+        stx_genesis::read_vesting().map(|item| ChainStateAccountVesting {
+            address: item.address,
+            amount: item.amount,
+            block_height: item.block_height,
+        }),
+    )
+}
+
+pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainStateAccountBalance>> {
+    Box::new(
+        stx_genesis::read_balances().map(|item| ChainStateAccountBalance {
+            address: item.address,
+            amount: item.amount,
+        }),
+    )
 }
 
 fn spawn_peer(
@@ -161,8 +183,8 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_vesting_schedules: Some(Box::new(|| stx_genesis::read_vesting())),
-            get_bulk_initial_balances: Some(Box::new(|| stx_genesis::read_balances())),
+            get_bulk_initial_vesting_schedules: Some(Box::new(get_account_vesting)),
+            get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
