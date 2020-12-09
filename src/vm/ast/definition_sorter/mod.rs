@@ -207,7 +207,7 @@ impl<'a> DefinitionSorter {
                                         self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
-                                },
+                                }
                             }
                         } else if let Some(native_function) =
                             NativeFunctions::lookup_by_name(function_name)
