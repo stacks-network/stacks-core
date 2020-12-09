@@ -623,7 +623,7 @@ impl ConversationHttp {
         if (max_block_height - min_block_height) > 12 {}
 
         let mut blocks_ids = vec![];
-        let mut headers_tx = chainstate.headers_tx_begin()?;
+        let mut headers_tx = chainstate.index_tx_begin()?;
         let tip_index_hash =
             StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
 

@@ -10,7 +10,6 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
-use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
