@@ -19,6 +19,7 @@
 (define-constant ERR_PROPOSAL_VETOED         16)
 (define-constant ERR_PROPOSAL_CONFIRMED      17)
 (define-constant ERR_FETCHING_BLOCK_INFO     18)
+(define-constant ERR_UNREACHABLE             255)
 
 (define-constant VOTE_LENGTH u2016)
 (define-constant VETO_LENGTH u1008)
@@ -131,13 +132,18 @@
             proposal-id: proposal-id }))))
     )
 
+    ;; a vote must have a positive amount
     (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
+
+    ;; the vote must occur before the expiration
     (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+
+    ;; the proposal must not already be voter confirmed
     (asserts! (is-none (map-get? vote-confirmed-proposals { proposal-id: proposal-id }))
         (err ERR_VOTE_ENDED))
 
     (unwrap! (stx-transfer? amount tx-sender (as-contract tx-sender)) (err ERR_INSUFFICIENT_FUNDS))
-    (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err ERR_FT_MINT))
+    (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err ERR_UNREACHABLE))
 
     (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
     (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
@@ -172,8 +178,6 @@
 (define-public (veto (proposal-id uint))
     (let (
         (cur-vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
-        (begin-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL))))
         (expiration-block-height (get expiration-block-height (unwrap!
             (map-get? vote-confirmed-proposals { proposal-id: proposal-id })
                 (err ERR_VOTE_NOT_CONFIRMED))))
@@ -186,13 +190,10 @@
     ;; a miner can only veto once per block
     (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
 
-    ;; vetoes can only be cast after the voting period has ended
-    (asserts! (>= burn-block-height begin-block-height) (err ERR_VETO_PERIOD_NOT_STARTED))
-
     ;; vetoes must be case within the veto period
     (asserts! (< burn-block-height expiration-block-height) (err ERR_VETO_PERIOD_OVER))
 
-    ;; a miner can only veto if they mined the previous block, proving their hash power
+    ;; a miner can only veto if they mined the previous block
     (asserts! (is-eq contract-caller last-miner) (err ERR_NOT_LAST_MINER))
 
     ;; a veto cannot be cast if a proposal has already been miner confirmed
@@ -224,7 +225,7 @@
         (err ERR_INSUFFICIENT_VOTES))
 
     (map-insert vote-confirmed-proposals { proposal-id: proposal-id }
-        { expiration-block-height: (+ VETO_LENGTH expiration-block-height) })
+        { expiration-block-height: (+ VETO_LENGTH burn-block-height) })
 
     (ok true)))
 )

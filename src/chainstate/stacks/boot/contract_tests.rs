@@ -867,7 +867,7 @@ fn delegation_tests() {
 }
 
 #[test]
-fn test_vote_fail() {
+fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
@@ -1026,9 +1026,17 @@ fn test_vote_fail() {
             Value::UInt(1000000)
         );
     });
+}
+
+#[test]
+fn test_vote_fail() {
+    let mut sim = ClarityTestSim::new();
 
     // Test voting in a proposal
     sim.execute_next_block(|env| {
+        env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
+            .unwrap();
+
         // Submit a proposal
         assert_eq!(
             env.execute_transaction(
@@ -1056,7 +1064,7 @@ fn test_vote_fail() {
             .0,
             Value::Response(ResponseData {
                 committed: true,
-                data: Value::UInt(1).into()
+                data: Value::UInt(0).into()
             })
         );
 
@@ -1066,7 +1074,7 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-votes",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1082,7 +1090,7 @@ fn test_vote_fail() {
                 user.into(),
                 COST_VOTING_CONTRACT.clone(),
                 "vote-proposal",
-                &symbols_from_values(vec![Value::UInt(1), Value::UInt(USTX_PER_HOLDER)]),
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
             .unwrap()
             .0;
@@ -1094,7 +1102,7 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-votes",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1105,17 +1113,17 @@ fn test_vote_fail() {
         );
     });
 
-    // Fast forward to proposal expiration
-    for _ in 0..2016 {
-        sim.execute_next_block(|_| {});
-    }
+    // // Fast forward to proposal expiration
+    // for _ in 0..2016 {
+    //     sim.execute_next_block(|_| {});
+    // }
 
     sim.execute_next_block(|env| {
         env.execute_transaction(
             (&MINER_KEY.clone()).into(),
             COST_VOTING_CONTRACT.clone(),
             "veto",
-            &symbols_from_values(vec![Value::UInt(1)]),
+            &symbols_from_values(vec![Value::UInt(0)]),
         )
         .unwrap();
 
@@ -1124,7 +1132,7 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-vetos",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1134,13 +1142,13 @@ fn test_vote_fail() {
         );
     });
 
-    for _ in 0..1007 {
+    for _ in 0..1000 {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "veto",
-                &symbols_from_values(vec![Value::UInt(1)]),
+                &symbols_from_values(vec![Value::UInt(0)]),
             )
             .unwrap();
 
@@ -1156,7 +1164,7 @@ fn test_vote_fail() {
                 .0,
                 Value::Response(ResponseData {
                     committed: false,
-                    data: Value::Int(9).into()
+                    data: Value::Int(10).into()
                 })
             );
         })
@@ -1169,13 +1177,13 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-miners",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(16).into()
+                data: Value::Int(15).into()
             })
         );
     });
