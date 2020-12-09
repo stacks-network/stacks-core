@@ -377,8 +377,15 @@ impl Config {
         };
 
         let default_burnchain_config = BurnchainConfig::default();
+
         let burnchain = match config_file.burnchain {
-            Some(burnchain) => {
+            Some(mut burnchain) => {
+                if burnchain.mode.as_deref() == Some("xenon") {
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+                    }
+                }
+
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
