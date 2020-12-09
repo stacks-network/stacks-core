@@ -204,35 +204,40 @@
                                                   (zonefile-hash (buff 20)))))
       (let ((registered-at (get registered-at name-props))
             (imported-at (get imported-at name-props)))
-        ;; The namespace must be launched
-        (asserts! (is-some namespace-launched-at) (err ERR_NAMESPACE_NOT_LAUNCHED))
-        ;; Sanity check: the name must have been either be registered or imported
-        (asserts! (is-eq (xor 
-          (match (get registered-at name-props) res 1 0)
-          (match (get imported-at name-props)   res 1 0)) 1) (err ERR_PANIC))
-        ;; If the name was launched, then started-at will come from registered-at
-        (if (is-some registered-at)
-          ;; The name was registered - We return the registration block height
-          (ok (unwrap-panic registered-at))
-          (if (and (>= (unwrap-panic imported-at) namespace-revealed-at)
-                   (<= (unwrap-panic imported-at) (unwrap-panic namespace-launched-at)))
-            ;; The name was imported after revealing the namespace and before launching the namespace - We return the launch block height
-            (ok (unwrap-panic namespace-launched-at))
-            (err ERR_NAME_EXPIRED)))))
+        (if (is-none namespace-launched-at)
+          (begin
+            ;; The namespace must not be expired
+            (asserts! 
+              (> (+ namespace-revealed-at NAMESPACE_LAUNCHABILITY_TTL) block-height) 
+              (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
+            (ok (unwrap-panic imported-at)))
+          (begin
+            ;; The namespace must be launched
+            (asserts! (is-some namespace-launched-at) (err ERR_NAMESPACE_NOT_LAUNCHED))
+            ;; Sanity check: the name must have been either be registered or imported
+            (asserts! (is-eq (xor 
+              (match registered-at res 1 0)
+              (match imported-at   res 1 0)) 1) (err ERR_PANIC))
+            ;; If the name was launched, then started-at will come from registered-at
+            (if (is-some registered-at)
+              ;; The name was registered - We return the registration block height
+              (ok (unwrap-panic registered-at))
+              ;; The name was imported
+              (if (and (>= (unwrap-panic imported-at) namespace-revealed-at)
+                      (<= (unwrap-panic imported-at) (unwrap-panic namespace-launched-at)))
+                ;; The name was imported after revealing the namespace and before launching the namespace - We return the launch block height
+                (ok (unwrap-panic namespace-launched-at))
+                (ok u0)))))))
 
+;; Note: the following method is used in name-import and name-register. The latter ensure that the name
+;; can be registered, the former does not. 
 (define-private (mint-or-transfer-name? (namespace (buff 20)) (name (buff 32)) (beneficiary principal))
     (let (
-      (can-beneficiary-register-name (try! (can-register-name beneficiary)))
-      (current-owner (nft-get-owner? names { name: name, namespace: namespace })))
-      ;; The name must only have valid chars
-      (asserts!
-        (not (has-invalid-chars name))
-        (err ERR_NAME_CHARSET_INVALID))
+      (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
       ;; The principal can register a name
       (asserts!
-        can-beneficiary-register-name
+        (try! (can-receive-name beneficiary))
         (err ERR_PRINCIPAL_ALREADY_ASSOCIATED))
-      ;; The name must not exist yet, or be expired
       (if (is-none current-owner)
         ;; This is a new name, let's mint it
         (begin
@@ -243,23 +248,10 @@
               beneficiary)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
           (map-set owner-name
-            { owner: tx-sender }
-            { name: name, namespace: namespace })
+            { name: name, namespace: namespace }
+            { owner: beneficiary })
           (ok true))
-        (let ((is-lease-expired (is-name-lease-expired namespace name))
-              (previous-owner (unwrap-panic current-owner)))
-          ;; If the lease is expired or the namespace is not launched
-          (match is-lease-expired 
-            is-expired 
-              (asserts! is-expired 
-                (err ERR_NAME_UNAVAILABLE)) 
-            namespace-not-launched 
-              (asserts! (is-eq namespace-not-launched ERR_NAMESPACE_NOT_LAUNCHED) 
-                (err (unwrap-err-panic is-lease-expired))))
-          ;; New owner and beneficiary must be different
-          (asserts! (not (is-eq beneficiary previous-owner)) (ok false))
-          ;; Transfer the name.
-          (update-name-ownership? namespace name previous-owner beneficiary)))))
+        (update-name-ownership? namespace name (unwrap-panic current-owner) beneficiary))))
 
 (define-private (update-name-ownership? (namespace (buff 20)) 
                                         (name (buff 32)) 
@@ -306,6 +298,15 @@
           imported-at: imported-at,
           revoked-at: revoked-at,
           zonefile-hash: zonefile-hash })))
+
+(define-private (is-namespace-available (namespace (buff 20)))
+  (match (map-get? namespaces { namespace: namespace }) namespace-props
+    (begin
+      ;; Is the namespace launched?
+      (if (is-some (get launched-at namespace-props)) 
+        false
+        (> block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL)))) ;; Is the namespace expired?
+    true))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
@@ -402,9 +403,9 @@
     (asserts!
       (not (has-invalid-chars namespace))
       (err ERR_NAMESPACE_CHARSET_INVALID))
-    ;; The namespace must not exist yet in the `namespaces` table
-    (asserts!
-      (is-none (map-get? namespaces { namespace: namespace }))
+    ;; The namespace must not exist in the `namespaces` table, or be expired
+    (asserts! 
+      (is-namespace-available namespace)
       (err ERR_NAMESPACE_ALREADY_EXISTS))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
@@ -490,7 +491,7 @@
       (map-set namespaces { namespace: namespace } namespace-props-updated)
       ;; Emit an event
       (print { namespace: namespace, status: "ready", properties: namespace-props-updated })
-      (ok true)))
+      (ok true))))
 
 ;;;; NAMES
 
@@ -603,7 +604,7 @@
                               (zonefile-hash (optional (buff 20))))
   (let (
     (data (try! (check-name-ops-preconditions namespace name)))
-    (can-new-owner-get-name (try! (can-register-name new-owner))))
+    (can-new-owner-get-name (try! (can-receive-name new-owner))))
     ;; The new owner does not own a name
     (asserts!
       can-new-owner-get-name
@@ -697,7 +698,7 @@
     ;; Transfer the name, if any new-owner
     (if (is-none new-owner)
       true 
-      (try! (can-register-name (unwrap-panic new-owner))))
+      (try! (can-receive-name (unwrap-panic new-owner))))
     ;; Update the zonefile, if any.
     (if (is-none zonefile-hash)
       (map-set name-properties
@@ -768,6 +769,9 @@
         (max nonalpha-discount no-vowel-discount))
       u10))))
 
+(define-read-only (can-namespace-be-registered (namespace (buff 20)))
+  (ok (is-namespace-available namespace)))
+
 (define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
@@ -798,27 +802,34 @@
             (> block-height (+ lifetime lease-started-at)) 
             (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION))))))))
 
-(define-read-only (can-register-name (owner principal))
+(define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name { owner: owner })))
     (if (is-none current-owned-name)
       (ok true)
       (let (
         (namespace (unwrap-panic (get namespace current-owned-name)))
         (name (unwrap-panic (get name current-owned-name))))
-        ;; Early return if lease is expired
-        (asserts! 
-          (not (try! (is-name-lease-expired namespace name)))
-          (ok true))
-        (let (
-          (name-props (unwrap-panic (map-get? name-properties { name: name, namespace: namespace }))))
-          ;; Has name been revoked?
-          (asserts! (is-some (get revoked-at name-props)) (ok false))
-          (ok true))))))
+        (if (is-namespace-available namespace)
+          (ok true)
+          (begin
+            ;; Early return if lease is expired
+            (asserts! 
+              (not (try! (is-name-lease-expired namespace name)))
+              (ok true))
+            (let (
+              (name-props (unwrap-panic (map-get? name-properties { name: name, namespace: namespace }))))
+              ;; Has name been revoked?
+              (asserts! (is-some (get revoked-at name-props)) (ok false))
+              (ok true))))))))
 
 (define-read-only (can-name-be-registered (namespace (buff 20)) (name (buff 32)))
   (let (
       (wrapped-name-props (map-get? name-properties { name: name, namespace: namespace }))
       (namespace-props (unwrap! (map-get? namespaces { namespace: namespace }) (ok false))))
+    ;; The name must only have valid chars
+    (asserts!
+      (not (has-invalid-chars name))
+      (err ERR_NAME_CHARSET_INVALID))
     ;; Ensure that namespace has been launched 
     (unwrap! (get launched-at namespace-props) (ok false))
     ;; Early return - Name has never be minted
@@ -841,20 +852,15 @@
       (err ERR_NAME_NOT_FOUND)))
     (namespace-props (unwrap! 
       (map-get? namespaces { namespace: namespace }) 
-      (err ERR_NAMESPACE_NOT_FOUND)))
-    (is-lease-expired (is-name-lease-expired namespace name)))
-    ;; If the namespace is already launched
-    (if (is-some (get launched-at namespace-props))
-      (begin
-        ;; The name must not be in the renewal grace period
-        (asserts!
-          (is-eq (try! (is-name-in-grace-period namespace name)) false)
-          (err ERR_NAME_GRACE_PERIOD))
-        ;; The name must not be expired
-        (if (is-ok is-lease-expired)
-          (asserts! (not (try! is-lease-expired)) (err ERR_NAME_EXPIRED))
-          true))        
-      true)
+      (err ERR_NAMESPACE_NOT_FOUND))))
+    ;; The name must not be in grace period
+    (asserts!
+      (not (try! (is-name-in-grace-period namespace name)))
+      (err ERR_NAME_GRACE_PERIOD))
+    ;; The name must not be expired
+    (asserts! 
+      (not (try! (is-name-lease-expired namespace name)))
+      (err ERR_NAME_EXPIRED))
     ;; The name must not be revoked
     (asserts!
       (is-none (get revoked-at name-props))

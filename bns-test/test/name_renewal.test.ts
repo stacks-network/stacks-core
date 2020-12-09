@@ -331,7 +331,7 @@ describe("BNS Test Suite - NAME_RENEWAL", () => {
     expect(receipt.success).eq(true);
     block_height += 1;
 
-    // Dave should succeed and set the new expiration date to #41
+    // Dave should succeed renewing 'bob.blockstack'
     await mineBlocks(bns, 8);
 
     receipt = await bns.nameRenewal(

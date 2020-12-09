@@ -142,7 +142,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
       cases[1].zonefile, {
         sender: bob
       });
-    expect(receipt.error).include('1007');
+    expect(receipt.error).include('2004');
     expect(receipt.success).eq(false);
 
     // Given a launched namespace 'blockstack', owned by Alice
@@ -268,7 +268,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
       cases[0].zonefile, {
         sender: cases[0].nameOwner
       });
-    expect(receipt.error).include('3001');
+    expect(receipt.error).include('2004');
     expect(receipt.success).eq(false);
 
     // Charlie registering 'bob.blockstack'

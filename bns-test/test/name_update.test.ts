@@ -147,7 +147,7 @@ describe("BNS Test Suite - NAME_UPDATE", () => {
     expect(receipt.error).include('1011');
     // })
 
-    // should resolve - even if namespace was launched
+    // should resolve - even if namespace was not launched
     receipt = await bns.getNameZonefile(
       cases[0].namespace,
       "alice", {

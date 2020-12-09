@@ -125,14 +125,19 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.success).eq(false);
       expect(receipt.error).include('Aborted: 1011');
 
-
-      // Bob trying to import 'alpha.blockstack' should succeed
-      receipt = await bns.nameImport(cases[0].namespace, "alpha", bob, cases[0].zonefile, {
+      // Bob trying to import 'alpha.blockstack' for Alice should succeed
+      receipt = await bns.nameImport(cases[0].namespace, "alpha", alice, cases[0].zonefile, {
         sender: bob
       })
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: true');
 
+      // Bob trying to re-import 'alpha.blockstack', but for himself should succeed
+      receipt = await bns.nameImport(cases[0].namespace, "alpha", bob, cases[0].zonefile, {
+        sender: bob
+      })
+      expect(receipt.success).eq(true);
+      expect(receipt.result).include('Returned: true');
 
       receipt = await bns.nameImport(cases[0].namespace, "delta", dave, "4444", {
         sender: bob
@@ -150,21 +155,12 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.error).include('1007');
       expect(receipt.success).eq(false);
 
-      // Zonefile hash should not change
-      receipt = await bns.getNameZonefile(
-        cases[0].namespace,
-        "delta", {
-          sender: dave
-        });
-      expect(receipt.result).include('0x34343434');
-      expect(receipt.success).eq(true);
-
       // Bob trying to import a second name for bob 'alpha-2.blockstack' should fail
       receipt = await bns.nameImport(cases[0].namespace, "alpha-2", bob, cases[0].zonefile, {
         sender: bob
       })
       expect(receipt.success).eq(false);
-      expect(receipt.error).include('Aborted: 1007');
+      expect(receipt.error).include('Aborted: 3001');
 
       // Resolving an imported name should succeed if the namespace is not ready
       receipt = await bns.getNameZonefile(
@@ -175,7 +171,6 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
 
       expect(receipt.result).include('0x30303030');
       expect(receipt.success).eq(true);
-
 
       // Bob trying to import 'beta.blockstack' should fail after the launch of the domain
       receipt = await bns.namespaceReady(cases[0].namespace, {
@@ -266,19 +261,15 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
         "alpha", {
           sender: cases[0].nameOwner
         });
-
       expect(receipt.result).include('0x36363636');
       expect(receipt.success).eq(true);
 
       // Should start erroring when entering grace period
-      await bns.mineBlocks(4);
-
       receipt = await bns.getNameZonefile(
         cases[0].namespace,
         "alpha", {
           sender: cases[0].nameOwner
         });
-
       expect(receipt.error).include('2009');
       expect(receipt.success).eq(false);
 
