@@ -867,7 +867,7 @@ fn delegation_tests() {
 }
 
 #[test]
-fn cost_voting_tests() {
+fn test_vote_fail() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {

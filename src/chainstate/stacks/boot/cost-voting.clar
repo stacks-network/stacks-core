@@ -34,45 +34,55 @@
 
 ;; cost-function proposals
 (define-map proposals
-    ((proposal-id uint))
-    ((cost-function-contract principal)
-     (cost-function-name (string-ascii 128))
-     (function-contract principal)
-     (function-name (string-ascii 128))
-     (expiration-block-height uint)))
+    { proposal-id: uint }
+    {
+        cost-function-contract: principal,
+        cost-function-name: (string-ascii 128),
+        function-contract: principal,
+        function-name: (string-ascii 128),
+        expiration-block-height: uint
+    }
+)
 
 ;; vote confirmed cost-function proposals
 (define-map vote-confirmed-proposals
-    ((proposal-id uint))
-    ((expiration-block-height uint)))
+    { proposal-id: uint }
+    { expiration-block-height: uint }
+)
 
 ;; miner confirmed cost-function proposals
 (define-map confirmed-proposals
-   ((confirmed-id uint))
-   ((confirmed-proposal
-        {  function-contract: principal,
-           function-name: (string-ascii 128),
-           cost-function-contract: principal,
-           cost-function-name: (string-ascii 128),
-           confirmed-height: uint })))
+   { confirmed-id: uint }
+   {
+       function-contract: principal,
+       function-name: (string-ascii 128),
+       cost-function-contract: principal,
+       cost-function-name: (string-ascii 128),
+       confirmed-height: uint
+    }
+)
 
-(define-map proposal-confirmed-id ((proposal-id uint)) ((confirmed-id uint)))
+(define-map proposal-confirmed-id
+    { proposal-id: uint }
+    { confirmed-id: uint }
+)
 
 (define-map functions-to-confirmed-ids
-   ((function-contract principal) (function-name (string-ascii 128)))
-   ((proposal-id uint)))
+   { function-contract: principal, function-name: (string-ascii 128) }
+   { proposal-id: uint }
+)
 
 ;; cost-function proposal votes
-(define-map proposal-votes ((proposal-id uint)) ((votes uint)))
+(define-map proposal-votes { proposal-id: uint } { votes: uint })
 
 ;; cost-function proposal vetos
-(define-map proposal-vetos ((proposal-id uint)) ((vetos uint)))
+(define-map proposal-vetos { proposal-id: uint } { vetos: uint })
 
 ;; proposal vetos per block
-(define-map exercised-veto ((proposal-id uint) (veto-height uint)) ((vetoed bool)))
+(define-map exercised-veto { proposal-id: uint, veto-height: uint } { vetoed: bool })
 
 ;; the number of votes a specific principal has committed to a proposal
-(define-map principal-proposal-votes ((address principal) (proposal-id uint)) ((votes uint)))
+(define-map principal-proposal-votes { address: principal, proposal-id: uint } { votes: uint })
 
 ;; getter for cost-function proposals
 (define-read-only (get-proposal (proposal-id uint))
@@ -240,14 +250,12 @@
     (asserts! (< vetos REQUIRED_VETOES) (err ERR_PROPOSAL_VETOED))
 
     (map-insert confirmed-proposals { confirmed-id: confirmed-count }
-        { confirmed-proposal:
-            { 
-                function-contract: (get function-contract proposal),
-                function-name: (get function-name proposal),
-                cost-function-contract: (get cost-function-contract proposal),
-                cost-function-name: (get cost-function-name proposal),
-                confirmed-height: block-height
-            }
+        { 
+            function-contract: (get function-contract proposal),
+            function-name: (get function-name proposal),
+            cost-function-contract: (get cost-function-contract proposal),
+            cost-function-name: (get cost-function-name proposal),
+            confirmed-height: block-height
         })
 
     (map-insert proposal-confirmed-id { proposal-id: proposal-id } { confirmed-id: confirmed-count })
