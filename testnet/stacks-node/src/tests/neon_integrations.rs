@@ -165,6 +165,13 @@ mod test_observer {
             rt.block_on(serve());
         });
     }
+
+    pub fn clear() {
+        ATTACHMENTS.lock().unwrap().clear();
+        BURN_BLOCKS.lock().unwrap().clear();
+        NEW_BLOCKS.lock().unwrap().clear();
+        MEMTXS.lock().unwrap().clear();
+    }
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
@@ -763,6 +770,7 @@ fn microblock_integration_test() {
         );
     }
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -961,6 +969,7 @@ fn size_check_integration_test() {
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1397,6 +1406,7 @@ fn pox_integration_test() {
 
     assert_eq!(tip_info.stacks_tip_height, 56);
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1927,6 +1937,7 @@ fn atlas_integration_test() {
         channel.stop_chains_coordinator();
     });
 
+    test_observer::clear();
     bootstrap_node_thread.join().unwrap();
     follower_node_thread.join().unwrap();
 }
