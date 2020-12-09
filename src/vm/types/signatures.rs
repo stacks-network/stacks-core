@@ -64,7 +64,7 @@ impl AssetIdentifier {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    pub type_map: BTreeMap<ClarityName, TypeSignature>,
+    type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
