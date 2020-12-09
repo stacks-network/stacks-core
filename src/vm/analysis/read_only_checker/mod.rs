@@ -197,7 +197,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             StxTransfer | StxBurn | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
             | MintToken | TransferAsset | TransferToken => Ok(false),
-            Let => {
+            Let | LetStar => {
                 check_arguments_at_least(2, args)?;
 
                 let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;

@@ -436,6 +436,18 @@ Note: intermediary statements returning a response type must be checked",
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
 };
 
+const LET_STAR_API: SpecialAPI = SpecialAPI {
+    input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
+    output_type: "A",
+    signature: "(let* ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
+    description: "The `let*` function accepts a list of `variable name` and `expression` pairs,
+evaluating each expression and _binding_ it to the corresponding variable name. Unlike `let`, `let*` bindings
+are iterative: when a `let*` binding is evaluated, it may refer to prior binding. The _context_
+created by this set of bindings is used for evaluating its body expressions. The `let*` expression returns the value of the last such body expression.
+Note: intermediary statements returning a response type must be checked",
+    example: "(let* ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23"
+};
+
 const FETCH_VAR_API: SpecialAPI = SpecialAPI {
     input_type: "VarName",
     output_type: "A",
@@ -1493,6 +1505,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Equals => make_for_special(&EQUALS_API, name),
         If => make_for_special(&IF_API, name),
         Let => make_for_special(&LET_API, name),
+        LetStar => make_for_special(&LET_STAR_API, name),
         FetchVar => make_for_special(&FETCH_VAR_API, name),
         SetVar => make_for_special(&SET_VAR_API, name),
         Map => make_for_special(&MAP_API, name),

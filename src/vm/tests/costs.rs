@@ -67,6 +67,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Equals => "(is-eq 1 2)",
         If => "(if true (+ 1 2) 2)",
         Let => "(let ((x 1)) x)",
+        LetStar => "(let* ((x 1)) x)",
         FetchVar => "(var-get var-foo)",
         SetVar => "(var-set var-foo 1)",
         Map => "(map not list-foo)",

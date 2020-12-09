@@ -594,12 +594,22 @@ fn test_simple_lets() {
         "(let ((x 1) (y 2) (z 3)) (if (> x 2) (+ 1 x y) (- 1 z)))",
         "(let ((x true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))",
         "(let ((x true) (y (+ 1 2)) (z 3)) (print x) (if x (+ 1 z y) (- 1 z)))",
+        "(let* ((x 1) (y u2) (z u3) (a (+ y z)) (b (* 2 x)) (c { foo: a, bar: b })) c)",
     ];
 
-    let expected = ["int", "int", "int"];
+    let expected = ["int", "int", "int", "(tuple (bar int) (foo uint))"];
 
-    let bad = ["(let ((1)) (+ 1 2))", "(let ((1 2)) (+ 1 2))"];
-    let bad_expected = [CheckErrors::BadSyntaxBinding, CheckErrors::BadSyntaxBinding];
+    let bad = [
+        "(let ((1)) (+ 1 2))",
+        "(let ((1 2)) (+ 1 2))",
+        "(let* ((x 1) (y u2) (z (+ x y))) x)",
+    ];
+
+    let bad_expected = [
+        CheckErrors::BadSyntaxBinding,
+        CheckErrors::BadSyntaxBinding,
+        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+    ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(

@@ -34,6 +34,7 @@ use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
+use vm::is_reserved;
 use vm::representations::SymbolicExpressionType::{Atom, List};
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
@@ -70,6 +71,7 @@ define_named_enum!(NativeFunctions {
     Equals("is-eq"),
     If("if"),
     Let("let"),
+    LetStar("let*"),
     Map("map"),
     Fold("fold"),
     Append("append"),
@@ -222,6 +224,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ),
             If => SpecialFunction("special_if", &special_if),
             Let => SpecialFunction("special_let", &special_let),
+            LetStar => SpecialFunction("special_let_star", &special_let_star),
             FetchVar => SpecialFunction("special_var-get", &database::special_fetch_variable),
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
@@ -512,13 +515,16 @@ pub fn parse_eval_bindings(
     Ok(result)
 }
 
-fn special_let(
+/// implements `let` and `let*`
+/// `iterative_context`: this bool controls whether or not let bindings are
+///   evaluated in an "iterative" context, i.e., let bindings may use prior
+///   bindings.
+fn let_implementation(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
+    iterative_context: bool,
 ) -> Result<Value> {
-    use vm::is_reserved;
-
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -542,7 +548,14 @@ fn special_let(
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
-            let binding_value = eval(var_sexp, env, context)?;
+            let binding_value = {
+                let binding_context = if iterative_context {
+                    &inner_context
+                } else {
+                    context
+                };
+                eval(var_sexp, env, binding_context)
+            }?;
 
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
@@ -560,6 +573,22 @@ fn special_let(
         // last_result should always be Some(...), because of the arg len check above.
         Ok(last_result.unwrap())
     })
+}
+
+fn special_let(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    let_implementation(args, env, context, false)
+}
+
+fn special_let_star(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    let_implementation(args, env, context, true)
 }
 
 fn special_as_contract(
