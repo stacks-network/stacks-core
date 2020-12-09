@@ -109,12 +109,14 @@ fn spawn_peer(
     stacks_chainstate_path: String,
     event_dispatcher: EventDispatcher,
     exit_at_block_height: Option<u64>,
+    genesis_chainstate_hash: String,
     poll_timeout: u64,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
+            genesis_chainstate_hash: genesis_chainstate_hash,
             ..RPCHandlerArgs::default()
         };
 
@@ -391,6 +393,7 @@ impl Node {
             self.config.get_chainstate_path(),
             event_dispatcher,
             exit_at_block_height,
+            stx_genesis::GENESIS_CHAINSTATE_HASH.into(),
             1000,
         )
         .unwrap();

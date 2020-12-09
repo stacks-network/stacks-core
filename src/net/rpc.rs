@@ -103,6 +103,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
+    pub genesis_chainstate_hash: String,
 }
 
 pub struct ConversationHttp {
@@ -163,6 +164,7 @@ impl RPCPeerInfoData {
         chainstate: &StacksChainState,
         peerdb: &PeerDB,
         exit_at_block_height: &Option<&u64>,
+        genesis_chainstate_hash: &String,
     ) -> Result<RPCPeerInfoData, net_error> {
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
@@ -214,6 +216,7 @@ impl RPCPeerInfoData {
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
+            genesis_chainstate_hash: genesis_chainstate_hash.clone(),
         })
     }
 }
@@ -515,6 +518,7 @@ impl ConversationHttp {
             chainstate,
             peerdb,
             &handler_args.exit_at_block_height,
+            &handler_args.genesis_chainstate_hash
         ) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
@@ -2317,6 +2321,8 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
+    use crate::chainstate::stacks::db::EMPTY_GENESIS_CHAINSTATE_HASH;
+
     use super::*;
     use net::codec::*;
     use net::http::*;
@@ -2831,6 +2837,7 @@ mod test {
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     &peer_server.network.peerdb,
                     &None,
+                    EMPTY_GENESIS_CHAINSTATE_HASH,
                 )
                 .unwrap();
 

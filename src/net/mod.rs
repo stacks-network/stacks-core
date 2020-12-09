@@ -999,6 +999,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: String,
+    pub genesis_chainstate_hash: String,
     pub unanchored_tip: StacksBlockId,
     pub unanchored_seq: u16,
     pub exit_at_block_height: Option<u64>,
