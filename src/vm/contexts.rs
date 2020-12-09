@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
+use std::mem::replace;
 
 use vm::ast;
 use vm::ast::ContractAST;
@@ -39,8 +40,11 @@ use vm::types::{
 use vm::{eval, is_reserved};
 
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
+use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
+use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::StacksMicroblockHeader;
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -127,6 +131,7 @@ pub struct LocalContext<'a> {
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
+    apply_depth: usize,
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
@@ -478,13 +483,14 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    pub fn execute_in_env<F, A>(
+    pub fn execute_in_env<F, A, E>(
         &mut self,
         sender: Value,
         f: F,
-    ) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
+    ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        F: FnOnce(&mut Environment) -> Result<A>,
+        E: From<::vm::errors::Error>,
+        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
@@ -558,23 +564,29 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
+    pub fn handle_poison_microblock(
+        &mut self,
+        sender: &PrincipalData,
+        mblock_hdr_1: &StacksMicroblockHeader,
+        mblock_hdr_2: &StacksMicroblockHeader,
+    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
+        self.execute_in_env(Value::Principal(sender.clone()), |exec_env| {
+            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
+        })
+    }
+
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env(recipient.clone().into(), |env| {
-            let mut balance = env
+        self.execute_in_env::<_, _, ()>(recipient.clone().into(), |env| {
+            let mut snapshot = env
                 .global_context
                 .database
-                .get_account_stx_balance(recipient);
-            let block_height = env
-                .global_context
-                .database
-                .get_current_burnchain_block_height();
-            balance
-                .credit(amount, block_height as u64)
-                .expect("ERROR: Failed to credit balance");
-            env.global_context
-                .database
-                .set_account_stx_balance(recipient, &balance);
+                .get_stx_balance_snapshot(&recipient);
+
+            let mut balance = snapshot.balance().clone();
+            balance.amount_unlocked += amount;
+            snapshot.set_balance(balance);
+            snapshot.save();
             Ok(())
         })
         .unwrap();
@@ -644,6 +656,16 @@ impl CostTracker for Environment<'_, '_> {
     fn reset_memory(&mut self) {
         self.global_context.cost_track.reset_memory()
     }
+    fn short_circuit_contract_call(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        function: &ClarityName,
+        input: &[u64],
+    ) -> std::result::Result<bool, CostErrors> {
+        self.global_context
+            .cost_track
+            .short_circuit_contract_call(contract, function, input)
+    }
 }
 
 impl CostTracker for GlobalContext<'_> {
@@ -666,6 +688,15 @@ impl CostTracker for GlobalContext<'_> {
     }
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
+    }
+    fn short_circuit_contract_call(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        function: &ClarityName,
+        input: &[u64],
+    ) -> std::result::Result<bool, CostErrors> {
+        self.cost_track
+            .short_circuit_contract_call(contract, function, input)
     }
 }
 
@@ -776,6 +807,23 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
         let local_context = LocalContext::new();
         let result = { eval(&parsed[0], self, &local_context) };
+        result
+    }
+
+    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
+    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
+    pub fn run_free<F, A>(&mut self, to_run: F) -> A
+    where
+        F: FnOnce(&mut Environment) -> A,
+    {
+        let original_tracker = replace(
+            &mut self.global_context.cost_track,
+            LimitedCostTracker::new_free(),
+        );
+        // note: it is important that this method not return until original_tracker has been
+        //  restored. DO NOT use the try syntax (?).
+        let result = to_run(self);
+        self.global_context.cost_track = original_tracker;
         result
     }
 
@@ -996,6 +1044,27 @@ impl<'a, 'b> Environment<'a, 'b> {
                     Err(InterpreterError::InsufficientBalance.into())
                 }
             },
+            Err(e) => {
+                self.global_context.roll_back();
+                Err(e)
+            }
+        }
+    }
+
+    /// Top-level poison-microblock handler
+    pub fn handle_poison_microblock(
+        &mut self,
+        mblock_header_1: &StacksMicroblockHeader,
+        mblock_header_2: &StacksMicroblockHeader,
+    ) -> std::result::Result<Value, ChainstateError> {
+        self.global_context.begin();
+        let result =
+            StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
+        match result {
+            Ok(ret) => {
+                self.global_context.commit()?;
+                Ok(ret)
+            }
             Err(e) => {
                 self.global_context.roll_back();
                 Err(e)
@@ -1410,11 +1479,12 @@ impl CallStack {
         CallStack {
             stack: Vec::new(),
             set: HashSet::new(),
+            apply_depth: 0,
         }
     }
 
     pub fn depth(&self) -> usize {
-        self.stack.len()
+        self.stack.len() + self.apply_depth
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -1426,6 +1496,14 @@ impl CallStack {
         if track {
             self.set.insert(function.clone());
         }
+    }
+
+    pub fn incr_apply_depth(&mut self) {
+        self.apply_depth += 1;
+    }
+
+    pub fn decr_apply_depth(&mut self) {
+        self.apply_depth -= 1;
     }
 
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {

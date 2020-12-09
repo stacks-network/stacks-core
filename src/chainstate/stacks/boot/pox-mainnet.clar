@@ -7,7 +7,7 @@
 (define-constant PREPARE_CYCLE_LENGTH u250)
 
 ;; Default length of the PoX reward cycle, in burnchain blocks.
-(define-constant REWARD_CYCLE_LENGTH u1000)
+(define-constant REWARD_CYCLE_LENGTH u2000)
 
 ;; Valid values for burnchain address versions.
 ;; These correspond to address hash modes in Stacks 2.0.

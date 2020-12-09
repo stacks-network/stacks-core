@@ -67,13 +67,15 @@ pub mod util;
 pub mod net;
 
 #[macro_use]
+pub mod vm;
+
+#[macro_use]
 pub mod chainstate;
 
 pub mod address;
 pub mod burnchains;
 pub mod core;
 pub mod deps;
-pub mod vm;
 
 pub mod clarity;
 

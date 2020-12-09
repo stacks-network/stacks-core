@@ -42,9 +42,9 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
            (if (>= block-height block-to-release)
                (faucet)
                (err u8)))
-         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint? stackaroos u4 .tokens))";
+         (begin (unwrap-panic (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+                (unwrap-panic (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))
+                (unwrap-panic (ft-mint? stackaroos u4 .tokens)))";
 
 const ASSET_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
@@ -52,8 +52,8 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
 
          (define-non-fungible-token names uint)
          (define-map preorder-map
-           ((name-hash (buff 20)))
-           ((buyer principal) (paid uint)))
+           { name-hash: (buff 20) }
+           { buyer: principal, paid: uint })
 
          (define-public (preorder
                         (name-hash (buff 20))

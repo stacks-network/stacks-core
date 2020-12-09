@@ -345,7 +345,7 @@ where
 }
 
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
-pub fn query_int<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql,
@@ -377,7 +377,7 @@ where
     Ok(row_data[0])
 }
 
-pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql,
@@ -471,6 +471,12 @@ impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         self.tx()
+    }
+}
+
+impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
+    fn deref_mut(&mut self) -> &mut DBTx<'a> {
+        self.tx_mut()
     }
 }
 
@@ -608,6 +614,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     pub fn tx(&self) -> &DBTx<'a> {
         self.index().sqlite_tx()
+    }
+
+    pub fn tx_mut(&mut self) -> &mut DBTx<'a> {
+        self.index_mut().sqlite_tx_mut()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {

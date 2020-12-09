@@ -43,14 +43,14 @@ pub enum CallableType {
     ),
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DefineType {
     ReadOnly,
     Public,
     Private,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     name: ClarityName,

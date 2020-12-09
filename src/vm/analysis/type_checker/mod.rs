@@ -33,7 +33,7 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
 };
 use vm::variables::NativeVariables;
 
@@ -97,6 +97,15 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
+    }
+    fn short_circuit_contract_call(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        function: &ClarityName,
+        input: &[u64],
+    ) -> std::result::Result<bool, CostErrors> {
+        self.cost_track
+            .short_circuit_contract_call(contract, function, input)
     }
 }
 
@@ -451,6 +460,25 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         result
     }
 
+    fn type_check_consecutive_statements(
+        &mut self,
+        args: &[SymbolicExpression],
+        context: &TypingContext,
+    ) -> TypeResult {
+        let mut types_returned = self.type_check_all(args, context)?;
+
+        let last_return = types_returned
+            .pop()
+            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+
+        for type_return in types_returned.iter() {
+            if type_return.is_response_type() {
+                return Err(CheckErrors::UncheckedIntermediaryResponses.into());
+            }
+        }
+        Ok(last_return)
+    }
+
     fn type_check_all(
         &mut self,
         args: &[SymbolicExpression],
@@ -565,14 +593,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
 
-        let key_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list::<()>(key_type, &mut ())
-                .map_err(|_| CheckErrors::BadMapTypeDefinition)?,
-        );
-        let value_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list::<()>(value_type, &mut ())
-                .map_err(|_| CheckErrors::BadMapTypeDefinition)?,
-        );
+        let key_type = TypeSignature::parse_type_repr(key_type, &mut ())
+            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
+        let value_type = TypeSignature::parse_type_repr(value_type, &mut ())
+            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
 
         Ok((map_name.clone(), (key_type, value_type)))
     }

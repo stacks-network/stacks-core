@@ -107,4 +107,16 @@ impl<'a> Tenure {
         };
         Some(artifact)
     }
+
+    #[cfg(test)]
+    pub fn open_chainstate(&self) -> StacksChainState {
+        let (chain_state, _) = StacksChainState::open_with_block_limit(
+            false,
+            TESTNET_CHAIN_ID,
+            &self.config.get_chainstate_path(),
+            self.config.block_limit.clone(),
+        )
+        .unwrap();
+        chain_state
+    }
 }
