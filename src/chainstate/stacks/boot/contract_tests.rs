@@ -981,7 +981,8 @@ fn test_vote_withdrawal() {
                 "withdraw-votes",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
             )
-            .unwrap().0,
+            .unwrap()
+            .0,
             Value::Response(ResponseData {
                 committed: false,
                 data: Value::Int(5).into()
@@ -1213,7 +1214,7 @@ fn test_vote_fail() {
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(15).into()
+                data: Value::Int(14).into()
             })
         );
     });
