@@ -248,8 +248,8 @@
               beneficiary)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
           (map-set owner-name
-            { name: name, namespace: namespace }
-            { owner: beneficiary })
+            { owner: beneficiary }
+            { name: name, namespace: namespace })
           (ok true))
         (update-name-ownership? namespace name (unwrap-panic current-owner) beneficiary))))
 
