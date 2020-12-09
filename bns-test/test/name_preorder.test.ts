@@ -1,9 +1,22 @@
-import { NativeClarityBinProvider } from "@blockstack/clarity";
-import { expect } from "chai";
-import { getTempFilePath } from "@blockstack/clarity/lib/utils/fsUtil";
-import { getDefaultBinaryFilePath } from "@blockstack/clarity-native-bin";
-import { BNSClient, PriceFunction } from "../src/bns-client";
-import { mineBlocks } from "./utils";
+import {
+  NativeClarityBinProvider
+} from "@blockstack/clarity";
+import {
+  expect
+} from "chai";
+import {
+  getTempFilePath
+} from "@blockstack/clarity/lib/utils/fsUtil";
+import {
+  getDefaultBinaryFilePath
+} from "@blockstack/clarity-native-bin";
+import {
+  BNSClient,
+  PriceFunction
+} from "../src/bns-client";
+import {
+  mineBlocks
+} from "./utils";
 
 describe("BNS Test Suite - NAME_PREORDER", () => {
   let bns: BNSClient;
@@ -57,11 +70,22 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
   }];
 
   beforeEach(async () => {
-    const allocations = [
-      { principal: alice, amount: 10_000_000_000 },
-      { principal: bob, amount: 10_000_000 },
-      { principal: charlie, amount: 10_000_000 },
-      { principal: dave, amount: 10_000_000 },
+    const allocations = [{
+        principal: alice,
+        amount: 10_000_000_000
+      },
+      {
+        principal: bob,
+        amount: 10_000_000
+      },
+      {
+        principal: charlie,
+        amount: 10_000_000
+      },
+      {
+        principal: dave,
+        amount: 10_000_000
+      },
     ]
     const binFile = getDefaultBinaryFilePath();
     const dbFileName = getTempFilePath();
@@ -71,7 +95,7 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
   });
 
   describe("Pre-ordering the name 'bob.blockstack'", () => {
-    // it("should fail if the hash of the FQN is mal-formed");
+    // should fail if the hash of the FQN is mal-formed");
 
     it("should fail if Bob's balance is insufficient", async () => {
 
@@ -80,51 +104,58 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
       var receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
-        cases[0].salt, 
-        20000000, { sender: cases[0].nameOwner });
+        cases[0].salt,
+        20000000, {
+          sender: cases[0].nameOwner
+        });
       expect(receipt.success).eq(false);
-      expect(receipt.error).include('4001');    
-    // });
+      expect(receipt.error).include('4001');
 
-    // it("should succeed if Bob's balance is provisioned", async () => {
+      // should succeed if Bob's balance is provisioned
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
-        cases[0].salt, 
-        200, { sender: cases[0].nameOwner });
+        cases[0].salt,
+        200, {
+          sender: cases[0].nameOwner
+        });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u33');    
-    // });
+      expect(receipt.result).include('u33');
 
-    // it("should fail if the same order is being re-submitted by Bob", async () => {
+      // should fail if the same order is being re-submitted by Bob
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
-        cases[0].salt, 
-        200, { sender: cases[0].nameOwner });
+        cases[0].salt,
+        200, {
+          sender: cases[0].nameOwner
+        });
       expect(receipt.success).eq(false);
-      expect(receipt.error).include('2016');    
-    // });
+      expect(receipt.error).include('2016');
 
-    // it("should succeed if the same order is being re-submitted by Alice", async () => {
+      // should succeed if the same order is being re-submitted by Alice
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
-        cases[0].salt, 
-        200, { sender: alice });
+        cases[0].salt,
+        200, {
+          sender: alice
+        });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u35');    
-    // });
+      expect(receipt.result).include('u35');
 
-    // it("should succeed once claimability TTL expired", async () => {
+
+      // should succeed once claimability TTL expired
       await mineBlocks(bns, 10);
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
-        cases[0].salt, 
-        200, { sender: cases[0].nameOwner });
+        cases[0].salt,
+        200, {
+          sender: cases[0].nameOwner
+        });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u46');    
+      expect(receipt.result).include('u46');
     });
   });
 });

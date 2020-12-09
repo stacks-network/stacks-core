@@ -1,9 +1,24 @@
-import { Provider, ProviderRegistry, NativeClarityBinProvider } from "@blockstack/clarity";
-import { getTempFilePath } from "@blockstack/clarity/lib/utils/fsUtil";
-import { getDefaultBinaryFilePath } from "@blockstack/clarity-native-bin";
-import { expect } from "chai";
-import { BNSClient, PriceFunction } from "../src/bns-client";
-import { mineBlocks } from "./utils";
+import {
+  Provider,
+  ProviderRegistry,
+  NativeClarityBinProvider
+} from "@blockstack/clarity";
+import {
+  getTempFilePath
+} from "@blockstack/clarity/lib/utils/fsUtil";
+import {
+  getDefaultBinaryFilePath
+} from "@blockstack/clarity-native-bin";
+import {
+  expect
+} from "chai";
+import {
+  BNSClient,
+  PriceFunction
+} from "../src/bns-client";
+import {
+  mineBlocks
+} from "./utils";
 
 describe("BNS Test Suite - NAME_IMPORT", () => {
   let bns: BNSClient;
@@ -57,11 +72,22 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
   }];
 
   beforeEach(async () => {
-    const allocations = [
-      { principal: alice, amount: 10_000_000_000 },
-      { principal: bob, amount: 10_000_000 },
-      { principal: charlie, amount: 10_000_000 },
-      { principal: dave, amount: 10_000_000 },
+    const allocations = [{
+        principal: alice,
+        amount: 10_000_000_000
+      },
+      {
+        principal: bob,
+        amount: 10_000_000
+      },
+      {
+        principal: charlie,
+        amount: 10_000_000
+      },
+      {
+        principal: dave,
+        amount: 10_000_000
+      },
     ]
     const binFile = getDefaultBinaryFilePath();
     const dbFileName = getTempFilePath();
@@ -73,155 +99,197 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
   describe("Given a launched namespace 'blockstack', owned by Alice, where Bob is nameImporter", () => {
 
     beforeEach(async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: cases[0].namespaceOwner
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: u12');
 
       receipt = await bns.namespaceReveal(
-        cases[0].namespace, 
+        cases[0].namespace,
         cases[0].salt,
-        cases[0].priceFunction, 
-        cases[0].renewalRule, 
-        cases[0].nameImporter, { sender: cases[0].namespaceOwner });
+        cases[0].priceFunction,
+        cases[0].renewalRule,
+        cases[0].nameImporter, {
+          sender: cases[0].namespaceOwner
+        });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: true');
-      await bns.mineBlocks(1);  
+      await bns.mineBlocks(1);
     });
 
     it("Charlie trying to import 'alpha.blockstack' should fail", async () => {
-      var receipt = await bns.nameImport(cases[0].namespace, "alpha", charlie, cases[0].zonefile, { sender: charlie })
+      var receipt = await bns.nameImport(cases[0].namespace, "alpha", charlie, cases[0].zonefile, {
+        sender: charlie
+      })
       expect(receipt.success).eq(false);
       expect(receipt.error).include('Aborted: 1011');
-    // });
 
-    // it("Bob trying to import 'alpha.blockstack' should succeed", async () => {
-      receipt = await bns.nameImport(cases[0].namespace, "alpha", bob, cases[0].zonefile, { sender: bob })
+
+      // Bob trying to import 'alpha.blockstack' should succeed
+      receipt = await bns.nameImport(cases[0].namespace, "alpha", bob, cases[0].zonefile, {
+        sender: bob
+      })
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: true');
-    // });
 
-      receipt = await bns.nameImport(cases[0].namespace, "delta", dave, "4444", { sender: bob })
+
+      receipt = await bns.nameImport(cases[0].namespace, "delta", dave, "4444", {
+        sender: bob
+      })
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: true');
 
       // Dave trying to update his name should fail
       receipt = await bns.nameUpdate(
-        cases[0].namespace, 
-        "delta", 
-        "9999", { sender: dave });
+        cases[0].namespace,
+        "delta",
+        "9999", {
+          sender: dave
+        });
       expect(receipt.error).include('1007');
       expect(receipt.success).eq(false);
 
       // Zonefile hash should not change
       receipt = await bns.getNameZonefile(
-        cases[0].namespace, 
-        "delta", { sender: dave });
+        cases[0].namespace,
+        "delta", {
+          sender: dave
+        });
       expect(receipt.result).include('0x34343434');
       expect(receipt.success).eq(true);
 
       // Bob trying to import a second name for bob 'alpha-2.blockstack' should fail
-      receipt = await bns.nameImport(cases[0].namespace, "alpha-2", bob, cases[0].zonefile, { sender: bob })
+      receipt = await bns.nameImport(cases[0].namespace, "alpha-2", bob, cases[0].zonefile, {
+        sender: bob
+      })
       expect(receipt.success).eq(false);
       expect(receipt.error).include('Aborted: 1007');
 
-    // it("Resolving an imported name should succeed if the namespace is not ready", async () => {
+      // Resolving an imported name should succeed if the namespace is not ready
       receipt = await bns.getNameZonefile(
-        cases[0].namespace, 
-        "alpha", { sender: cases[0].nameOwner });
+        cases[0].namespace,
+        "alpha", {
+          sender: cases[0].nameOwner
+        });
 
       expect(receipt.result).include('0x30303030');
       expect(receipt.success).eq(true);
-    // });
 
-    // it("Bob trying to import 'beta.blockstack' should fail after the launch of the domain", async () => {
-      receipt = await bns.namespaceReady(cases[0].namespace, { sender: bob });
+
+      // Bob trying to import 'beta.blockstack' should fail after the launch of the domain
+      receipt = await bns.namespaceReady(cases[0].namespace, {
+        sender: bob
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('true');
-      await bns.mineBlocks(1);  
+      await bns.mineBlocks(1);
 
       // Now that the namespace is ready, Dave should be able to update his name
       receipt = await bns.nameUpdate(
-        cases[0].namespace, 
-        "delta", 
-        "9999", { sender: dave });
+        cases[0].namespace,
+        "delta",
+        "9999", {
+          sender: dave
+        });
       expect(receipt.result).include('true');
       expect(receipt.success).eq(true);
 
       receipt = await bns.getNameZonefile(
-        cases[0].namespace, 
-        "delta", { sender: dave });
+        cases[0].namespace,
+        "delta", {
+          sender: dave
+        });
       expect(receipt.result).include('0x39393939');
       expect(receipt.success).eq(true);
 
-      receipt = await bns.nameImport(cases[0].namespace, "beta", bob, cases[0].zonefile, { sender: bob })
+      receipt = await bns.nameImport(cases[0].namespace, "beta", bob, cases[0].zonefile, {
+        sender: bob
+      })
       expect(receipt.success).eq(false);
       expect(receipt.error).include('1014');
-    // });
 
-    // it("Resolving an imported name should succeed if the namespace is ready", async () => {
+
+      // Resolving an imported name should succeed if the namespace is ready
       receipt = await bns.getNameZonefile(
-        cases[0].namespace, 
-        "alpha", { sender: bob });
+        cases[0].namespace,
+        "alpha", {
+          sender: bob
+        });
       expect(receipt.result).include('0x30303030');
       expect(receipt.success).eq(true);
-    // });
 
-    // it("Charlie trying to register 'alpha.blockstack' should fail", async () => {
+
+      // Charlie trying to register 'alpha.blockstack' should fail
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "alpha",
-        cases[0].salt, 
-        160000, { sender: charlie });
+        cases[0].salt,
+        160000, {
+          sender: charlie
+        });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u28');
 
       receipt = await bns.nameRegister(
-        cases[0].namespace, 
-        "alpha", 
-        cases[0].salt, 
-        cases[0].zonefile, { sender: charlie });
+        cases[0].namespace,
+        "alpha",
+        cases[0].salt,
+        cases[0].zonefile, {
+          sender: charlie
+        });
       expect(receipt.error).include('2004');
       expect(receipt.success).eq(false);
-    // });
 
-    // it("Charlie trying to renew 'alpha.blockstack' should fail", async () => {
-      receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, { sender: charlie })
+
+      // Charlie trying to renew 'alpha.blockstack' should fail
+      receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, {
+        sender: charlie
+      })
       expect(receipt.success).eq(false);
       expect(receipt.error).include('2006');
-    // });
-  
-    // it("Bob trying to renew 'alpha.blockstack' should succeed", async () => {
-      receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, "6666", { sender: bob })
+
+
+      // Bob trying to renew 'alpha.blockstack' should succeed
+      receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, "6666", {
+        sender: bob
+      })
       expect(receipt.success).eq(true);
       expect(receipt.result).include('true');
-    // });
 
-    // Should still resolve 10 blocks later
-    await bns.mineBlocks(9);
 
-    receipt = await bns.getNameZonefile(
-      cases[0].namespace, 
-      "alpha", { sender: cases[0].nameOwner });
+      // Should still resolve 10 blocks later
+      await bns.mineBlocks(9);
 
-    expect(receipt.result).include('0x36363636');
-    expect(receipt.success).eq(true);
+      receipt = await bns.getNameZonefile(
+        cases[0].namespace,
+        "alpha", {
+          sender: cases[0].nameOwner
+        });
 
-    // Should start erroring when entering grace period
-    await bns.mineBlocks(4);
+      expect(receipt.result).include('0x36363636');
+      expect(receipt.success).eq(true);
 
-    receipt = await bns.getNameZonefile(
-      cases[0].namespace, 
-      "alpha", { sender: cases[0].nameOwner });
+      // Should start erroring when entering grace period
+      await bns.mineBlocks(4);
 
-    expect(receipt.error).include('2009');
-    expect(receipt.success).eq(false);
+      receipt = await bns.getNameZonefile(
+        cases[0].namespace,
+        "alpha", {
+          sender: cases[0].nameOwner
+        });
 
-    // it("Resolving an imported name should fail after expiration", async () => {
+      expect(receipt.error).include('2009');
+      expect(receipt.success).eq(false);
+
+      // Resolving an imported name should fail after expiration
       await bns.mineBlocks(100);
 
       receipt = await bns.getNameZonefile(
-        cases[0].namespace, 
-        "alpha", { sender: cases[0].nameOwner });
+        cases[0].namespace,
+        "alpha", {
+          sender: cases[0].nameOwner
+        });
 
       expect(receipt.error).include('2008');
       expect(receipt.success).eq(false);

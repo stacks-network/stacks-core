@@ -1,9 +1,22 @@
-import { NativeClarityBinProvider } from "@blockstack/clarity";
-import { expect } from "chai";
-import { getTempFilePath } from "@blockstack/clarity/lib/utils/fsUtil";
-import { getDefaultBinaryFilePath } from "@blockstack/clarity-native-bin";
-import { BNSClient, PriceFunction } from "../src/bns-client";
-import { mineBlocks } from "./utils";
+import {
+  NativeClarityBinProvider
+} from "@blockstack/clarity";
+import {
+  expect
+} from "chai";
+import {
+  getTempFilePath
+} from "@blockstack/clarity/lib/utils/fsUtil";
+import {
+  getDefaultBinaryFilePath
+} from "@blockstack/clarity-native-bin";
+import {
+  BNSClient,
+  PriceFunction
+} from "../src/bns-client";
+import {
+  mineBlocks
+} from "./utils";
 
 describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
   let bns: BNSClient;
@@ -57,11 +70,22 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
   }];
 
   beforeEach(async () => {
-    const allocations = [
-      { principal: alice, amount: 10_000_000_000 },
-      { principal: bob, amount: 10_000_000 },
-      { principal: charlie, amount: 10_000_000 },
-      { principal: dave, amount: 10_000_000 },
+    const allocations = [{
+        principal: alice,
+        amount: 10_000_000_000
+      },
+      {
+        principal: bob,
+        amount: 10_000_000
+      },
+      {
+        principal: charlie,
+        amount: 10_000_000
+      },
+      {
+        principal: dave,
+        amount: 10_000_000
+      },
     ]
     const binFile = getDefaultBinaryFilePath();
     const dbFileName = getTempFilePath();
@@ -77,7 +101,9 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
       // Should fail when using the helper
       let error;
       try {
-        await bns.namespacePreorder("", cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+        await bns.namespacePreorder("", cases[0].salt, cases[0].value, {
+          sender: cases[0].namespaceOwner
+        });
       } catch (e) {
         error = e;
       }
@@ -86,7 +112,10 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
 
       // Should fail when bypassing the helper
       const tx = bns.createTransaction({
-        method: { name: "namespace-preorder", args: [`""`, `u${cases[0].value}`] }
+        method: {
+          name: "namespace-preorder",
+          args: [`""`, `u${cases[0].value}`]
+        }
       });
       await tx.sign(cases[0].namespaceOwner);
       const res = await bns.submitTransaction(tx);
@@ -98,7 +127,9 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
       // Should fail when using the helper
       let error;
       try {
-        await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 0, { sender: cases[0].namespaceOwner });
+        await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 0, {
+          sender: cases[0].namespaceOwner
+        });
       } catch (e) {
         error = e;
       }
@@ -107,7 +138,10 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
 
       // Should fail when bypassing the helper
       const tx = bns.createTransaction({
-        method: { name: "namespace-preorder", args: [`0x09438924095489319301`, `u0`] }
+        method: {
+          name: "namespace-preorder",
+          args: [`0x09438924095489319301`, `u0`]
+        }
       });
       await tx.sign(cases[0].namespaceOwner);
       const res = await bns.submitTransaction(tx);
@@ -116,52 +150,63 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
     });
 
     it("should fail if Alice can't afford paying the fee", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 20000000000, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 20000000000, {
+        sender: cases[0].namespaceOwner
+      });
       expect(receipt.success).eq(false);
       expect(receipt.error).include('4001');
     });
 
     it("should succeed when Alice pre-orders 'blockstack', 'stx-to-burn' = 96 (balance ok)", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: cases[0].namespaceOwner
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u12');
     });
 
     it("should succeed when Alice pre-orders 'id', 'stx-to-burn' = 9600 (balance ok)", async () => {
-      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, {
+        sender: cases[1].namespaceOwner
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u12');
     });
 
-    // describe("Given an existing pre-order for 'blockstack' registered by Alice", () => {
-    //   describe("When Bob submits a pre-order with the same salted hashed namespace", () => {
-    //   });  
-    // });
+    // Given an existing pre-order for 'blockstack' registered by Alice
+    // When Bob submits a pre-order with the same salted hashed namespace
+
     it("should succeed", async () => {
-      var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: bob });
+      var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: bob
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u12');
-  //   }); 
-  // });
 
-  // describe("When Alice submits a pre-order with the same salted hashed namespace", () => {
-  //   it("should fail if TTL is still valid", async () => {
-      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      // When Alice submits a pre-order with the same salted hashed namespace
+      // should fail if TTL is still valid
+      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: cases[0].namespaceOwner
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u13');
 
       // Let's mine 5 blocks and check
       await mineBlocks(bns, 5);
-      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: cases[0].namespaceOwner
+      });
       expect(receipt.success).eq(false);
       expect(receipt.error).include('1003');
 
       // Let's mine 6 more blocks and check (TTL = 10 (< 5 + 6))
       await mineBlocks(bns, 6);
-      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: bob });
+      receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+        sender: bob
+      });
       expect(receipt.success).eq(true);
       expect(receipt.result).include('u26'); // 20 blocks simulated initially + 11 blocks simulated + TTL
-    }); 
+    });
 
   });
 });

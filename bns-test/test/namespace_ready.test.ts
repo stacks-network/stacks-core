@@ -1,9 +1,22 @@
-import { NativeClarityBinProvider } from "@blockstack/clarity";
-import { expect } from "chai";
-import { getTempFilePath } from "@blockstack/clarity/lib/utils/fsUtil";
-import { getDefaultBinaryFilePath } from "@blockstack/clarity-native-bin";
-import { BNSClient, PriceFunction } from "../src/bns-client";
-import { mineBlocks } from "./utils";
+import {
+  NativeClarityBinProvider
+} from "@blockstack/clarity";
+import {
+  expect
+} from "chai";
+import {
+  getTempFilePath
+} from "@blockstack/clarity/lib/utils/fsUtil";
+import {
+  getDefaultBinaryFilePath
+} from "@blockstack/clarity-native-bin";
+import {
+  BNSClient,
+  PriceFunction
+} from "../src/bns-client";
+import {
+  mineBlocks
+} from "./utils";
 
 describe("BNS Test Suite - NAMESPACE_READY", () => {
   let bns: BNSClient;
@@ -57,11 +70,22 @@ describe("BNS Test Suite - NAMESPACE_READY", () => {
   }];
 
   beforeEach(async () => {
-    const allocations = [
-      { principal: alice, amount: 10_000_000_000 },
-      { principal: bob, amount: 10_000_000 },
-      { principal: charlie, amount: 10_000_000 },
-      { principal: dave, amount: 10_000_000 },
+    const allocations = [{
+        principal: alice,
+        amount: 10_000_000_000
+      },
+      {
+        principal: bob,
+        amount: 10_000_000
+      },
+      {
+        principal: charlie,
+        amount: 10_000_000
+      },
+      {
+        principal: dave,
+        amount: 10_000_000
+      },
     ]
     const binFile = getDefaultBinaryFilePath();
     const dbFileName = getTempFilePath();
@@ -70,65 +94,64 @@ describe("BNS Test Suite - NAMESPACE_READY", () => {
     await bns.deployContract();
   });
 
-
   it("Given a revealed pre-order from Alice for the namespace 'blockstack' initiated at block #20", async () => {
+    var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
+      sender: cases[0].namespaceOwner
+    });
+    expect(receipt.success).eq(true);
+    expect(receipt.result).include('u12');
 
-    // beforeEach(async () => {
-      var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
-      expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+    receipt = await bns.namespaceReveal(
+      cases[0].namespace,
+      cases[0].salt,
+      cases[0].priceFunction,
+      cases[0].renewalRule,
+      cases[0].nameImporter, {
+        sender: cases[0].namespaceOwner
+      });
+    expect(receipt.success).eq(true);
+    expect(receipt.result).include('true');
 
-      receipt = await bns.namespaceReveal(
-        cases[0].namespace, 
-        cases[0].salt,
-        cases[0].priceFunction, 
-        cases[0].renewalRule, 
-        cases[0].nameImporter, { sender: cases[0].namespaceOwner });
-      expect(receipt.success).eq(true);
-      expect(receipt.result).include('true');
-    // });
+    // Launching the namespace
+    // should succeed if the namespace has not already been launched, and revealed less than a year ago (todo: fix TTL)
+    receipt = await bns.namespaceReady(cases[0].namespace, {
+      sender: cases[0].namespaceOwner
+    });
+    expect(receipt.success).eq(true);
+    expect(receipt.result).include('true');
 
-    // describe("Launching the namespace", () => {
+    // should fail if launchability TTL expired
+    receipt = await bns.namespaceReady(cases[0].namespace, {
+      sender: cases[0].namespaceOwner
+    });
+    expect(receipt.success).eq(false);
+    expect(receipt.error).include('1014');
 
-    //   it("should succeed if the namespace has not already been launched, and revealed less than a year ago (todo: fix TTL)", async () => {
-        receipt = await bns.namespaceReady(cases[0].namespace, { sender: cases[0].namespaceOwner });
-        expect(receipt.success).eq(true);
-        expect(receipt.result).include('true');
-      // });
+    // Given a revealed pre-order from Alice for the namespace 'id' initiated at block #20
+    receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, {
+      sender: cases[1].namespaceOwner
+    });
+    expect(receipt.success).eq(true);
+    expect(receipt.result).include('u16');
 
-      // it("should fail if launchability TTL expired", async () => {
-        receipt = await bns.namespaceReady(cases[0].namespace, { sender: cases[0].namespaceOwner });
-        expect(receipt.success).eq(false);
-        expect(receipt.error).include('1014');
-  //     });
-  //   });
-  // });
+    receipt = await bns.namespaceReveal(
+      cases[1].namespace,
+      cases[1].salt,
+      cases[1].priceFunction,
+      cases[1].renewalRule,
+      cases[1].nameImporter, {
+        sender: cases[1].namespaceOwner
+      });
+    expect(receipt.success).eq(true);
+    expect(receipt.result).include('true');
 
-  // describe("Given a revealed pre-order from Alice for the namespace 'id' initiated at block #20", () => {
-
-  //   beforeEach(async () => {
-      receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
-      expect(receipt.success).eq(true);
-      expect(receipt.result).include('u16');
-
-      receipt = await bns.namespaceReveal(
-        cases[1].namespace, 
-        cases[1].salt,
-        cases[1].priceFunction, 
-        cases[1].renewalRule, 
-        cases[1].nameImporter, { sender: cases[1].namespaceOwner });
-      expect(receipt.success).eq(true);
-      expect(receipt.result).include('true');
-    // });
-
-    // describe("Launching the namespace", () => {
-
-      // it("should fail if launchability TTL expired", async () => {
-        await mineBlocks(bns, 11);
-        receipt = await bns.namespaceReady(cases[1].namespace, { sender: cases[1].namespaceOwner });
-        expect(receipt.success).eq(false);
-        expect(receipt.error).include('1010');
-    //   });
-    // });
+    // Launching the namespace
+    // should fail if launchability TTL expired
+    await mineBlocks(bns, 11);
+    receipt = await bns.namespaceReady(cases[1].namespace, {
+      sender: cases[1].namespaceOwner
+    });
+    expect(receipt.success).eq(false);
+    expect(receipt.error).include('1010');
   });
 });
