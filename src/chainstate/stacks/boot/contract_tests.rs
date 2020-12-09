@@ -973,6 +973,21 @@ fn test_vote_withdrawal() {
             })
         );
 
+        // Assert withdrawal fails if amount is more than voted
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "withdraw-votes",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
+            )
+            .unwrap().0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(5).into()
+            })
+        );
+
         // Withdraw votes
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
@@ -1080,7 +1095,23 @@ fn test_vote_fail() {
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(12).into()
+                data: Value::Int(11).into()
+            })
+        );
+
+        // Assert voting with more STX than are in an account fails
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(5).into()
             })
         );
 
@@ -1112,11 +1143,6 @@ fn test_vote_fail() {
             })
         );
     });
-
-    // // Fast forward to proposal expiration
-    // for _ in 0..2016 {
-    //     sim.execute_next_block(|_| {});
-    // }
 
     sim.execute_next_block(|env| {
         env.execute_transaction(
@@ -1164,10 +1190,14 @@ fn test_vote_fail() {
                 .0,
                 Value::Response(ResponseData {
                     committed: false,
-                    data: Value::Int(10).into()
+                    data: Value::Int(9).into()
                 })
             );
         })
+    }
+
+    for _ in 0..100 {
+        sim.execute_next_block(|_| {});
     }
 
     sim.execute_next_block(|env| {
@@ -1240,7 +1270,7 @@ fn test_vote_confirm() {
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(12).into()
+                data: Value::Int(11).into()
             })
         );
 
