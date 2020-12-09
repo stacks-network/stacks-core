@@ -58,37 +58,39 @@
 
 ;;;; Data
 (define-map namespaces
-  ((namespace (buff 20)))
-  ((namespace-import principal)
-   (revealed-at uint)
-   (launched-at (optional uint))
-   (lifetime uint)
-   (price-function (tuple 
-    (buckets (list 16 uint)) 
-    (base uint) 
-    (coeff uint) 
-    (nonalpha-discount uint) 
-    (no-vowel-discount uint)))))
+  { namespace: (buff 20) }
+  { namespace-import: principal,
+    revealed-at: uint,
+    launched-at: (optional uint),
+    lifetime: uint,
+    price-function: {
+      buckets: (list 16 uint),
+      base: uint, 
+      coeff: uint, 
+      nonalpha-discount: uint, 
+      no-vowel-discount: uint
+    }
+  })
 
 (define-map namespace-preorders
-  ((hashed-salted-namespace (buff 20)) (buyer principal))
-  ((created-at uint) (claimed bool) (stx-burned uint)))
+  { hashed-salted-namespace: (buff 20), buyer: principal }
+  { created-at: uint, claimed: bool, stx-burned: uint })
 
-(define-non-fungible-token names (tuple (name (buff 32)) (namespace (buff 20))))
+(define-non-fungible-token names { name: (buff 32), namespace: (buff 20) })
 
 ;; Rule 1-1 -> 1 principal, 1 name
-(define-map owner-name ((owner principal)) ((name (buff 32)) (namespace (buff 20))))
+(define-map owner-name { owner: principal } { name: (buff 32), namespace: (buff 20) })
 
 (define-map name-properties
-  ((name (buff 32)) (namespace (buff 20)))
-  ((registered-at (optional uint))
-   (imported-at (optional uint))
-   (revoked-at (optional uint))
-   (zonefile-hash (buff 20))))
+  { name: (buff 32), namespace: (buff 20) }
+  { registered-at: (optional uint),
+    imported-at: (optional uint),
+    revoked-at: (optional uint),
+    zonefile-hash: (buff 20) })
 
 (define-map name-preorders
-  ((hashed-salted-fqn (buff 20)) (buyer principal))
-  ((created-at uint) (claimed bool) (stx-burned uint)))
+  { hashed-salted-fqn: (buff 20), buyer: principal }
+  { created-at: uint, claimed: bool, stx-burned: uint })
 
 (define-private (min (a uint) (b uint))
   (if (<= a b) a b))
@@ -104,15 +106,15 @@
     (ok (get value (fold 
       element-at 
       NAMESPACE_PRICE_TIERS 
-      (tuple (limit (min u8 namespace-len)) (cursor u0) (value u0)))))))
+      { limit: (min u8 namespace-len), cursor: u0, value: u0 })))))
 
 (define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
   (if (is-eq (get cursor acc) (get limit acc))
-    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value i))
-    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value (get value acc)))))
+    { limit: (get limit acc), cursor: (+ u1 (get cursor acc)), value: i }
+    { limit: (get limit acc), cursor: (+ u1 (get cursor acc)), value: (get value acc) }))
   
 (define-private (get-exp-at-index (buckets (list 16 uint)) (index uint))
-  (get value (fold element-at buckets (tuple (limit index) (cursor u0) (value u0)))))
+  (get value (fold element-at buckets { limit: index, cursor: u0, value: u0 })))
 
 (define-private (is-digit (char (buff 1)))
   (or 
@@ -218,7 +220,7 @@
 (define-private (mint-or-transfer-name? (namespace (buff 20)) (name (buff 32)) (beneficiary principal))
     (let (
       (can-beneficiary-register-name (try! (can-register-name beneficiary)))
-      (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
+      (current-owner (nft-get-owner? names { name: name, namespace: namespace })))
       ;; The name must only have valid chars
       (asserts!
         (not (has-invalid-chars name))
@@ -234,12 +236,12 @@
           (unwrap! 
             (nft-mint?
               names 
-              (tuple (namespace namespace) (name name)) 
+              { name: name, namespace: namespace }
               beneficiary)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
           (map-set owner-name
-            ((owner tx-sender))
-            ((namespace namespace) (name name)))
+            { owner: tx-sender }
+            { name: name, namespace: namespace })
           (ok true))
         (let ((is-lease-expired (is-name-lease-expired namespace name))
               (previous-owner (unwrap-panic current-owner)))
@@ -264,12 +266,12 @@
     (ok true)
     (begin
       (unwrap!
-        (nft-transfer? names (tuple (name name) (namespace namespace)) from to)
+        (nft-transfer? names { name: name, namespace: namespace } from to)
         (err ERR_NAME_COULD_NOT_BE_TRANSFERED))
-      (map-delete owner-name ((owner from)))
+      (map-delete owner-name { owner: from })
       (map-set owner-name
-        ((owner to))
-        ((namespace namespace) (name name)))
+        { owner: to }
+        { name: name, namespace: namespace })
       (ok true))))
 
 (define-private (update-zonefile-and-props (namespace (buff 20))
@@ -294,11 +296,11 @@
       ;; Update cursor
       (var-set attachment-index (+ u1 current-index))
       (map-set name-properties
-        ((namespace namespace) (name name))
-        ((registered-at registered-at)
-          (imported-at imported-at)
-          (revoked-at revoked-at)
-          (zonefile-hash zonefile-hash)))))
+        { name: name, namespace: namespace }
+        { registered-at: registered-at,
+          imported-at: imported-at,
+          revoked-at: revoked-at,
+          zonefile-hash: zonefile-hash })))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
@@ -310,7 +312,7 @@
                                    (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender)))))
+      (map-get? namespace-preorders { hashed-salted-namespace: hashed-salted-namespace, buyer: tx-sender })))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none former-preorder)
@@ -326,8 +328,8 @@
     (unwrap! (stx-burn? stx-to-burn tx-sender) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the preorder
     (map-set namespace-preorders
-      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
-      ((created-at block-height) (claimed false) (stx-burned stx-to-burn)))
+      { hashed-salted-namespace: hashed-salted-namespace, buyer: tx-sender }
+      { created-at: block-height, claimed: false, stx-burned: stx-to-burn })
     (ok (+ block-height NAMESPACE_PREORDER_CLAIMABILITY_TTL))))
 
 ;; NAMESPACE_REVEAL
@@ -386,7 +388,7 @@
       (no-vowel-discount p-func-no-vowel-discount))))
     (let (
       (preorder (unwrap!
-        (map-get? namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender)))
+        (map-get? namespace-preorders { hashed-salted-namespace: hashed-salted-namespace, buyer: tx-sender })
         (err ERR_NAMESPACE_PREORDER_NOT_FOUND)))
       (namespace-price (unwrap! 
         (compute-namespace-price? namespace)
@@ -397,7 +399,7 @@
       (err ERR_NAMESPACE_CHARSET_INVALID))
     ;; The namespace must not exist yet in the `namespaces` table
     (asserts!
-      (is-none (map-get? namespaces ((namespace namespace))))
+      (is-none (map-get? namespaces { namespace: namespace }))
       (err ERR_NAMESPACE_ALREADY_EXISTS))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
@@ -409,17 +411,17 @@
       (err ERR_NAMESPACE_PREORDER_CLAIMABILITY_EXPIRED))
     ;; The preorder record for this namespace will be marked as "claimed"
     (map-set namespace-preorders
-      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
-      ((created-at (get created-at preorder)) (claimed true) (stx-burned (get stx-burned preorder))))
+      { hashed-salted-namespace: hashed-salted-namespace, buyer: tx-sender }
+      { created-at: (get created-at preorder), claimed: true, stx-burned: (get stx-burned preorder) })
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
     (map-set namespaces
-      ((namespace namespace))
-      ((namespace-import namespace-import)
-       (revealed-at block-height)
-       (launched-at none)
-       (lifetime lifetime)
-       (price-function price-function)))
+      { namespace: namespace }
+      { namespace-import: namespace-import,
+        revealed-at: block-height,
+        launched-at: none,
+        lifetime: lifetime,
+        price-function: price-function })
     (ok true))))
 
 ;; NAME_IMPORT
@@ -431,7 +433,7 @@
                             (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
+      (map-get? namespaces { namespace: namespace })
       (err ERR_NAMESPACE_NOT_FOUND))))
       ;; The sender principal must match the namespace's import principal
       (asserts!
@@ -463,7 +465,7 @@
 (define-public (namespace-ready (namespace (buff 20)))
   (let (
       (namespace-props (unwrap!
-        (map-get? namespaces ((namespace namespace)))
+        (map-get? namespaces { namespace: namespace })
         (err ERR_NAMESPACE_NOT_FOUND))))
     ;; The sender principal must match the namespace's import principal
     (asserts!
@@ -479,12 +481,12 @@
       (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))
     ;; The namespace will be set to "launched"
     (map-set namespaces
-      ((namespace namespace))
-      ((launched-at (some block-height))
-       (namespace-import (get namespace-import namespace-props))
-       (revealed-at (get revealed-at namespace-props))
-       (lifetime (get lifetime namespace-props))
-       (price-function (get price-function namespace-props))))
+      { namespace: namespace }
+      { launched-at: (some block-height),
+        namespace-import: (get namespace-import namespace-props),
+        revealed-at: (get revealed-at namespace-props),
+        lifetime: (get lifetime namespace-props),
+        price-function: (get price-function namespace-props) })
     (ok true)))
 
 ;;;; NAMES
@@ -496,7 +498,7 @@
                               (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))))
+      (map-get? name-preorders { hashed-salted-fqn: hashed-salted-fqn, buyer: tx-sender })))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none former-preorder)
@@ -513,8 +515,8 @@
     (unwrap! (stx-burn? stx-to-burn tx-sender) (err ERR_INSUFFICIENT_FUNDS))
     ;; Register the pre-order
     (map-set name-preorders
-      ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender))
-      ((created-at block-height) (stx-burned stx-to-burn) (claimed false)))
+      { hashed-salted-fqn: hashed-salted-fqn, buyer: tx-sender }
+      { created-at: block-height, stx-burned: stx-to-burn, claimed: false })
     (ok (+ block-height NAME_PREORDER_CLAIMABILITY_TTL))))
 
 ;; NAME_REGISTRATION
@@ -527,11 +529,11 @@
   (let (
     (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt)))
     (namespace-props (unwrap!
-          (map-get? namespaces ((namespace namespace)))
+          (map-get? namespaces { namespace: namespace })
           (err ERR_NAMESPACE_NOT_FOUND))))
     (let ( 
         (preorder (unwrap!
-          (map-get? name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer tx-sender)))
+          (map-get? name-preorders { hashed-salted-fqn: hashed-salted-fqn, buyer: tx-sender })
           (err ERR_NAME_PREORDER_NOT_FOUND))))
       ;; The name's namespace must be launched
       (asserts!
@@ -651,13 +653,13 @@
                              (zonefile-hash (optional (buff 20))))
   (let (
     (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
+      (map-get? namespaces { namespace: namespace })
       (err ERR_NAMESPACE_NOT_FOUND)))
     (owner (unwrap!
-      (nft-get-owner? names (tuple (name name) (namespace namespace)))
+      (nft-get-owner? names { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND))) ;; The name must exist
     (name-props (unwrap!
-      (map-get? name-properties ((name name) (namespace namespace)))
+      (map-get? name-properties { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
     ;; The namespace must be launched
     (asserts!
@@ -692,11 +694,11 @@
     ;; Update the zonefile, if any.
     (if (is-none zonefile-hash)
       (map-set name-properties
-        ((namespace namespace) (name name))
-        ((registered-at (some block-height))
-         (imported-at none)
-         (revoked-at none)
-         (zonefile-hash (get zonefile-hash name-props))))
+        { name: name, namespace: namespace }
+        { registered-at: (some block-height),
+          imported-at: none,
+          revoked-at: none,
+          zonefile-hash: (get zonefile-hash name-props) })
       (update-zonefile-and-props
               namespace 
               name
@@ -710,13 +712,13 @@
 (define-read-only (check-name-ops-preconditions (namespace (buff 20)) (name (buff 32)))
   (let (
     (owner (unwrap!
-      (nft-get-owner? names (tuple (name name) (namespace namespace)))
+      (nft-get-owner? names { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND))) ;; The name must exist
     (namespace-props (unwrap!
-      (map-get? namespaces ((namespace namespace)))
+      (map-get? namespaces { namespace: namespace })
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap!
-      (map-get? name-properties ((name name) (namespace namespace)))
+      (map-get? name-properties { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND)))) ;; The name must exist
       ;; The namespace must be launched
       (asserts!
@@ -761,10 +763,10 @@
 (define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
-      (map-get? namespaces ((namespace namespace))) 
+      (map-get? namespaces { namespace: namespace }) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap! 
-      (map-get? name-properties ((namespace namespace) (name name))) 
+      (map-get? name-properties { name: name, namespace: namespace }) 
       (err ERR_NAME_NOT_FOUND))))
     (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
           (lifetime (get lifetime namespace-props)))
@@ -775,10 +777,10 @@
 (define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 32)))
   (let (
     (namespace-props (unwrap! 
-      (map-get? namespaces ((namespace namespace))) 
+      (map-get? namespaces { namespace: namespace }) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap! 
-      (map-get? name-properties ((namespace namespace) (name name))) 
+      (map-get? name-properties { name: name, namespace: namespace }) 
       (err ERR_NAME_NOT_FOUND))))
     (let ((lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props)))
           (lifetime (get lifetime namespace-props)))
@@ -789,7 +791,7 @@
             (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION))))))))
 
 (define-read-only (can-register-name (owner principal))
-  (let ((current-owned-name (map-get? owner-name ((owner owner)))))
+  (let ((current-owned-name (map-get? owner-name { owner: owner })))
     (if (is-none current-owned-name)
       (ok true)
       (let (
@@ -800,19 +802,19 @@
           (not (try! (is-name-lease-expired namespace name)))
           (ok true))
         (let (
-          (name-props (unwrap-panic (map-get? name-properties ((namespace namespace) (name name))))))
+          (name-props (unwrap-panic (map-get? name-properties { name: name, namespace: namespace }))))
           ;; Has name been revoked?
           (asserts! (is-some (get revoked-at name-props)) (ok false))
           (ok true))))))
 
 (define-read-only (can-name-be-registered (namespace (buff 20)) (name (buff 32)))
   (let (
-      (wrapped-name-props (map-get? name-properties ((namespace namespace) (name name))))
-      (namespace-props (unwrap! (map-get? namespaces ((namespace namespace))) (ok false))))
+      (wrapped-name-props (map-get? name-properties { name: name, namespace: namespace }))
+      (namespace-props (unwrap! (map-get? namespaces { namespace: namespace }) (ok false))))
     ;; Ensure that namespace has been launched 
     (unwrap! (get launched-at namespace-props) (ok false))
     ;; Early return - Name has never be minted
-    (asserts! (is-some (nft-get-owner? names (tuple (name name) (namespace namespace)))) (ok true))
+    (asserts! (is-some (nft-get-owner? names { name: name, namespace: namespace })) (ok true))
     (let ((name-props (unwrap-panic wrapped-name-props)))
       ;; Integrity check - Ensure that the name was either "imported" or "registered".
       (asserts! (is-eq (xor 
@@ -824,13 +826,13 @@
 (define-read-only (name-resolve (namespace (buff 20)) (name (buff 32)))
   (let (
     (owner (unwrap!
-      (nft-get-owner? names (tuple (name name) (namespace namespace)))
+      (nft-get-owner? names { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND))) ;; The name must exist
     (name-props (unwrap!
-      (map-get? name-properties ((name name) (namespace namespace)))
+      (map-get? name-properties { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND)))
     (namespace-props (unwrap! 
-      (map-get? namespaces ((namespace namespace))) 
+      (map-get? namespaces { namespace: namespace }) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (is-lease-expired (is-name-lease-expired namespace name)))
     ;; If the namespace is already launched
