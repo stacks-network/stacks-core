@@ -1025,43 +1025,6 @@ fn cost_voting_tests() {
             .0,
             Value::UInt(1000000)
         );
-
-        env.execute_transaction(
-            (&MINER_KEY.clone()).into(),
-            COST_VOTING_CONTRACT.clone(),
-            "veto",
-            &symbols_from_values(vec![Value::UInt(0)]),
-        )
-        .unwrap();
-
-        assert_eq!(
-            env.execute_transaction(
-                (&USER_KEYS[0]).into(),
-                COST_VOTING_CONTRACT.clone(),
-                "get-proposal-vetos",
-                &symbols_from_values(vec![Value::UInt(0)])
-            )
-            .unwrap()
-            .0,
-            Value::Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(1)))
-            })
-        );
-
-        assert_eq!(
-            env.execute_transaction(
-                (&MINER_KEY.clone()).into(),
-                COST_VOTING_CONTRACT.clone(),
-                "veto",
-                &symbols_from_values(vec![Value::UInt(0)])
-            )
-            .unwrap()
-            .0,
-            Value::Response(ResponseData {
-                committed: false,
-                data: Value::Int(1).into()
-            })
-        )
     });
 
     // Test voting in a proposal
@@ -1097,19 +1060,19 @@ fn cost_voting_tests() {
             })
         );
 
-        // Assert confirmation returns false
+        // Assert confirmation fails
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
-                "confirm",
+                "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(1)])
             )
             .unwrap()
             .0,
             Value::Response(ResponseData {
-                committed: true,
-                data: Value::Bool(false).into()
+                committed: false,
+                data: Value::Int(12).into()
             })
         );
 
@@ -1130,7 +1093,7 @@ fn cost_voting_tests() {
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
-                "confirm",
+                "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(1)])
             )
             .unwrap()
@@ -1140,7 +1103,192 @@ fn cost_voting_tests() {
                 data: Value::Bool(true).into()
             })
         );
+    });
 
-        // TODO: add test asserting proposal was confirmed
+    // Fast forward to proposal expiration
+    for _ in 0..2016 {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        env.execute_transaction(
+            (&MINER_KEY.clone()).into(),
+            COST_VOTING_CONTRACT.clone(),
+            "veto",
+            &symbols_from_values(vec![Value::UInt(1)]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "get-proposal-vetos",
+                &symbols_from_values(vec![Value::UInt(1)])
+            )
+            .unwrap()
+            .0,
+            Value::Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(1)))
+            })
+        );
+    });
+
+    for _ in 0..1007 {
+        sim.execute_next_block(|env| {
+            env.execute_transaction(
+                (&MINER_KEY.clone()).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "veto",
+                &symbols_from_values(vec![Value::UInt(1)]),
+            )
+            .unwrap();
+
+            // assert error if already vetoed in this block
+            assert_eq!(
+                env.execute_transaction(
+                    (&MINER_KEY.clone()).into(),
+                    COST_VOTING_CONTRACT.clone(),
+                    "veto",
+                    &symbols_from_values(vec![Value::UInt(0)])
+                )
+                .unwrap()
+                .0,
+                Value::Response(ResponseData {
+                    committed: false,
+                    data: Value::Int(9).into()
+                })
+            );
+        })
+    }
+
+    sim.execute_next_block(|env| {
+        // Assert confirmation fails because of majority veto
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(1)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(16).into()
+            })
+        );
+    });
+}
+
+#[test]
+fn test_vote_confirm() {
+    let mut sim = ClarityTestSim::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
+            .unwrap();
+
+        // Submit a proposal
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "submit-proposal",
+                &symbols_from_values(vec![
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.function-name2"
+                        )
+                        .unwrap()
+                    ),
+                    Value::string_ascii_from_bytes("function-name2".into()).unwrap(),
+                    Value::Principal(
+                        PrincipalData::parse_qualified_contract_principal(
+                            "ST000000000000000000002AMW42H.cost-function-name2"
+                        )
+                        .unwrap()
+                    ),
+                    Value::string_ascii_from_bytes("cost-function-name2".into()).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::UInt(0).into()
+            })
+        );
+
+        // Assert confirmation fails
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(12).into()
+            })
+        );
+
+        // Commit all liquid stacks to vote
+        for user in USER_KEYS.iter() {
+            env.execute_transaction(
+                user.into(),
+                COST_VOTING_CONTRACT.clone(),
+                "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
+            )
+            .unwrap()
+            .0;
+        }
+
+        // Assert confirmation returns true
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
+        );
+    });
+
+    // Fast forward to proposal expiration
+    for _ in 0..2016 {
+        sim.execute_next_block(|_| {});
+    }
+
+    for _ in 0..1007 {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        // Assert confirmation passes
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(0)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
+        );
     });
 }
