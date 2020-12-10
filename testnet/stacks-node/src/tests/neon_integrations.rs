@@ -1933,11 +1933,10 @@ fn atlas_integration_test() {
 
         // Ensure that we the attached sidecar was able to receive a total of 10 attachments
         assert_eq!(test_observer::get_attachments().len(), 10);
-
+        test_observer::clear();
         channel.stop_chains_coordinator();
     });
 
-    test_observer::clear();
     bootstrap_node_thread.join().unwrap();
     follower_node_thread.join().unwrap();
 }
