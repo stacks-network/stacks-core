@@ -3795,6 +3795,19 @@ def run_blockstackd():
             hash_out.write(json_hash)
             hash_out.flush()
 
+        placeholder_dict = {
+            'missing-A-0b769752920b30884d6d68bd77ee0311a99505301a973639ff390258a6b5b7bd': 'SM37EFPD9ZVR3YRJE7673MJ3W0T350JM1HVZVCDC3',
+            'missing-A-65dfbb5430f1c0e778c800e85c64a038f66e298c358024025a23af686e1fd040': 'SM28P04DXXDEY3WY02VQJD4TS7VZS00Z6SX54XH5J',
+            'missing-A-d7d46c855cf2912fd99c8ae5ec2ef3b5d5d6a460a22b46eee0f0ef2a9789ff8b': 'SM1ZH700J7CEDSEHM5AJ4C4MKKWNESTS35DD3SZM5',
+            'missing-A-ee397a3bbc5e70cb6a19e14ccdb935f165dd658707bf0ec4c936da7e8f6f1000': 'SM260QHD6ZM2KKPBKZB8PFE5XWP0MHSKTD1B7BHYR',
+            'not_distributed_2ccfda6ed403c416b9749e513a31d36717e33f5bdbb11c51f3a22fb9eb336443': 'SM65WYACEEX6KBM3B27XX0DE1NAPHT5WJ9D2B1EY',
+            'not_distributed_88a422b7ccaa54e5d8225d5130dc562ffdc57cc54bf274f2b631061ae86d0dc0': 'SM1TP7CNY63KQY7DVRDVPNE1X73ND3PT8JX46971V',
+            'not_distributed_8941f1658fc78107ad34cf4d8e96a920a5a3257384188fb21e701c5e6a4b81fb': 'SM2ZP9PPEHXGPAAMYRJNMPVET8WRKBSYY1AZ8SWHP',
+            'not_distributed_d6d337469b6283046ed909a03a1f45d862d6c1361d5d0ee56ae660e25866b4c4': 'SM3TJ7J6DR9KFQXQGK9SY7M7AEJT33C8NV639J99C',
+            'Reserved_for_exchange_partner_1': '1111111111111111111114oLvT2', # TODO: waiting...
+            'Reserved_for_exchange_partner_2': '1111111111111111111114oLvT2', # TODO: waiting...
+        }
+
         print_status("Querying account addresses...")
         addresses = db.get_all_account_addresses(from_cli=True)
         addresses.sort()
@@ -3806,22 +3819,25 @@ def run_blockstackd():
             if account is not None:
                 balance = db.get_account_balance(account)
                 if balance is not None and balance > 0:
+                    if addr in placeholder_dict:
+                        addr = placeholder_dict[addr]
                     chainstate_f.write('{},{}\n'.format(addr, balance))
         chainstate_f.write('-----END STX BALANCES-----\n')
         chainstate_f.flush()
 
         print_status("Querying account vesting addresses...")
         vesting_entries = db.get_account_vesting_addresses(block)
-        vesting_entries.sort()
+        vesting_entries.sort(key=lambda x: x['address'])
         chainstate_f.write('-----BEGIN STX VESTING-----\n')
         chainstate_f.write('address,value,blocks\n')
         for entry in vesting_entries:
-            account = {}
-            account['address'] = entry['address']
-            account['value'] = str(entry['vesting_value'])
+            addr = entry['address']
+            if addr in placeholder_dict:
+                addr = placeholder_dict[addr]
+            value = str(entry['vesting_value'])
             # block count to wait until vested/unlocked
-            account['blocks'] = entry['block_id'] - block
-            chainstate_f.write('{},{},{}\n'.format(account['address'], account['value'], account['blocks']))
+            blocks = entry['block_id'] - block
+            chainstate_f.write('{},{},{}\n'.format(addr, value, blocks))
         chainstate_f.write('-----END STX VESTING-----\n')
         chainstate_f.flush()
         
