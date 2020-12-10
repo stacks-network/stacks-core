@@ -227,8 +227,6 @@ impl StacksChainState {
                 }
                 snapshot.set_balance(balance);
                 snapshot.save();
-
-                info!("{} credited (genesis): {} uSTX", principal, total_balance);
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
