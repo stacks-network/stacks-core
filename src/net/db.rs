@@ -360,6 +360,7 @@ const PEERDB_SETUP: &'static [&'static str] = &[
     );"#,
 ];
 
+#[derive(Debug)]
 pub struct PeerDB {
     pub conn: Connection,
     pub readwrite: bool,

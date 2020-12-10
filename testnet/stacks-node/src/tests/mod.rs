@@ -1,3 +1,4 @@
+mod atlas;
 mod bitcoin_regtest;
 mod integrations;
 mod mempool;

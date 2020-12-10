@@ -96,9 +96,6 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 
-pub static EMPTY_GENESIS_CHAINSTATE_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
-
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -600,12 +597,12 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
-pub struct ChainStateAccountBalance {
+pub struct ChainstateAccountBalance {
     pub address: String,
     pub amount: u64,
 }
 
-pub struct ChainStateAccountVesting {
+pub struct ChainStateAccountLockup {
     pub address: String,
     pub amount: u64,
     pub block_height: u64,
@@ -617,10 +614,10 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-    pub get_bulk_initial_vesting_schedules:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountVesting>>>>,
+    pub get_bulk_initial_lockups:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountLockup>>>>,
     pub get_bulk_initial_balances:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountBalance>>>>,
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -635,7 +632,7 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             post_flight_callback,
-            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
         }
     }
@@ -751,7 +748,7 @@ impl StacksChainState {
         Ok(path_str)
     }
 
-    fn parse_genesis_address(addr: &str, address_version: u8) -> PrincipalData {
+    fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
         let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
             Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
@@ -761,7 +758,21 @@ impl StacksChainState {
                 None => panic!("Failed to parsed genesis address {}", addr),
             },
         };
-        stacks_address.version = address_version;
+        // Convert a given address to the currently running network mode (mainnet vs testnet).
+        // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
+        stacks_address.version = if mainnet {
+            match stacks_address.version {
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                C32_ADDRESS_VERSION_TESTNET_MULTISIG => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                _ => stacks_address.version,
+            }
+        } else {
+            match stacks_address.version {
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+                _ => stacks_address.version,
+            }
+        };
         let principal: PrincipalData = stacks_address.into();
         return principal;
     }
@@ -778,12 +789,6 @@ impl StacksChainState {
             TransactionVersion::Mainnet
         } else {
             TransactionVersion::Testnet
-        };
-
-        let address_version = if mainnet {
-            C32_ADDRESS_VERSION_MAINNET_SINGLESIG
-        } else {
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG
         };
 
         let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
@@ -881,10 +886,8 @@ impl StacksChainState {
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
-                        let stx_address = StacksChainState::parse_genesis_address(
-                            &balance.address,
-                            address_version,
-                        );
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&balance.address, mainnet);
                         StacksChainState::account_genesis_credit(
                             clarity,
                             &stx_address,
@@ -923,26 +926,24 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-            let mut total_vesting_amount: u128 = 0;
-            if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
-                info!("Initializing chain with vesting schedules");
-                let mut vesting_schedule_count = 0;
+            let mut total_locked_amount: u128 = 0;
+            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                info!("Initializing chain with locked balances");
+                let mut lockup_count = 0;
                 clarity_tx.connection().as_transaction(|clarity| {
-                    let initial_vesting_schedules = get_schedules();
+                    let initial_lockups = get_schedules();
                     let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
                     let lockup_contract_id = boot_code_id("lockup");
-                    for schedule in initial_vesting_schedules {
-                        total_vesting_amount = total_vesting_amount
+                    for schedule in initial_lockups {
+                        total_locked_amount = total_locked_amount
                             .checked_add(schedule.amount as u128)
-                            .expect("FATAL: vesting STX overflow");
-                        vesting_schedule_count = vesting_schedule_count + 1;
+                            .expect("FATAL: locked STX overflow");
+                        lockup_count = lockup_count + 1;
                         let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                         let index = value + 1;
                         unlocks_per_blocks.insert(schedule.block_height, index);
-                        let stx_address = StacksChainState::parse_genesis_address(
-                            &schedule.address,
-                            address_version,
-                        );
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                         clarity
                             .with_clarity_db(|db| {
                                 let key = TupleData::from_data(vec![
@@ -990,20 +991,20 @@ impl StacksChainState {
                     }
                 });
                 info!(
-                    "Done initializing chain with {} vesting schedules",
-                    vesting_schedule_count
+                    "Done initializing chain with {} locked balances",
+                    lockup_count
                 );
             }
 
             info!(
                 "Credit lockup contract with balance {}",
-                total_vesting_amount
+                total_locked_amount
             );
             clarity_tx.connection().as_transaction(|clarity| {
                 StacksChainState::account_genesis_credit(
                     clarity,
                     &PrincipalData::from(boot_code_id("lockup")),
-                    total_vesting_amount,
+                    total_locked_amount,
                 )
             });
 
@@ -1466,7 +1467,7 @@ impl StacksChainState {
     }
 
     /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
-    /// otherwise run to_do on the confirmed state of the Clarity VM.  If the tip doesn't exist,
+    /// otherwise run to_do on the confirmed state of the Clarity VM. If the tip doesn't exist,
     /// then return None.
     pub fn maybe_read_only_clarity_tx<F, R>(
         &mut self,
@@ -1776,7 +1777,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
-            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
         };
 

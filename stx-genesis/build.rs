@@ -48,9 +48,9 @@ pub fn write_archives() -> std::io::Result<()> {
     {
         let chainstate_file = open_chainstate_file();
         let reader = BufReader::new(chainstate_file);
-        let vesting_file_path = Path::new(&out_dir).join("account_vesting.gz");
-        let vesting_file = File::create(vesting_file_path)?;
-        let mut vesting_encoder = deflate::Encoder::new(vesting_file);
+        let lockups_file_path = Path::new(&out_dir).join("account_lockups.gz");
+        let lockups_file = File::create(lockups_file_path)?;
+        let mut lockups_encoder = deflate::Encoder::new(lockups_file);
 
         for line in reader
             .lines()
@@ -60,11 +60,11 @@ pub fn write_archives() -> std::io::Result<()> {
             .skip(2)
             .take_while(|line| !line.eq(&"-----END STX VESTING-----"))
         {
-            vesting_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
+            lockups_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
         }
 
-        let mut vesting_file = vesting_encoder.finish().into_result().unwrap();
-        vesting_file.flush()?;
+        let mut lockups_file = lockups_encoder.finish().into_result().unwrap();
+        lockups_file.flush()?;
     }
     Ok(())
 }

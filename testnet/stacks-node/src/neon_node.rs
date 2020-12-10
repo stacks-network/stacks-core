@@ -4,7 +4,7 @@ use crate::run_loop::RegisteredKey;
 use std::collections::HashMap;
 
 use std::cmp;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
@@ -29,6 +29,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
+    atlas::{AtlasDB, AttachmentInstance},
     db::{LocalPeer, PeerDB},
     dns::DNSResolver,
     p2p::PeerNetwork,
@@ -446,6 +447,7 @@ fn spawn_peer(
     coord_comms: CoordinatorChannels,
     mut sync_comms: PoxSyncWatchdogComms,
     miner_tip_arc: Arc<Mutex<Option<(ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey)>>>,
+    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -476,7 +478,8 @@ fn spawn_peer(
     let server_thread = thread::spawn(move || {
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
-            genesis_chainstate_hash: stx_genesis::GENESIS_CHAINSTATE_HASH.into(),
+            genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
+                .unwrap(),
             ..RPCHandlerArgs::default()
         };
 
@@ -538,6 +541,14 @@ fn spawn_peer(
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
                     .expect("Failed to read canonical stacks chain tip");
 
+            let mut expected_attachments = match attachments_rx.try_recv() {
+                Ok(expected_attachments) => expected_attachments,
+                _ => {
+                    debug!("Atlas: attachment channel is empty");
+                    HashSet::new()
+                }
+            };
+
             // guard p2p runner because it alters unconfirmed state trie
             let network_result = match coord_comms.kludgy_clarity_db_lock() {
                 Ok(_) => {
@@ -549,6 +560,7 @@ fn spawn_peer(
                         download_backpressure,
                         poll_ms,
                         &handler_args,
+                        &mut expected_attachments,
                     ) {
                         Ok(res) => res,
                         Err(e) => {
@@ -693,6 +705,11 @@ fn spawn_miner_relayer(
                             error!("FATAL: kludgy Clarity DB mutex poisoned: {:?}", &e);
                             panic!();
                         }
+                    }
+
+                    // Dispatch retrieved attachments, if any.
+                    if net_result.has_attachments() {
+                        event_dispatcher.process_new_attachments(&net_result.attachments);
                     }
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
@@ -908,6 +925,7 @@ impl InitializedNeonNode {
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         burnchain: Burnchain,
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -987,6 +1005,7 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
+        let atlasdb = AtlasDB::connect(&config.get_atlas_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -996,6 +1015,7 @@ impl InitializedNeonNode {
         // now we're ready to instantiate a p2p network object, the relayer, and the event dispatcher
         let mut p2p_net = PeerNetwork::new(
             peerdb,
+            atlasdb,
             local_peer.clone(),
             TESTNET_PEER_VERSION,
             burnchain.clone(),
@@ -1041,6 +1061,7 @@ impl InitializedNeonNode {
             coord_comms,
             sync_comms,
             miner_tip_arc.clone(),
+            attachments_rx,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1670,6 +1691,7 @@ impl NeonGenesisNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1685,6 +1707,7 @@ impl NeonGenesisNode {
             coord_comms,
             sync_comms,
             self.burnchain,
+            attachments_rx,
         )
     }
 
@@ -1694,6 +1717,7 @@ impl NeonGenesisNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1709,6 +1733,7 @@ impl NeonGenesisNode {
             coord_comms,
             sync_comms,
             self.burnchain,
+            attachments_rx,
         )
     }
 }

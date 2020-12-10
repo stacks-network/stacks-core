@@ -1,6 +1,6 @@
 use crate::{
     neon_node,
-    node::{get_account_balances, get_account_vesting},
+    node::{get_account_balances, get_account_lockups},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
@@ -16,6 +16,7 @@ use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use std::cmp;
+use std::sync::mpsc::sync_channel;
 use std::thread;
 
 use super::RunLoopCallbacks;
@@ -160,6 +161,7 @@ impl RunLoop {
         let chainstate_path = self.config.get_chainstate_path();
         let coordinator_burnchain_config = burnchain_config.clone();
 
+        let (attachments_tx, attachments_rx) = sync_channel(1);
         let first_block_height = burnchain_config.first_block_height as u128;
         let pox_prepare_length = burnchain_config.pox_constants.prepare_length as u128;
         let pox_reward_cycle_length = burnchain_config.pox_constants.reward_cycle_length as u128;
@@ -196,7 +198,7 @@ impl RunLoop {
             first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
             first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
-            get_bulk_initial_vesting_schedules: Some(Box::new(get_account_vesting)),
+            get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
             get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
 
@@ -214,6 +216,7 @@ impl RunLoop {
             ChainsCoordinator::run(
                 chain_state_db,
                 coordinator_burnchain_config,
+                attachments_tx,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
             );
@@ -245,6 +248,7 @@ impl RunLoop {
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
                 pox_watchdog.make_comms_handle(),
+                attachments_rx,
             )
         } else {
             node.into_initialized_node(
@@ -252,6 +256,7 @@ impl RunLoop {
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
                 pox_watchdog.make_comms_handle(),
+                attachments_rx,
             )
         };
 
