@@ -1100,6 +1100,7 @@ pub mod test {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             sortition_db_handle.commit().unwrap();

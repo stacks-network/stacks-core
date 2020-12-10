@@ -40,7 +40,7 @@
     (runtime u1))
 
 (define-read-only (cost_analysis_iterable_func (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_analysis_option_cons (n uint))
     (runtime u1))
@@ -56,6 +56,9 @@
 
 (define-read-only (cost_analysis_check_tuple_get (n uint))
     (runtime (logn n u1 u1)))
+
+(define-read-only (cost_analysis_check_tuple_merge (n uint)) 
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_analysis_check_tuple_cons (n uint))
     (runtime (nlogn n u1 u1)))
@@ -148,7 +151,7 @@
     (runtime u1))
 
 (define-read-only (cost_map (n uint))
-    (runtime u1))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_filter (n uint))
     (runtime u1))
@@ -170,6 +173,9 @@
 
 (define-read-only (cost_tuple_get (n uint))
     (runtime (nlogn n u1 u1)))
+
+(define-read-only (cost_tuple_merge (n uint))
+    (runtime (linear n u1 u1)))
 
 (define-read-only (cost_tuple_cons (n uint))
     (runtime (nlogn n u1 u1)))

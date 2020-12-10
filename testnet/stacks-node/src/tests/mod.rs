@@ -1,3 +1,4 @@
+mod atlas;
 mod bitcoin_regtest;
 mod integrations;
 mod mempool;
@@ -30,7 +31,7 @@ use std::convert::TryInto;
 use stacks::vm::database::BurnStateDB;
 
 // $ cat /tmp/out.clar
-pub const STORE_CONTRACT: &str = r#"(define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
  (define-public (get-value (key (string-ascii 32)))
     (begin
       (print (concat "Getting key " key))

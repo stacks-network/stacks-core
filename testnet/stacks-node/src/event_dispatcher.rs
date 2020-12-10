@@ -1,10 +1,14 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
+use stacks::net::atlas::AttachmentInstance;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::thread::sleep;
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -40,6 +44,7 @@ const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
+pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 
 impl EventObserver {
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
@@ -186,6 +191,14 @@ impl EventObserver {
         })
     }
 
+    fn make_new_attachment_payload(attachment: &AttachmentInstance) -> serde_json::Value {
+        json!(attachment)
+    }
+
+    fn send_new_attachments(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_ATTACHMENT_PROCESSED);
+    }
+
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
@@ -199,7 +212,7 @@ impl EventObserver {
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
-        boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
+        boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
     ) {
@@ -214,18 +227,10 @@ impl EventObserver {
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
             serialized_txs.push(payload);
             tx_index += 1;
-        }
-
-        if let Some(boot_receipts) = boot_receipts {
-            for receipt in boot_receipts.iter() {
-                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
-                serialized_txs.push(payload);
-                tx_index += 1;
-            }
         }
 
         // Wrap events
@@ -259,7 +264,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
-    boot_receipts: Vec<StacksTransactionReceipt>,
+    boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -312,7 +317,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
-            boot_receipts: vec![],
+            boot_receipts: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -366,12 +371,20 @@ impl EventDispatcher {
         let mut i: usize = 0;
 
         let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            Some(&self.boot_receipts)
+            let mut boot_receipts_result = self
+                .boot_receipts
+                .lock()
+                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
+            if let Some(val) = boot_receipts_result.take() {
+                val
+            } else {
+                vec![]
+            }
         } else {
-            None
+            vec![]
         };
 
-        for receipt in chain_tip.receipts.iter() {
+        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
@@ -463,7 +476,7 @@ impl EventDispatcher {
                     filtered_events,
                     chain_tip,
                     parent_index_hash,
-                    boot_receipts,
+                    &boot_receipts,
                     &winner_txid,
                     &mature_rewards,
                 );
@@ -493,8 +506,25 @@ impl EventDispatcher {
         }
     }
 
+    pub fn process_new_attachments(&self, attachments: &Vec<AttachmentInstance>) {
+        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let mut serialized_attachments = vec![];
+        for attachment in attachments.iter() {
+            let payload = EventObserver::make_new_attachment_payload(attachment);
+            serialized_attachments.push(payload);
+        }
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_attachments(&json!(serialized_attachments));
+        }
+    }
+
     pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.boot_receipts = receipts;
+        self.boot_receipts = Arc::new(Mutex::new(Some(receipts)));
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(

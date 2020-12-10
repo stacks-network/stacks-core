@@ -24,6 +24,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 
 use core::mempool::*;
+use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
@@ -52,10 +53,14 @@ use net::UnconfirmedTransactionStatus;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse};
+use net::{
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
+    GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use burnchains::Burnchain;
@@ -554,6 +559,126 @@ impl ConversationHttp {
                     response_metadata,
                     "Failed to query peer info".to_string(),
                 );
+                response.send(http, fd)
+            }
+        }
+    }
+
+    fn handle_getattachmentsinv<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        atlasdb: &AtlasDB,
+        chainstate: &mut StacksChainState,
+        tip_consensus_hash: &ConsensusHash,
+        tip_block_hash: &BlockHeaderHash,
+        pages_indexes: &HashSet<u32>,
+        _options: &ConnectionOptions,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
+            let msg = format!(
+                "Number of attachment inv pages is limited by {} per request",
+                MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+            );
+            warn!("{}", msg);
+            let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+            response.send(http, fd)?;
+            return Ok(());
+        }
+
+        let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        pages_indexes.sort();
+        let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
+
+        let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
+            (
+                *pages_indexes.first().unwrap(),
+                *pages_indexes.last().unwrap(),
+                pages_indexes.clone(),
+            )
+        } else {
+            // Pages indexes not provided, aborting
+            let msg = format!("Page indexes missing");
+            warn!("{}", msg);
+            let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
+            response.send(http, fd)?;
+            return Err(net_error::ClientError(ClientError::Message(msg)));
+        };
+
+        // We need to rebuild an ancestry tree, but we're still missing some informations at this point
+        let (min_block_height, max_block_height) = match atlasdb
+            .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
+        {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!("Unable to read Atlas DB");
+                warn!("{}", msg);
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+                response.send(http, fd)?;
+                return Err(net_error::DBError(e));
+            }
+        };
+
+        let mut blocks_ids = vec![];
+        let mut headers_tx = chainstate.index_tx_begin()?;
+        let tip_index_hash =
+            StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
+
+        for block_height in min_block_height..=max_block_height {
+            match StacksChainState::get_index_tip_ancestor(
+                &mut headers_tx,
+                &tip_index_hash,
+                block_height,
+            )? {
+                Some(header) => blocks_ids.push(header.index_block_hash()),
+                _ => {}
+            }
+        }
+
+        match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
+            Ok(pages) => {
+                let pages = pages
+                    .into_iter()
+                    .zip(pages_indexes)
+                    .map(|(inventory, index)| AttachmentPage { index, inventory })
+                    .collect();
+
+                let content = GetAttachmentsInvResponse {
+                    block_id: tip.clone(),
+                    pages,
+                };
+                let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
+                response.send(http, fd)
+            }
+            Err(e) => {
+                let msg = format!("Unable to read Atlas DB");
+                warn!("{}", msg);
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+                response.send(http, fd)?;
+                return Err(net_error::DBError(e));
+            }
+        }
+    }
+
+    fn handle_getattachment<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        atlasdb: &mut AtlasDB,
+        content_hash: Hash160,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        match atlasdb.find_instantiated_attachment(&content_hash) {
+            Ok(Some(attachment)) => {
+                let content = GetAttachmentResponse { attachment };
+                let response = HttpResponseType::GetAttachment(response_metadata, content);
+                response.send(http, fd)
+            }
+            _ => {
+                let msg = format!("Unable to find attachment");
+                warn!("{}", msg);
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                 response.send(http, fd)
             }
         }
@@ -1339,6 +1464,8 @@ impl ConversationHttp {
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
         tx: StacksTransaction,
+        atlasdb: &mut AtlasDB,
+        attachment: Option<Attachment>,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1360,6 +1487,13 @@ impl ConversationHttp {
             }
         };
 
+        if let Some(attachment) = attachment {
+            if accepted {
+                atlasdb
+                    .insert_new_attachment(&attachment)
+                    .map_err(|e| net_error::DBError(e))?;
+            }
+        }
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -1425,6 +1559,7 @@ impl ConversationHttp {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
@@ -1685,7 +1820,7 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostTransaction(ref _md, ref tx) => {
+            HttpRequestType::PostTransaction(ref _md, ref tx, ref attachment) => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
                         let accepted = ConversationHttp::handle_post_transaction(
@@ -1697,6 +1832,8 @@ impl ConversationHttp {
                             tip.anchored_block_hash,
                             mempool,
                             tx.clone(),
+                            atlasdb,
+                            attachment.clone(),
                         )?;
                         if accepted {
                             // forward to peer network
@@ -1712,6 +1849,41 @@ impl ConversationHttp {
                         );
                         response.send(&mut self.connection.protocol, &mut reply)?;
                     }
+                }
+                None
+            }
+            HttpRequestType::GetAttachment(ref _md, ref content_hash) => {
+                ConversationHttp::handle_getattachment(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    atlasdb,
+                    content_hash.clone(),
+                )?;
+                None
+            }
+            HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
+                if let Some((tip_consensus_hash, tip_block_hash)) =
+                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        tip_opt.as_ref(),
+                        sortdb,
+                        chainstate,
+                    )?
+                {
+                    ConversationHttp::handle_getattachmentsinv(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        atlasdb,
+                        chainstate,
+                        &tip_consensus_hash,
+                        &tip_block_hash,
+                        pages_indexes,
+                        &self.connection.options,
+                    )?;
                 }
                 None
             }
@@ -2019,6 +2191,7 @@ impl ConversationHttp {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
@@ -2052,6 +2225,7 @@ impl ConversationHttp {
                         peers,
                         sortdb,
                         peerdb,
+                        atlasdb,
                         chainstate,
                         mempool,
                         handler_args,
@@ -2209,7 +2383,11 @@ impl ConversationHttp {
 
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
-        HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
+        HttpRequestType::PostTransaction(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            tx,
+            None,
+        )
     }
 
     /// Make a new post-microblock request
@@ -2313,6 +2491,19 @@ impl ConversationHttp {
             tip_opt,
         )
     }
+
+    /// Make a new request for attachment inventory page
+    pub fn new_getattachmentsinv(
+        &self,
+        tip_opt: Option<StacksBlockId>,
+        pages_indexes: HashSet<u32>,
+    ) -> HttpRequestType {
+        HttpRequestType::GetAttachmentsInv(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            tip_opt,
+            pages_indexes,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2323,6 +2514,7 @@ mod test {
     use net::test::*;
     use net::*;
     use std::cell::RefCell;
+    use std::iter::FromIterator;
 
     use burnchains::Burnchain;
     use burnchains::BurnchainHeaderHash;
@@ -2351,16 +2543,16 @@ mod test {
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)
-        (define-map unit-map ((account principal)) ((units int)))
+        (define-map unit-map { account: principal } { units: int })
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
           (begin 
-            (map-set unit-map ((account tx-sender)) ((units 1)) )
+            (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin
-          (map-set unit-map ((account 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R)) ((units 123))))";
+          (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
 
     fn convo_send_recv(
         sender: &mut ConversationHttp,
@@ -2725,6 +2917,7 @@ mod test {
                 &PeerMap::new(),
                 &mut peer_1_sortdb,
                 &peer_1.network.peerdb,
+                &mut peer_1.network.atlasdb,
                 &mut peer_1_stacks_node.chainstate,
                 &mut peer_1_mempool,
                 &RPCHandlerArgs::default(),
@@ -2751,6 +2944,7 @@ mod test {
                 &PeerMap::new(),
                 &mut peer_2_sortdb,
                 &peer_2.network.peerdb,
+                &mut peer_2.network.atlasdb,
                 &mut peer_2_stacks_node.chainstate,
                 &mut peer_2_mempool,
                 &RPCHandlerArgs::default(),
@@ -2791,6 +2985,7 @@ mod test {
                 &PeerMap::new(),
                 &mut peer_1_sortdb,
                 &peer_1.network.peerdb,
+                &mut peer_1.network.atlasdb,
                 &mut peer_1_stacks_node.chainstate,
                 &mut peer_1_mempool,
                 &RPCHandlerArgs::default(),
@@ -4021,6 +4216,39 @@ mod test {
                         error!("Invalid response; {:?}", &http_response);
                         false
                     }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getattachmentsinv_limit_reached() {
+        test_rpc(
+            "test_rpc_getattachmentsinv",
+            40000,
+            40001,
+            50000,
+            50001,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let pages_indexes = HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+                convo_client.new_getattachmentsinv(None, pages_indexes)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::ServerError(_, msg) => {
+                        assert_eq!(
+                            msg,
+                            "Number of attachment inv pages is limited by 8 per request"
+                        );
+                        true
+                    }
+                    _ => false,
                 }
             },
         );

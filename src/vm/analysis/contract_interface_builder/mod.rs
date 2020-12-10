@@ -329,8 +329,8 @@ impl ContractInterfaceVariable {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceMap {
     pub name: String,
-    pub key: Vec<ContractInterfaceTupleEntryType>,
-    pub value: Vec<ContractInterfaceTupleEntryType>,
+    pub key: ContractInterfaceAtomType,
+    pub value: ContractInterfaceAtomType,
 }
 
 impl ContractInterfaceMap {
@@ -338,26 +338,10 @@ impl ContractInterfaceMap {
         map: &BTreeMap<ClarityName, (TypeSignature, TypeSignature)>,
     ) -> Vec<ContractInterfaceMap> {
         map.iter()
-            .map(|(name, (key_sig, val_sig))| {
-                let key_type = match key_sig {
-                    TypeSignature::TupleType(tuple_sig) => {
-                        ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig)
-                    }
-                    _ => panic!("Contract map key should always be a tuple type!"),
-                };
-
-                let val_type = match val_sig {
-                    TypeSignature::TupleType(tuple_sig) => {
-                        ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig)
-                    }
-                    _ => panic!("Contract map value should always be a tuple type!"),
-                };
-
-                ContractInterfaceMap {
-                    name: name.clone().into(),
-                    key: key_type,
-                    value: val_type,
-                }
+            .map(|(name, (key_sig, val_sig))| ContractInterfaceMap {
+                name: name.clone().into(),
+                key: ContractInterfaceAtomType::from_type_signature(key_sig),
+                value: ContractInterfaceAtomType::from_type_signature(val_sig),
             })
             .collect()
     }

@@ -210,11 +210,11 @@ impl StacksChainState {
     pub fn account_genesis_credit(
         clarity_tx: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
-        amount: u64,
+        amount: u128,
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let balance = STXBalance::initial(amount as u128);
+                let balance = STXBalance::initial(amount);
                 let total_balance = balance.get_total_balance();
 
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);

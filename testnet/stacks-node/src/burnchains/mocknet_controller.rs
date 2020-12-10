@@ -240,6 +240,7 @@ impl BurnchainController for MocknetController {
                             None,
                             PoxId::stubbed(),
                             None,
+                            0,
                         )
                         .unwrap();
                     burn_tx.commit().unwrap();

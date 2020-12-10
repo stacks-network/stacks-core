@@ -576,6 +576,7 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -638,6 +639,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i as usize],
+                        None,
                         None,
                         None,
                     )

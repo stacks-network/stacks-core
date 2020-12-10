@@ -99,13 +99,7 @@ fn check_special_begin(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut typed_args = checker.type_check_all(args, context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(args, context)
 }
 
 fn inner_handle_tuple_get(
@@ -153,6 +147,34 @@ fn check_special_get(
     } else {
         Err(CheckErrors::ExpectedTuple(argument_type).into())
     }
+}
+
+fn check_special_merge(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let res = checker.type_check(&args[0], context)?;
+    let mut base = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+
+    let res = checker.type_check(&args[1], context)?;
+    let mut update = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleMerge,
+        checker,
+        update.len(),
+    )?;
+
+    base.shallow_merge(&mut update);
+    Ok(TypeSignature::TupleType(base))
 }
 
 pub fn check_special_tuple_cons(
@@ -223,13 +245,7 @@ fn check_special_let(
         Ok(())
     })?;
 
-    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
 
 fn check_special_fetch_var(
@@ -677,6 +693,7 @@ impl TypedNativeFunction {
             DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
             TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
             TupleGet => Special(SpecialNativeFunction(&check_special_get)),
+            TupleMerge => Special(SpecialNativeFunction(&check_special_merge)),
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),

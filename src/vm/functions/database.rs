@@ -18,7 +18,6 @@ use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Explicit, Implicit};
 
 use chainstate::stacks::StacksBlockId;
 use vm::callables::DefineType;
@@ -161,10 +160,16 @@ pub fn special_contract_call(
     let contract_principal = Value::Principal(PrincipalData::Contract(
         env.contract_context.contract_identifier.clone(),
     ));
-    let mut nested_env = env.nest_with_caller(contract_principal.clone());
 
+    let mut nested_env = env.nest_with_caller(contract_principal.clone());
     let result =
-        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)?;
+        if nested_env.short_circuit_contract_call(&contract_identifier, function_name, &[])? {
+            nested_env.run_free(|free_env| {
+                free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+            })
+        } else {
+            nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+        }?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
@@ -257,10 +262,7 @@ pub fn special_fetch_entry(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?,
-    };
+    let key = eval(&args[1], env, &context)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -317,15 +319,9 @@ pub fn special_set_entry(
 
     check_argument_count(3, args)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?,
-    };
+    let key = eval(&args[1], env, &context)?;
 
-    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?,
-    };
+    let value = eval(&args[2], env, &context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -360,15 +356,9 @@ pub fn special_insert_entry(
 
     check_argument_count(3, args)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?,
-    };
+    let key = eval(&args[1], env, &context)?;
 
-    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?,
-    };
+    let value = eval(&args[2], env, &context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -403,10 +393,7 @@ pub fn special_delete_entry(
 
     check_argument_count(2, args)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?,
-    };
+    let key = eval(&args[1], env, &context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 

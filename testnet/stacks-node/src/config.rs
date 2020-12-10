@@ -24,7 +24,7 @@ const MINIMUM_DUST_FEE: u64 = 5500;
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+    pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub block_limit: Option<BlockLimitFile>,
@@ -80,7 +80,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -123,7 +123,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -166,7 +166,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -208,7 +208,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -301,6 +301,7 @@ lazy_static! {
         download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
+        max_inflight_attachments: 6,
         .. std::default::Default::default()
     };
 }
@@ -443,7 +444,7 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
-        let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
+        let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => balances
                 .iter()
                 .map(|balance| {
@@ -595,6 +596,11 @@ impl Config {
                             .max_inflight_blocks
                             .clone()
                     }),
+                    max_inflight_attachments: opts.max_inflight_attachments.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_inflight_attachments
+                            .clone()
+                    }),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(
                         || {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS
@@ -674,6 +680,10 @@ impl Config {
 
     pub fn get_peer_db_path(&self) -> String {
         format!("{}/peer_db.sqlite", self.node.working_dir)
+    }
+
+    pub fn get_atlas_db_path(&self) -> String {
+        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
@@ -959,6 +969,7 @@ pub struct ConnectionOptionsFile {
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
+    pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
     pub read_only_call_limit_write_count: Option<u64>,
@@ -1080,7 +1091,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -1090,4 +1101,11 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct InitialVestingScheduleFile {
+    pub address: String,
+    pub amount: u64,
+    pub block_height: u64,
 }
