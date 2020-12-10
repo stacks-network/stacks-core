@@ -3881,10 +3881,13 @@ impl StacksChainState {
                     let res =
                         db.fetch_entry(&lockup_contract_id, "vesting-schedules", &block_height)?;
                     Ok(res)
-                });
+                })?;
 
                 let entries = match result {
-                    Ok(Value::Sequence(SequenceData::List(entries))) => entries.data,
+                    Value::Optional(_) => match result.expect_optional() {
+                        Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
+                        _ => return Ok((0, vec![])),
+                    },
                     _ => return Ok((0, vec![])),
                 };
 
@@ -3894,12 +3897,12 @@ impl StacksChainState {
                     let schedule: TupleData = entry.expect_tuple();
                     let amount = schedule
                         .get("amount")
-                        .expect("FATAL: ...")
+                        .expect("Vesting schedule malformed")
                         .to_owned()
                         .expect_u128();
                     let recipient = schedule
                         .get("recipient")
-                        .expect("FATAL: ...")
+                        .expect("Vesting schedule malformed")
                         .to_owned()
                         .expect_principal();
                     total_minted += amount;

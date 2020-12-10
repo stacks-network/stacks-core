@@ -2080,6 +2080,7 @@ pub mod test {
         pub data_url: UrlString,
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
+        pub initial_vesting_schedules: Vec<VestingSchedule>,
         pub spending_account: TestMiner,
         pub setup_code: String,
     }
@@ -2124,6 +2125,7 @@ pub mod test {
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
+                initial_vesting_schedules: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
             }
@@ -2344,6 +2346,11 @@ pub mod test {
                 config.initial_balances.clone(),
                 Some(Box::new(post_flight_callback)),
             );
+
+            if !config.initial_vesting_schedules.is_empty() {
+                let vesting_schedules = config.initial_vesting_schedules.clone();
+                boot_data.get_bulk_initial_vesting_schedules = Some(Box::new(move || Box::new(vesting_schedules.into_iter().map(|e| e))));
+            }
 
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,

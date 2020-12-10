@@ -602,6 +602,16 @@ pub struct VestingSchedule {
     pub block_height: u64,
 }
 
+impl VestingSchedule {
+    pub fn new(address: StacksAddress, amount: u64, block_height: u64) -> VestingSchedule {
+        VestingSchedule {
+            address,
+            amount,
+            block_height,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountBalance {
     pub address: StacksAddress,
