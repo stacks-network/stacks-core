@@ -2321,8 +2321,6 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
-    use crate::chainstate::stacks::db::EMPTY_GENESIS_CHAINSTATE_HASH;
-
     use super::*;
     use net::codec::*;
     use net::http::*;
@@ -2837,7 +2835,7 @@ mod test {
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     &peer_server.network.peerdb,
                     &None,
-                    &EMPTY_GENESIS_CHAINSTATE_HASH.to_string(),
+                    &Sha256Sum::empty(),
                 )
                 .unwrap();
 
