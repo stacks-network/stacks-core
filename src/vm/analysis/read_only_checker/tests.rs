@@ -155,6 +155,25 @@ fn test_simple_read_only_violations() {
 }
 
 #[test]
+fn test_nested_writing_closure() {
+    let bad_contracts = [
+        "(define-data-var cursor int 0)
+        (define-public (bad-at-block-function)
+            (begin
+                (var-set cursor
+                    (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                        ;; should be a read only error, caught in analysis, but it isn't                     
+                        (begin (var-set cursor 1) 2)))
+                (ok 1)))"
+    ];
+
+    for contract in bad_contracts.iter() {
+        let err = mem_type_check(contract).unwrap_err();
+        assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
+    }
+}
+
+#[test]
 fn test_contract_call_read_only_violations() {
     let contract1 = "(define-map tokens { account: principal } { balance: int })
          (define-read-only (get-token-balance)
