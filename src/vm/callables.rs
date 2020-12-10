@@ -21,7 +21,7 @@ use std::iter::FromIterator;
 
 use chainstate::stacks::events::StacksTransactionEvent;
 
-use vm::costs::{cost_functions, runtime_cost, SimpleCostSpecification};
+use vm::costs::{cost_functions, runtime_cost};
 
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::ContractContext;
