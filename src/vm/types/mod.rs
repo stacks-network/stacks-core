@@ -67,7 +67,7 @@ pub struct ListData {
     pub type_signature: ListTypeData,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -1029,6 +1029,13 @@ impl fmt::Display for StandardPrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let c32_str = self.to_address();
         write!(f, "{}", c32_str)
+    }
+}
+
+impl fmt::Debug for StandardPrincipalData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let c32_str = self.to_address();
+        write!(f, "StandardPrincipalData({})", c32_str)
     }
 }
 

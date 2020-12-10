@@ -345,9 +345,6 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             .expect("BUG: Failed querying confirmed-proposals")
             .expect_optional()
             .expect("BUG: confirmed-proposal-count exceeds stored proposals")
-            .expect_tuple()
-            .get_owned("confirmed-proposal")
-            .unwrap()
             .expect_tuple();
         let target_contract = match entry
             .get("function-contract")

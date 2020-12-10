@@ -372,12 +372,11 @@ fn test_cost_contract_short_circuits() {
         )
         .unwrap();
         let value = format!(
-            "{{ confirmed-proposal: 
-                               {{  function-contract: '{},
-                                   function-name: {},
-                                   cost-function-contract: '{},
-                                   cost-function-name: {},
-                                   confirmed-height: u1 }} }}",
+            "{{  function-contract: '{},
+                 function-name: {},
+                 cost-function-contract: '{},
+                 cost-function-name: {},
+                 confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
         db.set_entry(
@@ -626,12 +625,11 @@ fn test_cost_voting_integration() {
             bad_cases.into_iter().enumerate()
         {
             let value = format!(
-                "{{ confirmed-proposal: 
-                               {{  function-contract: '{},
-                                   function-name: \"{}\",
-                                   cost-function-contract: '{},
-                                   cost-function-name: \"{}\",
-                                   confirmed-height: u1 }} }}",
+                "{{  function-contract: '{},
+                     function-name: \"{}\",
+                     cost-function-contract: '{},
+                     cost-function-name: \"{}\",
+                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
             db.set_entry(
@@ -715,12 +713,11 @@ fn test_cost_voting_integration() {
             good_cases.into_iter().enumerate()
         {
             let value = format!(
-                "{{ confirmed-proposal: 
-                               {{  function-contract: '{},
-                                   function-name: \"{}\",
-                                   cost-function-contract: '{},
-                                   cost-function-name: \"{}\",
-                                   confirmed-height: u1 }} }}",
+                "{{ function-contract: '{},
+                    function-name: \"{}\",
+                    cost-function-contract: '{},
+                    cost-function-name: \"{}\",
+                    confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
             db.set_entry(
