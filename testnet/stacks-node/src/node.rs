@@ -27,7 +27,7 @@ use stacks::net::{
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainStateAccountBalance, ChainStateAccountVesting},
+    chainstate::stacks::db::{ChainStateAccountLockup, ChainstateAccountBalance},
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -82,9 +82,9 @@ pub struct Node {
     nonce: u64,
 }
 
-pub fn get_account_vesting() -> Box<dyn Iterator<Item = ChainStateAccountVesting>> {
+pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainStateAccountLockup>> {
     Box::new(
-        stx_genesis::read_vesting().map(|item| ChainStateAccountVesting {
+        stx_genesis::read_lockups().map(|item| ChainStateAccountLockup {
             address: item.address,
             amount: item.amount,
             block_height: item.block_height,
@@ -92,9 +92,9 @@ pub fn get_account_vesting() -> Box<dyn Iterator<Item = ChainStateAccountVesting
     )
 }
 
-pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainStateAccountBalance>> {
+pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
     Box::new(
-        stx_genesis::read_balances().map(|item| ChainStateAccountBalance {
+        stx_genesis::read_balances().map(|item| ChainstateAccountBalance {
             address: item.address,
             amount: item.amount,
         }),
@@ -185,7 +185,7 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_vesting_schedules: Some(Box::new(get_account_vesting)),
+            get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
             get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
 

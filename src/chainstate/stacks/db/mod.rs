@@ -597,12 +597,12 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
-pub struct ChainStateAccountBalance {
+pub struct ChainstateAccountBalance {
     pub address: String,
     pub amount: u64,
 }
 
-pub struct ChainStateAccountVesting {
+pub struct ChainStateAccountLockup {
     pub address: String,
     pub amount: u64,
     pub block_height: u64,
@@ -614,10 +614,10 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-    pub get_bulk_initial_vesting_schedules:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountVesting>>>>,
+    pub get_bulk_initial_lockups:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountLockup>>>>,
     pub get_bulk_initial_balances:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountBalance>>>>,
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountBalance>>>>,
 }
 
 impl ChainStateBootData {
@@ -632,7 +632,7 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             post_flight_callback,
-            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
         }
     }
@@ -925,19 +925,19 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-            let mut total_vesting_amount: u128 = 0;
-            if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
-                info!("Initializing chain with vesting schedules");
-                let mut vesting_schedule_count = 0;
+            let mut total_locked_amount: u128 = 0;
+            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                info!("Initializing chain with locked balances");
+                let mut lockup_count = 0;
                 clarity_tx.connection().as_transaction(|clarity| {
-                    let initial_vesting_schedules = get_schedules();
+                    let initial_lockups = get_schedules();
                     let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
                     let lockup_contract_id = boot_code_id("lockup");
-                    for schedule in initial_vesting_schedules {
-                        total_vesting_amount = total_vesting_amount
+                    for schedule in initial_lockups {
+                        total_locked_amount = total_locked_amount
                             .checked_add(schedule.amount as u128)
-                            .expect("FATAL: vesting STX overflow");
-                        vesting_schedule_count = vesting_schedule_count + 1;
+                            .expect("FATAL: locked STX overflow");
+                        lockup_count = lockup_count + 1;
                         let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                         let index = value + 1;
                         unlocks_per_blocks.insert(schedule.block_height, index);
@@ -990,20 +990,20 @@ impl StacksChainState {
                     }
                 });
                 info!(
-                    "Done initializing chain with {} vesting schedules",
-                    vesting_schedule_count
+                    "Done initializing chain with {} locked balances",
+                    lockup_count
                 );
             }
 
             info!(
                 "Credit lockup contract with balance {}",
-                total_vesting_amount
+                total_locked_amount
             );
             clarity_tx.connection().as_transaction(|clarity| {
                 StacksChainState::account_genesis_credit(
                     clarity,
                     &PrincipalData::from(boot_code_id("lockup")),
-                    total_vesting_amount,
+                    total_locked_amount,
                 )
             });
 
@@ -1776,7 +1776,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
-            get_bulk_initial_vesting_schedules: None,
+            get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
         };
 

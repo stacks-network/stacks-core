@@ -1,6 +1,6 @@
 use crate::{
     neon_node,
-    node::{get_account_balances, get_account_vesting},
+    node::{get_account_balances, get_account_lockups},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
@@ -196,7 +196,7 @@ impl RunLoop {
             first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
             first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
-            get_bulk_initial_vesting_schedules: Some(Box::new(get_account_vesting)),
+            get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
             get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
 
