@@ -109,7 +109,7 @@ fn spawn_peer(
     stacks_chainstate_path: String,
     event_dispatcher: EventDispatcher,
     exit_at_block_height: Option<u64>,
-    genesis_chainstate_hash: String,
+    genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -393,7 +393,7 @@ impl Node {
             self.config.get_chainstate_path(),
             event_dispatcher,
             exit_at_block_height,
-            stx_genesis::GENESIS_CHAINSTATE_HASH.into(),
+            Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
         )
         .unwrap();

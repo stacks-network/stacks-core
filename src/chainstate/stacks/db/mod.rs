@@ -96,9 +96,6 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 
-pub static EMPTY_GENESIS_CHAINSTATE_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
-
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,

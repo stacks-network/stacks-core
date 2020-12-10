@@ -108,6 +108,8 @@ use serde::ser::Error as ser_Error;
 use chainstate::stacks::index::Error as marf_error;
 use vm::clarity::Error as clarity_error;
 
+use crate::util::hash::Sha256Sum;
+
 use self::dns::*;
 
 use core::POX_REWARD_CYCLE_LENGTH;
@@ -999,7 +1001,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: String,
-    pub genesis_chainstate_hash: String,
+    pub genesis_chainstate_hash: Sha256Sum,
     pub unanchored_tip: StacksBlockId,
     pub unanchored_seq: u16,
     pub exit_at_block_height: Option<u64>,

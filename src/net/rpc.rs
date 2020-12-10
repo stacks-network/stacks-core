@@ -81,7 +81,7 @@ use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
 
-use crate::version_string;
+use crate::{util::hash::Sha256Sum, version_string};
 
 use vm::{
     clarity::ClarityConnection,
@@ -103,7 +103,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
-    pub genesis_chainstate_hash: String,
+    pub genesis_chainstate_hash: Sha256Sum,
 }
 
 pub struct ConversationHttp {
@@ -164,7 +164,7 @@ impl RPCPeerInfoData {
         chainstate: &StacksChainState,
         peerdb: &PeerDB,
         exit_at_block_height: &Option<&u64>,
-        genesis_chainstate_hash: &String,
+        genesis_chainstate_hash: &Sha256Sum,
     ) -> Result<RPCPeerInfoData, net_error> {
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
