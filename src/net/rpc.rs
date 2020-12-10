@@ -2837,7 +2837,7 @@ mod test {
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     &peer_server.network.peerdb,
                     &None,
-                    EMPTY_GENESIS_CHAINSTATE_HASH,
+                    &EMPTY_GENESIS_CHAINSTATE_HASH.to_string(),
                 )
                 .unwrap();
 
