@@ -682,12 +682,14 @@ fn test_index_of() {
 fn test_element_at() {
     let good = [
         "(element-at (list 1 2 3 4 5) u100)",
+        "(element-at (list 1 2 3 4 5) (+ u1 u2))",
         "(element-at \"abcd\" u100)",
         "(element-at 0xfedb u100)",
         "(element-at u\"abcd\" u100)",
     ];
 
     let expected = [
+        "(optional int)",
         "(optional int)",
         "(optional (string-ascii 1))",
         "(optional (buff 1))",

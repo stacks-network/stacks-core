@@ -343,21 +343,7 @@ pub fn check_special_element_at(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    match args[1].expr {
-        SymbolicExpressionType::LiteralValue(Value::UInt(_index)) => (),
-        _ => {
-            let expected_len_type = checker.type_check(&args[1], context)?;
-            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into());
-        }
-    };
-    runtime_cost(
-        ClarityCostFunction::AnalysisTypeAnnotate,
-        checker,
-        TypeSignature::UIntType.type_size()?,
-    )?;
-    checker
-        .type_map
-        .set_type(&args[1], TypeSignature::UIntType)?;
+    let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
