@@ -1065,67 +1065,7 @@ impl StacksChainState {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
-                let mut receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
-
-                // Unlock the vesting schedules
-                let lockup_contract_id = boot::boot_code_id("lockup");
-                let entries = clarity_tx
-                    .with_clarity_db(|db| {
-                        let key = TupleData::from_data(vec![(
-                            "stx-block-height".into(),
-                            Value::UInt(db.get_current_block_height().into()),
-                        )])
-                        .expect("Failed building tuple");
-
-                        let result = db.fetch_entry(
-                            &lockup_contract_id,
-                            "vesting-schedules",
-                            &Value::Tuple(key.clone()),
-                        )?;
-
-                        let mut grants = vec![];
-                        let mut tuple_data = match result {
-                            Value::Tuple(tuple_data) => tuple_data,
-                            _ => return Ok(grants),
-                        };
-
-                        let mut entries = tuple_data
-                            .get_owned("entries")
-                            .expect("Entry in lockup contract malformed")
-                            .expect_list();
-                        for value in entries.drain(..) {
-                            let entry = value.clone();
-                            let beneficiary = entry
-                                .expect_tuple()
-                                .get_owned("beneficiary")
-                                .expect("Entry in lockup contract malformed")
-                                .expect_principal();
-                            let entry = value.expect_tuple();
-                            let ustx_amount = entry
-                                .get_owned("ustx-amount")
-                                .expect("Entry in lockup contract malformed")
-                                .expect_u128();
-                            grants.push((beneficiary, ustx_amount));
-                        }
-
-                        let result = db.delete_entry(
-                            &lockup_contract_id,
-                            "vesting-schedules",
-                            &Value::Tuple(key),
-                        )?;
-
-                        Ok(grants)
-                    })
-                    .unwrap();
-
-                let contract_principal = lockup_contract_id.into();
-                for (to, amount) in entries.iter() {
-                    let (_, _, mut events) = clarity_tx
-                        .run_stx_transfer(&contract_principal, to, *amount)
-                        .expect("Unable to transfer vesting schedule");
-                    receipt.events.append(&mut events);
-                }
-
+                let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
             }
         }

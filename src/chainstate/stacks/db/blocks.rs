@@ -63,7 +63,7 @@ use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    TypeSignature, Value, SequenceData
 };
 
 use vm::contexts::AssetMap;
@@ -3869,9 +3869,48 @@ impl StacksChainState {
 
     /// Process all STX that unlock at this block height.
     /// Return the total number of uSTX unlocked in this block
-    pub fn process_stx_unlocks<'a>(_clarity_tx: &mut ClarityTx<'a>) -> Result<u128, Error> {
-        // TODO: call into the .lockup contract and get the list of unlocks
-        Ok(0)
+    pub fn process_stx_unlocks<'a>(clarity_tx: &mut ClarityTx<'a>) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
+        let lockup_contract_id = boot::boot_code_id("lockup");
+        clarity_tx
+            .connection()
+            .as_transaction(|tx_connection| {
+                let result = tx_connection.with_clarity_db(|db| {
+                    let block_height = Value::UInt(db.get_current_block_height().into());
+                    let res = db.fetch_entry(
+                        &lockup_contract_id,
+                        "vesting-schedules",
+                        &block_height,
+                    )?;
+                    Ok(res)
+                });
+
+                let entries = match result {
+                    Ok(Value::Sequence(SequenceData::List(entries))) => entries.data,
+                    _ => return Ok((0, vec![]))
+                };
+
+                let mut total_minted = 0;
+                let mut events = vec![];
+                for entry in entries.into_iter() {
+                    let schedule: TupleData = entry.expect_tuple();
+                    let amount = schedule.get("amount")
+                        .expect("FATAL: ...")
+                        .to_owned()
+                        .expect_u128();
+                    let recipient = schedule.get("recipient")
+                        .expect("FATAL: ...")
+                        .to_owned()
+                        .expect_principal();
+                    total_minted += amount;
+                    StacksChainState::account_credit(tx_connection, &recipient, amount as u64);
+                    let event = STXEventType::STXMintEvent(STXMintEventData {
+                        recipient,
+                        amount,
+                    });
+                    events.push(StacksTransactionEvent::STXEvent(event));
+                }
+                Ok((total_minted, events))
+            }).map_err(Error::ClarityError)
     }
 
     /// Process the next pre-processed staging block.
@@ -4153,7 +4192,7 @@ impl StacksChainState {
                 .expect("Overflow: Too many STX burnt");
 
             // unlock any uSTX
-            let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+            let (new_unlocked_ustx, _unlocked_events) = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
 
             // calculate total liquid uSTX
             let total_liquid_ustx = parent_chain_tip

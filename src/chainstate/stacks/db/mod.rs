@@ -894,86 +894,41 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-            let mut total_vesting_amount: u128 = 0;
             if let Some(get_schedules) = boot_data.get_bulk_initial_vesting_schedules.take() {
                 info!("Initializing chain with vesting schedules");
-                let mut vesting_schedule_count = 0;
+                let mut vesting_schedules_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
+                let initial_vesting_schedules = get_schedules();
+                for schedule in initial_vesting_schedules {
+                    let value = Value::Tuple(TupleData::from_data(vec![
+                        ("recipient".into(), Value::Principal(schedule.address.into())),
+                        ("ustx".into(), Value::UInt(schedule.amount.into())),
+                    ]).unwrap());
+                    match vesting_schedules_per_block.entry(schedule.block_height) {
+                        Entry::Occupied(schedules) => {
+                            schedules.into_mut().push(value);
+                        }
+                        Entry::Vacant(entry) => {
+                            let schedules = vec![value];
+                            entry.insert(schedules);
+                        }
+                    };
+                }
+                let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
-                    let initial_vesting_schedules = get_schedules();
-                    let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
-                    let lockup_contract_id = boot_code_id("lockup");
-                    for schedule in initial_vesting_schedules {
-                        total_vesting_amount = total_vesting_amount
-                            .checked_add(schedule.amount as u128)
-                            .expect("FATAL: vesting STX overflow");
-                        vesting_schedule_count = vesting_schedule_count + 1;
-                        let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
-                        let index = value + 1;
-                        unlocks_per_blocks.insert(schedule.block_height, index);
-
-                        clarity
-                            .with_clarity_db(|db| {
-                                let key = TupleData::from_data(vec![
-                                    (
-                                        "stx-height".into(),
-                                        Value::UInt(schedule.block_height.into()),
-                                    ),
-                                    ("index".into(), Value::UInt(index.into())),
-                                ])
-                                .unwrap();
-
-                                let value = TupleData::from_data(vec![
-                                    ("owner".into(), Value::Principal(schedule.address.into())),
-                                    ("metadata".into(), Value::buff_from_byte(0)),
-                                    ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
-                                ])
-                                .unwrap();
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "internal-locked-stx",
-                                    Value::Tuple(key),
-                                    Value::Tuple(value),
-                                )?;
-
-                                let key = TupleData::from_data(vec![(
-                                    "stx-height".into(),
-                                    Value::UInt(schedule.block_height.into()),
-                                )])
-                                .unwrap();
-                                let value = TupleData::from_data(vec![(
-                                    "total-unlocked".into(),
-                                    Value::UInt(index.into()),
-                                )])
-                                .unwrap();
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "unlocked-stx-per-block",
-                                    Value::Tuple(key),
-                                    Value::Tuple(value),
-                                )?;
-
-                                Ok(())
-                            })
-                            .unwrap();
-                    }
+                    clarity.with_clarity_db(|db| {
+                        for (block_height, schedule) in vesting_schedules_per_block.into_iter() {
+                            let key = Value::UInt(block_height.into());
+                            db.insert_entry(
+                                &lockup_contract_id,
+                                "vesting-schedules",
+                                key,
+                                Value::list_from(schedule).unwrap(),
+                            )?;
+                        }
+                        Ok(())
+                    }).unwrap();
                 });
-                info!(
-                    "Done initializing chain with {} vesting schedules",
-                    vesting_schedule_count
-                );
             }
-
-            info!(
-                "Credit lockup contract with balance {}",
-                total_vesting_amount
-            );
-            clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::account_genesis_credit(
-                    clarity,
-                    &PrincipalData::from(boot_code_id("lockup")),
-                    total_vesting_amount,
-                )
-            });
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
