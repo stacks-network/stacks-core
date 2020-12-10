@@ -6,14 +6,16 @@ local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000
 miner = true
 mine_microblocks = false
 prometheus_bind = "127.0.0.1:4000"
+pox_sync_sample_secs = 10
+wait_time_for_microblocks = 0
 
 [burnchain]
 chain = "bitcoin"
-mode = "neon"
+mode = "krypton"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444
-commit_anchor_block_within = 20_000
+poll_time_secs = 5
 
 [[mstx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001

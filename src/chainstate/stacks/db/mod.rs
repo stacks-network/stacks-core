@@ -1398,7 +1398,7 @@ impl StacksChainState {
     }
 
     /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
-    /// otherwise run to_do on the confirmed state of the Clarity VM.  If the tip doesn't exist,
+    /// otherwise run to_do on the confirmed state of the Clarity VM. If the tip doesn't exist,
     /// then return None.
     pub fn maybe_read_only_clarity_tx<F, R>(
         &mut self,
