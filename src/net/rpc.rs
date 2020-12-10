@@ -2835,7 +2835,7 @@ mod test {
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     &peer_server.network.peerdb,
                     &None,
-                    &Sha256Sum::empty(),
+                    &Sha256Sum::zero(),
                 )
                 .unwrap();
 

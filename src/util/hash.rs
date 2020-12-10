@@ -125,7 +125,7 @@ impl_byte_array_newtype!(Sha256Sum, u8, 32);
 
 impl Default for Sha256Sum {
     fn default() -> Self {
-        Sha256Sum::empty()
+        Sha256Sum::zero()
     }
 }
 
@@ -323,7 +323,7 @@ impl Sha256Sum {
         tmp.copy_from_slice(sha2_1.result().as_slice());
         Sha256Sum(tmp)
     }
-    pub fn empty() -> Sha256Sum {
+    pub fn zero() -> Sha256Sum {
         Sha256Sum([0u8; 32])
     }
 }
