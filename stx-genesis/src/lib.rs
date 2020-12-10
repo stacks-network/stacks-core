@@ -19,7 +19,8 @@ pub struct GenesisAccountVesting {
     pub block_height: u64,
 }
 
-pub static GENESIS_CHAINSTATE_HASH: &str = include_str!(concat!(env!("OUT_DIR"), "/chainstate.txt.sha256"));
+pub static GENESIS_CHAINSTATE_HASH: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/chainstate.txt.sha256"));
 
 pub fn read_balances() -> Box<dyn Iterator<Item = GenesisAccountBalance>> {
     let account_balances_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/account_balances.gz"));

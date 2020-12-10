@@ -518,7 +518,7 @@ impl ConversationHttp {
             chainstate,
             peerdb,
             &handler_args.exit_at_block_height,
-            &handler_args.genesis_chainstate_hash
+            &handler_args.genesis_chainstate_hash,
         ) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
