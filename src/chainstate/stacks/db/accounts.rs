@@ -220,8 +220,8 @@ impl StacksChainState {
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
                 let existing_balance = snapshot.balance().amount_unlocked;
                 if existing_balance > 0 {
-                    balance.amount_locked = balance
-                        .amount_locked
+                    balance.amount_unlocked = balance
+                        .amount_unlocked
                         .checked_add(existing_balance)
                         .expect("Genesis credit balance overflow");
                 }
