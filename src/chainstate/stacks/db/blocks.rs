@@ -142,7 +142,12 @@ pub enum MemPoolRejection {
     NoCoinbaseViaMempool,
     NoSuchChainTip(ConsensusHash, BlockHeaderHash),
     ConflictingNonceInMempool,
-    TooMuchChaining,
+    TooMuchChaining {
+        max_nonce: u64,
+        actual_nonce: u64,
+        principal: PrincipalData,
+        is_origin: bool,
+    },
     DBError(db_error),
     Other(String),
 }
@@ -155,9 +160,22 @@ impl MemPoolRejection {
             DeserializationFailure(e) => {
                 ("Deserialization", Some(json!({"message": e.to_string()})))
             }
-            TooMuchChaining => (
+            TooMuchChaining {
+                max_nonce,
+                actual_nonce,
+                principal,
+                is_origin,
+                ..
+            } => (
                 "TooMuchChaining",
-                Some(json!({"message": "Nonce would exceed chaining limit in mempool"})),
+                Some(
+                    json!({"message": "Nonce would exceed chaining limit in mempool",
+                                "expected": max_nonce,
+                                "actual": actual_nonce,
+                                "principal": principal.to_string(),
+                                "is_origin": is_origin
+                    }),
+                ),
             ),
             FailedToValidate(e) => (
                 "SignatureValidation",
@@ -4838,7 +4856,6 @@ impl StacksChainState {
     /// unconfirmed microblock stream trailing off of it.
     pub fn will_admit_mempool_tx(
         &mut self,
-        mempool_conn: &DBConn,
         current_consensus_hash: &ConsensusHash,
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -4881,14 +4898,7 @@ impl StacksChainState {
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
         let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
-            StacksChainState::can_include_tx(
-                mempool_conn,
-                conn,
-                &conf,
-                has_microblock_pubk,
-                tx,
-                tx_size,
-            )
+            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
             Some(r) => r,
             None => Err(MemPoolRejection::NoSuchChainTip(
@@ -4909,7 +4919,6 @@ impl StacksChainState {
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
                     self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
                         StacksChainState::can_include_tx(
-                            mempool_conn,
                             conn,
                             &conf,
                             has_microblock_pubk,
@@ -4928,8 +4937,7 @@ impl StacksChainState {
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
     /// Used when mining transactions.
-    pub fn can_include_tx<T: ClarityConnection>(
-        mempool: &DBConn,
+    fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
         has_microblock_pubkey: bool,
@@ -4956,46 +4964,35 @@ impl StacksChainState {
         let (origin, payer) =
             match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
                 Ok(x) => x,
-                Err((mut e, (origin, payer))) => {
-                    // let's see if the tx has matching nonce in the mempool
-                    //  ->  you can _only_ replace-by-fee or replace-across-fork
-                    //      for nonces that increment the current chainstate's nonce.
-                    //      if there are "chained" transactions in the mempool,
-                    //      this check won't admit a rbf/raf for those.
-                    let origin_addr = tx.origin_address();
-                    let origin_nonce = tx.get_origin().nonce();
-                    let origin_next_nonce =
-                        MemPoolDB::get_next_nonce_for_address(mempool, &origin_addr)?;
-                    if origin_next_nonce < origin.nonce {
-                        return Err(e.into());
-                    }
-                    if origin_next_nonce - origin.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
-                        return Err(MemPoolRejection::TooMuchChaining);
-                    }
-                    if origin_nonce != origin_next_nonce {
-                        e.is_origin = true;
-                        e.principal = origin_addr.into();
-                        e.expected = origin_next_nonce;
-                        e.actual = origin_nonce;
+                // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
+                Err((e, (origin, payer))) => {
+                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                    if e.actual < e.expected {
                         return Err(e.into());
                     }
 
+                    let tx_origin_nonce = tx.get_origin().nonce();
+
+                    let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                    if origin_max_nonce < tx_origin_nonce {
+                        return Err(MemPoolRejection::TooMuchChaining {
+                            max_nonce: origin_max_nonce,
+                            actual_nonce: tx_origin_nonce,
+                            principal: tx.origin_address().into(),
+                            is_origin: true,
+                        });
+                    }
+
                     if let Some(sponsor_addr) = tx.sponsor_address() {
-                        let sponsor_nonce = tx.get_payer().nonce();
-                        let sponsor_next_nonce =
-                            MemPoolDB::get_next_nonce_for_address(mempool, &sponsor_addr)?;
-                        if sponsor_next_nonce < payer.nonce {
-                            return Err(e.into());
-                        }
-                        if sponsor_next_nonce - payer.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
-                            return Err(MemPoolRejection::TooMuchChaining);
-                        }
-                        if sponsor_nonce != sponsor_next_nonce {
-                            e.is_origin = false;
-                            e.principal = sponsor_addr.into();
-                            e.expected = sponsor_next_nonce;
-                            e.actual = sponsor_nonce;
-                            return Err(e.into());
+                        let tx_sponsor_nonce = tx.get_payer().nonce();
+                        let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                        if sponsor_max_nonce < tx_sponsor_nonce {
+                            return Err(MemPoolRejection::TooMuchChaining {
+                                max_nonce: sponsor_max_nonce,
+                                actual_nonce: tx_sponsor_nonce,
+                                principal: sponsor_addr.into(),
+                                is_origin: false,
+                            });
                         }
                     }
                     (origin, payer)

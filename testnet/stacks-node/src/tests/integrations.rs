@@ -772,7 +772,7 @@ fn contract_stx_transfer() {
                     )
                     .unwrap_err()
                 {
-                    MemPoolRejection::TooMuchChaining => true,
+                    MemPoolRejection::TooMuchChaining { .. } => true,
                     _ => false,
                 };
                 assert!(result);
@@ -1399,8 +1399,8 @@ fn mempool_errors() {
                 eprintln!("Test: POST {} (invalid)", path);
                 let tx_xfer_invalid = make_stacks_transfer(
                     &spender_sk,
-                    3,
-                    200, // bad nonce
+                    30, // bad nonce -- too much chaining
+                    200,
                     &send_to,
                     456,
                 );
@@ -1425,15 +1425,18 @@ fn mempool_errors() {
                     res.get("error").unwrap().as_str().unwrap(),
                     "transaction rejected"
                 );
-                assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "BadNonce");
+                assert_eq!(
+                    res.get("reason").unwrap().as_str().unwrap(),
+                    "TooMuchChaining"
+                );
                 let data = res.get("reason_data").unwrap();
                 assert_eq!(data.get("is_origin").unwrap().as_bool().unwrap(), true);
                 assert_eq!(
                     data.get("principal").unwrap().as_str().unwrap(),
                     &spender_addr.to_string()
                 );
-                assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 0);
-                assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 3);
+                assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 26);
+                assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 30);
 
                 let tx_xfer_invalid = make_stacks_transfer(
                     &spender_sk,
