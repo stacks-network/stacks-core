@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'master'
+      - 'gh-workflow-cargo'
   pull_request:
   workflow_dispatch:
 
