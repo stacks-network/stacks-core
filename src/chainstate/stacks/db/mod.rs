@@ -899,10 +899,16 @@ impl StacksChainState {
                 let mut vesting_schedules_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
                 let initial_vesting_schedules = get_schedules();
                 for schedule in initial_vesting_schedules {
-                    let value = Value::Tuple(TupleData::from_data(vec![
-                        ("recipient".into(), Value::Principal(schedule.address.into())),
-                        ("ustx".into(), Value::UInt(schedule.amount.into())),
-                    ]).unwrap());
+                    let value = Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                "recipient".into(),
+                                Value::Principal(schedule.address.into()),
+                            ),
+                            ("amount".into(), Value::UInt(schedule.amount.into())),
+                        ])
+                        .unwrap(),
+                    );
                     match vesting_schedules_per_block.entry(schedule.block_height) {
                         Entry::Occupied(schedules) => {
                             schedules.into_mut().push(value);
@@ -915,18 +921,21 @@ impl StacksChainState {
                 }
                 let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
-                    clarity.with_clarity_db(|db| {
-                        for (block_height, schedule) in vesting_schedules_per_block.into_iter() {
-                            let key = Value::UInt(block_height.into());
-                            db.insert_entry(
-                                &lockup_contract_id,
-                                "vesting-schedules",
-                                key,
-                                Value::list_from(schedule).unwrap(),
-                            )?;
-                        }
-                        Ok(())
-                    }).unwrap();
+                    clarity
+                        .with_clarity_db(|db| {
+                            for (block_height, schedule) in vesting_schedules_per_block.into_iter()
+                            {
+                                let key = Value::UInt(block_height.into());
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "vesting-schedules",
+                                    key,
+                                    Value::list_from(schedule).unwrap(),
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
                 });
             }
 
