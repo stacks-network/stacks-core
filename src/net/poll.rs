@@ -67,6 +67,7 @@ impl NetworkPollState {
 }
 
 // state for a single network server
+#[derive(Debug)]
 pub struct NetworkServerState {
     addr: SocketAddr,
     server_socket: mio_net::TcpListener,
@@ -74,6 +75,7 @@ pub struct NetworkServerState {
 }
 
 // state for the entire network
+#[derive(Debug)]
 pub struct NetworkState {
     poll: mio::Poll,
     events: mio::Events,

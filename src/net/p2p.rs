@@ -17,6 +17,7 @@
 use std::mem;
 
 use net::asn::ASEntry4;
+use net::atlas::AtlasDB;
 use net::db::PeerDB;
 use net::Error as net_error;
 use net::Neighbor;
@@ -49,6 +50,8 @@ use net::prune::*;
 use net::server::*;
 
 use net::relay::*;
+
+use net::atlas::{AttachmentInstance, AttachmentsDownloader};
 
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -115,6 +118,7 @@ pub struct NetworkHandle {
 
 /// Internal handle for receiving requests from a NetworkHandle.
 /// This is the 'other end' of a NetworkHandle inside the peer network struct.
+#[derive(Debug)]
 struct NetworkHandleServer {
     chan_in: Receiver<NetworkRequest>,
 }
@@ -205,12 +209,14 @@ pub enum PeerNetworkWorkState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
+#[derive(Debug)]
 pub struct PeerNetwork {
     pub local_peer: LocalPeer,
     pub peer_version: u32,
     pub chain_view: BurnchainView,
 
     pub peerdb: PeerDB,
+    pub atlasdb: AtlasDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
     pub peers: PeerMap,
@@ -265,6 +271,9 @@ pub struct PeerNetwork {
     // peer block download state
     pub block_downloader: Option<BlockDownloader>,
 
+    // peer attachment downloader
+    pub attachments_downloader: Option<AttachmentsDownloader>,
+
     // do we need to do a prune at the end of the work state cycle?
     pub do_prune: bool,
 
@@ -317,6 +326,7 @@ pub struct PeerNetwork {
 impl PeerNetwork {
     pub fn new(
         peerdb: PeerDB,
+        atlasdb: AtlasDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
@@ -347,6 +357,7 @@ impl PeerNetwork {
             chain_view: chain_view,
 
             peerdb: peerdb,
+            atlasdb: atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -383,6 +394,7 @@ impl PeerNetwork {
             header_cache: BlockHeaderCache::new(),
 
             block_downloader: None,
+            attachments_downloader: None,
 
             do_prune: false,
 
@@ -465,6 +477,25 @@ impl PeerNetwork {
             }
         };
         peer_network.network = net;
+        res
+    }
+
+    /// Run a closure with the attachments_downloader
+    pub fn with_attachments_downloader<F, R>(
+        peer_network: &mut PeerNetwork,
+        closure: F,
+    ) -> Result<R, net_error>
+    where
+        F: FnOnce(&mut PeerNetwork, &mut AttachmentsDownloader) -> Result<R, net_error>,
+    {
+        let mut attachments_downloader = peer_network.attachments_downloader.take();
+        let res = match attachments_downloader {
+            Some(ref mut attachments_downloader) => closure(peer_network, attachments_downloader),
+            None => {
+                return Err(net_error::NotConnected);
+            }
+        };
+        peer_network.attachments_downloader = attachments_downloader;
         res
     }
 
@@ -2869,7 +2900,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        mut dns_client_opt: Option<&mut DNSClient>,
+        dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
@@ -3002,6 +3033,47 @@ impl PeerNetwork {
         }
 
         Ok(do_prune)
+    }
+
+    fn do_attachment_downloads(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        mut dns_client_opt: Option<&mut DNSClient>,
+        network_result: &mut NetworkResult,
+    ) -> Result<(), net_error> {
+        if self.attachments_downloader.is_none() {
+            self.init_attachments_downloader();
+        }
+
+        match dns_client_opt {
+            Some(ref mut dns_client) => {
+                PeerNetwork::with_attachments_downloader(
+                    self,
+                    |network, attachments_downloader| {
+                        match attachments_downloader.run(dns_client, chainstate, network) {
+                            Ok(ref mut attachments) => {
+                                network_result.attachments.append(attachments);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Atlas: AttachmentsDownloader failed running with error {:?}",
+                                    e
+                                );
+                            }
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
+            None => {
+                // skip this step -- no DNS client available
+                test_debug!(
+                    "{:?}: no DNS client provided; skipping block download",
+                    &self.local_peer
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Given an event ID, find the other event ID corresponding
@@ -3901,7 +3973,7 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        dns_client_opt: Option<&mut DNSClient>,
+        mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         mut poll_state: NetworkPollState,
     ) -> Result<(), net_error> {
@@ -3952,7 +4024,7 @@ impl PeerNetwork {
         let do_prune = self.do_network_work(
             sortdb,
             chainstate,
-            dns_client_opt,
+            &mut dns_client_opt,
             download_backpressure,
             network_result,
         )?;
@@ -3970,6 +4042,9 @@ impl PeerNetwork {
             }
             self.prune_connections();
         }
+
+        // download attachments
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // In parallel, do a neighbor walk
         self.do_network_neighbor_walk()?;
@@ -4129,6 +4204,7 @@ impl PeerNetwork {
         download_backpressure: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
+        attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -4149,8 +4225,23 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut result =
+        let mut network_result =
             NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
+
+        // This operation needs to be performed before any early return:
+        // Events are being parsed and dispatched here once and we want to
+        // enqueue them.
+        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader
+                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+            network_result.attachments.append(&mut known_attachments);
+            Ok(())
+        }) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Atlas: updating attachment inventory failed {}", e);
+            }
+        }
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
@@ -4159,17 +4250,18 @@ impl PeerNetwork {
                 &network.peers,
                 sortdb,
                 &network.peerdb,
+                &mut network.atlasdb,
                 chainstate,
                 mempool,
                 http_poll_state,
                 handler_args,
             )?;
-            result.consume_http_uploads(http_stacks_msgs);
+            network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;
 
         self.dispatch_network(
-            &mut result,
+            &mut network_result,
             sortdb,
             chainstate,
             dns_client_opt,
@@ -4177,7 +4269,9 @@ impl PeerNetwork {
             p2p_poll_state,
         )?;
 
-        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut result) {
+        if let Err(e) =
+            PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut network_result)
+        {
             warn!("Failed to store transactions: {:?}", &e);
         }
 
@@ -4186,7 +4280,7 @@ impl PeerNetwork {
         }
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-        Ok(result)
+        Ok(network_result)
     }
 }
 
@@ -4287,9 +4381,13 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
+
+        let atlasdb = AtlasDB::connect_memory().unwrap();
+
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
+            atlasdb,
             local_peer,
             0x12345678,
             burnchain,

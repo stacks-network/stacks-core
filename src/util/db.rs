@@ -29,6 +29,7 @@ use util::hash::to_hex;
 use util::sleep_ms;
 
 use chainstate::burn::BlockHeaderHash;
+use vm::types::QualifiedContractIdentifier;
 
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
@@ -189,6 +190,16 @@ impl FromColumn<i64> for i64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
         let x: i64 = row.get(column_name);
         Ok(x)
+    }
+}
+
+impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
+    fn from_column<'a>(
+        row: &'a Row,
+        column_name: &str,
+    ) -> Result<QualifiedContractIdentifier, Error> {
+        let value: String = row.get(column_name);
+        QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
 
