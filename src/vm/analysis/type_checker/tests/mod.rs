@@ -594,7 +594,7 @@ fn test_simple_lets() {
         "(let ((x 1) (y 2) (z 3)) (if (> x 2) (+ 1 x y) (- 1 z)))",
         "(let ((x true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))",
         "(let ((x true) (y (+ 1 2)) (z 3)) (print x) (if x (+ 1 z y) (- 1 z)))",
-        "(let* ((x 1) (y u2) (z u3) (a (+ y z)) (b (* 2 x)) (c { foo: a, bar: b })) c)",
+        "(let ((x 1) (y u2) (z u3) (a (+ y z)) (b (* 2 x)) (c { foo: a, bar: b })) c)",
     ];
 
     let expected = ["int", "int", "int", "(tuple (bar int) (foo uint))"];
@@ -602,7 +602,7 @@ fn test_simple_lets() {
     let bad = [
         "(let ((1)) (+ 1 2))",
         "(let ((1 2)) (+ 1 2))",
-        "(let* ((x 1) (y u2) (z (+ x y))) x)",
+        "(let ((x 1) (y u2) (z (+ x y))) x)",
     ];
 
     let bad_expected = [
@@ -624,19 +624,19 @@ fn test_simple_lets() {
 }
 
 #[test]
-fn test_contains() {
+fn test_index_of() {
     let good = [
-        "(contains (list 1 2 3 4 5 4) 100)",
-        "(contains (list 1 2 3 4 5 4) 4)",
-        "(contains \"abcd\" \"a\")",
-        "(contains u\"abcd\" u\"a\")",
-        "(contains 0xfedb 0xdb)",
-        "(contains \"abcd\" \"\")",
-        "(contains u\"abcd\" u\"\")",
-        "(contains 0xfedb 0x)",
-        "(contains \"abcd\" \"z\")",
-        "(contains u\"abcd\" u\"e\")",
-        "(contains 0xfedb 0x01)",
+        "(index-of (list 1 2 3 4 5 4) 100)",
+        "(index-of (list 1 2 3 4 5 4) 4)",
+        "(index-of \"abcd\" \"a\")",
+        "(index-of u\"abcd\" u\"a\")",
+        "(index-of 0xfedb 0xdb)",
+        "(index-of \"abcd\" \"\")",
+        "(index-of u\"abcd\" u\"\")",
+        "(index-of 0xfedb 0x)",
+        "(index-of \"abcd\" \"z\")",
+        "(index-of u\"abcd\" u\"e\")",
+        "(index-of 0xfedb 0x01)",
     ];
 
     let expected = "(optional uint)";
@@ -649,11 +649,11 @@ fn test_contains() {
     }
 
     let bad = [
-        "(contains 3 \"a\")",
-        "(contains (list 1 2 3 4) u1)",
-        "(contains 0xfedb \"a\")",
-        "(contains u\"a\" \"a\")",
-        "(contains \"a\" u\"a\")",
+        "(index-of 3 \"a\")",
+        "(index-of (list 1 2 3 4) u1)",
+        "(index-of 0xfedb \"a\")",
+        "(index-of u\"a\" \"a\")",
+        "(index-of \"a\" u\"a\")",
     ];
 
     let bad_expected = [

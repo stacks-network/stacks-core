@@ -430,22 +430,13 @@ const LET_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
-evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.
+evaluating each expression and _binding_ it to the corresponding variable name.
+`let` bindings are iterative: when a `let` binding is evaluated, it may refer to prior binding.
+The _context_ created by this set of bindings is used for evaluating its body expressions.
+ The let expression returns the value of the last such body expression.
 Note: intermediary statements returning a response type must be checked",
-    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
-};
-
-const LET_STAR_API: SpecialAPI = SpecialAPI {
-    input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
-    output_type: "A",
-    signature: "(let* ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
-    description: "The `let*` function accepts a list of `variable name` and `expression` pairs,
-evaluating each expression and _binding_ it to the corresponding variable name. Unlike `let`, `let*` bindings
-are iterative: when a `let*` binding is evaluated, it may refer to prior binding. The _context_
-created by this set of bindings is used for evaluating its body expressions. The `let*` expression returns the value of the last such body expression.
-Note: intermediary statements returning a response type must be checked",
-    example: "(let* ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23"
+    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20
+(let ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23",
 };
 
 const FETCH_VAR_API: SpecialAPI = SpecialAPI {
@@ -565,20 +556,20 @@ For strings and buffers, this function will return 1-length strings or buffers."
 ",
 };
 
-const CONTAINS_API: SpecialAPI = SpecialAPI {
+const INDEX_OF_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list A, buff|A",
     output_type: "(optional uint)",
-    signature: "(contains sequence item)",
-    description: "The `contains` function returns the first index at which `item` can be
+    signature: "(index-of sequence item)",
+    description: "The `index-of` function returns the first index at which `item` can be
 found in the provided sequence (using `is-eq` checks).
 
 If this item is not found in the sequence (or an empty string/buffer is supplied), this
 function returns `none`.",
-    example: "(contains \"blockstack\" \"b\") ;; Returns (some u0)
-(contains \"blockstack\" \"k\") ;; Returns (some u4)
-(contains \"blockstack\" \"\") ;; Returns none
-(contains (list 1 2 3 4 5) 6) ;; Returns none
-(contains 0xfb01 0x01) ;; Returns (some u1)
+    example: "(index-of \"blockstack\" \"b\") ;; Returns (some u0)
+(index-of \"blockstack\" \"k\") ;; Returns (some u4)
+(index-of \"blockstack\" \"\") ;; Returns none
+(index-of (list 1 2 3 4 5) 6) ;; Returns none
+(index-of 0xfb01 0x01) ;; Returns (some u1)
 ",
 };
 
@@ -1540,7 +1531,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Equals => make_for_special(&EQUALS_API, name),
         If => make_for_special(&IF_API, name),
         Let => make_for_special(&LET_API, name),
-        LetStar => make_for_special(&LET_STAR_API, name),
         FetchVar => make_for_special(&FETCH_VAR_API, name),
         SetVar => make_for_special(&SET_VAR_API, name),
         Map => make_for_special(&MAP_API, name),
@@ -1551,7 +1541,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
         ElementAt => make_for_special(&ELEMENT_AT_API, name),
-        Contains => make_for_special(&CONTAINS_API, name),
+        IndexOf => make_for_special(&INDEX_OF_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),

@@ -384,7 +384,7 @@ pub fn check_special_element_at(
     }
 }
 
-pub fn check_special_contains(
+pub fn check_special_index_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,

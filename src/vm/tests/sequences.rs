@@ -55,19 +55,19 @@ fn test_simple_list_admission() {
 }
 
 #[test]
-fn test_contains() {
+fn test_index_of() {
     let good = [
-        "(contains (list 1 2 3 4 5 4) 100)",
-        "(contains (list 1 2 3 4 5 4) 4)",
-        "(contains \"abcd\" \"a\")",
-        "(contains u\"abcd\" u\"a\")",
-        "(contains 0xfedb 0xdb)",
-        "(contains \"abcd\" \"\")",
-        "(contains u\"abcd\" u\"\")",
-        "(contains 0xfedb 0x)",
-        "(contains \"abcd\" \"z\")",
-        "(contains u\"abcd\" u\"e\")",
-        "(contains 0xfedb 0x01)",
+        "(index-of (list 1 2 3 4 5 4) 100)",
+        "(index-of (list 1 2 3 4 5 4) 4)",
+        "(index-of \"abcd\" \"a\")",
+        "(index-of u\"abcd\" u\"a\")",
+        "(index-of 0xfedb 0xdb)",
+        "(index-of \"abcd\" \"\")",
+        "(index-of u\"abcd\" u\"\")",
+        "(index-of 0xfedb 0x)",
+        "(index-of \"abcd\" \"z\")",
+        "(index-of u\"abcd\" u\"e\")",
+        "(index-of 0xfedb 0x01)",
     ];
 
     let expected = [
@@ -92,10 +92,10 @@ fn test_contains() {
     }
 
     let bad = [
-        "(contains 3 \"a\")",
-        "(contains 0xfedb \"a\")",
-        "(contains u\"a\" \"a\")",
-        "(contains \"a\" u\"a\")",
+        "(index-of 3 \"a\")",
+        "(index-of 0xfedb \"a\")",
+        "(index-of u\"a\" \"a\")",
+        "(index-of \"a\" u\"a\")",
     ];
 
     let bad_expected = [

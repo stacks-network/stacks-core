@@ -71,7 +71,6 @@ define_named_enum!(NativeFunctions {
     Equals("is-eq"),
     If("if"),
     Let("let"),
-    LetStar("let*"),
     Map("map"),
     Fold("fold"),
     Append("append"),
@@ -79,7 +78,7 @@ define_named_enum!(NativeFunctions {
     AsMaxLen("as-max-len?"),
     Len("len"),
     ElementAt("element-at"),
-    Contains("contains"),
+    IndexOf("index-of"),
     ListCons("list"),
     FetchVar("var-get"),
     SetVar("var-set"),
@@ -226,7 +225,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ),
             If => SpecialFunction("special_if", &special_if),
             Let => SpecialFunction("special_let", &special_let),
-            LetStar => SpecialFunction("special_let_star", &special_let_star),
             FetchVar => SpecialFunction("special_var-get", &database::special_fetch_variable),
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
@@ -245,10 +243,10 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            Contains => NativeFunction(
-                "native_contains",
-                NativeHandle::DoubleArg(&sequences::native_contains),
-                ClarityCostFunction::Contains,
+            IndexOf => NativeFunction(
+                "native_index_of",
+                NativeHandle::DoubleArg(&sequences::native_index_of),
+                ClarityCostFunction::IndexOf,
             ),
             ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
@@ -527,15 +525,10 @@ pub fn parse_eval_bindings(
     Ok(result)
 }
 
-/// implements `let` and `let*`
-/// `iterative_context`: this bool controls whether or not let bindings are
-///   evaluated in an "iterative" context, i.e., let bindings may use prior
-///   bindings.
-fn let_implementation(
+fn special_let(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-    iterative_context: bool,
 ) -> Result<Value> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
@@ -560,14 +553,7 @@ fn let_implementation(
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
-            let binding_value = {
-                let binding_context = if iterative_context {
-                    &inner_context
-                } else {
-                    context
-                };
-                eval(var_sexp, env, binding_context)
-            }?;
+            let binding_value = eval(var_sexp, env, &inner_context)?;
 
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
@@ -585,22 +571,6 @@ fn let_implementation(
         // last_result should always be Some(...), because of the arg len check above.
         Ok(last_result.unwrap())
     })
-}
-
-fn special_let(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    let_implementation(args, env, context, false)
-}
-
-fn special_let_star(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    let_implementation(args, env, context, true)
 }
 
 fn special_as_contract(

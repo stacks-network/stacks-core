@@ -179,7 +179,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
             | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
             | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner
-            | ElementAt | Contains => self.check_all_read_only(args),
+            | ElementAt | IndexOf => self.check_all_read_only(args),
             AtBlock => {
                 check_argument_count(2, args)?;
 
@@ -199,7 +199,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_all_read_only(args)?;
                 Ok(false)
             }
-            Let | LetStar => {
+            Let => {
                 check_arguments_at_least(2, args)?;
 
                 let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;

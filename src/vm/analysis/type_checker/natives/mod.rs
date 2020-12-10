@@ -215,23 +215,6 @@ fn check_special_let(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    implement_check_special_let(checker, args, context, false)
-}
-
-fn check_special_let_star(
-    checker: &mut TypeChecker,
-    args: &[SymbolicExpression],
-    context: &TypingContext,
-) -> TypeResult {
-    implement_check_special_let(checker, args, context, true)
-}
-
-fn implement_check_special_let(
-    checker: &mut TypeChecker,
-    args: &[SymbolicExpression],
-    context: &TypingContext,
-    iterative_context: bool,
-) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
     let binding_list = args[0]
@@ -250,14 +233,7 @@ fn implement_check_special_let(
             )));
         }
 
-        let typed_result = {
-            let binding_context = if iterative_context {
-                &out_context
-            } else {
-                context
-            };
-            checker.type_check(var_sexp, binding_context)
-        }?;
+        let typed_result = checker.type_check(var_sexp, &out_context)?;
 
         runtime_cost(
             ClarityCostFunction::AnalysisBindName,
@@ -702,7 +678,6 @@ impl TypedNativeFunction {
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
-            LetStar => Special(SpecialNativeFunction(&check_special_let_star)),
             FetchVar => Special(SpecialNativeFunction(&check_special_fetch_var)),
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
             Map => Special(SpecialNativeFunction(&sequences::check_special_map)),
@@ -713,7 +688,7 @@ impl TypedNativeFunction {
             AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
             ElementAt => Special(SpecialNativeFunction(&sequences::check_special_element_at)),
-            Contains => Special(SpecialNativeFunction(&sequences::check_special_contains)),
+            IndexOf => Special(SpecialNativeFunction(&sequences::check_special_index_of)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),
