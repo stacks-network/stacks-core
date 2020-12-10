@@ -99,7 +99,7 @@ cargo run --bin blockstack-cli generate-sk --testnet
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
 ```scheme
-(define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+(define-map store { key: (string-ascii 32) } { value: (string-ascii 32))
 
 (define-public (get-value (key (string-ascii 32)))
     (match (map-get? store {key: key})

@@ -1,4 +1,3 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -14,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::costs::cost_functions;
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
 };
@@ -35,7 +35,7 @@ pub fn tuple_cons(
     check_arguments_at_least(1, args)?;
 
     let bindings = parse_eval_bindings(args, env, context)?;
-    runtime_cost!(cost_functions::TUPLE_CONS, env, bindings.len())?;
+    runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
     TupleData::from_data(bindings).map(Value::from)
 }
@@ -58,7 +58,7 @@ pub fn tuple_get(
             match opt_data.data {
                 Some(data) => {
                     if let Value::Tuple(tuple_data) = *data {
-                        runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
+                        runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
                         Ok(Value::some(tuple_data.get_owned(arg_name)?)
                             .expect("Tuple contents should *always* fit in a some wrapper"))
                     } else {
@@ -69,29 +69,24 @@ pub fn tuple_get(
             }
         }
         Value::Tuple(tuple_data) => {
-            runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
+            runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
             tuple_data.get_owned(arg_name)
         }
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into()),
     }
 }
 
-pub enum TupleDefinitionType {
-    Implicit(Box<[SymbolicExpression]>),
-    Explicit,
-}
+pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
+    let initial_values = match base {
+        Value::Tuple(initial_values) => Ok(initial_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base))),
+    }?;
 
-/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)),
-/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call.
-/// The caller is responsible for any eventual type checks or actual execution.
-/// Used in:
-/// - the type checker: doesn't eval the resulting structure, it only type checks it,
-/// - the interpreter: want to eval the result, and then do type enforcement on the value, not the type signature.
-pub fn get_definition_type_of_tuple_argument(args: &SymbolicExpression) -> TupleDefinitionType {
-    if let List(ref outer_expr) = args.expr {
-        if let List(_) = (&outer_expr[0]).expr {
-            return TupleDefinitionType::Implicit(outer_expr.clone());
-        }
-    }
-    TupleDefinitionType::Explicit
+    let new_values = match update {
+        Value::Tuple(new_values) => Ok(new_values),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update))),
+    }?;
+
+    let combined = TupleData::shallow_merge(initial_values, new_values)?;
+    Ok(Value::Tuple(combined))
 }

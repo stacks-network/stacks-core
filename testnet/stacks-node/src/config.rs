@@ -24,7 +24,7 @@ const MINIMUM_DUST_FEE: u64 = 5500;
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+    pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub block_limit: Option<BlockLimitFile>,
@@ -80,7 +80,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -123,7 +123,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -166,7 +166,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -208,7 +208,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -352,6 +352,12 @@ impl Config {
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
+                    microblock_frequency: node
+                        .microblock_frequency
+                        .unwrap_or(default_node_config.microblock_frequency),
+                    max_microblocks: node
+                        .max_microblocks
+                        .unwrap_or(default_node_config.max_microblocks),
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
@@ -437,7 +443,7 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
-        let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
+        let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => balances
                 .iter()
                 .map(|balance| {
@@ -823,6 +829,8 @@ pub struct NodeConfig {
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
+    pub microblock_frequency: u64,
+    pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
@@ -858,6 +866,8 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
+            microblock_frequency: 5000,
+            max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 5000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
@@ -986,6 +996,8 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
+    pub microblock_frequency: Option<u64>,
+    pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
@@ -1068,7 +1080,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -1078,4 +1090,11 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct InitialVestingScheduleFile {
+    pub address: String,
+    pub amount: u64,
+    pub block_height: u64,
 }

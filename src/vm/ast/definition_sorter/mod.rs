@@ -18,7 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::costs::{cost_functions, CostTracker};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::representations::PreSymbolicExpressionType::{
@@ -53,6 +54,12 @@ impl<'a> DefinitionSorter {
         Ok(())
     }
 
+    pub fn run_pass_free(contract_ast: &mut ContractAST) -> ParseResult<()> {
+        let mut pass = DefinitionSorter::new();
+        pass.run(contract_ast, &mut LimitedCostTracker::new_free())?;
+        Ok(())
+    }
+
     pub fn run<T: CostTracker>(
         &mut self,
         contract_ast: &mut ContractAST,
@@ -78,10 +85,10 @@ impl<'a> DefinitionSorter {
             self.probe_for_dependencies(&expr, expr_index)?;
         }
 
-        runtime_cost!(
-            cost_functions::AST_CYCLE_DETECTION,
+        runtime_cost(
+            ClarityCostFunction::AstCycleDetection,
             accounting,
-            self.graph.edges_count()?
+            self.graph.edges_count()?,
         )?;
 
         let mut walker = GraphWalker::new();
@@ -161,16 +168,10 @@ impl<'a> DefinitionSorter {
                                     return Ok(());
                                 }
                                 DefineFunctions::Map => {
-                                    // Args: [name, tuple-key, tuple-value]: handle tuple-key and tuple-value as tuples
+                                    // Args: [name, key, value]: with key value being potentialy tuples
                                     if function_args.len() == 3 {
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[1],
-                                            tle_index,
-                                        )?;
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[2],
-                                            tle_index,
-                                        )?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[2], tle_index)?;
                                     }
                                     return Ok(());
                                 }
@@ -199,39 +200,19 @@ impl<'a> DefinitionSorter {
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
                                     return Ok(())
                                 }
-                                DefineFunctions::NonFungibleToken
-                                | DefineFunctions::FungibleToken => return Ok(()),
+                                DefineFunctions::NonFungibleToken => return Ok(()),
+                                DefineFunctions::FungibleToken => {
+                                    // probe_for_dependencies if the supply arg (optional) is being passed
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }
                             }
                         } else if let Some(native_function) =
                             NativeFunctions::lookup_by_name(function_name)
                         {
                             match native_function {
-                                NativeFunctions::FetchEntry | NativeFunctions::DeleteEntry => {
-                                    // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
-                                    if function_args.len() == 2 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[1],
-                                            tle_index,
-                                        )?;
-                                    }
-                                    return Ok(());
-                                }
-                                NativeFunctions::SetEntry | NativeFunctions::InsertEntry => {
-                                    // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
-                                    if function_args.len() == 3 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[1],
-                                            tle_index,
-                                        )?;
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[2],
-                                            tle_index,
-                                        )?;
-                                    }
-                                    return Ok(());
-                                }
                                 NativeFunctions::ContractCall => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
                                     if function_args.len() > 2 {
@@ -244,22 +225,14 @@ impl<'a> DefinitionSorter {
                                 NativeFunctions::Let => {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
-                                        self.probe_for_dependencies_in_tuple(
-                                            &function_args[0],
-                                            tle_index,
-                                        )?;
+                                        if let Some(bindings) = function_args[0].match_list() {
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings, tle_index)?;
+                                        }
                                         for expr in
                                             function_args[1..function_args.len()].into_iter()
                                         {
                                             self.probe_for_dependencies(expr, tle_index)?;
                                         }
-                                    }
-                                    return Ok(());
-                                }
-                                NativeFunctions::Len => {
-                                    // Args: buffer | list
-                                    if function_args.len() == 1 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
                                     }
                                     return Ok(());
                                 }
@@ -272,7 +245,7 @@ impl<'a> DefinitionSorter {
                                 }
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
-                                    self.probe_for_dependencies_in_tuple_list(
+                                    self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
                                         function_args,
                                         tle_index,
                                     )?;
@@ -289,7 +262,7 @@ impl<'a> DefinitionSorter {
                 Ok(())
             }
             Tuple(ref exprs) => {
-                self.probe_for_dependencies_in_tuple_list(exprs, tle_index)?;
+                self.probe_for_dependencies_in_tuple(exprs, tle_index)?;
                 Ok(())
             }
             AtomValue(_)
@@ -301,17 +274,18 @@ impl<'a> DefinitionSorter {
 
     /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and
     ///   probe them for dependencies as if they were part of a tuple definition.
-    fn probe_for_dependencies_in_tuple_list(
+    fn probe_for_dependencies_in_tuple(
         &mut self,
         pairs: &[PreSymbolicExpression],
         tle_index: usize,
     ) -> ParseResult<()> {
+        let pairs = pairs
+            .chunks(2)
+            .map(|pair| pair.to_vec().into_boxed_slice())
+            .collect::<Vec<_>>();
+
         for pair in pairs.iter() {
-            if let Some(pair) = pair.match_list() {
-                if pair.len() == 2 {
-                    self.probe_for_dependencies(&pair[1], tle_index)?;
-                }
-            }
+            self.probe_for_dependencies_in_key_value_pair(pair, tle_index)?;
         }
         Ok(())
     }
@@ -326,26 +300,42 @@ impl<'a> DefinitionSorter {
             // 1. (define-public func_name body)
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
-            if let Some((_, args)) = func_sig.split_first() {
-                for pair in args.into_iter() {
-                    if let Some(pair) = pair.match_list() {
-                        if pair.len() == 2 {
-                            self.probe_for_dependencies(&pair[1], tle_index)?;
-                        }
-                    }
-                }
+            if let Some((_, pairs)) = func_sig.split_first() {
+                self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(pairs, tle_index)?;
             }
         }
         Ok(())
     }
 
-    fn probe_for_dependencies_in_tuple(
+    fn probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
+        &mut self,
+        pairs: &[PreSymbolicExpression],
+        tle_index: usize,
+    ) -> ParseResult<()> {
+        for pair in pairs.iter() {
+            self.probe_for_dependencies_in_wrapped_key_value_pairs(pair, tle_index)?;
+        }
+        Ok(())
+    }
+
+    fn probe_for_dependencies_in_wrapped_key_value_pairs(
         &mut self,
         expr: &PreSymbolicExpression,
         tle_index: usize,
     ) -> ParseResult<()> {
-        if let Some(tuple) = expr.match_list() {
-            self.probe_for_dependencies_in_tuple_list(tuple, tle_index)?;
+        if let Some(pair) = expr.match_list() {
+            self.probe_for_dependencies_in_key_value_pair(pair, tle_index)?;
+        }
+        Ok(())
+    }
+
+    fn probe_for_dependencies_in_key_value_pair(
+        &mut self,
+        pair: &[PreSymbolicExpression],
+        tle_index: usize,
+    ) -> ParseResult<()> {
+        if pair.len() == 2 {
+            self.probe_for_dependencies(&pair[1], tle_index)?;
         }
         Ok(())
     }

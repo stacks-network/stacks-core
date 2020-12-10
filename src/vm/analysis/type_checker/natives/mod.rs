@@ -28,7 +28,8 @@ use vm::types::{
 };
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
-use vm::costs::{analysis_typecheck_cost, cost_functions, CostOverflowingMath};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
 mod assets;
 mod maps;
@@ -52,10 +53,10 @@ fn check_special_list_cons(
 ) -> TypeResult {
     let typed_args = checker.type_check_all(args, context)?;
     for type_arg in typed_args.iter() {
-        runtime_cost!(
-            cost_functions::ANALYSIS_LIST_ITEMS_CHECK,
+        runtime_cost(
+            ClarityCostFunction::AnalysisListItemsCheck,
             checker,
-            type_arg.type_size()?
+            type_arg.type_size()?,
         )?;
     }
     TypeSignature::parent_list_type(&typed_args)
@@ -98,13 +99,7 @@ fn check_special_begin(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut typed_args = checker.type_check_all(args, context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(args, context)
 }
 
 fn inner_handle_tuple_get(
@@ -112,10 +107,10 @@ fn inner_handle_tuple_get(
     field_to_get: &str,
     checker: &mut TypeChecker,
 ) -> TypeResult {
-    runtime_cost!(
-        cost_functions::ANALYSIS_CHECK_TUPLE_GET,
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleGet,
         checker,
-        tuple_type_sig.len()
+        tuple_type_sig.len(),
     )?;
 
     let return_type = tuple_type_sig
@@ -154,6 +149,34 @@ fn check_special_get(
     }
 }
 
+fn check_special_merge(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let res = checker.type_check(&args[0], context)?;
+    let mut base = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+
+    let res = checker.type_check(&args[1], context)?;
+    let mut update = match res {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleMerge,
+        checker,
+        update.len(),
+    )?;
+
+    base.shallow_merge(&mut update);
+    Ok(TypeSignature::TupleType(base))
+}
+
 pub fn check_special_tuple_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -163,18 +186,18 @@ pub fn check_special_tuple_cons(
 
     let mut tuple_type_data = Vec::new();
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_CHECK_TUPLE_CONS,
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleCons,
         checker,
-        args.len()
+        args.len(),
     )?;
 
     handle_binding_list(args, |var_name, var_sexp| {
         checker.type_check(var_sexp, context).and_then(|var_type| {
-            runtime_cost!(
-                cost_functions::ANALYSIS_TUPLE_ITEMS_CHECK,
+            runtime_cost(
+                ClarityCostFunction::AnalysisTupleItemsCheck,
                 checker,
-                var_type.type_size()?
+                var_type.type_size()?,
             )?;
             tuple_type_data.push((var_name.clone(), var_type));
             Ok(())
@@ -200,7 +223,7 @@ fn check_special_let(
 
     let mut out_context = context.extend()?;
 
-    runtime_cost!(cost_functions::ANALYSIS_CHECK_LET, checker, args.len())?;
+    runtime_cost(ClarityCostFunction::AnalysisCheckLet, checker, args.len())?;
 
     handle_binding_list(binding_list, |var_name, var_sexp| {
         checker.contract_context.check_name_used(var_name)?;
@@ -211,10 +234,10 @@ fn check_special_let(
         }
 
         let typed_result = checker.type_check(var_sexp, context)?;
-        runtime_cost!(
-            cost_functions::ANALYSIS_BIND_NAME,
+        runtime_cost(
+            ClarityCostFunction::AnalysisBindName,
             checker,
-            typed_result.type_size()?
+            typed_result.type_size()?,
         )?;
         out_context
             .variable_types
@@ -222,13 +245,7 @@ fn check_special_let(
         Ok(())
     })?;
 
-    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
-
-    let last_return = typed_args
-        .pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
+    checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
 
 fn check_special_fetch_var(
@@ -249,10 +266,10 @@ fn check_special_fetch_var(
             var_name.to_string(),
         )))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?
+        value_type.type_size()?,
     )?;
 
     Ok(value_type.clone())
@@ -274,10 +291,10 @@ fn check_special_set_var(
         .get_persisted_variable_type(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type.type_size()?
+        expected_value_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
 
@@ -368,10 +385,10 @@ fn check_contract_call(
 
             let func_signature = FunctionSignature::from(contract_call_function);
 
-            runtime_cost!(
-                cost_functions::ANALYSIS_GET_FUNCTION_ENTRY,
+            runtime_cost(
+                ClarityCostFunction::AnalysisGetFunctionEntry,
                 checker,
-                func_signature.total_type_size()?
+                func_signature.total_type_size()?,
             )?;
 
             func_signature
@@ -387,7 +404,7 @@ fn check_contract_call(
                 }
             };
 
-            runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION, checker, 1)?;
+            runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
             let trait_signature = checker.contract_context.get_trait(&trait_id.name).ok_or(
                 CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
@@ -400,10 +417,10 @@ fn check_contract_call(
                         func_name.to_string(),
                     ))?;
 
-            runtime_cost!(
-                cost_functions::ANALYSIS_LOOKUP_FUNCTION_TYPES,
+            runtime_cost(
+                ClarityCostFunction::AnalysisLookupFunctionTypes,
                 &mut checker.cost_track,
-                func_signature.total_type_size()?
+                func_signature.total_type_size()?,
             )?;
 
             func_signature.clone()
@@ -436,7 +453,7 @@ fn check_contract_of(
         _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into()),
     };
 
-    runtime_cost!(cost_functions::CONTRACT_OF, checker, 1)?;
+    runtime_cost(ClarityCostFunction::ContractOf, checker, 1)?;
 
     checker
         .contract_context
@@ -526,7 +543,7 @@ impl TypedNativeFunction {
             CmpGeq | CmpLeq | CmpLess | CmpGreater => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison))
             }
-            Sqrti => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
+            Sqrti | Log2 => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
             Modulo | Power | BitwiseXOR => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
@@ -676,6 +693,7 @@ impl TypedNativeFunction {
             DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
             TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
             TupleGet => Special(SpecialNativeFunction(&check_special_get)),
+            TupleMerge => Special(SpecialNativeFunction(&check_special_merge)),
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),

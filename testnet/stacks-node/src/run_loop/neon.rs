@@ -188,11 +188,15 @@ impl RunLoop {
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
         });
-        let mut boot_data = ChainStateBootData::new(
-            &coordinator_burnchain_config,
+        let mut boot_data = ChainStateBootData {
             initial_balances,
-            Some(boot_block),
-        );
+            post_flight_callback: Some(boot_block),
+            first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
+            first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
+            first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
+            get_bulk_initial_vesting_schedules: Some(Box::new(|| stx_genesis::read_vesting())),
+            get_bulk_initial_balances: Some(Box::new(|| stx_genesis::read_balances())),
+        };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             mainnet,

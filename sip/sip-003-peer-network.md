@@ -981,8 +981,9 @@ the inventory.
 2.  The receiver replies to each HTTP GET request with the anchored blocks.
 3.  Once the sender has received a parent and child anchor block, it will ask
     for the microblock stream confirmed by the _child_ by asking for the
-microblocks built off of the _parent_.  It uses the _index hash_ of the parent
-anchored block to do so.
+microblocks that the child confirms.  It uses the _index hash_ of the child
+anchored block to do so, which itself authenticates the last hash in the
+confirmed microblock stream.
 4.  The receiver replies to each HTTP GET request with the confirmed microblock
     streams.
 5.  As blocks and microblock streams arrive, the sender processes them to build

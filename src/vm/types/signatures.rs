@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 
 use address::c32;
 use util::hash;
-use vm::costs::{cost_functions, CostOverflowingMath};
+use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
 use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -557,6 +557,10 @@ impl TupleTypeSignature {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
         }
     }
+
+    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+        self.type_map.append(&mut update.type_map);
+    }
 }
 
 impl FixedFunction {
@@ -678,9 +682,6 @@ impl TypeSignature {
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
-                if types_a.len() != types_b.len() {
-                    return Err(CheckErrors::TypeError(a.clone(), b.clone()));
-                }
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b
@@ -941,7 +942,7 @@ impl TypeSignature {
         x: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TypeSignature> {
-        runtime_cost!(cost_functions::TYPE_PARSE_STEP, accounting, 0)?;
+        runtime_cost(ClarityCostFunction::TypeParseStep, accounting, 0)?;
 
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
@@ -1215,6 +1216,7 @@ impl TupleTypeSignature {
     }
 }
 
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::CostTracker;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
