@@ -751,7 +751,7 @@ impl StacksChainState {
         Ok(path_str)
     }
 
-    fn parse_genesis_address(addr: &str, address_version: u8) -> PrincipalData {
+    fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
         let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
             Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
@@ -761,7 +761,21 @@ impl StacksChainState {
                 None => panic!("Failed to parsed genesis address {}", addr),
             },
         };
-        stacks_address.version = address_version;
+        // Convert a given address to the currently running network mode (mainnet vs testnet).
+        // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
+        stacks_address.version = if mainnet {
+            match stacks_address.version {
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                C32_ADDRESS_VERSION_TESTNET_MULTISIG => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                _ => stacks_address.version,
+            }
+        } else {
+            match stacks_address.version {
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+                _ => stacks_address.version,
+            }
+        };
         let principal: PrincipalData = stacks_address.into();
         return principal;
     }
@@ -778,12 +792,6 @@ impl StacksChainState {
             TransactionVersion::Mainnet
         } else {
             TransactionVersion::Testnet
-        };
-
-        let address_version = if mainnet {
-            C32_ADDRESS_VERSION_MAINNET_SINGLESIG
-        } else {
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG
         };
 
         let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
@@ -881,10 +889,8 @@ impl StacksChainState {
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
-                        let stx_address = StacksChainState::parse_genesis_address(
-                            &balance.address,
-                            address_version,
-                        );
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&balance.address, mainnet);
                         StacksChainState::account_genesis_credit(
                             clarity,
                             &stx_address,
@@ -938,10 +944,8 @@ impl StacksChainState {
                         let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
                         let index = value + 1;
                         unlocks_per_blocks.insert(schedule.block_height, index);
-                        let stx_address = StacksChainState::parse_genesis_address(
-                            &schedule.address,
-                            address_version,
-                        );
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                         clarity
                             .with_clarity_db(|db| {
                                 let key = TupleData::from_data(vec![
