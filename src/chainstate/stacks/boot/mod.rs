@@ -1086,13 +1086,11 @@ pub mod test {
         let mut peer = TestPeer::new(peer_config);
 
         let num_blocks = 8;
-        let mut expected_liquid_ustx = 9 * 1000;
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
-            
             let alice_balance = get_balance(&mut peer, &alice.to_account_principal());
-            let bob_balance = get_balance(&mut peer, &bob.to_account_principal());    
+            let bob_balance = get_balance(&mut peer, &bob.to_account_principal());
             match tenure_id {
                 0 => {
                     assert_eq!(alice_balance, 0);
@@ -1178,7 +1176,6 @@ pub mod test {
             let (burn_ht, _, _) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
         }
-        
     }
 
     #[test]

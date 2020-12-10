@@ -2349,7 +2349,9 @@ pub mod test {
 
             if !config.initial_vesting_schedules.is_empty() {
                 let vesting_schedules = config.initial_vesting_schedules.clone();
-                boot_data.get_bulk_initial_vesting_schedules = Some(Box::new(move || Box::new(vesting_schedules.into_iter().map(|e| e))));
+                boot_data.get_bulk_initial_vesting_schedules = Some(Box::new(move || {
+                    Box::new(vesting_schedules.into_iter().map(|e| e))
+                }));
             }
 
             let (chainstate, _) = StacksChainState::open_and_exec(
