@@ -1102,10 +1102,3 @@ pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
 }
-
-#[derive(Clone, Deserialize, Default)]
-pub struct InitialVestingScheduleFile {
-    pub address: String,
-    pub amount: u64,
-    pub block_height: u64,
-}
