@@ -165,6 +165,7 @@ impl BurnchainController for MocknetController {
                         key_vtxindex: payload.key_vtxindex,
                         memo: payload.memo,
                         burn_fee: payload.burn_fee,
+                        apparent_sender: payload.apparent_sender,
                         input: payload.input,
                         commit_outs: payload.commit_outs,
                         txid,
@@ -230,6 +231,7 @@ impl BurnchainController for MocknetController {
                             None,
                             PoxId::stubbed(),
                             None,
+                            0,
                         )
                         .unwrap();
                     burn_tx.commit().unwrap();

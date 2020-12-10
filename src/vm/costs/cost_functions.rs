@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
     AnalysisTypeCheck("cost_analysis_type_check"),
@@ -9,6 +25,7 @@ define_named_enum!(ClarityCostFunction {
     AnalysisBindName("cost_analysis_bind_name"),
     AnalysisListItemsCheck("cost_analysis_list_items_check"),
     AnalysisCheckTupleGet("cost_analysis_check_tuple_get"),
+    AnalysisCheckTupleMerge("cost_analysis_check_tuple_merge"),
     AnalysisCheckTupleCons("cost_analysis_check_tuple_cons"),
     AnalysisTupleItemsCheck("cost_analysis_tuple_items_check"),
     AnalysisCheckLet("cost_analysis_check_let"),
@@ -38,6 +55,7 @@ define_named_enum!(ClarityCostFunction {
     ListCons("cost_list_cons"),
     TypeParseStep("cost_type_parse_step"),
     TupleGet("cost_tuple_get"),
+    TupleMerge("cost_tuple_merge"),
     TupleCons("cost_tuple_cons"),
     Add("cost_add"),
     Sub("cost_sub"),
@@ -106,4 +124,5 @@ define_named_enum!(ClarityCostFunction {
     NftMint("cost_nft_mint"),
     NftTransfer("cost_nft_transfer"),
     NftOwner("cost_nft_owner"),
+    PoisonMicroblock("poison_microblock"),
 });

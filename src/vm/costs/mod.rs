@@ -613,6 +613,9 @@ impl LimitedCostTracker {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         self.total = total;
     }
+    pub fn get_limit(&self) -> ExecutionCost {
+        self.limit.clone()
+    }
 }
 
 fn parse_cost(

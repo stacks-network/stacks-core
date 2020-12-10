@@ -65,10 +65,10 @@ use util::hash::Hash160;
 
 use util::secp256k1::MessageSignature;
 
-const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1891063;
-const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1604967939;
+const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1894315;
+const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1606093490;
 const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
-    "000000000000005d04dad2afdc228abc14a9687090dac94547e5d87b61d7a637";
+    "000000000000003efa81a29f2ee638ca4d4928a073e68789bb06a4fc0b153653";
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
@@ -242,6 +242,15 @@ impl BurnchainTransaction {
                 .iter()
                 .map(|ref i| BurnchainSigner::from_bitcoin_input(i))
                 .collect(),
+        }
+    }
+
+    pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc
+                .inputs
+                .get(input)
+                .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
         }
     }
 
@@ -753,7 +762,7 @@ pub mod test {
                 let h = Sha256Sum::from_data(&buf[..]);
                 StacksPrivateKey::from_slice(h.as_bytes()).unwrap()
             } else {
-                // next key is the hash of teh last
+                // next key is the hash of the last
                 let h = Sha256Sum::from_data(
                     &self.microblock_privks[self.microblock_privks.len() - 1].to_bytes(),
                 );
@@ -942,12 +951,13 @@ pub mod test {
             fork_snapshot: Option<&BlockSnapshot>,
             parent_block_snapshot: Option<&BlockSnapshot>,
         ) -> LeaderBlockCommitOp {
+            let input = (Txid([0; 32]), 0);
             let pubks = miner
                 .privks
                 .iter()
                 .map(|ref pk| StacksPublicKey::from_private(pk))
                 .collect();
-            let input = BurnchainSigner {
+            let apparent_sender = BurnchainSigner {
                 hash_mode: miner.hash_mode.clone(),
                 num_sigs: miner.num_sigs as usize,
                 public_keys: pubks,
@@ -990,6 +1000,7 @@ pub mod test {
                         leader_key.vtxindex as u16,
                         burn_fee,
                         &input,
+                        &apparent_sender,
                     );
                     txop
                 }
@@ -1002,6 +1013,7 @@ pub mod test {
                         leader_key,
                         burn_fee,
                         &input,
+                        &apparent_sender,
                     );
                     txop
                 }
@@ -1088,6 +1100,7 @@ pub mod test {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             sortition_db_handle.commit().unwrap();

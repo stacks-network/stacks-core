@@ -6,19 +6,18 @@
 (define-constant ERR_PROPOSAL_EXPIRED        3)
 (define-constant ERR_VOTE_ENDED              4)
 (define-constant ERR_INSUFFICIENT_FUNDS      5)
-(define-constant ERR_FT_MINT                 6)
-(define-constant ERR_FT_TRANSFER             7)
-(define-constant ERR_STX_TRANSFER            8)
-(define-constant ERR_VOTE_NOT_CONFIRMED      9)
-(define-constant ERR_ALREADY_VETOED          10)
-(define-constant ERR_NOT_LAST_MINER          11)
-(define-constant ERR_INSUFFICIENT_VOTES      12)
-(define-constant ERR_VETO_PERIOD_NOT_STARTED 13)
-(define-constant ERR_VETO_PERIOD_OVER        14)
-(define-constant ERR_VETO_PERIOD_NOT_OVER    15)
-(define-constant ERR_PROPOSAL_VETOED         16)
-(define-constant ERR_PROPOSAL_CONFIRMED      17)
-(define-constant ERR_FETCHING_BLOCK_INFO     18)
+(define-constant ERR_FT_TRANSFER             6)
+(define-constant ERR_STX_TRANSFER            7)
+(define-constant ERR_VOTE_NOT_CONFIRMED      8)
+(define-constant ERR_ALREADY_VETOED          9)
+(define-constant ERR_NOT_LAST_MINER          10)
+(define-constant ERR_INSUFFICIENT_VOTES      11)
+(define-constant ERR_VETO_PERIOD_OVER        12)
+(define-constant ERR_VETO_PERIOD_NOT_OVER    13)
+(define-constant ERR_PROPOSAL_VETOED         14)
+(define-constant ERR_PROPOSAL_CONFIRMED      15)
+(define-constant ERR_FETCHING_BLOCK_INFO     16)
+(define-constant ERR_UNREACHABLE             255)
 
 (define-constant VOTE_LENGTH u2016)
 (define-constant VETO_LENGTH u1008)
@@ -34,45 +33,55 @@
 
 ;; cost-function proposals
 (define-map proposals
-    ((proposal-id uint))
-    ((cost-function-contract principal)
-     (cost-function-name (string-ascii 128))
-     (function-contract principal)
-     (function-name (string-ascii 128))
-     (expiration-block-height uint)))
+    { proposal-id: uint }
+    {
+        cost-function-contract: principal,
+        cost-function-name: (string-ascii 128),
+        function-contract: principal,
+        function-name: (string-ascii 128),
+        expiration-block-height: uint
+    }
+)
 
 ;; vote confirmed cost-function proposals
 (define-map vote-confirmed-proposals
-    ((proposal-id uint))
-    ((expiration-block-height uint)))
+    { proposal-id: uint }
+    { expiration-block-height: uint }
+)
 
 ;; miner confirmed cost-function proposals
 (define-map confirmed-proposals
-   ((confirmed-id uint))
-   ((confirmed-proposal
-        {  function-contract: principal,
-           function-name: (string-ascii 128),
-           cost-function-contract: principal,
-           cost-function-name: (string-ascii 128),
-           confirmed-height: uint })))
+   { confirmed-id: uint }
+   {
+       function-contract: principal,
+       function-name: (string-ascii 128),
+       cost-function-contract: principal,
+       cost-function-name: (string-ascii 128),
+       confirmed-height: uint
+    }
+)
 
-(define-map proposal-confirmed-id ((proposal-id uint)) ((confirmed-id uint)))
+(define-map proposal-confirmed-id
+    { proposal-id: uint }
+    { confirmed-id: uint }
+)
 
 (define-map functions-to-confirmed-ids
-   ((function-contract principal) (function-name (string-ascii 128)))
-   ((proposal-id uint)))
+   { function-contract: principal, function-name: (string-ascii 128) }
+   { proposal-id: uint }
+)
 
 ;; cost-function proposal votes
-(define-map proposal-votes ((proposal-id uint)) ((votes uint)))
+(define-map proposal-votes { proposal-id: uint } { votes: uint })
 
 ;; cost-function proposal vetos
-(define-map proposal-vetos ((proposal-id uint)) ((vetos uint)))
+(define-map proposal-vetos { proposal-id: uint } { vetos: uint })
 
 ;; proposal vetos per block
-(define-map exercised-veto ((proposal-id uint) (veto-height uint)) ((vetoed bool)))
+(define-map exercised-veto { proposal-id: uint, veto-height: uint } { vetoed: bool })
 
 ;; the number of votes a specific principal has committed to a proposal
-(define-map principal-proposal-votes ((address principal) (proposal-id uint)) ((votes uint)))
+(define-map principal-proposal-votes { address: principal, proposal-id: uint } { votes: uint })
 
 ;; getter for cost-function proposals
 (define-read-only (get-proposal (proposal-id uint))
@@ -121,13 +130,18 @@
             proposal-id: proposal-id }))))
     )
 
+    ;; a vote must have a positive amount
     (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
+
+    ;; the vote must occur before the expiration
     (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+
+    ;; the proposal must not already be voter confirmed
     (asserts! (is-none (map-get? vote-confirmed-proposals { proposal-id: proposal-id }))
         (err ERR_VOTE_ENDED))
 
     (unwrap! (stx-transfer? amount tx-sender (as-contract tx-sender)) (err ERR_INSUFFICIENT_FUNDS))
-    (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err ERR_FT_MINT))
+    (unwrap! (ft-mint? cost-vote-token amount tx-sender) (err ERR_UNREACHABLE))
 
     (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
     (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
@@ -162,8 +176,6 @@
 (define-public (veto (proposal-id uint))
     (let (
         (cur-vetos (default-to u0 (get vetos (map-get? proposal-vetos { proposal-id: proposal-id }))))
-        (begin-block-height (get expiration-block-height (unwrap! (map-get? proposals {
-            proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL))))
         (expiration-block-height (get expiration-block-height (unwrap!
             (map-get? vote-confirmed-proposals { proposal-id: proposal-id })
                 (err ERR_VOTE_NOT_CONFIRMED))))
@@ -176,13 +188,10 @@
     ;; a miner can only veto once per block
     (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
 
-    ;; vetoes can only be cast after the voting period has ended
-    (asserts! (>= burn-block-height begin-block-height) (err ERR_VETO_PERIOD_NOT_STARTED))
-
     ;; vetoes must be case within the veto period
     (asserts! (< burn-block-height expiration-block-height) (err ERR_VETO_PERIOD_OVER))
 
-    ;; a miner can only veto if they mined the previous block, proving their hash power
+    ;; a miner can only veto if they mined the previous block
     (asserts! (is-eq contract-caller last-miner) (err ERR_NOT_LAST_MINER))
 
     ;; a veto cannot be cast if a proposal has already been miner confirmed
@@ -214,7 +223,7 @@
         (err ERR_INSUFFICIENT_VOTES))
 
     (map-insert vote-confirmed-proposals { proposal-id: proposal-id }
-        { expiration-block-height: (+ VETO_LENGTH expiration-block-height) })
+        { expiration-block-height: (+ VETO_LENGTH burn-block-height) })
 
     (ok true)))
 )
@@ -240,14 +249,12 @@
     (asserts! (< vetos REQUIRED_VETOES) (err ERR_PROPOSAL_VETOED))
 
     (map-insert confirmed-proposals { confirmed-id: confirmed-count }
-        { confirmed-proposal:
-            { 
-                function-contract: (get function-contract proposal),
-                function-name: (get function-name proposal),
-                cost-function-contract: (get cost-function-contract proposal),
-                cost-function-name: (get cost-function-name proposal),
-                confirmed-height: block-height
-            }
+        { 
+            function-contract: (get function-contract proposal),
+            function-name: (get function-name proposal),
+            cost-function-contract: (get cost-function-contract proposal),
+            cost-function-name: (get cost-function-name proposal),
+            confirmed-height: block-height
         })
 
     (map-insert proposal-confirmed-id { proposal-id: proposal-id } { confirmed-id: confirmed-count })

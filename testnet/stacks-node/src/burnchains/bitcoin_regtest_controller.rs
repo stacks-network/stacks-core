@@ -21,6 +21,7 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::BurnchainStateTransitionOps;
@@ -45,6 +46,9 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+
+#[cfg(test)]
+use stacks::burnchains::BurnchainHeaderHash;
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -302,9 +306,8 @@ impl BitcoinRegtestController {
                         .expect("BUG: no data for the canonical chain tip");
 
                     let burnchain_height = burnchain_indexer
-                        .get_headers_height()
-                        .map_err(BurnchainControllerError::IndexerError)?
-                        - 1; // 1-indexed, so convert to 0-indexed height
+                        .get_highest_header_height()
+                        .map_err(BurnchainControllerError::IndexerError)?;
 
                     break (snapshot, burnchain_height, state_transition);
                 }
@@ -468,10 +471,16 @@ impl BitcoinRegtestController {
         };
 
         let utxos = if utxos.len() == 0 {
+            let (_, network) = self.config.burnchain.get_bitcoin_network();
             loop {
-                let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
-
-                sleep_ms(1000);
+                if let BitcoinNetworkType::Regtest = network {
+                    // Performing this operation on Mainnet / Testnet is very expensive, and can be longer than bitcoin block time.
+                    // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
+                    // reasonable to me.
+                    // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
+                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+                    sleep_ms(1000);
+                }
 
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
@@ -619,7 +628,8 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_block_commit op - {}",
+            "Miner node: submitting leader_block_commit op for {} - {}",
+            &payload.block_header_hash,
             public_key.to_hex()
         );
 
@@ -844,6 +854,40 @@ impl BitcoinRegtestController {
             Ok(_) => {}
             Err(e) => {
                 error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
+        info!("Invalidating block {}", &block);
+        let request = BitcoinRPCRequest {
+            method: "invalidateblock".into(),
+            params: vec![json!(&block.to_string())],
+            id: "stacks-forker".into(),
+            jsonrpc: "2.0".into(),
+        };
+        if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
+            error!("Bitcoin RPC failure: error invalidating block {:?}", e);
+            panic!();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
+        let request = BitcoinRPCRequest {
+            method: "getblockhash".into(),
+            params: vec![json!(height)],
+            id: "stacks-forker".into(),
+            jsonrpc: "2.0".into(),
+        };
+        match BitcoinRPCRequest::send(&self.config, request) {
+            Ok(v) => {
+                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
+            }
+            Err(e) => {
+                error!("Bitcoin RPC failure: error invalidating block {:?}", e);
                 panic!();
             }
         }

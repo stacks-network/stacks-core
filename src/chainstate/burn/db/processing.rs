@@ -19,7 +19,7 @@
 
 use chainstate::burn::BlockSnapshot;
 
-use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
+use chainstate::burn::db::sortdb::{InitialMiningBonus, PoxId, SortitionHandleTx, SortitionId};
 
 use chainstate::coordinator::RewardCycleInfo;
 
@@ -30,9 +30,11 @@ use burnchains::{
     Error as BurnchainError,
 };
 
+use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::{
     marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId, TrieHash,
 };
+use core::INITIAL_MINING_BONUS_WINDOW;
 
 use util::db::Error as DBError;
 
@@ -133,16 +135,33 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops, burnchain.pox_constants.sunset_end)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
             })?;
+
+        let total_burn = state_transition
+            .accepted_ops
+            .iter()
+            .fold(Some(0u64), |acc, op| {
+                if let Some(acc) = acc {
+                    let bf = match op {
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                        BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
+                        _ => 0,
+                    };
+                    acc.checked_add(bf)
+                } else {
+                    None
+                }
+            });
 
         let txids = state_transition
             .accepted_ops
@@ -179,6 +198,8 @@ impl<'a> SortitionHandleTx<'a> {
             block_header,
             &state_transition.burn_dist,
             &txids,
+            total_burn,
+            initial_mining_bonus_ustx,
         )
         .map_err(|e| {
             error!(
@@ -188,6 +209,36 @@ impl<'a> SortitionHandleTx<'a> {
             BurnchainError::DBError(e)
         })?;
 
+        // was this snapshot the first with mining?
+        //  compute the initial block rewards.
+        let initialize_bonus = if snapshot.sortition && parent_snapshot.total_burn == 0 {
+            let blocks_without_winners = snapshot.block_height - self.context.first_block_height;
+            let mut total_reward = 0;
+            for burn_block_height in self.context.first_block_height..snapshot.block_height {
+                total_reward += StacksChainState::get_coinbase_reward(
+                    burn_block_height,
+                    self.context.first_block_height,
+                );
+            }
+            let per_block = total_reward / INITIAL_MINING_BONUS_WINDOW as u128;
+
+            info!("First sortition winner chosen";
+                  "blocks_without_winners" => blocks_without_winners,
+                  "initial_mining_per_block_reward" => per_block,
+                  "initial_mining_bonus_block_window" => INITIAL_MINING_BONUS_WINDOW);
+
+            assert_eq!(snapshot.accumulated_coinbase_ustx, 0,
+                       "First block should not have receive additional coinbase before initial reward calculation");
+            snapshot.accumulated_coinbase_ustx = per_block;
+
+            Some(InitialMiningBonus {
+                total_reward,
+                per_block,
+            })
+        } else {
+            None
+        };
+
         // store the snapshot
         let index_root = self.append_chain_tip_snapshot(
             parent_snapshot,
@@ -195,6 +246,7 @@ impl<'a> SortitionHandleTx<'a> {
             &state_transition.accepted_ops,
             next_pox_info,
             reward_info,
+            initialize_bonus,
         )?;
 
         snapshot.index_root = index_root;
@@ -231,6 +283,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         debug!(
             "BEGIN({}) block ({},{}) with sortition_id: {}",
@@ -269,6 +322,7 @@ impl<'a> SortitionHandleTx<'a> {
                 next_pox_info,
                 parent_pox,
                 reward_set_info,
+                initial_mining_bonus_ustx,
             )
             .map_err(|e| {
                 error!(
@@ -293,6 +347,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
+        initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         assert_eq!(
             parent_snapshot.block_height + 1,
@@ -311,6 +366,7 @@ impl<'a> SortitionHandleTx<'a> {
             next_pox_info,
             parent_pox,
             reward_set_info,
+            initial_mining_bonus_ustx,
         )?;
         Ok(new_snapshot)
     }

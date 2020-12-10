@@ -70,7 +70,8 @@ impl LeaderBlockCommitOp {
         new_seed: &VRFSeed,
         paired_key: &LeaderKeyRegisterOp,
         burn_fee: u64,
-        input: &BurnchainSigner,
+        input: &(Txid, u32),
+        apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -85,6 +86,7 @@ impl LeaderBlockCommitOp {
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
+            apparent_sender: apparent_sender.clone(),
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -102,7 +104,8 @@ impl LeaderBlockCommitOp {
         key_block_ptr: u32,
         key_vtxindex: u16,
         burn_fee: u64,
-        input: &BurnchainSigner,
+        input: &(Txid, u32),
+        apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -116,12 +119,22 @@ impl LeaderBlockCommitOp {
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
+            apparent_sender: apparent_sender.clone(),
 
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
+        }
+    }
+
+    pub fn expected_chained_utxo(sunset_finished: bool) -> u32 {
+        if sunset_finished {
+            2 // if sunset has occurred, chained commits should spend the output after the burn commit
+        } else {
+            // otherwise, it's the output after the last PoX output
+            (OUTPUTS_PER_COMMIT as u32) + 1
         }
     }
 
@@ -190,13 +203,12 @@ impl LeaderBlockCommitOp {
         pox_sunset_ht: u64,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
         let mut outputs = tx.get_recipients();
 
-        if inputs.len() == 0 {
+        if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
+                tx.num_signers(),
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
@@ -205,7 +217,7 @@ impl LeaderBlockCommitOp {
         if outputs.len() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
+                tx.num_signers(),
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
@@ -302,6 +314,15 @@ impl LeaderBlockCommitOp {
             (commit_outs, sunset_burn, burn_fee)
         };
 
+        let input = tx
+            .get_input_tx_ref(0)
+            .expect("UNREACHABLE: checked that inputs > 0")
+            .clone();
+
+        let apparent_sender = tx
+            .get_signer(0)
+            .expect("UNREACHABLE: checked that inputs > 0");
+
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
             new_seed: data.new_seed,
@@ -314,7 +335,8 @@ impl LeaderBlockCommitOp {
             commit_outs,
             sunset_burn,
             burn_fee,
-            input: inputs[0].clone(),
+            input,
+            apparent_sender,
 
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
@@ -585,7 +607,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = tx
+        let _register_key = tx
             .get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &tx_tip)?
             .ok_or_else(|| {
                 warn!(
@@ -615,27 +637,6 @@ impl LeaderBlockCommitOp {
                 warn!("Invalid block commit: no parent block in this fork");
                 return Err(op_error::BlockCommitNoParent);
             }
-        }
-
-        /////////////////////////////////////////////////////////////////////////////////////
-        // This LeaderBlockCommit's input public keys must match the address of its LeaderKeyRegister
-        // -- the hash of the inputs' public key(s) must equal the hash contained within the
-        // LeaderKeyRegister's address.  Note that we only need to check the address bytes,
-        // not the entire address (since finding two sets of different public keys that
-        // hash to the same address is considered intractible).
-        //
-        // Under the hood, the blockchain further ensures that the tx was signed with the
-        // associated private keys, so only the private key owner(s) are in a position to
-        // reveal the keys that hash to the address's hash.
-        /////////////////////////////////////////////////////////////////////////////////////
-
-        let input_address_bytes = self.input.to_address_bits();
-        let addr_bytes = register_key.address.to_bytes();
-
-        if input_address_bytes != addr_bytes {
-            warn!("Invalid block commit: leader key at ({},{}) has address bytes {}, but this tx input has address bytes {}",
-                  register_key.block_height, register_key.vtxindex, &to_hex(&addr_bytes), &to_hex(&input_address_bytes[..]));
-            return Err(op_error::BlockCommitBadInput);
         }
 
         Ok(())
@@ -1148,7 +1149,8 @@ mod tests {
                     ],
 
                     burn_fee: 24690,
-                    input: BurnchainSigner {
+                    input: (Txid([0x11; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![
                             StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
                         ],
@@ -1376,7 +1378,8 @@ mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
-            input: BurnchainSigner {
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
@@ -1431,6 +1434,7 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..block_header_hashes.len() {
                 let mut snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -1494,6 +1498,7 @@ mod tests {
                         &block_ops[i],
                         None,
                         None,
+                        None,
                     )
                     .unwrap();
 
@@ -1535,7 +1540,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1583,7 +1589,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1631,7 +1638,8 @@ mod tests {
                     memo: vec![0x80],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1679,7 +1687,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1727,7 +1736,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "03984286096373539ae529bd997c92792d4e5b5967be72979a42f587a625394116",
                         )
@@ -1747,7 +1757,7 @@ mod tests {
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
                 },
-                res: Err(op_error::BlockCommitBadInput),
+                res: Ok(()),
             },
             CheckFixture {
                 // reject -- fee is 0
@@ -1775,7 +1785,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 0,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1823,7 +1834,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1871,7 +1883,8 @@ mod tests {
                     commit_outs: vec![],
 
                     burn_fee: 12345,
-                    input: BurnchainSigner {
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
@@ -1895,7 +1908,8 @@ mod tests {
             },
         ];
 
-        for fixture in fixtures {
+        for (ix, fixture) in fixtures.iter().enumerate() {
+            eprintln!("Processing {}", ix);
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
                 block_hash: fixture.op.burn_header_hash.clone(),

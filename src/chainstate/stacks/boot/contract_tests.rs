@@ -867,7 +867,7 @@ fn delegation_tests() {
 }
 
 #[test]
-fn cost_voting_tests() {
+fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
@@ -973,6 +973,22 @@ fn cost_voting_tests() {
             })
         );
 
+        // Assert withdrawal fails if amount is more than voted
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "withdraw-votes",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(5).into()
+            })
+        );
+
         // Withdraw votes
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
@@ -1026,9 +1042,17 @@ fn cost_voting_tests() {
             Value::UInt(1000000)
         );
     });
+}
+
+#[test]
+fn test_vote_fail() {
+    let mut sim = ClarityTestSim::new();
 
     // Test voting in a proposal
     sim.execute_next_block(|env| {
+        env.initialize_contract(COST_VOTING_CONTRACT.clone(), &BOOT_CODE_COST_VOTING)
+            .unwrap();
+
         // Submit a proposal
         assert_eq!(
             env.execute_transaction(
@@ -1056,7 +1080,7 @@ fn cost_voting_tests() {
             .0,
             Value::Response(ResponseData {
                 committed: true,
-                data: Value::UInt(1).into()
+                data: Value::UInt(0).into()
             })
         );
 
@@ -1066,13 +1090,29 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-votes",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(12).into()
+                data: Value::Int(11).into()
+            })
+        );
+
+        // Assert voting with more STX than are in an account fails
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(5).into()
             })
         );
 
@@ -1082,7 +1122,7 @@ fn cost_voting_tests() {
                 user.into(),
                 COST_VOTING_CONTRACT.clone(),
                 "vote-proposal",
-                &symbols_from_values(vec![Value::UInt(1), Value::UInt(USTX_PER_HOLDER)]),
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
             .unwrap()
             .0;
@@ -1094,7 +1134,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-votes",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1105,17 +1145,12 @@ fn cost_voting_tests() {
         );
     });
 
-    // Fast forward to proposal expiration
-    for _ in 0..2016 {
-        sim.execute_next_block(|_| {});
-    }
-
     sim.execute_next_block(|env| {
         env.execute_transaction(
             (&MINER_KEY.clone()).into(),
             COST_VOTING_CONTRACT.clone(),
             "veto",
-            &symbols_from_values(vec![Value::UInt(1)]),
+            &symbols_from_values(vec![Value::UInt(0)]),
         )
         .unwrap();
 
@@ -1124,7 +1159,7 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "get-proposal-vetos",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1134,13 +1169,13 @@ fn cost_voting_tests() {
         );
     });
 
-    for _ in 0..1007 {
+    for _ in 0..1000 {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "veto",
-                &symbols_from_values(vec![Value::UInt(1)]),
+                &symbols_from_values(vec![Value::UInt(0)]),
             )
             .unwrap();
 
@@ -1162,6 +1197,10 @@ fn cost_voting_tests() {
         })
     }
 
+    for _ in 0..100 {
+        sim.execute_next_block(|_| {});
+    }
+
     sim.execute_next_block(|env| {
         // Assert confirmation fails because of majority veto
         assert_eq!(
@@ -1169,13 +1208,13 @@ fn cost_voting_tests() {
                 (&USER_KEYS[0]).into(),
                 COST_VOTING_CONTRACT.clone(),
                 "confirm-miners",
-                &symbols_from_values(vec![Value::UInt(1)])
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(16).into()
+                data: Value::Int(14).into()
             })
         );
     });
@@ -1232,7 +1271,7 @@ fn test_vote_confirm() {
             .0,
             Value::Response(ResponseData {
                 committed: false,
-                data: Value::Int(12).into()
+                data: Value::Int(11).into()
             })
         );
 

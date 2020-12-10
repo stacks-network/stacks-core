@@ -161,6 +161,8 @@ pub fn write_trie_blob<T: MarfTrieId>(
         .insert(args)?
         .try_into()
         .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+
+    debug!("Wrote block trie {} to rowid {}", block_hash, block_id);
     Ok(block_id)
 }
 
@@ -176,6 +178,11 @@ pub fn write_trie_blob_to_mined<T: MarfTrieId>(
         .insert(args)?
         .try_into()
         .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+
+    debug!(
+        "Wrote mined block trie {} to rowid {}",
+        block_hash, block_id
+    );
     Ok(block_id)
 }
 
@@ -196,6 +203,11 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
         .insert(args)?
         .try_into()
         .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+
+    debug!(
+        "Wrote unconfirmed block trie {} to rowid {}",
+        block_hash, block_id
+    );
     Ok(block_id)
 }
 
@@ -390,6 +402,7 @@ pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Resul
         "DELETE FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
         &[bhh],
     )?;
+    debug!("Dropped unconfirmed trie sqlite blob {}", bhh);
     Ok(())
 }
 

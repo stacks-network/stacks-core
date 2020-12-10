@@ -35,7 +35,9 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MarfTrieId, TrieHash};
+use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::StacksMicroblockHeader;
 
 #[cfg(test)]
 use chainstate::stacks::boot::{
@@ -145,6 +147,17 @@ impl From<ParseError> for Error {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),
+        }
+    }
+}
+
+impl From<ChainstateError> for Error {
+    fn from(e: ChainstateError) -> Self {
+        match e {
+            ChainstateError::InvalidStacksTransaction(msg, _) => Error::BadTransaction(msg),
+            ChainstateError::CostOverflowError(_, after, budget) => Error::CostError(after, budget),
+            ChainstateError::ClarityError(x) => x,
+            x => Error::BadTransaction(format!("{:?}", &x)),
         }
     }
 }
@@ -943,6 +956,24 @@ impl<'a> ClarityTransactionConnection<'a> {
         }
     }
 
+    /// Evaluate a poison-microblock transaction
+    pub fn run_poison_microblock(
+        &mut self,
+        sender: &PrincipalData,
+        mblock_header_1: &StacksMicroblockHeader,
+        mblock_header_2: &StacksMicroblockHeader,
+    ) -> Result<Value, Error> {
+        self.with_abort_callback(
+            |vm_env| {
+                vm_env
+                    .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
+                    .map_err(Error::from)
+            },
+            |_, _| false,
+        )
+        .and_then(|(value, ..)| Ok(value))
+    }
+
     /// Commit the changes from the edit log.
     /// panics if there is more than one open savepoint
     pub fn commit(mut self) {
@@ -1619,8 +1650,7 @@ mod tests {
             FungibleConditionCode::SentEq,
             100,
         ));
-        let mut stx_balance = STXBalance::zero();
-        stx_balance.credit(5000, 0).unwrap();
+        let stx_balance = STXBalance::initial(5000);
         let account = StacksAccount {
             principal: sender.into(),
             nonce: 0,

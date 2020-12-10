@@ -3,10 +3,10 @@
   (if (< name u100000) u1000 u100))
          
 (define-map name-map 
-  ((name uint)) ((owner principal)))
+  { name: uint } { owner: principal })
 (define-map preorder-map
-  ((name-hash (buff 20)))
-  ((buyer principal) (paid uint)))
+  { name-hash: (buff 20) }
+  { buyer: principal, paid: uint })
          
 (define-public (preorder 
                 (name-hash (buff 20))

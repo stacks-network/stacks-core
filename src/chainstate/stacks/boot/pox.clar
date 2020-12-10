@@ -52,60 +52,62 @@
 ;; node itself, and transactions in the burnchain will take priority
 ;; over transactions in the Stacks chain when processing this block.
 (define-map stacking-state
-    ((stacker principal))
-    (
+    { stacker: principal }
+    {
         ;; how many uSTX locked?
-        (amount-ustx uint)
+        amount-ustx: uint,
         ;; Description of the underlying burnchain address that will
         ;; receive PoX'ed tokens. Translating this into an address
         ;; depends on the burnchain being used.  When Bitcoin is
         ;; the burnchain, this gets translated into a p2pkh, p2sh,
         ;; p2wpkh-p2sh, or p2wsh-p2sh UTXO, depending on the version.
-        (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
         ;; how long the uSTX are locked, in reward cycles.
-        (lock-period uint)
+        lock-period: uint,
         ;; reward cycle when rewards begin
-        (first-reward-cycle uint)
-    )
+        first-reward-cycle: uint
+    }
 )
 
 ;; Delegation relationships
 (define-map delegation-state
-    ((stacker principal))
-    ((amount-ustx uint)              ;; how many uSTX delegated?
-     (delegated-to principal)        ;; who are we delegating?
-     (until-burn-ht (optional uint)) ;; how long does the delegation last?
-     ;; does the delegate _need_ to use a specific
-     ;;   pox recipient address?
-     (pox-addr (optional { version: (buff 1),
-                           hashbytes: (buff 20) }))))
+    { stacker: principal }
+    { 
+        amount-ustx: uint,              ;; how many uSTX delegated?
+        delegated-to: principal,        ;; who are we delegating?
+        until-burn-ht: (optional uint), ;; how long does the delegation last?
+        ;; does the delegate _need_ to use a specific
+        ;; pox recipient address?
+        pox-addr: (optional { version: (buff 1), hashbytes: (buff 20) })
+    }
+)
 
 ;; allowed contract-callers
 (define-map allowance-contract-callers
-    ((sender principal) (contract-caller principal))
-    ((until-burn-ht (optional uint))))
+    { sender: principal, contract-caller: principal }
+    { until-burn-ht: (optional uint) })
 
 ;; How many uSTX are stacked in a given reward cycle.
 ;; Updated when a new PoX address is registered, or when more STX are granted
 ;; to it.
 (define-map reward-cycle-total-stacked
-    ((reward-cycle uint))
-    ((total-ustx uint))
+    { reward-cycle: uint }
+    { total-ustx: uint }
 )
 
 ;; Internal map read by the Stacks node to iterate through the list of
 ;; PoX reward addresses on a per-reward-cycle basis.
 (define-map reward-cycle-pox-address-list
-    ((reward-cycle uint) (index uint))
-    (
-        (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        (total-ustx uint)
-    )
+    { reward-cycle: uint, index: uint }
+    {
+        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        total-ustx: uint
+    }
 )
 
 (define-map reward-cycle-pox-address-list-len
-    ((reward-cycle uint))
-    ((len uint))
+    { reward-cycle: uint }
+    { len: uint }
 )
 
 ;; how much has been locked up for this address before
@@ -113,21 +115,24 @@
 ;; this map allows stackers to stack amounts < minimum
 ;;   by paying the cost of aggregation during the commit
 (define-map partial-stacked-by-cycle
-  ((pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-   (reward-cycle uint)
-   (sender principal))
-  ((stacked-amount uint)))
+    { 
+        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        reward-cycle: uint,
+        sender: principal
+    }
+    { stacked-amount: uint }
+)
 
 ;; Amount of uSTX that reject PoX, by reward cycle
 (define-map stacking-rejection
-    ((reward-cycle uint))
-    ((amount uint))
+    { reward-cycle: uint }
+    { amount: uint }
 )
 
 ;; Who rejected in which reward cycle
 (define-map stacking-rejectors
-    ((stacker principal) (reward-cycle uint))
-    ((amount uint))
+    { stacker: principal, reward-cycle: uint }
+    { amount: uint }
 )
 
 ;; Getter for stacking-rejectors

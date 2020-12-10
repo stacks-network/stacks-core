@@ -2494,7 +2494,14 @@ mod test {
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
 
             let next_index_root = tx
-                .append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], None, None)
+                .append_chain_tip_snapshot(
+                    &prev_snapshot,
+                    &next_snapshot,
+                    &vec![],
+                    None,
+                    None,
+                    None,
+                )
                 .unwrap();
             next_snapshot.index_root = next_index_root;
 

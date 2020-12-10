@@ -85,6 +85,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         DeleteEntry => "(map-delete map-foo {a: 1})",
         TupleCons => "(tuple (a 1))",
         TupleGet => "(get a tuple-foo)",
+        TupleMerge => "(merge {a: 1, b: 2} {b: 1})",
         Begin => "(begin 1)",
         Hash160 => "(hash160 1)",
         Sha256 => "(sha256 1)",
@@ -142,19 +143,19 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                             (foo-exec (int) (response int int))
                           ))";
     let contract_other = "(impl-trait .contract-trait.trait-1)
-                          (define-map map-foo ((a int)) ((b int)))
+                          (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
     let contract_self = format!(
-        "(define-map map-foo ((a int)) ((b int)))
-                         (define-non-fungible-token nft-foo int)
-                         (define-fungible-token ft-foo)
-                         (define-data-var var-foo int 0)
-                         (define-constant tuple-foo (tuple (a 1)))
-                         (define-constant list-foo (list true))
-                         (define-constant list-bar (list 1))
-                         (use-trait trait-1 .contract-trait.trait-1)
-                         (define-public (execute (contract <trait-1>)) (ok {}))",
+        "(define-map map-foo {{ a: int }} {{ b: int }})
+        (define-non-fungible-token nft-foo int)
+        (define-fungible-token ft-foo)
+        (define-data-var var-foo int 0)
+        (define-constant tuple-foo (tuple (a 1)))
+        (define-constant list-foo (list true))
+        (define-constant list-bar (list 1))
+        (use-trait trait-1 .contract-trait.trait-1)
+        (define-public (execute (contract <trait-1>)) (ok {}))",
         prog
     );
 

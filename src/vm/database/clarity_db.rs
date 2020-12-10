@@ -16,15 +16,16 @@
 
 use rusqlite::OptionalExtension;
 use std::collections::{HashMap, VecDeque};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use vm::contracts::Contract;
 use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
+use vm::representations::ClarityName;
 use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
@@ -36,12 +37,13 @@ use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::{StacksAddress, StacksBlockId};
 
 use util::db::{DBConn, FromRow};
-use util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::costs::CostOverflowingMath;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, SimmedBlock,
+    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
+    STXBalanceSnapshot, SimmedBlock,
 };
 use vm::database::RollbackWrapper;
 use vm::database::{ClarityBackingStore, MarfedKV};
@@ -695,6 +697,99 @@ impl<'a> ClarityDatabase<'a> {
     }
 }
 
+// poison-microblock
+
+impl<'a> ClarityDatabase<'a> {
+    pub fn make_microblock_pubkey_height_key(pubkey_hash: &Hash160) -> String {
+        format!("microblock-pubkey-hash::{}", pubkey_hash)
+    }
+
+    pub fn make_microblock_poison_key(height: u32) -> String {
+        format!("microblock-poison::{}", height)
+    }
+
+    pub fn insert_microblock_pubkey_hash_height(
+        &mut self,
+        pubkey_hash: &Hash160,
+        height: u32,
+    ) -> Result<()> {
+        let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
+        let value = format!("{}", &height);
+        self.put(&key, &value);
+        Ok(())
+    }
+
+    pub fn insert_microblock_poison(
+        &mut self,
+        height: u32,
+        reporter: &StandardPrincipalData,
+        seq: u16,
+    ) -> Result<()> {
+        let key = ClarityDatabase::make_microblock_poison_key(height);
+        let value = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    ClarityName::try_from("reporter").expect("BUG: valid string representation"),
+                    Value::Principal(PrincipalData::Standard(reporter.clone())),
+                ),
+                (
+                    ClarityName::try_from("sequence").expect("BUG: valid string representation"),
+                    Value::UInt(seq as u128),
+                ),
+            ])
+            .expect("BUG: valid tuple representation"),
+        );
+        let mut value_bytes = vec![];
+        value
+            .serialize_write(&mut value_bytes)
+            .expect("BUG: valid tuple representation did not serialize");
+
+        let value_str = to_hex(&value_bytes);
+        self.put(&key, &value_str);
+        Ok(())
+    }
+
+    pub fn get_microblock_pubkey_hash_height(&mut self, pubkey_hash: &Hash160) -> Option<u32> {
+        let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
+        self.get(&key).map(|height_str: String| {
+            height_str
+                .parse::<u32>()
+                .expect("BUG: inserted non-u32 as height of microblock pubkey hash")
+        })
+    }
+
+    /// Returns (who-reported-the-poison-microblock, sequence-of-microblock-fork)
+    pub fn get_microblock_poison_report(
+        &mut self,
+        height: u32,
+    ) -> Option<(StandardPrincipalData, u16)> {
+        let key = ClarityDatabase::make_microblock_poison_key(height);
+        self.get(&key).map(|reporter_hex_str: String| {
+            let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str)
+                .expect("BUG: failed to decode serialized poison-microblock reporter");
+            let tuple_data = reporter_value.expect_tuple();
+            let reporter_value = tuple_data
+                .get("reporter")
+                .expect("BUG: poison-microblock report has no 'reporter'")
+                .to_owned();
+            let seq_value = tuple_data
+                .get("sequence")
+                .expect("BUG: poison-microblock report has no 'sequence'")
+                .to_owned();
+
+            let reporter_principal = reporter_value.expect_principal();
+            let seq_u128 = seq_value.expect_u128();
+
+            let seq: u16 = seq_u128.try_into().expect("BUG: seq exceeds u16 max");
+            if let PrincipalData::Standard(principal_data) = reporter_principal {
+                (principal_data, seq)
+            } else {
+                panic!("BUG: poison-microblock report principal is not a standard principal");
+            }
+        })
+    }
+}
+
 // this is used so that things like load_map, load_var, load_nft, etc.
 //   will throw NoSuchFoo errors instead of NoSuchContract errors.
 fn map_no_contract_as_none<T>(res: Result<Option<T>>) -> Result<Option<T>> {
@@ -779,12 +874,9 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
-        key_type: TupleTypeSignature,
-        value_type: TupleTypeSignature,
+        key_type: TypeSignature,
+        value_type: TypeSignature,
     ) {
-        let key_type = TypeSignature::from(key_type);
-        let value_type = TypeSignature::from(value_type);
-
         let data = DataMapMetadata {
             key_type,
             value_type,
@@ -1147,6 +1239,44 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
     }
 
+    pub fn get_stx_balance_snapshot<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+    ) -> STXBalanceSnapshot<'a, 'conn> {
+        let stx_balance = self.get_account_stx_balance(principal);
+        let cur_burn_height = self.get_current_burnchain_block_height() as u64;
+
+        test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
+            principal,
+            stx_balance.amount_unlocked,
+            stx_balance.amount_locked,
+            stx_balance.unlock_height,
+            cur_burn_height,
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+
+        STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
+    }
+
+    pub fn get_stx_balance_snapshot_genesis<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+    ) -> STXBalanceSnapshot<'a, 'conn> {
+        let stx_balance = self.get_account_stx_balance(principal);
+        let cur_burn_height = 0;
+
+        test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
+            principal,
+            stx_balance.amount_unlocked,
+            stx_balance.amount_locked,
+            stx_balance.unlock_height,
+            cur_burn_height,
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+
+        STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
+    }
+
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         debug!("Fetching account balance"; "principal" => %principal.to_string());
@@ -1155,11 +1285,6 @@ impl<'a> ClarityDatabase<'a> {
             None => STXBalance::zero(),
             Some(balance) => balance,
         }
-    }
-
-    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: &STXBalance) {
-        let key = ClarityDatabase::make_key_for_account_balance(principal);
-        self.put(&key, balance);
     }
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {

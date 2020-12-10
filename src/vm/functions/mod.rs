@@ -45,7 +45,7 @@ use vm::{eval, Environment, LocalContext};
 use address::AddressHashMode;
 use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use vm::costs::cost_functions::ClarityCostFunction;
-pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
+pub use vm::functions::assets::stx_transfer_consolidated;
 pub use vm::functions::special::handle_contract_call_special_cases;
 
 define_named_enum!(NativeFunctions {
@@ -85,6 +85,7 @@ define_named_enum!(NativeFunctions {
     DeleteEntry("map-delete"),
     TupleCons("tuple"),
     TupleGet("get"),
+    TupleMerge("merge"),
     Begin("begin"),
     Hash160("hash160"),
     Sha256("sha256"),
@@ -241,6 +242,11 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
+            TupleMerge => NativeFunction(
+                "native_merge-tuple",
+                NativeHandle::DoubleArg(&tuples::tuple_merge),
+                ClarityCostFunction::TupleMerge,
+            ),
             Begin => NativeFunction(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),

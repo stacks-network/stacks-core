@@ -1,13 +1,100 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'blockstack_lib'",
+            "name": "executable 'blockstack-core'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=blockstack-core",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-core",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "executable 'clarity-cli'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=clarity-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "clarity-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "executable 'blockstack-cli'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=blockstack-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": ["generate-sk"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "executable 'bitcoin-neon-controller'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=bitcoin-neon-controller",
+                    "--package=bitcoin-neon-controller"
+                ],
+                "filter": {
+                    "name": "bitcoin-neon-controller",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "executable 'stacks-node' -- mocknet",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=stacks-node",
+                    "--package=stacks-node"
+                ],
+                "filter": {
+                    "name": "stacks-node",
+                    "kind": "bin"
+                }
+            },
+            "args": ["mocknet"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "unit tests in library 'blockstack_lib'",
             "cargo": {
                 "args": [
                     "test",
@@ -26,49 +113,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'blockstack-core' testnet",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=blockstack-core",
-                    "--package=blockstack-core"
-                ],
-                "filter": {
-                    "name": "blockstack-core",
-                    "kind": "bin"
-                }
-            },
-            "args": [
-                "testnet", 
-                "${workspaceFolder}/Stacks.toml"
-            ],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_BACKTRACE": "full",
-            }
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'blockstack-core'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=blockstack-core",
-                    "--package=blockstack-core"
-                ],
-                "filter": {
-                    "name": "blockstack-core",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'blockstack-core'",
+            "name": "unit tests in executable 'blockstack-core'",
             "cargo": {
                 "args": [
                     "test",
@@ -87,25 +132,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'clarity-cli'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=clarity-cli",
-                    "--package=blockstack-core"
-                ],
-                "filter": {
-                    "name": "clarity-cli",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'clarity-cli'",
+            "name": "unit tests in executable 'clarity-cli'",
             "cargo": {
                 "args": [
                     "test",
@@ -124,10 +151,11 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'blockstack-cli'",
+            "name": "unit tests in executable 'blockstack-cli'",
             "cargo": {
                 "args": [
-                    "build",
+                    "test",
+                    "--no-run",
                     "--bin=blockstack-cli",
                     "--package=blockstack-core"
                 ],
@@ -142,17 +170,93 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'blockstack-cli'",
+            "name": "unit tests in executable 'stacks-node'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=blockstack-cli",
+                    "--bin=stacks-node",
+                    "--package=stacks-node"
+                ],
+                "filter": {
+                    "name": "stacks-node",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "unit tests in executable 'bitcoin-neon-controller'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=bitcoin-neon-controller",
+                    "--package=bitcoin-neon-controller"
+                ],
+                "filter": {
+                    "name": "bitcoin-neon-controller",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "benchmark 'marf_bench'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=marf_bench",
                     "--package=blockstack-core"
                 ],
                 "filter": {
-                    "name": "blockstack-cli",
-                    "kind": "bin"
+                    "name": "marf_bench",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "benchmark 'large_contract_bench'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=large_contract_bench",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "large_contract_bench",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "benchmark 'block_limits'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=block_limits",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "block_limits",
+                    "kind": "bench"
                 }
             },
             "args": [],

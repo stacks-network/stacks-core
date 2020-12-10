@@ -1148,6 +1148,14 @@ impl TupleData {
             CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
+
+    pub fn shallow_merge(base: TupleData, updates: TupleData) -> Result<TupleData> {
+        let mut base = base;
+        for (name, value) in updates.data_map.into_iter() {
+            base.data_map.insert(name, value);
+        }
+        Ok(base)
+    }
 }
 
 impl fmt::Display for TupleData {

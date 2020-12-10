@@ -37,6 +37,16 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
+pub const MINING_COMMITMENT_WINDOW: u8 = 6;
+
+/// The number of blocks which will share the block bonus
+///   from burn blocks that occurred without a sortition.
+///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)
+#[cfg(test)]
+pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
+#[cfg(not(test))]
+pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
+
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);

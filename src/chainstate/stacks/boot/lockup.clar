@@ -23,44 +23,44 @@
 ;; directly.
 (define-map internal-locked-stx
     ;; the `lock-send` value from the original DB, and an index
-    ((stx-height uint) (index uint))
-    (
+    { stx-height: uint, index: uint }
+    {
         ;; who owns these tokens
-        (owner principal)
+        owner: principal,
         ;; digest of associated metadata with the purchase
-        (metadata (buff 32))
+        metadata: (buff 32),
         ;; amount to unlock, in uSTX
-        (unlock-ustx uint)
-    )
+        unlock-ustx: uint
+    }
 )
 
 ;; Number of entries for a particular Stacks block height in the internal-locked-stx map.
 ;; This information is derived from the Stacks 1.0 genesis block.
 (define-map internal-locked-stx-len
-    ((stx-height uint))
-    ((len uint))
+    { stx-height: uint }
+    { len: uint }
 )
 
 ;; Map each owner-principal and index to its unlock height.
 ;; The maximum index value is stored for each principal in owner-unlocks-len
 (define-map owner-unlock-heights
-    ((owner principal) (index uint))
-    ((stx-height uint))
+    { owner: principal, index: uint }
+    { stx-height: uint }
 )
 
 ;; Map each owner-principal to its number of unlock heights.
 ;; This is automatically populated when the Stacks 1.0 genesis block gets imported.
 (define-map owner-unlock-heights-len
-    ((owner principal))
-    ((len uint))
+    { owner: principal }
+    { len: uint }
 )
 
 ;; Total number of additional tokens unlocked at a particular Stacks block height.
 ;; Used to calculate the number of liquid STX at each block, which is needed for
 ;; PoX.
 (define-map unlocked-stx-per-block
-    ((stx-height uint))
-    ((total-unlocked uint))
+    { stx-height: uint }
+    { total-unlocked: uint }
 )
 
 ;; Unlock someone's STX for this block.
