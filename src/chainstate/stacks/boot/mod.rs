@@ -61,6 +61,7 @@ const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainne
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_CONTRACT_ADDRESS: StacksAddress =
@@ -74,12 +75,14 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("bns", &BOOT_CODE_BNS),
     ];
     pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 4] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("bns", &BOOT_CODE_BNS),
     ];
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
     pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =

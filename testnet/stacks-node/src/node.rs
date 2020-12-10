@@ -1,6 +1,7 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::run_loop::RegisteredKey;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
@@ -24,7 +25,8 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
+    atlas::AtlasDB, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
+    PeerAddress,
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -124,7 +126,7 @@ fn spawn_peer(
                         continue;
                     }
                 };
-
+            let mut attachments = HashSet::new();
             let net_result = this
                 .run(
                     &sortdb,
@@ -134,6 +136,7 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
+                    &mut attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {
@@ -344,6 +347,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
+        let atlasdb = AtlasDB::connect(&self.config.get_peer_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -355,6 +359,7 @@ impl Node {
 
         let p2p_net = PeerNetwork::new(
             peerdb,
+            atlasdb,
             local_peer,
             TESTNET_PEER_VERSION,
             burnchain,
