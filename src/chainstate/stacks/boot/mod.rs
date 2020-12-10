@@ -70,14 +70,14 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 4] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING),
         ("bns", &BOOT_CODE_BNS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 4] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
