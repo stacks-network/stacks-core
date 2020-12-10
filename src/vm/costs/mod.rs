@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -854,23 +854,6 @@ impl CostTracker for &mut LimitedCostTracker {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
-pub enum CostFunctions {
-    Constant(u64),
-    Linear(u64, u64),
-    NLogN(u64, u64),
-    LogN(u64, u64),
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
-pub struct SimpleCostSpecification {
-    pub write_count: CostFunctions,
-    pub write_length: CostFunctions,
-    pub read_count: CostFunctions,
-    pub read_length: CostFunctions,
-    pub runtime: CostFunctions,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCost {
     pub write_length: u64,
     pub write_count: u64,
@@ -1018,63 +1001,6 @@ fn int_log2(input: u64) -> Option<u64> {
     })
 }
 
-impl CostFunctions {
-    pub fn compute_cost(&self, input: u64) -> Result<u64> {
-        match self {
-            CostFunctions::Constant(val) => Ok(*val),
-            CostFunctions::Linear(a, b) => a.cost_overflow_mul(input)?.cost_overflow_add(*b),
-            CostFunctions::LogN(a, b) => {
-                // a*log(input)) + b
-                //  and don't do log(0).
-                int_log2(cmp::max(input, 1))
-                    .ok_or_else(|| CostErrors::CostOverflow)?
-                    .cost_overflow_mul(*a)?
-                    .cost_overflow_add(*b)
-            }
-            CostFunctions::NLogN(a, b) => {
-                // a*input*log(input)) + b
-                //  and don't do log(0).
-                int_log2(cmp::max(input, 1))
-                    .ok_or_else(|| CostErrors::CostOverflow)?
-                    .cost_overflow_mul(input)?
-                    .cost_overflow_mul(*a)?
-                    .cost_overflow_add(*b)
-            }
-        }
-    }
-}
-
-impl SimpleCostSpecification {
-    pub fn compute_cost(&self, input: u64) -> Result<ExecutionCost> {
-        Ok(ExecutionCost {
-            write_length: self.write_length.compute_cost(input)?,
-            write_count: self.write_count.compute_cost(input)?,
-            read_count: self.read_count.compute_cost(input)?,
-            read_length: self.read_length.compute_cost(input)?,
-            runtime: self.runtime.compute_cost(input)?,
-        })
-    }
-}
-
-impl From<ExecutionCost> for SimpleCostSpecification {
-    fn from(value: ExecutionCost) -> SimpleCostSpecification {
-        let ExecutionCost {
-            write_length,
-            write_count,
-            read_count,
-            read_length,
-            runtime,
-        } = value;
-        SimpleCostSpecification {
-            write_length: CostFunctions::Constant(write_length),
-            write_count: CostFunctions::Constant(write_count),
-            read_length: CostFunctions::Constant(read_length),
-            read_count: CostFunctions::Constant(read_count),
-            runtime: CostFunctions::Constant(runtime),
-        }
-    }
-}
-
 #[cfg(test)]
 mod unit_tests {
     use super::*;
@@ -1087,10 +1013,6 @@ mod unit_tests {
         );
         assert_eq!(
             u64::max_value().cost_overflow_mul(2),
-            Err(CostErrors::CostOverflow)
-        );
-        assert_eq!(
-            CostFunctions::NLogN(1, 1).compute_cost(u64::max_value()),
             Err(CostErrors::CostOverflow)
         );
     }
