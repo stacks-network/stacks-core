@@ -31,6 +31,7 @@ use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 
+use net::atlas::AtlasDB;
 use net::connection::*;
 use net::db::*;
 use net::http::*;
@@ -52,6 +53,7 @@ use util::get_epoch_time_secs;
 
 use core::mempool::*;
 
+#[derive(Debug)]
 pub struct HttpPeer {
     pub network_id: u32,
     pub chain_view: BurnchainView,
@@ -432,6 +434,7 @@ impl HttpPeer {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         event_id: usize,
@@ -506,6 +509,7 @@ impl HttpPeer {
             peers,
             sortdb,
             peerdb,
+            atlasdb,
             chainstate,
             mempool,
             handler_args,
@@ -584,6 +588,7 @@ impl HttpPeer {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
@@ -614,6 +619,7 @@ impl HttpPeer {
                         peers,
                         sortdb,
                         peerdb,
+                        atlasdb,
                         chainstate,
                         mempool,
                         *event_id,
@@ -681,6 +687,7 @@ impl HttpPeer {
         p2p_peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         mut poll_state: NetworkPollState,
@@ -701,6 +708,7 @@ impl HttpPeer {
             p2p_peers,
             sortdb,
             peerdb,
+            atlasdb,
             chainstate,
             mempool,
             handler_args,
@@ -1221,6 +1229,7 @@ mod test {
                         51061,
                     )),
                     signed_contract_tx,
+                    None,
                 );
                 request.metadata_mut().keep_alive = false;
 
