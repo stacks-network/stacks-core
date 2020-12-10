@@ -214,10 +214,17 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let balance = STXBalance::initial(amount);
+                let mut balance = STXBalance::initial(amount);
                 let total_balance = balance.get_total_balance();
 
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
+                let existing_balance = snapshot.balance().amount_unlocked;
+                if existing_balance > 0 {
+                    balance.amount_locked = balance
+                        .amount_locked
+                        .checked_add(existing_balance)
+                        .expect("Genesis credit balance overflow");
+                }
                 snapshot.set_balance(balance);
                 snapshot.save();
 
