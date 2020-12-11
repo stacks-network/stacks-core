@@ -1068,20 +1068,20 @@ pub mod test {
     }
 
     #[test]
-    fn test_lockup_vesting() {
-        let mut peer_config = TestPeerConfig::new("test_lockup_vesting", 2000, 2001);
+    fn test_lockups() {
+        let mut peer_config = TestPeerConfig::new("test_lockups", 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
-        peer_config.initial_vesting_schedules = vec![
-            VestingSchedule::new(alice, 1000, 1),
-            VestingSchedule::new(bob, 1000, 1),
-            VestingSchedule::new(alice, 1000, 2),
-            VestingSchedule::new(bob, 1000, 3),
-            VestingSchedule::new(alice, 1000, 4),
-            VestingSchedule::new(bob, 1000, 4),
-            VestingSchedule::new(bob, 1000, 5),
-            VestingSchedule::new(alice, 1000, 6),
-            VestingSchedule::new(alice, 1000, 7),
+        peer_config.initial_lockups = vec![
+            ChainstateAccountLockup::new(alice.into(), 1000, 1),
+            ChainstateAccountLockup::new(bob, 1000, 1),
+            ChainstateAccountLockup::new(alice, 1000, 2),
+            ChainstateAccountLockup::new(bob, 1000, 3),
+            ChainstateAccountLockup::new(alice, 1000, 4),
+            ChainstateAccountLockup::new(bob, 1000, 4),
+            ChainstateAccountLockup::new(bob, 1000, 5),
+            ChainstateAccountLockup::new(alice, 1000, 6),
+            ChainstateAccountLockup::new(alice, 1000, 7),
         ];
         let mut peer = TestPeer::new(peer_config);
 
