@@ -292,7 +292,7 @@ fn should_succeed_mining_valid_txs() {
     let conf = new_test_conf();
 
     let num_rounds = 6;
-    let mut run_loop = RunLoop::new(conf.clone());
+    let mut run_loop = RunLoop::new_without_genesis_import(conf.clone());
 
     // Use tenure's hook for submitting transactions
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
@@ -557,7 +557,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     let conf = new_test_conf();
 
     let num_rounds = 4;
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     // Use tenure's hook for submitting transactions
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
