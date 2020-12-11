@@ -20,7 +20,8 @@ use stacks::vm::database::ClarityDeserializable;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
-    node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
+    node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, ConfigFile,
+    Keychain,
 };
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
@@ -51,6 +52,12 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
 
+    // test to make sure config file parsing is correct
+    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
+        .burnchain
+        .magic_bytes;
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, 'e' as u8]);
+    conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
 

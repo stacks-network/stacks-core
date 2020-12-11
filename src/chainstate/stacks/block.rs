@@ -947,7 +947,6 @@ mod test {
     use burnchains::BurnchainBlockHeader;
     use burnchains::BurnchainSigner;
     use burnchains::Txid;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
     use burnchains::bitcoin::BitcoinNetworkType;
 
