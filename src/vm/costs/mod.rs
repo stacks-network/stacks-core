@@ -868,7 +868,12 @@ impl CostTracker for LimitedCostTracker {
         // grr, if HashMap::get didn't require Borrow, we wouldn't need this cloning.
         let lookup_key = (contract.clone(), function.clone());
         if let Some(cost_function) = self.contract_call_circuits.get(&lookup_key).cloned() {
-            compute_cost(self, cost_function, input.into())?;
+            let input_sizes = if input.is_empty() {
+                vec![0]
+            } else {
+                input.to_vec()
+            };
+            compute_cost(self, cost_function, input_sizes)?;
             Ok(true)
         } else {
             Ok(false)
