@@ -22,50 +22,38 @@ fn open_chainstate_file() -> File {
     File::open("chainstate.txt").unwrap()
 }
 
-pub fn write_archives() -> std::io::Result<()> {
+fn write_archive(output_file_name: &str, section_name: &str) -> std::io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
+    let chainstate_file = open_chainstate_file();
+    let reader = BufReader::new(chainstate_file);
+    let out_file_path = Path::new(&out_dir).join(output_file_name);
+    let out_file = File::create(out_file_path)?;
+    let mut encoder = deflate::Encoder::new(out_file);
+
+    let section_header = "-----BEGIN ".to_owned() + section_name + "-----";
+    let section_footer = "-----END ".to_owned() + section_name + "-----";
+
+    for line in reader
+        .lines()
+        .map(|line| line.unwrap())
+        .skip_while(|line| !line.eq(&section_header))
+        // skip table header line
+        .skip(2)
+        .take_while(|line| !line.eq(&section_footer))
     {
-        let chainstate_file = open_chainstate_file();
-        let reader = BufReader::new(chainstate_file);
-        let balances_file_path = Path::new(&out_dir).join("account_balances.gz");
-        let balances_file = File::create(balances_file_path)?;
-        let mut balances_encoder = deflate::Encoder::new(balances_file);
-
-        for line in reader
-            .lines()
-            .map(|line| line.unwrap())
-            .skip_while(|line| !line.eq(&"-----BEGIN STX BALANCES-----"))
-            // skip table header line "address,balance"
-            .skip(2)
-            .take_while(|line| !line.eq(&"-----END STX BALANCES-----"))
-        {
-            balances_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
-        }
-
-        let mut balances_file = balances_encoder.finish().into_result().unwrap();
-        balances_file.flush()?;
+        encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
     }
-    {
-        let chainstate_file = open_chainstate_file();
-        let reader = BufReader::new(chainstate_file);
-        let lockups_file_path = Path::new(&out_dir).join("account_lockups.gz");
-        let lockups_file = File::create(lockups_file_path)?;
-        let mut lockups_encoder = deflate::Encoder::new(lockups_file);
 
-        for line in reader
-            .lines()
-            .map(|line| line.unwrap())
-            .skip_while(|line| !line.eq(&"-----BEGIN STX VESTING-----"))
-            // skip table header line "address,value,blocks"
-            .skip(2)
-            .take_while(|line| !line.eq(&"-----END STX VESTING-----"))
-        {
-            lockups_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
-        }
+    let mut out_file = encoder.finish().into_result().unwrap();
+    out_file.flush()?;
+    Ok(())
+}
 
-        let mut lockups_file = lockups_encoder.finish().into_result().unwrap();
-        lockups_file.flush()?;
-    }
+pub fn write_archives() -> std::io::Result<()> {
+    write_archive("account_balances.gz", "STX BALANCES")?;
+    write_archive("account_lockups.gz", "STX VESTING")?;
+    write_archive("namespaces.gz", "NAMESPACES")?;
+    write_archive("names.gz", "NAMES")?;
     Ok(())
 }
 
