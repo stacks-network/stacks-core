@@ -34,6 +34,7 @@ use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
+use vm::is_reserved;
 use vm::representations::SymbolicExpressionType::{Atom, List};
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
@@ -76,6 +77,8 @@ define_named_enum!(NativeFunctions {
     Concat("concat"),
     AsMaxLen("as-max-len?"),
     Len("len"),
+    ElementAt("element-at"),
+    IndexOf("index-of"),
     ListCons("list"),
     FetchVar("var-get"),
     SetVar("var-set"),
@@ -234,6 +237,16 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 "native_len",
                 NativeHandle::SingleArg(&sequences::native_len),
                 ClarityCostFunction::Len,
+            ),
+            ElementAt => NativeFunction(
+                "native_element_at",
+                NativeHandle::DoubleArg(&sequences::native_element_at),
+                ClarityCostFunction::ElementAt,
+            ),
+            IndexOf => NativeFunction(
+                "native_index_of",
+                NativeHandle::DoubleArg(&sequences::native_index_of),
+                ClarityCostFunction::IndexOf,
             ),
             ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
@@ -517,8 +530,6 @@ fn special_let(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    use vm::is_reserved;
-
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -542,7 +553,7 @@ fn special_let(
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
-            let binding_value = eval(var_sexp, env, context)?;
+            let binding_value = eval(var_sexp, env, &inner_context)?;
 
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
