@@ -32,8 +32,8 @@ data:
       {{- $key | nindent 4 }} = {{ $val | quote }}
     {{- end }}
   {{- end }}
-  {{ range $key, $val := .Values.config.mstx_balance }}
-    [[mstx_balance]]
+  {{ range $key, $val := .Values.config.ustx_balance }}
+    [[ustx_balance]]
     {{- range $inner_key, $inner_val := $val }}
       {{- if regexMatch "^[0-9]+$" ($inner_val | toString) }}
         {{- $inner_key | nindent 4 }} = {{ $inner_val }}
