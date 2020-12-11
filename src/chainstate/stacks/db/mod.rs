@@ -927,10 +927,12 @@ impl StacksChainState {
             receipts.push(allocations_receipt);
 
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with vesting schedules");
+                info!("Initializing chain with lockups");
+                let mut total_lockups = 0;
                 let mut vesting_schedules_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
+                    total_lockups = total_lockups + 1;
                     let stx_address =
                         StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                     let value = Value::Tuple(
@@ -968,7 +970,7 @@ impl StacksChainState {
                         })
                         .unwrap();
                 });
-                info!("Finished initializing chain with vesting schedules");
+                info!("Finished initializing chain with {} lockups", total_lockups);
             }
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
