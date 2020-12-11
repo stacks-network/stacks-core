@@ -34,6 +34,55 @@ pub struct LegacyMstxConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_load_legacy_mstx_balances_toml() {
+        let config = ConfigFile::from_str(
+            r#"
+            [[ustx_balance]]
+            address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+            amount = 10000000000000000
+
+            [[ustx_balance]]
+            address = "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+            amount = 10000000000000000
+            "#,
+        );
+        assert!(config.ustx_balance.is_some());
+        let balances = config
+            .ustx_balance
+            .expect("Failed to parse stx balances from toml");
+        assert_eq!(balances.len(), 4);
+        assert_eq!(
+            balances[0].address,
+            "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+        );
+        assert_eq!(
+            balances[1].address,
+            "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+        );
+        assert_eq!(
+            balances[2].address,
+            "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+        );
+        assert_eq!(
+            balances[3].address,
+            "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+        );
+    }
+}
+
 impl ConfigFile {
     pub fn from_path(path: &str) -> ConfigFile {
         let content_str = fs::read_to_string(path).unwrap();
