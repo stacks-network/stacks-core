@@ -51,14 +51,16 @@ pub fn special_contract_call(
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
     let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let rest_args: Vec<_> = {
+    let (rest_args, rest_args_sizes) = {
         let rest_args = &args[2..];
         let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| eval(x, env, context)).collect();
         let mut rest_args = rest_args?;
-        rest_args
-            .drain(..)
+        let sizes: Vec<_> = rest_args.iter().map(|x| x.size() as u64).collect();
+        let atom_vals: Vec<_> = rest_args
+            .into_iter()
             .map(|x| SymbolicExpression::atom_value(x))
-            .collect()
+            .collect();
+        (atom_vals, sizes)
     };
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
@@ -162,14 +164,17 @@ pub fn special_contract_call(
     ));
 
     let mut nested_env = env.nest_with_caller(contract_principal.clone());
-    let result =
-        if nested_env.short_circuit_contract_call(&contract_identifier, function_name, &[])? {
-            nested_env.run_free(|free_env| {
-                free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
-            })
-        } else {
-            nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
-        }?;
+    let result = if nested_env.short_circuit_contract_call(
+        &contract_identifier,
+        function_name,
+        &rest_args_sizes,
+    )? {
+        nested_env.run_free(|free_env| {
+            free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+        })
+    } else {
+        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+    }?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
