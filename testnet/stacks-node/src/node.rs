@@ -7,7 +7,6 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
@@ -31,6 +30,7 @@ use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
     chainstate::stacks::db::{ChainStateAccountLockup, ChainstateAccountBalance},
 };
+use stacks::{chainstate::burn::db::sortdb::SortitionDB, vm::types::PrincipalData};
 
 use stacks::chainstate::stacks::index::TrieHash;
 use stacks::util::get_epoch_time_secs;
@@ -174,16 +174,8 @@ fn spawn_peer(
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
-        let keychain = Keychain::default(config.node.seed.clone());
-
-        let initial_balances = config
-            .initial_balances
-            .iter()
-            .map(|e| (e.address.clone(), e.amount))
-            .collect();
-
         let mut boot_data = ChainStateBootData {
-            initial_balances,
+            initial_balances: Self::get_initial_balances(&config),
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
@@ -191,6 +183,39 @@ impl Node {
             get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
             get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
+        Self::new_with_chainstate_boot_data(config, &mut boot_data)
+    }
+
+    pub fn new_without_genesis_import(
+        config: Config,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
+        let mut boot_data = ChainStateBootData {
+            initial_balances: Self::get_initial_balances(&config),
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: Some(boot_block_exec),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+        };
+        Self::new_with_chainstate_boot_data(config, &mut boot_data)
+    }
+
+    fn get_initial_balances(config: &Config) -> Vec<(PrincipalData, u64)> {
+        let initial_balances = config
+            .initial_balances
+            .iter()
+            .map(|e| (e.address.clone(), e.amount))
+            .collect();
+        initial_balances
+    }
+
+    fn new_with_chainstate_boot_data(
+        config: Config,
+        mut boot_data: &mut ChainStateBootData,
+    ) -> Self {
+        let keychain = Keychain::default(config.node.seed.clone());
 
         let chain_state_result = StacksChainState::open_and_exec(
             false,
