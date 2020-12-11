@@ -10,10 +10,10 @@ pub struct GenesisAccountBalance {
     pub amount: u64,
 }
 
-pub struct GenesisAccountVesting {
+pub struct GenesisAccountLockup {
     /// A STX or BTC address (BTC addresses should be converted to STX when used).
     pub address: String,
-    /// Vesting amount in microSTX.
+    /// Locked amount in microSTX.
     pub amount: u64,
     /// The number of blocks after the genesis block at which the tokens unlock.
     pub block_height: u64,
@@ -63,14 +63,14 @@ pub fn read_balances() -> Box<dyn Iterator<Item = GenesisAccountBalance>> {
     return Box::new(balances);
 }
 
-pub fn read_vesting() -> Box<dyn Iterator<Item = GenesisAccountVesting>> {
-    let account_balances_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/account_vesting.gz"));
-    let vesting = iter_deflated_csv(account_balances_bytes).map(|cols| GenesisAccountVesting {
+pub fn read_lockups() -> Box<dyn Iterator<Item = GenesisAccountLockup>> {
+    let account_lockups_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/account_lockups.gz"));
+    let lockups = iter_deflated_csv(account_lockups_bytes).map(|cols| GenesisAccountLockup {
         address: cols[0].to_string(),
         amount: cols[1].parse::<u64>().unwrap(),
         block_height: cols[2].parse::<u64>().unwrap(),
     });
-    return Box::new(vesting);
+    return Box::new(lockups);
 }
 
 pub fn read_namespaces() -> Box<dyn Iterator<Item = GenesisNamespace>> {
@@ -116,9 +116,9 @@ mod tests {
     }
 
     #[test]
-    fn test_vestings_read() {
-        for vesting in read_vesting() {
-            assert!(vesting.amount > 0);
+    fn test_lockups_read() {
+        for lockup in read_lockups() {
+            assert!(lockup.amount > 0);
         }
     }
 

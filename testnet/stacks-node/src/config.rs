@@ -301,6 +301,7 @@ lazy_static! {
         download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
+        max_inflight_attachments: 6,
         .. std::default::Default::default()
     };
 }
@@ -595,6 +596,11 @@ impl Config {
                             .max_inflight_blocks
                             .clone()
                     }),
+                    max_inflight_attachments: opts.max_inflight_attachments.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_inflight_attachments
+                            .clone()
+                    }),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(
                         || {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS
@@ -674,6 +680,10 @@ impl Config {
 
     pub fn get_peer_db_path(&self) -> String {
         format!("{}/peer_db.sqlite", self.node.working_dir)
+    }
+
+    pub fn get_atlas_db_path(&self) -> String {
+        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
@@ -959,6 +969,7 @@ pub struct ConnectionOptionsFile {
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
+    pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
     pub read_only_call_limit_write_count: Option<u64>,

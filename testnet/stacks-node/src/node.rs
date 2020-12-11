@@ -1,12 +1,12 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::run_loop::RegisteredKey;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
@@ -23,12 +23,14 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
+    atlas::AtlasDB, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
+    PeerAddress,
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainStateAccountBalance, ChainStateAccountVesting},
+    chainstate::stacks::db::{ChainStateAccountLockup, ChainstateAccountBalance},
 };
+use stacks::{chainstate::burn::db::sortdb::SortitionDB, vm::types::PrincipalData};
 
 use stacks::chainstate::stacks::index::TrieHash;
 use stacks::util::get_epoch_time_secs;
@@ -82,9 +84,9 @@ pub struct Node {
     nonce: u64,
 }
 
-pub fn get_account_vesting() -> Box<dyn Iterator<Item = ChainStateAccountVesting>> {
+pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainStateAccountLockup>> {
     Box::new(
-        stx_genesis::read_vesting().map(|item| ChainStateAccountVesting {
+        stx_genesis::read_lockups().map(|item| ChainStateAccountLockup {
             address: item.address,
             amount: item.amount,
             block_height: item.block_height,
@@ -92,9 +94,9 @@ pub fn get_account_vesting() -> Box<dyn Iterator<Item = ChainStateAccountVesting
     )
 }
 
-pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainStateAccountBalance>> {
+pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
     Box::new(
-        stx_genesis::read_balances().map(|item| ChainStateAccountBalance {
+        stx_genesis::read_balances().map(|item| ChainstateAccountBalance {
             address: item.address,
             amount: item.amount,
         }),
@@ -109,7 +111,7 @@ fn spawn_peer(
     stacks_chainstate_path: String,
     event_dispatcher: EventDispatcher,
     exit_at_block_height: Option<u64>,
-    genesis_chainstate_hash: String,
+    genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -148,7 +150,7 @@ fn spawn_peer(
                         continue;
                     }
                 };
-
+            let mut attachments = HashSet::new();
             let net_result = this
                 .run(
                     &sortdb,
@@ -158,6 +160,7 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
+                    &mut attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {
@@ -171,23 +174,48 @@ fn spawn_peer(
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
-        let keychain = Keychain::default(config.node.seed.clone());
+        let mut boot_data = ChainStateBootData {
+            initial_balances: Self::get_initial_balances(&config),
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: Some(boot_block_exec),
+            get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
+            get_bulk_initial_balances: Some(Box::new(get_account_balances)),
+        };
+        Self::new_with_chainstate_boot_data(config, &mut boot_data)
+    }
 
+    pub fn new_without_genesis_import(
+        config: Config,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
+        let mut boot_data = ChainStateBootData {
+            initial_balances: Self::get_initial_balances(&config),
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: Some(boot_block_exec),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+        };
+        Self::new_with_chainstate_boot_data(config, &mut boot_data)
+    }
+
+    fn get_initial_balances(config: &Config) -> Vec<(PrincipalData, u64)> {
         let initial_balances = config
             .initial_balances
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+        initial_balances
+    }
 
-        let mut boot_data = ChainStateBootData {
-            initial_balances,
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: 0,
-            first_burnchain_block_timestamp: 0,
-            post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_vesting_schedules: Some(Box::new(get_account_vesting)),
-            get_bulk_initial_balances: Some(Box::new(get_account_balances)),
-        };
+    fn new_with_chainstate_boot_data(
+        config: Config,
+        mut boot_data: &mut ChainStateBootData,
+    ) -> Self {
+        let keychain = Keychain::default(config.node.seed.clone());
 
         let chain_state_result = StacksChainState::open_and_exec(
             false,
@@ -368,6 +396,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
+        let atlasdb = AtlasDB::connect(&self.config.get_peer_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -379,6 +408,7 @@ impl Node {
 
         let p2p_net = PeerNetwork::new(
             peerdb,
+            atlasdb,
             local_peer,
             TESTNET_PEER_VERSION,
             burnchain,
@@ -393,7 +423,7 @@ impl Node {
             self.config.get_chainstate_path(),
             event_dispatcher,
             exit_at_block_height,
-            stx_genesis::GENESIS_CHAINSTATE_HASH.into(),
+            Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
         )
         .unwrap();

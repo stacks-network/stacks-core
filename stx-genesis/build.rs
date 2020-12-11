@@ -51,7 +51,7 @@ fn write_archive(output_file_name: &str, section_name: &str) -> std::io::Result<
 
 pub fn write_archives() -> std::io::Result<()> {
     write_archive("account_balances.gz", "STX BALANCES")?;
-    write_archive("account_vesting.gz", "STX VESTING")?;
+    write_archive("account_lockups.gz", "STX VESTING")?;
     write_archive("namespaces.gz", "NAMESPACES")?;
     write_archive("names.gz", "NAMES")?;
     Ok(())

@@ -128,7 +128,7 @@ fn integration_test_get_info() {
     let num_rounds = 4;
 
     let rpc_bind = conf.node.rpc_bind.clone();
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     {
         let mut http_opt = HTTP_BINDING.lock().unwrap();
@@ -668,7 +668,7 @@ fn contract_stx_transfer() {
 
     let num_rounds = 5;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     run_loop
         .callbacks
@@ -958,7 +958,7 @@ fn mine_contract_twice() {
 
     let num_rounds = 3;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     run_loop
         .callbacks
@@ -1032,7 +1032,7 @@ fn bad_contract_tx_rollback() {
 
     let num_rounds = 4;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     run_loop
         .callbacks
@@ -1240,7 +1240,7 @@ fn block_limit_runtime_test() {
 
     let num_rounds = 6;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     run_loop
         .callbacks
@@ -1347,7 +1347,7 @@ fn mempool_errors() {
         http_opt.replace(format!("http://{}", &rpc_bind));
     }
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new_without_genesis_import(conf);
 
     run_loop
         .callbacks

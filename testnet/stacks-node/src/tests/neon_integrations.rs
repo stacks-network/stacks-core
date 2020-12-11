@@ -10,7 +10,6 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
-use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
@@ -23,11 +22,14 @@ use crate::{
     config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
     node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
 };
-use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
-use stacks::util::hash::bytes_to_hex;
+use stacks::net::{
+    AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
+};
 use stacks::util::hash::Hash160;
+use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::sleep_ms;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
@@ -71,6 +73,7 @@ mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     }
 
     async fn handle_burn_block(
@@ -100,6 +103,17 @@ mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    async fn handle_attachments(
+        attachments: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let new_attachments = attachments.as_array().unwrap();
+        let mut attachments = ATTACHMENTS.lock().unwrap();
+        for new_attachment in new_attachments {
+            attachments.push(new_attachment.clone());
+        }
+        Ok(warp::http::StatusCode::OK)
+    }
+
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
     }
@@ -110,6 +124,10 @@ mod test_observer {
 
     pub fn get_burn_blocks() -> Vec<serde_json::Value> {
         BURN_BLOCKS.lock().unwrap().clone()
+    }
+
+    pub fn get_attachments() -> Vec<serde_json::Value> {
+        ATTACHMENTS.lock().unwrap().clone()
     }
 
     async fn serve() {
@@ -125,11 +143,20 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_burn_block);
+        let new_attachments = warp::path!("attachments" / "new")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_attachments);
 
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks))
-            .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
-            .await
+        warp::serve(
+            new_blocks
+                .or(mempool_txs)
+                .or(new_burn_blocks)
+                .or(new_attachments),
+        )
+        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
+        .await
     }
 
     pub fn spawn() {
@@ -137,6 +164,13 @@ mod test_observer {
             let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
         });
+    }
+
+    pub fn clear() {
+        ATTACHMENTS.lock().unwrap().clear();
+        BURN_BLOCKS.lock().unwrap().clear();
+        NEW_BLOCKS.lock().unwrap().clear();
+        MEMTXS.lock().unwrap().clear();
     }
 }
 
@@ -239,7 +273,7 @@ fn bitcoind_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -300,7 +334,7 @@ fn bitcoind_forking_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -422,7 +456,7 @@ fn microblock_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -736,6 +770,7 @@ fn microblock_integration_test() {
         );
     }
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -816,7 +851,7 @@ fn size_check_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -934,6 +969,7 @@ fn size_check_integration_test() {
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1025,7 +1061,7 @@ fn pox_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1370,5 +1406,537 @@ fn pox_integration_test() {
 
     assert_eq!(tip_info.stacks_tip_height, 56);
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
+}
+
+enum Signal {
+    BootstrapNodeReady,
+    ReplicatingAttachmentsStartTest1,
+    ReplicatingAttachmentsCheckTest1(u64),
+    ReplicatingAttachmentsStartTest2,
+    ReplicatingAttachmentsCheckTest2(u64),
+}
+
+#[test]
+#[ignore]
+fn atlas_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let user_1 = StacksPrivateKey::new();
+    let initial_balance_user_1 = InitialBalance {
+        address: to_addr(&user_1).into(),
+        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+    };
+
+    // Prepare the config of the bootstrap node
+    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let bootstrap_node_public_key = {
+        let keychain = Keychain::default(conf_bootstrap_node.node.seed.clone());
+        let mut pk = keychain.generate_op_signer().get_public_key();
+        pk.set_compressed(true);
+        pk.to_hex()
+    };
+    conf_bootstrap_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+
+    // Prepare the config of the follower node
+    let (mut conf_follower_node, _) = neon_integration_test_conf();
+    let bootstrap_node_url = format!(
+        "{}@{}",
+        bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
+    );
+    conf_follower_node
+        .node
+        .set_bootstrap_node(Some(bootstrap_node_url));
+    conf_follower_node.node.miner = false;
+    conf_follower_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+    conf_follower_node
+        .events_observers
+        .push(EventObserverConfig {
+            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            events_keys: vec![EventKeyType::AnyEvent],
+        });
+
+    // Our 2 nodes will share the bitcoind node
+    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
+    let (follower_node_tx, follower_node_rx) = mpsc::channel();
+
+    let bootstrap_node_thread = thread::spawn(move || {
+        let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
+
+        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+            conf_bootstrap_node.clone(),
+            None,
+            Some(burnchain_config.clone()),
+        );
+        let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
+
+        btc_regtest_controller.bootstrap_chain(201);
+
+        eprintln!("Chain bootstrapped...");
+
+        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+        let blocks_processed = run_loop.get_blocks_processed_arc();
+        let client = reqwest::blocking::Client::new();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
+
+        // give the run loop some time to start up!
+        wait_for_runloop(&blocks_processed);
+
+        // first block wakes up the run loop
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // first block will hold our VRF registration
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // second block will be the first mined Stacks block
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // Let's setup the follower now.
+        follower_node_tx
+            .send(Signal::BootstrapNodeReady)
+            .expect("Unable to send signal");
+
+        match bootstrap_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsStartTest1) => {
+                println!("Follower node is ready...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
+
+        // (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
+        //                            (stx-to-burn uint))
+        let namespace = "passport";
+        let salt = "some-salt";
+        let salted_namespace = format!("{}{}", namespace, salt);
+        let hashed_namespace = Hash160::from_data(salted_namespace.as_bytes());
+        let tx_1 = make_contract_call(
+            &user_1,
+            0,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "namespace-preorder",
+            &[
+                Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
+                Value::UInt(1000),
+            ],
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx_1.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &tx_1[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // (define-public (namespace-reveal (namespace (buff 20))
+        //                                  (namespace-salt (buff 20))
+        //                                  (p-func-base uint)
+        //                                  (p-func-coeff uint)
+        //                                  (p-func-b1 uint)
+        //                                  (p-func-b2 uint)
+        //                                  (p-func-b3 uint)
+        //                                  (p-func-b4 uint)
+        //                                  (p-func-b5 uint)
+        //                                  (p-func-b6 uint)
+        //                                  (p-func-b7 uint)
+        //                                  (p-func-b8 uint)
+        //                                  (p-func-b9 uint)
+        //                                  (p-func-b10 uint)
+        //                                  (p-func-b11 uint)
+        //                                  (p-func-b12 uint)
+        //                                  (p-func-b13 uint)
+        //                                  (p-func-b14 uint)
+        //                                  (p-func-b15 uint)
+        //                                  (p-func-b16 uint)
+        //                                  (p-func-non-alpha-discount uint)
+        //                                  (p-func-no-vowel-discount uint)
+        //                                  (lifetime uint)
+        //                                  (namespace-import principal))
+        let tx_2 = make_contract_call(
+            &user_1,
+            1,
+            1000,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "namespace-reveal",
+            &[
+                Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                Value::buff_from(salt.as_bytes().to_vec()).unwrap(),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1000),
+                Value::Principal(initial_balance_user_1.address.clone()),
+            ],
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx_2.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &tx_2[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // (define-public (name-import (namespace (buff 20))
+        //                             (name (buff 32))
+        //                             (zonefile-hash (buff 20)))
+        let zonefile_hex = "facade00";
+        let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+        let tx_3 = make_contract_call(
+            &user_1,
+            2,
+            500,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "name-import",
+            &[
+                Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                Value::buff_from("johndoe".as_bytes().to_vec()).unwrap(),
+                Value::Principal(to_addr(&user_1).into()),
+                Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+            ],
+        );
+
+        let body = {
+            let content = PostTransactionRequestBody {
+                tx: bytes_to_hex(&tx_3),
+                attachment: Some(zonefile_hex.to_string()),
+            };
+            serde_json::to_vec(&json!(content)).unwrap()
+        };
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if !res.status().is_success() {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // From there, let's mine these transaction, and build an extra block.
+        let mut sort_height = channel.get_sortitions_processed();
+        eprintln!("=> Sort height: {}", sort_height);
+        let few_blocks = sort_height + 1 + 1;
+
+        // now let's mine until the next reward cycle starts ...
+        while sort_height < few_blocks {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+            eprintln!("Sort height: {}", sort_height);
+        }
+
+        // Then check that the follower is correctly replicating the attachment
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest1(sort_height))
+            .expect("Unable to send signal");
+
+        match bootstrap_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsStartTest2) => {
+                println!("Follower node is ready...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        // From there, let's mine these transaction, and build an extra block.
+        let mut sort_height = channel.get_sortitions_processed();
+        eprintln!("=> Sort height: {}", sort_height);
+        let few_blocks = sort_height + 1 + 1;
+
+        while sort_height < few_blocks {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+            eprintln!("Sort height: {}", sort_height);
+        }
+
+        // Poll GET v2/attachments/<attachment-hash>
+        for i in 1..10 {
+            let mut attachments_did_sync = false;
+            let mut timeout = 30;
+            while attachments_did_sync != true {
+                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+                let hashed_zonefile = Hash160::from_data(&zonefile_hex);
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
+                let res = client
+                    .get(&path)
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .unwrap();
+                eprintln!("{:#?}", res);
+                if res.status().is_success() {
+                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                    assert_eq!(attachment_response.attachment.content, zonefile_hex);
+                    attachments_did_sync = true;
+                } else {
+                    timeout -= 1;
+                    if timeout == 0 {
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    }
+                    eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
+                    thread::sleep(Duration::from_millis(1000));
+                }
+            }
+        }
+
+        // Then check that the follower is correctly replicating the attachment
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest2(sort_height))
+            .expect("Unable to send signal");
+
+        channel.stop_chains_coordinator();
+    });
+
+    let follower_node_thread = thread::spawn(move || {
+        // Start the attached observer
+        test_observer::spawn();
+
+        // The bootstrap node mined a few blocks and is ready, let's setup this node.
+        match follower_node_rx.recv() {
+            Ok(Signal::BootstrapNodeReady) => {
+                println!("Booting follower node...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
+        let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
+
+        eprintln!("Chain bootstrapped...");
+
+        let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
+        let blocks_processed = run_loop.get_blocks_processed_arc();
+        let client = reqwest::blocking::Client::new();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
+
+        // give the run loop some time to start up!
+        wait_for_runloop(&blocks_processed);
+
+        // Follower node is ready, the bootstrap node will now handover
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest1)
+            .expect("Unable to send signal");
+
+        // The bootstrap node published and mined a transaction that includes an attachment.
+        // Lets observe the attachments replication kicking in.
+        let target_height = match follower_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let mut sort_height = channel.get_sortitions_processed();
+        while sort_height < target_height {
+            wait_for_runloop(&blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+        }
+
+        // Now wait for the node to sync the attachment
+        let mut attachments_did_sync = false;
+        let mut timeout = 30;
+        while attachments_did_sync != true {
+            let zonefile_hex = "facade00";
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+            let path = format!(
+                "{}/v2/attachments/{}",
+                &http_origin,
+                hashed_zonefile.to_hex()
+            );
+            let res = client
+                .get(&path)
+                .header("Content-Type", "application/json")
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if res.status().is_success() {
+                eprintln!("Success syncing attachment - {}", res.text().unwrap());
+                attachments_did_sync = true;
+            } else {
+                timeout -= 1;
+                if timeout == 0 {
+                    panic!("Failed syncing 1 attachments between 2 neon runloops within 30s - Something is wrong");
+                }
+                eprintln!("Attachment {} not sync'd yet", zonefile_hex);
+                thread::sleep(Duration::from_millis(1000));
+            }
+        }
+
+        // Test 2: 9 transactions are posted to the follower.
+        // We want to make sure that the miner is able to
+        // 1) mine these transactions
+        // 2) retrieve the attachments staged on the follower node.
+        // 3) ensure that the follower is also instanciating the attachments after
+        // executing the transactions, once mined.
+        let namespace = "passport";
+        for i in 1..10 {
+            let user = StacksPrivateKey::new();
+            let zonefile_hex = format!("facade0{}", i);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+            let name = format!("johndoe{}", i);
+            let tx = make_contract_call(
+                &user_1,
+                2 + i,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-import",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::Principal(to_addr(&user).into()),
+                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest2)
+            .expect("Unable to send signal");
+
+        let target_height = match follower_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let mut sort_height = channel.get_sortitions_processed();
+        while sort_height < target_height {
+            wait_for_runloop(&blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+        }
+
+        // Poll GET v2/attachments/<attachment-hash>
+        for i in 1..10 {
+            let mut attachments_did_sync = false;
+            let mut timeout = 30;
+            while attachments_did_sync != true {
+                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+                let hashed_zonefile = Hash160::from_data(&zonefile_hex);
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
+                let res = client
+                    .get(&path)
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .unwrap();
+                eprintln!("{:#?}", res);
+                if res.status().is_success() {
+                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                    assert_eq!(attachment_response.attachment.content, zonefile_hex);
+                    attachments_did_sync = true;
+                } else {
+                    timeout -= 1;
+                    if timeout == 0 {
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    }
+                    eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
+                    thread::sleep(Duration::from_millis(1000));
+                }
+            }
+        }
+
+        // Ensure that we the attached sidecar was able to receive a total of 10 attachments
+        assert_eq!(test_observer::get_attachments().len(), 10);
+        test_observer::clear();
+        channel.stop_chains_coordinator();
+    });
+
+    bootstrap_node_thread.join().unwrap();
+    follower_node_thread.join().unwrap();
 }
