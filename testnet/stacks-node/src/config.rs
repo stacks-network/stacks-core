@@ -1,6 +1,5 @@
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
@@ -30,17 +29,28 @@ pub struct ConfigFile {
     pub block_limit: Option<BlockLimitFile>,
 }
 
+#[derive(Clone, Deserialize, Default)]
+pub struct LegacyMstxConfigFile {
+    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+}
+
 impl ConfigFile {
     pub fn from_path(path: &str) -> ConfigFile {
-        let path = File::open(path).unwrap();
-        let mut config_file_reader = BufReader::new(path);
-        let mut config_file = vec![];
-        config_file_reader.read_to_end(&mut config_file).unwrap();
-        toml::from_slice(&config_file[..]).unwrap()
+        let content_str = fs::read_to_string(path).unwrap();
+        Self::from_str(&content_str)
     }
 
     pub fn from_str(content: &str) -> ConfigFile {
-        toml::from_slice(&content.as_bytes()).unwrap()
+        let mut config: ConfigFile = toml::from_str(content).unwrap();
+        let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
+        if let Some(mstx_balance) = legacy_config.mstx_balance {
+            warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
+            config.ustx_balance = match config.ustx_balance {
+                Some(balance) => Some([balance, mstx_balance].concat()),
+                None => Some(mstx_balance),
+            };
+        }
+        config
     }
 
     pub fn neon() -> ConfigFile {
@@ -315,11 +325,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 };
 
 impl Config {
-    pub fn from_config_file_path(path: &str) -> Config {
-        let config_file = ConfigFile::from_path(path);
-        Config::from_config_file(config_file)
-    }
-
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
