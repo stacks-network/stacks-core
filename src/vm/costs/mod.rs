@@ -36,9 +36,25 @@ use vm::types::Value::UInt;
 use vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature, NONE};
 use vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
+use vm::types::signatures::{FunctionSignature, TupleTypeSignature};
+use vm::types::FunctionType;
+
 type Result<T> = std::result::Result<T, CostErrors>;
 
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
+
+lazy_static! {
+    static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![
+            ("runtime".into(), TypeSignature::UIntType),
+            ("write_length".into(), TypeSignature::UIntType),
+            ("write_count".into(), TypeSignature::UIntType),
+            ("read_count".into(), TypeSignature::UIntType),
+            ("read_length".into(), TypeSignature::UIntType),
+        ])
+        .expect("BUG: failed to construct type signature for cost tuple")
+    );
+}
 
 pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     cost_function: ClarityCostFunction,
@@ -413,10 +429,32 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                     );
                     continue;
                 }
-                if !c.public_function_types.contains_key(&cost_function)
-                    && !c.read_only_function_types.contains_key(&cost_function)
-                    && !c.private_function_types.contains_key(&cost_function)
+
+                if let Some(FunctionType::Fixed(cost_function_type)) = c
+                    .read_only_function_types
+                    .get(&cost_function)
+                    .or_else(|| c.private_function_types.get(&cost_function))
                 {
+                    if !cost_function_type.returns.eq(&COST_TUPLE_TYPE_SIGNATURE) {
+                        warn!("Confirmed cost proposal invalid: cost-function-name does not return a cost tuple";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "contract_name" => %cost_contract,
+                              "function_name" => %cost_function,
+                              "return_type" => %cost_function_type.returns,
+                        );
+                        continue;
+                    }
+                    if !cost_function_type.args.len() == 1
+                        || cost_function_type.args[0].signature != TypeSignature::UIntType
+                    {
+                        warn!("Confirmed cost proposal invalid: cost-function-name args should be length-1 and only uint";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "contract_name" => %cost_contract,
+                              "function_name" => %cost_function,
+                        );
+                        continue;
+                    }
+                } else {
                     warn!("Confirmed cost proposal invalid: cost-function-name not defined";
                           "confirmed_proposal_id" => confirmed_proposal,
                           "contract_name" => %cost_contract,

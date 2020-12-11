@@ -39,7 +39,7 @@ mod tests;
 /// A static-analysis pass that checks whether or not
 ///  a proposed cost-function defining contract is allowable.
 /// Cost-function defining contracts may not use contract-call,
-///  any database operations, or iterating operations (e.g., list
+///  any database operations, traits, or iterating operations (e.g., list
 ///  operations)
 ///
 pub struct ArithmeticOnlyChecker();
@@ -94,8 +94,8 @@ impl ArithmeticOnlyChecker {
             .map_err(|_| Error::UnexpectedContractStructure)?
         {
             match define_type {
-                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
-                //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
+                // The _arguments_ to constant defines must be checked to ensure that
+                //   any _evaluated arguments_ supplied to them are valid.
                 Constant { value, .. } => self.check_expression(value),
                 PrivateFunction { signature, body } => self.check_define_function(signature, body),
                 ReadOnlyFunction { signature, body } => self.check_define_function(signature, body),
@@ -124,10 +124,6 @@ impl ArithmeticOnlyChecker {
         }
     }
 
-    /// Checks the supplied symbolic expressions
-    ///   (1) for whether or not they are valid with respect to read-only requirements.
-    ///   (2) if valid, returns whether or not they are read only.
-    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_expression(&self, expr: &SymbolicExpression) -> Result<(), Error> {
         match expr.expr {
             AtomValue(_) | LiteralValue(_) => {
