@@ -160,7 +160,7 @@
     (runtime u1))
 
 (define-read-only (cost_element_at (n uint))
-    (runtime (linear n u1 u1)))
+    (runtime u1))
 
 (define-read-only (cost_index_of (n uint))
     (runtime (linear n u1 u1)))
