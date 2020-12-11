@@ -128,7 +128,7 @@ fn bitcoind_integration_test() {
     let _res = controller.start_bitcoind();
 
     let num_rounds = 6;
-    let mut run_loop = RunLoop::new_without_genesis_import(conf.clone());
+    let mut run_loop = RunLoop::new(conf.clone());
 
     run_loop
         .callbacks

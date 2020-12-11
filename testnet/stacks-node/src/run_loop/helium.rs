@@ -15,16 +15,6 @@ pub struct RunLoop {
 }
 
 impl RunLoop {
-    pub fn new_without_genesis_import(config: Config) -> Self {
-        let node = Node::new_without_genesis_import(config.clone(), Box::new(|_| {}));
-
-        Self {
-            config,
-            node,
-            callbacks: RunLoopCallbacks::new(),
-        }
-    }
-
     pub fn new(config: Config) -> Self {
         RunLoop::new_with_boot_exec(config, Box::new(|_| {}))
     }

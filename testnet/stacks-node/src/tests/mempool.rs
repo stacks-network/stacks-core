@@ -96,7 +96,7 @@ fn mempool_setup_chainstate() {
 
     let num_rounds = 4;
 
-    let mut run_loop = RunLoop::new_without_genesis_import(conf.clone());
+    let mut run_loop = RunLoop::new(conf.clone());
 
     run_loop
         .callbacks
