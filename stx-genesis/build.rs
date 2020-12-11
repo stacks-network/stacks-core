@@ -10,23 +10,57 @@ use std::{
 use libflate::deflate;
 use sha2::{Digest, Sha256};
 
+pub static CHAINSTATE_FILE: &str = "chainstate.txt";
+pub static CHAINSTATE_SHA256_FILE: &str = "chainstate.txt.sha256";
+
+pub static CHAINSTATE_TEST_FILE: &str = "chainstate-test.txt";
+pub static CHAINSTATE_TEST_SHA256_FILE: &str = "chainstate-test.txt.sha256";
+
 fn main() {
-    verify_genesis_integrity().expect("failed to verify and output chainstate.txt.sha256 hash");
-    write_archives().expect("failed to write archives");
+    verify_genesis_integrity(true)
+        .expect("failed to verify and output chainstate-test.txt.sha256 hash");
+    verify_genesis_integrity(false)
+        .expect("failed to verify and output chainstate.txt.sha256 hash");
+    write_archives(true).expect("failed to write chainstate test data archives");
+    write_archives(false).expect("failed to write chainstate prod data archives");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=chainstate-test.txt.sha256");
+    println!("cargo:rerun-if-changed=chainstate-test.txt");
     println!("cargo:rerun-if-changed=chainstate.txt.sha256");
     println!("cargo:rerun-if-changed=chainstate.txt");
 }
 
-fn open_chainstate_file() -> File {
-    File::open("chainstate.txt").unwrap()
+fn open_chainstate_file(test_data: bool) -> File {
+    File::open(if test_data {
+        CHAINSTATE_TEST_FILE
+    } else {
+        CHAINSTATE_FILE
+    })
+    .unwrap()
 }
 
-fn write_archive(output_file_name: &str, section_name: &str) -> std::io::Result<()> {
+pub fn write_archives(test_data: bool) -> std::io::Result<()> {
+    write_archive(test_data, "account_balances", "STX BALANCES")?;
+    write_archive(test_data, "account_lockups", "STX VESTING")?;
+    write_archive(test_data, "namespaces", "NAMESPACES")?;
+    write_archive(test_data, "names", "NAMES")?;
+    Ok(())
+}
+
+fn write_archive(
+    test_data: bool,
+    output_file_name: &str,
+    section_name: &str,
+) -> std::io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
-    let chainstate_file = open_chainstate_file();
+    let chainstate_file = open_chainstate_file(test_data);
     let reader = BufReader::new(chainstate_file);
-    let out_file_path = Path::new(&out_dir).join(output_file_name);
+    let out_file_name = if test_data {
+        output_file_name.to_owned() + "-test"
+    } else {
+        output_file_name.to_owned()
+    };
+    let out_file_path = Path::new(&out_dir).join(out_file_name + ".gz");
     let out_file = File::create(out_file_path)?;
     let mut encoder = deflate::Encoder::new(out_file);
 
@@ -46,14 +80,6 @@ fn write_archive(output_file_name: &str, section_name: &str) -> std::io::Result<
 
     let mut out_file = encoder.finish().into_result().unwrap();
     out_file.flush()?;
-    Ok(())
-}
-
-pub fn write_archives() -> std::io::Result<()> {
-    write_archive("account_balances.gz", "STX BALANCES")?;
-    write_archive("account_lockups.gz", "STX VESTING")?;
-    write_archive("namespaces.gz", "NAMESPACES")?;
-    write_archive("names.gz", "NAMES")?;
     Ok(())
 }
 
@@ -78,9 +104,14 @@ fn encode_hex(bytes: &[u8]) -> String {
     s
 }
 
-fn verify_genesis_integrity() -> std::io::Result<()> {
-    let genesis_data_sha = sha256_digest(open_chainstate_file());
-    let expected_genesis_sha = fs::read_to_string("chainstate.txt.sha256").unwrap();
+fn verify_genesis_integrity(test_data: bool) -> std::io::Result<()> {
+    let genesis_data_sha = sha256_digest(open_chainstate_file(test_data));
+    let expected_genesis_sha_file = if test_data {
+        CHAINSTATE_TEST_SHA256_FILE
+    } else {
+        CHAINSTATE_SHA256_FILE
+    };
+    let expected_genesis_sha = fs::read_to_string(expected_genesis_sha_file).unwrap();
     if !genesis_data_sha.eq_ignore_ascii_case(&expected_genesis_sha) {
         panic!(
             "FATAL ERROR: chainstate.txt hash mismatch, expected {}, got {}",
@@ -88,7 +119,12 @@ fn verify_genesis_integrity() -> std::io::Result<()> {
         );
     }
     let out_dir = env::var_os("OUT_DIR").unwrap();
-    let chainstate_hash_file_path = Path::new(&out_dir).join("chainstate.txt.sha256");
+    let out_file = if test_data {
+        "chainstate-test.txt.sha256"
+    } else {
+        "chainstate.txt.sha256"
+    };
+    let chainstate_hash_file_path = Path::new(&out_dir).join(out_file);
     let mut chainstate_hash_file = File::create(chainstate_hash_file_path)?;
     chainstate_hash_file.write_all(genesis_data_sha.as_bytes())?;
     chainstate_hash_file.flush()?;
