@@ -123,6 +123,12 @@ impl_array_newtype!(Sha256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha256Sum);
 impl_byte_array_newtype!(Sha256Sum, u8, 32);
 
+impl Default for Sha256Sum {
+    fn default() -> Self {
+        Sha256Sum::zero()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Sha512Sum(
     #[serde(
@@ -316,6 +322,9 @@ impl Sha256Sum {
         sha2_1.input(data);
         tmp.copy_from_slice(sha2_1.result().as_slice());
         Sha256Sum(tmp)
+    }
+    pub fn zero() -> Sha256Sum {
+        Sha256Sum([0u8; 32])
     }
 }
 
