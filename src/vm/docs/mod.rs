@@ -431,7 +431,7 @@ const LET_API: SpecialAPI = SpecialAPI {
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
 evaluating each expression and _binding_ it to the corresponding variable name.
-`let` bindings are iterative: when a `let` binding is evaluated, it may refer to prior binding.
+`let` bindings are sequential: when a `let` binding is evaluated, it may refer to prior binding.
 The _context_ created by this set of bindings is used for evaluating its body expressions.
  The let expression returns the value of the last such body expression.
 Note: intermediary statements returning a response type must be checked",
