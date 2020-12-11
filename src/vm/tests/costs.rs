@@ -467,6 +467,8 @@ fn test_cost_voting_integration() {
         QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
     let bad_cost_definer =
         QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-definer".into());
+    let bad_cost_args_definer =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-args-definer".into());
     let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
@@ -491,6 +493,10 @@ fn test_cost_voting_integration() {
        {
          runtime: u2, write_length: u0, write_count: u0, read_count: u0, read_length: u0
        })
+    (define-read-only (cost-definition-multi-arg (a uint) (b uint) (c uint))
+       {
+         runtime: u1, write_length: u0, write_count: u0, read_count: u0, read_length: u0
+       })
 
     ";
 
@@ -502,12 +508,23 @@ fn test_cost_voting_integration() {
        })
     ";
 
+        let bad_cost_args_definer_src = "
+    (define-read-only (cost-definition (b uint) (b uint))
+       {
+         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
+       })
+    ";
+
         let intercepted_src = "
     (define-read-only (intercepted-function (a uint))
        (if (>= a u10)
            (+ (+ a a) (+ a a)
               (+ a a) (+ a a))
            u0))
+
+    (define-read-only (intercepted-function2 (a uint) (b uint) (c uint))
+       (- (+ a b) c))
+
     (define-public (non-read-only) (ok (+ 1 2 3)))
     ";
 
@@ -521,6 +538,7 @@ fn test_cost_voting_integration() {
             (&intercepted, intercepted_src),
             (&caller, caller_src),
             (&bad_cost_definer, bad_cost_definer_src),
+            (&bad_cost_args_definer, bad_cost_args_definer_src),
         ]
         .iter()
         {
@@ -604,6 +622,13 @@ fn test_cost_voting_integration() {
             intercepted.clone().into(),
             "intercepted-function",
             bad_cost_definer.clone().into(),
+            "cost-definition",
+        ),
+        // cost defining contract has incorrect number of arguments
+        (
+            intercepted.clone().into(),
+            "intercepted-function",
+            bad_cost_args_definer.clone().into(),
             "cost-definition",
         ),
     ];
@@ -691,6 +716,12 @@ fn test_cost_voting_integration() {
             "cost_le",
             cost_definer.clone(),
             "cost-definition-le",
+        ),
+        (
+            intercepted.clone(),
+            "intercepted-function2",
+            cost_definer.clone(),
+            "cost-definition-multi-arg",
         ),
     ];
 

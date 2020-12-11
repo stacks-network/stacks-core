@@ -527,7 +527,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                     ) {
                         (Fixed(tf), Fixed(cf)) => {
                             if cf.args.len() != tf.args.len() {
-                                warn!("Confirmed cost proposal invalid: wrong number of arguments";
+                                warn!("Confirmed cost proposal invalid: cost-function contains the wrong number of arguments";
                                       "confirmed_proposal_id" => confirmed_proposal,
                                       "target_contract_name" => %target_contract,
                                       "target_function_name" => %target_function,
@@ -868,12 +868,7 @@ impl CostTracker for LimitedCostTracker {
         // grr, if HashMap::get didn't require Borrow, we wouldn't need this cloning.
         let lookup_key = (contract.clone(), function.clone());
         if let Some(cost_function) = self.contract_call_circuits.get(&lookup_key).cloned() {
-            let input_sizes = if input.is_empty() {
-                vec![0]
-            } else {
-                input.to_vec()
-            };
-            compute_cost(self, cost_function, input_sizes)?;
+            compute_cost(self, cost_function, input.to_vec())?;
             Ok(true)
         } else {
             Ok(false)
