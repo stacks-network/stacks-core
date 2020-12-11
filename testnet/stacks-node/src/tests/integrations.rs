@@ -757,12 +757,12 @@ fn contract_stx_transfer() {
                         )
                         .unwrap();
                 }
-                // this one should fail:
+                // this one should fail because the nonce is already in the mempool
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 3, 200, &contract_identifier.clone().into(), 1000);
+                    make_stacks_transfer(&sk_3, 3, 190, &contract_identifier.clone().into(), 1000);
                 let xfer_to_contract =
                     StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
-                let result = match tenure
+                match tenure
                     .mem_pool
                     .submit(
                         &mut chainstate_copy,
@@ -772,10 +772,11 @@ fn contract_stx_transfer() {
                     )
                     .unwrap_err()
                 {
-                    MemPoolRejection::TooMuchChaining { .. } => true,
-                    _ => false,
+                    MemPoolRejection::ConflictingNonceInMempool => (),
+                    e => {
+                        panic!("{:?}", e)
+                    }
                 };
-                assert!(result);
             }
 
             return;
