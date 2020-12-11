@@ -196,8 +196,7 @@ fn mempool_setup_chainstate() {
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
-            let mempool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &chainstate_path).unwrap();
-            let mempool_conn = mempool.conn();
+            let _mempool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &chainstate_path).unwrap();
 
             if round == 3 {
                 let block_header = chain_tip.metadata.clone();

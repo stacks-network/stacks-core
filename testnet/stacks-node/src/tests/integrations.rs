@@ -625,7 +625,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {} (invalid)", path);
 
                 // tx_xfer_invalid is 180 bytes long
-                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 10).into(), 200,     // bad nonce
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200,     // bad nonce
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
