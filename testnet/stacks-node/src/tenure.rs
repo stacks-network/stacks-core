@@ -109,23 +109,12 @@ impl<'a> Tenure {
     }
 
     #[cfg(test)]
-    pub fn open_chainstate_with_block_limit(&self) -> StacksChainState {
+    pub fn open_chainstate(&self) -> StacksChainState {
         let (chain_state, _) = StacksChainState::open_with_block_limit(
             false,
             TESTNET_CHAIN_ID,
             &self.config.get_chainstate_path(),
             self.config.block_limit.clone(),
-        )
-        .unwrap();
-        chain_state
-    }
-
-    #[cfg(test)]
-    pub fn open_chainstate(&self) -> StacksChainState {
-        let (chain_state, _) = StacksChainState::open(
-            false,
-            TESTNET_CHAIN_ID,
-            &self.config.get_chainstate_path(),
         )
         .unwrap();
         chain_state
