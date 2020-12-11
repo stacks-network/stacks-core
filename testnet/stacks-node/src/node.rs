@@ -39,9 +39,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
 
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-
 #[derive(Debug, Clone)]
 pub struct ChainTip {
     pub metadata: StacksHeaderInfo,
@@ -104,6 +101,8 @@ pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalanc
 }
 
 fn spawn_peer(
+    is_mainnet: bool,
+    chain_id: u32,
     mut this: PeerNetwork,
     p2p_sock: &SocketAddr,
     rpc_sock: &SocketAddr,
@@ -132,7 +131,7 @@ fn spawn_peer(
                 }
             };
             let (mut chainstate, _) =
-                match StacksChainState::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Error while connecting chainstate db in peer loop: {}", e);
@@ -142,7 +141,7 @@ fn spawn_peer(
                 };
 
             let mut mem_pool =
-                match MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path) {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Error while connecting to mempool db in peer loop: {}", e);
@@ -193,8 +192,8 @@ impl Node {
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
-            false,
-            TESTNET_CHAIN_ID,
+            config.is_mainnet(),
+            config.burnchain.chain_id,
             &config.get_chainstate_path(),
             Some(&mut boot_data),
             config.block_limit.clone(),
@@ -248,7 +247,7 @@ impl Node {
         let sortdb_path = config.get_burn_db_file_path();
 
         let (chain_state, _) =
-            match StacksChainState::open(false, TESTNET_CHAIN_ID, &chainstate_path) {
+            match StacksChainState::open(config.is_mainnet(), config.burnchain.chain_id, &chainstate_path) {
                 Ok(x) => x,
                 Err(_e) => panic!(),
             };
@@ -344,7 +343,7 @@ impl Node {
         let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
-            TESTNET_CHAIN_ID,
+            self.config.burnchain.chain_id,
             burnchain.network_id,
             Some(node_privkey),
             self.config.connection_options.private_key_lifetime.clone(),
@@ -385,12 +384,14 @@ impl Node {
             peerdb,
             atlasdb,
             local_peer,
-            TESTNET_PEER_VERSION,
+            self.config.burnchain.peer_version,
             burnchain,
             view,
             self.config.connection_options.clone(),
         );
         let _join_handle = spawn_peer(
+            self.config.is_mainnet(),
+            self.config.burnchain.chain_id,
             p2p_net,
             &p2p_sock,
             &rpc_sock,
@@ -536,7 +537,7 @@ impl Node {
             },
         };
 
-        let mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &self.chain_state.root_path)
+        let mem_pool = MemPoolDB::open(self.config.is_mainnet(), self.config.burnchain.chain_id, &self.chain_state.root_path)
             .expect("FATAL: failed to open mempool");
 
         // Construct the coinbase transaction - 1st txn that should be handled and included in
@@ -764,7 +765,7 @@ impl Node {
             ),
         };
 
-        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+        let commit_outs = RewardSetInfo::into_commit_outs(None, self.config.is_mainnet());
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -796,7 +797,7 @@ impl Node {
             tx_auth,
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
         );
-        tx.chain_id = TESTNET_CHAIN_ID;
+        tx.chain_id = self.config.burnchain.chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);

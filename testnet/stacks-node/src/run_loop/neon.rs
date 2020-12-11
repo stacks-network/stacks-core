@@ -140,8 +140,8 @@ impl RunLoop {
             }
         };
 
-        let mainnet = false;
-        let chainid = neon_node::TESTNET_CHAIN_ID;
+        let mainnet = self.config.is_mainnet();
+        let chainid = self.config.burnchain.chain_id;
         let block_limit = self.config.block_limit.clone();
         let initial_balances = self
             .config

@@ -101,6 +101,10 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::xenon()
         }
+        "mainnet" => {
+            args.finish().unwrap();
+            ConfigFile::mainnet()
+        }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
@@ -138,9 +142,8 @@ fn main() {
             return;
         }
     } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "argon"
-        || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "xenon"
+        || conf.burnchain.mode == "mainnet"
     {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round, None);
@@ -162,6 +165,8 @@ stacks-node <SUBCOMMAND>
 
 SUBCOMMANDS:
 
+mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
+
 mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development. 
 
 helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
@@ -172,10 +177,6 @@ helium\t\tStart a node based on a local setup relying on a local instance of bit
 \t\t  server=1
 \t\t  rpcuser=helium
 \t\t  rpcpassword=helium
-
-argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack (Proof of Burn).
-
-krypton\t\tStart a node that will join and stream blocks from the public krypton testnet, powered by Blockstack via (Proof of Transfer).
 
 xenon\t\tStart a node that will join and stream blocks from the public xenon testnet, decentralized.
 

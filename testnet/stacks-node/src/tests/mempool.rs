@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-use crate::node::TESTNET_CHAIN_ID;
+use crate::config::TESTNET_CHAIN_ID;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,

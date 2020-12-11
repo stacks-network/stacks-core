@@ -20,7 +20,7 @@ use stacks::vm::database::ClarityDeserializable;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
-    node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
+    config::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
 };
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
@@ -1451,7 +1451,7 @@ fn atlas_integration_test() {
     );
     conf_follower_node
         .node
-        .set_bootstrap_node(Some(bootstrap_node_url));
+        .set_bootstrap_node(Some(bootstrap_node_url), conf_follower_node.burnchain.chain_id, conf_follower_node.burnchain.peer_version);
     conf_follower_node.node.miner = false;
     conf_follower_node
         .initial_balances
