@@ -273,7 +273,7 @@ fn bitcoind_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -334,7 +334,7 @@ fn bitcoind_forking_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -456,7 +456,7 @@ fn microblock_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -851,7 +851,7 @@ fn size_check_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(0, None, true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1061,7 +1061,7 @@ fn pox_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1492,7 +1492,7 @@ fn atlas_integration_test() {
         let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
-        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
 
         // give the run loop some time to start up!
         wait_for_runloop(&blocks_processed);
@@ -1781,7 +1781,7 @@ fn atlas_integration_test() {
         let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
-        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config), true));
 
         // give the run loop some time to start up!
         wait_for_runloop(&blocks_processed);

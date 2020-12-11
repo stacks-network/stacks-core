@@ -91,7 +91,12 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
+    pub fn start(
+        &mut self,
+        _expected_num_rounds: u64,
+        burnchain_opt: Option<Burnchain>,
+        skip_genesis_import: bool,
+    ) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -201,6 +206,10 @@ impl RunLoop {
             get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
             get_bulk_initial_balances: Some(Box::new(get_account_balances)),
         };
+        if skip_genesis_import {
+            boot_data.get_bulk_initial_lockups = None;
+            boot_data.get_bulk_initial_balances = None;
+        }
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             mainnet,
