@@ -11,7 +11,7 @@ use libflate::deflate;
 use sha2::{Digest, Sha256};
 
 fn main() {
-    verify_genesis_integrity();
+    verify_genesis_integrity().expect("failed to verify and output chainstate.txt.sha256 hash");
     write_archives().expect("failed to write archives");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=chainstate.txt.sha256");
@@ -48,9 +48,9 @@ pub fn write_archives() -> std::io::Result<()> {
     {
         let chainstate_file = open_chainstate_file();
         let reader = BufReader::new(chainstate_file);
-        let vesting_file_path = Path::new(&out_dir).join("account_vesting.gz");
-        let vesting_file = File::create(vesting_file_path)?;
-        let mut vesting_encoder = deflate::Encoder::new(vesting_file);
+        let lockups_file_path = Path::new(&out_dir).join("account_lockups.gz");
+        let lockups_file = File::create(lockups_file_path)?;
+        let mut lockups_encoder = deflate::Encoder::new(lockups_file);
 
         for line in reader
             .lines()
@@ -60,11 +60,11 @@ pub fn write_archives() -> std::io::Result<()> {
             .skip(2)
             .take_while(|line| !line.eq(&"-----END STX VESTING-----"))
         {
-            vesting_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
+            lockups_encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
         }
 
-        let mut vesting_file = vesting_encoder.finish().into_result().unwrap();
-        vesting_file.flush()?;
+        let mut lockups_file = lockups_encoder.finish().into_result().unwrap();
+        lockups_file.flush()?;
     }
     Ok(())
 }
@@ -90,7 +90,7 @@ fn encode_hex(bytes: &[u8]) -> String {
     s
 }
 
-fn verify_genesis_integrity() {
+fn verify_genesis_integrity() -> std::io::Result<()> {
     let genesis_data_sha = sha256_digest(open_chainstate_file());
     let expected_genesis_sha = fs::read_to_string("chainstate.txt.sha256").unwrap();
     if !genesis_data_sha.eq_ignore_ascii_case(&expected_genesis_sha) {
@@ -99,4 +99,10 @@ fn verify_genesis_integrity() {
             expected_genesis_sha, genesis_data_sha
         );
     }
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let chainstate_hash_file_path = Path::new(&out_dir).join("chainstate.txt.sha256");
+    let mut chainstate_hash_file = File::create(chainstate_hash_file_path)?;
+    chainstate_hash_file.write_all(genesis_data_sha.as_bytes())?;
+    chainstate_hash_file.flush()?;
+    Ok(())
 }

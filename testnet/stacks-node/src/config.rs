@@ -177,6 +177,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
+            magic_bytes: Some("Xe".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -377,8 +378,15 @@ impl Config {
         };
 
         let default_burnchain_config = BurnchainConfig::default();
+
         let burnchain = match config_file.burnchain {
-            Some(burnchain) => {
+            Some(mut burnchain) => {
+                if burnchain.mode.as_deref() == Some("xenon") {
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+                    }
+                }
+
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
@@ -417,7 +425,14 @@ impl Config {
                     spv_headers_path: burnchain
                         .spv_headers_path
                         .unwrap_or(node.get_default_spv_headers_path()),
-                    magic_bytes: default_burnchain_config.magic_bytes,
+                    magic_bytes: burnchain
+                        .magic_bytes
+                        .map(|magic_ascii| {
+                            assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
+                            assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
+                            MagicBytes::from(magic_ascii.as_bytes())
+                        })
+                        .unwrap_or(default_burnchain_config.magic_bytes),
                     local_mining_public_key: burnchain.local_mining_public_key,
                     burnchain_op_tx_fee: burnchain
                         .burnchain_op_tx_fee
@@ -1101,11 +1116,4 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
-}
-
-#[derive(Clone, Deserialize, Default)]
-pub struct InitialVestingScheduleFile {
-    pub address: String,
-    pub amount: u64,
-    pub block_height: u64,
 }

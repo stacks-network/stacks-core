@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 libflate = "1.0.3"
-stacks = { package = "blockstack-core", path = "../." }
 
 [lib]
 name = "stx_genesis"

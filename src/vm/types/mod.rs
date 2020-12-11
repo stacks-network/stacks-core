@@ -253,6 +253,96 @@ impl SequenceData {
         }
     }
 
+    pub fn element_at(self, index: usize) -> Option<Value> {
+        if self.len() <= index {
+            return None;
+        }
+        let result = match self {
+            SequenceData::Buffer(data) => Value::buff_from_byte(data.data[index]),
+            SequenceData::List(mut data) => data.data.remove(index),
+            SequenceData::String(CharType::ASCII(data)) => {
+                Value::string_ascii_from_bytes(vec![data.data[index]])
+                    .expect("BUG: failed to initialize single-byte ASCII buffer")
+            }
+            SequenceData::String(CharType::UTF8(mut data)) => {
+                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+                    data: vec![data.data.remove(index)],
+                })))
+            }
+        };
+
+        Some(result)
+    }
+
+    pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
+        match self {
+            SequenceData::Buffer(ref data) => {
+                if let Value::Sequence(SequenceData::Buffer(to_find_vec)) = to_find {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(CheckErrors::TypeValueError(TypeSignature::min_buffer(), to_find).into())
+                }
+            }
+            SequenceData::List(ref data) => {
+                for (index, entry) in data.data.iter().enumerate() {
+                    if entry == &to_find {
+                        return Ok(Some(index));
+                    }
+                }
+                Ok(None)
+            }
+            SequenceData::String(CharType::ASCII(ref data)) => {
+                if let Value::Sequence(SequenceData::String(CharType::ASCII(to_find_vec))) = to_find
+                {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_ascii(), to_find)
+                            .into(),
+                    )
+                }
+            }
+            SequenceData::String(CharType::UTF8(ref data)) => {
+                if let Value::Sequence(SequenceData::String(CharType::UTF8(to_find_vec))) = to_find
+                {
+                    if to_find_vec.data.len() != 1 {
+                        Ok(None)
+                    } else {
+                        for (index, entry) in data.data.iter().enumerate() {
+                            if entry == &to_find_vec.data[0] {
+                                return Ok(Some(index));
+                            }
+                        }
+                        Ok(None)
+                    }
+                } else {
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_utf8(), to_find)
+                            .into(),
+                    )
+                }
+            }
+        }
+    }
+
     pub fn filter<F>(&mut self, filter: &mut F) -> Result<()>
     where
         F: FnMut(SymbolicExpression) -> Result<bool>,
@@ -766,6 +856,15 @@ impl Value {
             }
         } else {
             error!("Value '{:?}' is not a buff", &self);
+            panic!();
+        }
+    }
+
+    pub fn expect_list(self) -> Vec<Value> {
+        if let Value::Sequence(SequenceData::List(listdata)) = self {
+            listdata.data
+        } else {
+            error!("Value '{:?}' is not a list", &self);
             panic!();
         }
     }
