@@ -29,7 +29,7 @@ use stacks::net::{
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainStateAccountLockup, ChainstateAccountBalance},
+    chainstate::stacks::db::{ChainstateAccountBalance, ChainstateAccountLockup},
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -84,9 +84,9 @@ pub struct Node {
     nonce: u64,
 }
 
-pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainStateAccountLockup>> {
+pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainstateAccountLockup>> {
     Box::new(
-        stx_genesis::read_lockups().map(|item| ChainStateAccountLockup {
+        stx_genesis::read_lockups().map(|item| ChainstateAccountLockup {
             address: item.address,
             amount: item.amount,
             block_height: item.block_height,
