@@ -638,7 +638,7 @@ impl CostTracker for Environment<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64,
+        input: Vec<u64>,
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         self.global_context
             .cost_track
@@ -672,7 +672,7 @@ impl CostTracker for GlobalContext<'_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64,
+        input: Vec<u64>,
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         self.cost_track.compute_cost(cost_function, input)
     }
