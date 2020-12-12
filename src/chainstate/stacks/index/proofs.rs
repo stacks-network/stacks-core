@@ -1218,7 +1218,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         i += 1;
         if i >= proof.len() {
             // done -- no further shunts
-            return true;
+            trace!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+            return *root_hash == trie_hash;
         }
 
         // next node hash is the hash of the block from which its root came
@@ -1669,5 +1670,108 @@ mod test {
         let triepath_1 = TriePath::from_key(&k1);
         let marf_value_1 = MARFValue::from_value(&old_v);
         assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
+    }
+
+    #[test]
+    fn ncc_verifier_catches_stale_proof() {
+        // use std::env;
+        // env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
+        let mut m = MARF::from_path(":memory:").unwrap();
+
+        let sentinel_block = BlockHeaderHash::sentinel();
+        let block_0 = BlockHeaderHash([0u8; 32]);
+        let block_1 = BlockHeaderHash([1u8; 32]);
+        let block_2 = BlockHeaderHash([2u8; 32]);
+        let block_3 = BlockHeaderHash([3u8; 32]);
+        let block_4 = BlockHeaderHash([4u8; 32]);
+        let block_5 = BlockHeaderHash([5u8; 32]);
+
+        let k1 = "K1".to_string();
+        let old_v = "OLD".to_string();
+        let new_v = "NEW".to_string();
+        let new_new_v = "NEWNEW".to_string();
+        let new_new_new_v = "NEWNEWNEW".to_string();
+        let another_v = "ANOTHERV".to_string();
+
+        m.begin(&sentinel_block, &block_0).unwrap();
+        m.commit().unwrap();
+
+        // Block #1
+        m.begin(&block_0, &block_1).unwrap();
+        let r = m.insert(&k1, MARFValue::from_value(&new_v));
+        let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        // Block #2
+        m.begin(&block_1, &block_2).unwrap();
+        let r = m.insert(&k1, MARFValue::from_value(&old_v));
+        let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        // Block #3
+        m.begin(&block_2, &block_3).unwrap();
+        let r = m.insert(&k1, MARFValue::from_value(&new_new_v));
+        let (_, root_hash_3) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        // Block #4
+        m.begin(&block_3, &block_4).unwrap();
+        let r = m.insert(&k1, MARFValue::from_value(&new_v));
+        let (_, root_hash_4) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        // Block #5
+        m.begin(&block_4, &block_5).unwrap();
+        let r = m.insert(&k1, MARFValue::from_value(&another_v));
+        let (_, root_hash_5) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        merkle_test_marf_key_value(
+            &mut m.borrow_storage_backend(),
+            &block_5,
+            &k1,
+            &another_v,
+            None,
+        );
+        merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &old_v, None);
+
+        let root_to_block = {
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
+        };
+
+        // prove for latest k/v pair succeeds
+        let proof_5 =
+            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &another_v, &block_5)
+                .unwrap();
+
+        let triepath_4 = TriePath::from_key(&k1);
+        let marf_value_4 = MARFValue::from_value(&another_v);
+        let root_to_block = {
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
+        };
+
+        println!("DEBUG: verify(another_v)");
+        assert!(proof_5.verify(&triepath_4, &marf_value_4, &root_hash_5, &root_to_block));
+
+        // prepare a proof for the wrong root hash i.e. block2 instead of block5.
+        // Should fail
+        let proof_5 =
+            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2)
+                .unwrap();
+
+        let triepath_4 = TriePath::from_key(&k1);
+        let marf_value_4 = MARFValue::from_value(&old_v);
+        let root_to_block = {
+            m.borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap()
+        };
+
+        println!("DEBUG: verify(old_v)");
+        assert!(!proof_5.verify(&triepath_4, &marf_value_4, &root_hash_5, &root_to_block));
     }
 }
