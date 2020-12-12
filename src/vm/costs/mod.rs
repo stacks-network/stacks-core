@@ -459,32 +459,21 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                         );
                         continue;
                     }
-
-                    let maybe_cost_function_types =
-                        c.public_function_types.get(&cost_function).or_else(|| {
-                            c.read_only_function_types
-                                .get(&cost_function)
-                                .or_else(|| c.private_function_types.get(&cost_function).clone())
-                        });
-
-                    let cost_function_types = if let Some(result) = maybe_cost_function_types {
-                        result
-                    } else {
-                        warn!("Confirmed cost proposal invalid: cost-function-name not defined";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "contract_name" => %cost_contract,
-                              "function_name" => %cost_function,
-                        );
-                        continue;
-                    };
+                    (
+                        ClarityCostFunctionReference {
+                            contract_id: cost_contract,
+                            function_name: cost_function.to_string(),
+                        },
+                        cost_function_type.clone(),
+                    )
+                } else {
+                    warn!("Confirmed cost proposal invalid: cost-function-name not defined";
+                          "confirmed_proposal_id" => confirmed_proposal,
+                          "contract_name" => %cost_contract,
+                          "function_name" => %cost_function,
+                    );
+                    continue;
                 }
-                (
-                    ClarityCostFunctionReference {
-                        contract_id: cost_contract,
-                        function_name: cost_function.to_string(),
-                    },
-                    cost_function_types.clone(),
-                )
             }
             None => {
                 warn!("Confirmed cost proposal invalid: cost-function-contract is not a published contract";
@@ -525,7 +514,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                         c.read_only_function_types.get(&target_function).unwrap(),
                         &cost_func_type,
                     ) {
-                        (Fixed(tf), Fixed(cf)) => {
+                        (Fixed(tf), cf) => {
                             if cf.args.len() != tf.args.len() {
                                 warn!("Confirmed cost proposal invalid: cost-function contains the wrong number of arguments";
                                       "confirmed_proposal_id" => confirmed_proposal,
