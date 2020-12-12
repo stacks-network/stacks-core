@@ -43,6 +43,12 @@ impl TransactionOrigin {
             TransactionOrigin::Stacks(tx) => tx.txid(),
         }
     }
+    pub fn serialize_to_vec(&self) -> Vec<u8> {
+        match self {
+            TransactionOrigin::Burn(txid) => txid.as_bytes().to_vec(),
+            TransactionOrigin::Stacks(tx) => tx.txid().as_bytes().to_vec(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
