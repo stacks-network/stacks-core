@@ -782,13 +782,19 @@ fn test_cost_voting_integration() {
         let (_db, tracker) = owned_env.destruct().unwrap();
 
         let circuits = tracker.contract_call_circuits();
-        assert_eq!(circuits.len(), 1);
-        for (target, referenced_function) in circuits.into_iter() {
-            assert_eq!(&target.0, &intercepted);
-            assert_eq!(&target.1.to_string(), "intercepted-function");
-            assert_eq!(&referenced_function.contract_id, &cost_definer);
-            assert_eq!(&referenced_function.function_name, "cost-definition");
-        }
+        assert_eq!(circuits.len(), 2);
+
+        let circuit1 = circuits.get(&(intercepted.clone(), "intercepted-function".into()));
+        let circuit2 = circuits.get(&(intercepted.clone(), "intercepted-function2".into()));
+
+        assert!(circuit1.is_some());
+        assert!(circuit2.is_some());
+
+        assert_eq!(circuit1.unwrap().contract_id, cost_definer);
+        assert_eq!(circuit1.unwrap().function_name, "cost-definition");
+
+        assert_eq!(circuit2.unwrap().contract_id, cost_definer);
+        assert_eq!(circuit2.unwrap().function_name, "cost-definition-multi-arg");
 
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             if target == &ClarityCostFunction::Le {
