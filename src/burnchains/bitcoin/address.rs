@@ -120,7 +120,7 @@ impl BitcoinAddress {
     pub fn from_bytes(
         network_id: BitcoinNetworkType,
         addrtype: BitcoinAddressType,
-        bytes: &Vec<u8>,
+        bytes: &[u8],
     ) -> Result<BitcoinAddress, btc_error> {
         if bytes.len() != 20 {
             return Err(btc_error::InvalidByteSequence);

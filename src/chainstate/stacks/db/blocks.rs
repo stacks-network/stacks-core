@@ -78,6 +78,7 @@ pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use vm::contracts::Contract;
+use vm::costs::LimitedCostTracker;
 
 use rand::thread_rng;
 use rand::RngCore;
@@ -3817,6 +3818,54 @@ impl StacksChainState {
         all_receipts
     }
 
+    /// Process any STX transfer bitcoin operations
+    ///  that haven't been processed in this Stacks fork yet.
+    pub fn process_transfer_ops(
+        clarity_tx: &mut ClarityTx,
+        mut operations: Vec<TransferStxOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        operations.sort_by_key(|op| op.vtxindex);
+        let (all_receipts, _) =
+            clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
+                operations
+                    .into_iter()
+                    .filter_map(|transfer_stx_op| {
+                        let TransferStxOp {
+                            sender,
+                            recipient,
+                            transfered_ustx,
+                            txid,
+                            burn_header_hash,
+                            ..
+                        } = transfer_stx_op;
+                        let result = clarity_tx.connection().as_transaction(|tx| {
+                            tx.run_stx_transfer(&sender.into(), &recipient.into(), transfered_ustx)
+                        });
+                        match result {
+                            Ok((value, _, events)) => Some(StacksTransactionReceipt {
+                                transaction: TransactionOrigin::Burn(txid),
+                                events,
+                                result: value,
+                                post_condition_aborted: false,
+                                stx_burned: 0,
+                                contract_analysis: None,
+                                execution_cost: ExecutionCost::zero(),
+                            }),
+                            Err(e) => {
+                                info!("TransferStx burn op processing error.";
+                              "error" => ?e,
+                              "txid" => %txid,
+                              "burn_block" => %burn_header_hash);
+                                None
+                            }
+                        }
+                    })
+                    .collect()
+            });
+
+        all_receipts
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
     fn process_block_transactions(
@@ -4033,6 +4082,8 @@ impl StacksChainState {
             .parent_burn_header_hash;
             let stacking_burn_ops =
                 SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
+            let transfer_burn_ops =
+                SortitionDB::get_transfer_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
 
             let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),
@@ -4158,6 +4209,11 @@ impl StacksChainState {
             // process stacking operations from bitcoin ops
             let mut receipts =
                 StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
+
+            receipts.extend(StacksChainState::process_transfer_ops(
+                &mut clarity_tx,
+                transfer_burn_ops,
+            ));
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =

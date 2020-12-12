@@ -450,8 +450,9 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::PreStackStx(_)
+                BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::UserBurnSupport(_) => {
                     // no-op, ops are not supported / produced at this point.
                 }

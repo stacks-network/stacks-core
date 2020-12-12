@@ -1876,9 +1876,9 @@ pub mod test {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
-                    Ok(())
-                }
+                BlockstackOperationType::TransferStx(_)
+                | BlockstackOperationType::PreStx(_)
+                | BlockstackOperationType::StackStx(_) => Ok(()),
             }
         }
 
