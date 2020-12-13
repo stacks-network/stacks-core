@@ -1081,6 +1081,31 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    pub fn checked_decrease_token_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+        amount: u128,
+    ) -> Result<()> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        if amount > current_supply {
+            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into())
+        }
+
+        let new_supply = current_supply - amount;
+
+        self.put(&key, &new_supply);
+        Ok(())
+    }
+
     pub fn get_ft_balance(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

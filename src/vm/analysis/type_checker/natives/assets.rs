@@ -203,3 +203,30 @@ pub fn check_special_get_token_supply(
 
     Ok(TypeSignature::UIntType)
 }
+
+pub fn check_special_burn_token(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(3, args)?;
+
+    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let expected_amount: TypeSignature = TypeSignature::UIntType;
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
+
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
+
+    checker.type_check_expects(&args[1], context, &expected_amount)?;
+    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+
+    if !checker.contract_context.ft_exists(asset_name) {
+        return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
+    }
+
+    Ok(
+        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
+            .into(),
+    )
+}

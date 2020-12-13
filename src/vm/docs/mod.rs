@@ -1460,6 +1460,26 @@ The token type must have been defined using `define-fungible-token`.",
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (ft-get-supply stackaroo) ;; returns u100
 ",
+};
+
+const BURN_TOKEN: SpecialAPI = SpecialAPI {
+    input_type: "TokenName, uint, principal",
+    output_type: "(response bool uint)",
+    signature: "(ft-burn? token-name amount sender)",
+    description: "`ft-burn?` is used to decrease the token balance for the `sender` principal for a token
+type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
+rather destroyed, reducing the circulating supply.  
+
+If a non-positive amount is provided to burn, this function returns `(err 1)`. Otherwise, on successfuly burn, it
+returns `(ok true)`.
+",
+    example: "
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(ft-burn? stackaroo u50 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+"
+};
+
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-get-balance owner)",
@@ -1596,6 +1616,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetAssetOwner => make_for_special(&GET_OWNER, name),
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
+        BurnToken => make_for_special(&BURN_TOKEN, name),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),

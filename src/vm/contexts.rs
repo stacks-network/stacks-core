@@ -1205,6 +1205,28 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
         Ok(())
     }
+
+    pub fn register_ft_burn_event(
+        &mut self,
+        sender: PrincipalData,
+        amount: u128,
+        asset_identifier: AssetIdentifier,
+    ) -> Result<()> {
+        let event_data = FTBurnEventData {
+            sender,
+            asset_identifier,
+            amount,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch
+                .events
+                .push(StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(
+                    event_data,
+                )));
+        }
+        Ok(())
+    }
 }
 
 impl<'a> GlobalContext<'a> {

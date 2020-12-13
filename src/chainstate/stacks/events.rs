@@ -141,6 +141,13 @@ impl StacksTransactionEvent {
                 "type": "ft_mint_event",
                 "ft_mint_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "ft_burn_event",
+                "ft_burn_event": event_data.json_serialize()
+            }),
         }
     }
 }
@@ -163,6 +170,7 @@ pub enum NFTEventType {
 pub enum FTEventType {
     FTTransferEvent(FTTransferEventData),
     FTMintEvent(FTMintEventData),
+    FTBurnEvent(FTBurnEventData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -310,6 +318,23 @@ impl FTMintEventData {
         json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
+            "amount": format!("{}", self.amount),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FTBurnEventData {
+    pub asset_identifier: AssetIdentifier,
+    pub sender: PrincipalData,
+    pub amount: u128,
+}
+
+impl FTBurnEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        json!({
+            "asset_identifier": format!("{}", self.asset_identifier),
+            "sender": format!("{}",self.sender),
             "amount": format!("{}", self.amount),
         })
     }
