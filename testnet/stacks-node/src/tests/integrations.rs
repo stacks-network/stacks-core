@@ -773,9 +773,7 @@ fn contract_stx_transfer() {
                     .unwrap_err()
                 {
                     MemPoolRejection::ConflictingNonceInMempool => (),
-                    e => {
-                        panic!("{:?}", e)
-                    }
+                    e => panic!("{:?}", e),
                 };
             }
 

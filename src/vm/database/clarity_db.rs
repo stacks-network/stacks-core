@@ -1097,7 +1097,7 @@ impl<'a> ClarityDatabase<'a> {
             .expect("ERROR: Clarity VM failed to track token supply.");
 
         if amount > current_supply {
-            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into())
+            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into());
         }
 
         let new_supply = current_supply - amount;

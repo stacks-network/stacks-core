@@ -677,7 +677,9 @@ impl TypedNativeFunction {
             MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
             BurnAsset => Special(SpecialNativeFunction(&assets::check_special_burn_asset)),
             BurnToken => Special(SpecialNativeFunction(&assets::check_special_burn_token)),
-            GetTokenSupply => Special(SpecialNativeFunction(&assets::check_special_get_token_supply)),
+            GetTokenSupply => Special(SpecialNativeFunction(
+                &assets::check_special_get_token_supply,
+            )),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

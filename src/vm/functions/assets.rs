@@ -572,10 +572,10 @@ pub fn special_get_token_supply(
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
 
-    let supply = env.global_context.database.get_ft_supply(
-        &env.contract_context.contract_identifier,
-        token_name,
-    )?;
+    let supply = env
+        .global_context
+        .database
+        .get_ft_supply(&env.contract_context.contract_identifier, token_name)?;
     Ok(Value::UInt(supply))
 }
 
@@ -604,7 +604,7 @@ pub fn special_burn_token(
             burner,
         )?;
 
-        if amount > burner_bal  {
+        if amount > burner_bal {
             return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE);
         }
 
@@ -673,13 +673,15 @@ pub fn special_burn_asset(
             asset_name,
             &asset,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST),
+            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
+            }
             Ok(owner) => Ok(owner),
             Err(e) => Err(e),
         }?;
 
         if &owner != sender_principal {
-            return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY)
+            return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
