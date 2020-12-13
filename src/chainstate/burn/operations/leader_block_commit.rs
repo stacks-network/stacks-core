@@ -442,9 +442,11 @@ impl LeaderBlockCommitOp {
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must have the expected commit or burn outputs:
         //    * if there is a known anchor block for the current reward cycle, and this
-        //       block commit descends from that block
-        //       the commit outputs must = the expected set of commit outputs
-        //    * otherwise, there must be no block commits
+        //       block commit descends from that block, and this block commit is not in the
+        //       prepare phase of the reward cycle, and there are still reward addresses
+        //       left in this reward cycle to pay out to, then
+        //       the commit outputs must = the expected set of commit outputs.
+        //    * otherwise, the commit outputs must be burn outputs.
         /////////////////////////////////////////////////////////////////////////////////////
         if let Some(reward_set_info) = reward_set_info {
             // we do some check-inversion here so that we check the commit_outs _before_
@@ -452,6 +454,14 @@ impl LeaderBlockCommitOp {
             // we do this because the descended_from check isn't particularly cheap, so
             //   we want to make sure that any TX that forces us to perform the check
             //   has either burned BTC or sent BTC to the PoX recipients
+
+            // if we're in the prepare phase, then this block-commit _must_ burn.
+            if burnchain.is_in_prepare_phase(self.block_height) {
+                if !self.all_outputs_burn() {
+                    warn!("Invalid block commit: in block {} which is in the prepare phase, but did not burn as expected", self.block_height);
+                    return Err(op_error::BlockCommitBadOutputs);
+                }
+            }
 
             // first, handle a corner case:
             //    all of the commitment outputs are _burns_
