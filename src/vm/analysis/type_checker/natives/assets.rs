@@ -204,6 +204,37 @@ pub fn check_special_get_token_supply(
     Ok(TypeSignature::UIntType)
 }
 
+pub fn check_special_burn_asset(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(3, args)?;
+
+    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
+    let expected_asset_type = checker
+        .contract_context
+        .get_nft_type(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
+
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
+        checker,
+        expected_asset_type.type_size()?,
+    )?;
+
+    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
+    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+
+    Ok(
+        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
+            .into(),
+    )
+}
+
 pub fn check_special_burn_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],

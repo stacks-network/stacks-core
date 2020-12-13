@@ -1480,6 +1480,27 @@ returns `(ok true)`.
 "
 };
 
+const BURN_ASSET: SpecialAPI = SpecialAPI {
+    input_type: "AssetName, A, principal",
+    output_type: "(response bool uint)",
+    signature: "(nft-burn? asset-class asset-identifier recipient)",
+    description: "`nft-burn?` is used to burn an asset and remove that asset's owner from the `recipient` principal.
+The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
+that definition.
+
+If an asset identified by `asset-identifier` _doesn't exist_, this function will return an error with the following error code:
+
+`(err u1)`
+
+Otherwise, on successfuly burn, it returns `(ok true)`.
+",
+    example: "
+(define-non-fungible-token stackaroo (string-ascii 40))
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(nft-burn? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+"
+};
+
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-get-balance owner)",
@@ -1617,6 +1638,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         BurnToken => make_for_special(&BURN_TOKEN, name),
+        BurnAsset => make_for_special(&BURN_ASSET, name),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),

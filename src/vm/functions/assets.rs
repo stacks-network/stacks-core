@@ -48,6 +48,11 @@ enum TransferTokenErrorCodes {
     SENDER_IS_RECIPIENT = 2,
     NON_POSITIVE_AMOUNT = 3,
 }
+
+enum BurnAssetErrorCodes {
+    NOT_OWNED_BY = 1,
+    DOES_NOT_EXIST = 3,
+}
 enum BurnTokenErrorCodes {
     NOT_ENOUGH_BALANCE = 1,
     NON_POSITIVE_AMOUNT = 3,
@@ -630,5 +635,70 @@ pub fn special_burn_token(
         Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadBurnFTArguments.into())
+    }
+}
+
+pub fn special_burn_asset(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
+
+    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let asset = eval(&args[1], env, context)?;
+    let sender = eval(&args[2], env, context)?;
+
+    let expected_asset_type = env
+        .global_context
+        .database
+        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+
+    runtime_cost(
+        ClarityCostFunction::NftBurn,
+        env,
+        expected_asset_type.size(),
+    )?;
+
+    if !expected_asset_type.admits(&asset) {
+        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+    }
+
+    if let Value::Principal(ref sender_principal) = sender {
+        let owner = match env.global_context.database.get_nft_owner(
+            &env.contract_context.contract_identifier,
+            asset_name,
+            &asset,
+        ) {
+            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST),
+            Ok(owner) => Ok(owner),
+            Err(e) => Err(e),
+        }?;
+
+        if &owner != sender_principal {
+            return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY)
+        }
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(expected_asset_type.size() as u64)?;
+
+        env.global_context.database.burn_nft(
+            &env.contract_context.contract_identifier,
+            asset_name,
+            &asset,
+        )?;
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: asset_name.clone(),
+        };
+        env.register_nft_burn_event(sender_principal.clone(), asset, asset_identifier)?;
+
+        Ok(Value::okay_true())
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
     }
 }

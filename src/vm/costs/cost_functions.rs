@@ -128,5 +128,6 @@ define_named_enum!(ClarityCostFunction {
     NftMint("cost_nft_mint"),
     NftTransfer("cost_nft_transfer"),
     NftOwner("cost_nft_owner"),
+    NftBurn("cost_nft_burn"),
     PoisonMicroblock("poison_microblock"),
 });

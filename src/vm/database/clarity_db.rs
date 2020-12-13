@@ -1216,6 +1216,28 @@ impl<'a> ClarityDatabase<'a> {
 
         Ok(())
     }
+
+    pub fn burn_nft(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        asset_name: &str,
+        asset: &Value,
+    ) -> Result<()> {
+        let descriptor = self.load_nft(contract_identifier, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        }
+
+        let key = ClarityDatabase::make_key_for_quad(
+            contract_identifier,
+            StoreType::NonFungibleToken,
+            asset_name,
+            asset.serialize(),
+        );
+
+        self.put(&key, &(Value::none()));
+        Ok(())
+    }
 }
 
 // load/store STX token state and account nonces
