@@ -1121,6 +1121,22 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    pub fn get_ft_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+    ) -> Result<u128> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let supply = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+        Ok(supply)
+    }
+
     pub fn get_nft_owner(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

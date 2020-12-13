@@ -1449,6 +1449,17 @@ one of the following error codes:
 "
 };
 
+const GET_TOKEN_SUPPLY: SpecialAPI = SpecialAPI {
+    input_type: "TokenName",
+    output_type: "uint",
+    signature: "(ft-get-supply token-name)",
+    description: "`ft-get-balance` returns `token-name` circulating supply.
+The token type must have been defined using `define-fungible-token`.",
+    example: "
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-get-supply stackaroo) ;; returns u100
+",
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-get-balance owner)",
@@ -1585,6 +1596,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetAssetOwner => make_for_special(&GET_OWNER, name),
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
+        GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),

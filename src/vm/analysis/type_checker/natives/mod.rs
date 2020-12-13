@@ -675,6 +675,7 @@ impl TypedNativeFunction {
             TransferAsset => Special(SpecialNativeFunction(&assets::check_special_transfer_asset)),
             MintAsset => Special(SpecialNativeFunction(&assets::check_special_mint_asset)),
             MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
+            GetTokenSupply => Special(SpecialNativeFunction(&assets::check_special_get_token_supply)),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

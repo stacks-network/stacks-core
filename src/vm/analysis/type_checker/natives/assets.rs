@@ -185,3 +185,21 @@ pub fn check_special_transfer_token(
             .into(),
     )
 }
+
+pub fn check_special_get_token_supply(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(1, args)?;
+
+    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    if !checker.contract_context.ft_exists(asset_name) {
+        return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
+    }
+
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
+
+    Ok(TypeSignature::UIntType)
+}

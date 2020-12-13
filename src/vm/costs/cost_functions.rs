@@ -123,6 +123,7 @@ define_named_enum!(ClarityCostFunction {
     FtMint("cost_ft_mint"),
     FtTransfer("cost_ft_transfer"),
     FtBalance("cost_ft_balance"),
+    FtSupply("cost_ft_get_supply"),
     NftMint("cost_nft_mint"),
     NftTransfer("cost_nft_transfer"),
     NftOwner("cost_nft_owner"),
