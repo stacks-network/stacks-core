@@ -44,6 +44,7 @@ use util::hash::Sha512Trunc256Sum;
 use burnchains::BurnchainBlockHeader;
 
 use burnchains::Error as BurnchainError;
+use chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use chainstate::burn::Opcodes;
 use chainstate::burn::VRFSeed;
 use chainstate::stacks::index::TrieHash;
@@ -69,8 +70,9 @@ pub enum Error {
     BlockCommitNoParent,
     BlockCommitBadInput,
     BlockCommitBadOutputs,
-
     BlockCommitAnchorCheck,
+    BlockCommitBadModulus,
+    MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
     LeaderKeyAlreadyRegistered,
@@ -111,7 +113,15 @@ impl fmt::Display for Error {
             Error::BlockCommitBadOutputs => {
                 write!(f, "Block commit included a bad commitment output")
             }
-
+            Error::BlockCommitBadModulus => {
+                write!(f, "Block commit included a bad burn block height modulus")
+            }
+            Error::MissedBlockCommit(_) => {
+                write!(
+                    f,
+                    "Block commit included in a burn block that was not intended"
+                )
+            }
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }

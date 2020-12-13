@@ -48,7 +48,7 @@ use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, R
 use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
+    leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
@@ -115,6 +115,21 @@ impl From<BlockHeaderHash> for BurnchainHeaderHash {
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
         SortitionId::from_column(row, "sortition_id")
+    }
+}
+
+impl FromRow<MissedBlockCommit> for MissedBlockCommit {
+    fn from_row<'a>(row: &'a Row) -> Result<MissedBlockCommit, db_error> {
+        let intended_sortition = SortitionId::from_column(row, "intended_sortition_id")?;
+        let input_json: String = row.get("input");
+        let input =
+            serde_json::from_str(&input_json).map_err(|e| db_error::SerializationError(e))?;
+        let txid = Txid::from_column(row, "txid")?;
+        Ok(MissedBlockCommit {
+            input,
+            txid,
+            intended_sortition,
+        })
     }
 }
 
@@ -2867,6 +2882,18 @@ impl SortitionDB {
         sortition: &SortitionId,
     ) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
+        let args: &[&dyn ToSql] = &[sortition];
+
+        query_rows(conn, qry, args)
+    }
+
+    /// Get all the missed block commits that were intended to be included in the given
+    ///  block but were not
+    pub fn get_missed_commits_by_intended(
+        conn: &Connection,
+        sortition: &SortitionId,
+    ) -> Result<Vec<MissedBlockCommit>, db_error> {
+        let qry = "SELECT * FROM missed_commits WHERE sortition_id = ?1";
         let args: &[&dyn ToSql] = &[sortition];
 
         query_rows(conn, qry, args)

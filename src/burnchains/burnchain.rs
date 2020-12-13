@@ -57,8 +57,8 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -111,6 +111,7 @@ impl BurnchainStateTransition {
         sort_tx: &mut SortitionHandleTx,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
+        missed_commits: &Vec<MissedBlockCommit>,
         sunset_end: u64,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
@@ -161,7 +162,20 @@ impl BurnchainStateTransition {
 
         // assemble the commit windows
         let mut windowed_block_commits = vec![block_commits];
-        let mut windowed_user_burns = vec![user_burns];
+        let mut windowed_missed_commits = vec![];
+
+        // build a map of intended sortition -> missed commit for the missed commits
+        //   discovered in this block
+        let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
+        for missed in missed_commits.iter() {
+            if let Some(commits_at_sortition) =
+                missed_commits_map.get_mut(&missed.intended_sortition)
+            {
+                commits_at_sortition.push(missed);
+            } else {
+                missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
+            }
+        }
 
         for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
             if parent_snapshot.block_height < (blocks_back as u64) {
@@ -179,15 +193,19 @@ impl BurnchainStateTransition {
                 sort_tx.tx(),
                 &sortition_id,
             )?);
-            windowed_user_burns.push(SortitionDB::get_user_burns_by_block(
-                sort_tx.tx(),
-                &sortition_id,
-            )?);
+            let mut missed_commits_at_height =
+                SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
+            if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
+                missed_commits_at_height
+                    .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+            }
+
+            windowed_missed_commits.push(missed_commits_at_height);
         }
 
         // reverse vecs so that windows are in ascending block height order
         windowed_block_commits.reverse();
-        windowed_user_burns.reverse();
+        windowed_missed_commits.reverse();
 
         // figure out if the PoX sunset finished during the window
         let window_end_height = parent_snapshot.block_height + 1;
@@ -206,7 +224,7 @@ impl BurnchainStateTransition {
         // consume the same key will be rejected)
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
             windowed_block_commits,
-            windowed_user_burns,
+            windowed_missed_commits,
             sunset_finished_at,
         );
 

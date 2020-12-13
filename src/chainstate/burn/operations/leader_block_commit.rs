@@ -21,7 +21,7 @@ use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
+use chainstate::burn::{BlockHeaderHash, SortitionId, VRFSeed};
 
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -61,6 +61,7 @@ struct ParsedData {
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
+pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]
@@ -136,6 +137,10 @@ impl LeaderBlockCommitOp {
             // otherwise, it's the output after the last PoX output
             (OUTPUTS_PER_COMMIT as u32) + 1
         }
+    }
+
+    fn burn_block_mined_at(&self) -> u64 {
+        0 % BURN_BLOCK_MINED_AT_MODULUS
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -393,6 +398,13 @@ pub struct RewardSetInfo {
     pub recipients: Vec<(StacksAddress, u16)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct MissedBlockCommit {
+    pub txid: Txid,
+    pub input: (Txid, u32),
+    pub intended_sortition: SortitionId,
+}
+
 impl RewardSetInfo {
     /// Takes an Option<RewardSetInfo> and produces the commit_outs
     ///   for a corresponding LeaderBlockCommitOp. If RewardSetInfo is none,
@@ -559,6 +571,33 @@ impl LeaderBlockCommitOp {
         if self.burn_fee == 0 {
             warn!("Invalid block commit: no burn amount");
             return Err(op_error::BlockCommitBadInput);
+        }
+
+        let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
+        let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
+        if actual_modulus != intended_modulus {
+            // This transaction "missed" its target burn block, the transaction
+            //  is not valid, but we should allow this UTXO to "chain" to valid
+            //  UTXOs to allow the miner windowing to work in the face of missed
+            //  blocks.
+            let miss_distance = if actual_modulus > intended_modulus {
+                actual_modulus - intended_modulus
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
+            };
+            if miss_distance > self.block_height {
+                return Err(op_error::BlockCommitBadModulus);
+            }
+            let intended_sortition = tx
+                .get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?;
+            let missed_data = MissedBlockCommit {
+                input: self.input.clone(),
+                txid: self.txid.clone(),
+                intended_sortition,
+            };
+
+            return Err(op_error::MissedBlockCommit(missed_data));
         }
 
         if self.block_height >= burnchain.pox_constants.sunset_end {
