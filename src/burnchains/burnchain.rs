@@ -468,7 +468,7 @@ impl Burnchain {
                 / (self.pox_constants.reward_cycle_length as u64),
         )
     }
-    
+
     pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
         if block_height <= self.first_block_height {
             // not a reward cycle start if we're the first block after genesis.
@@ -476,9 +476,10 @@ impl Burnchain {
         } else {
             let effective_height = block_height - self.first_block_height;
 
-            // NOTE: use >, not >=, because the last block of the reward cycle is 
+            // NOTE: use >, not >=, because the last block of the reward cycle is
             // at effective height `0 mod reward_cycle_length`.
-            effective_height % (self.pox_constants.reward_cycle_length as u64) > (self.pox_constants.prepare_length as u64)
+            effective_height % (self.pox_constants.reward_cycle_length as u64)
+                > (self.pox_constants.prepare_length as u64)
         }
     }
 

@@ -390,7 +390,7 @@ impl PoxConstants {
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            150,        // 120 reward slots; 30 prepare-phase slots
+            150, // 120 reward slots; 30 prepare-phase slots
             30,
             20,
             3333333333333333,

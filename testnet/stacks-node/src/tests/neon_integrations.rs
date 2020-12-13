@@ -1053,7 +1053,15 @@ fn pox_integration_test() {
     // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
     let reward_cycle_len = 15;
     let prepare_phase_len = 5;
-    let pox_constants = PoxConstants::new(reward_cycle_len, prepare_phase_len, 4 * prepare_phase_len / 5, 5, 15, (16 * reward_cycle_len - 1).into(), (17 * reward_cycle_len).into());
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+    );
     burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
