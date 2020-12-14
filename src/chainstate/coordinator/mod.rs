@@ -224,6 +224,8 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             liquid_ustx,
         );
 
+        test_debug!("PoX reward cycle threshold: {}, participation: {}, liquid_ustx: {}, num registered addrs: {}", threshold, participation, liquid_ustx, registered_addrs.len());
+
         if !burnchain
             .pox_constants
             .enough_participation(participation, liquid_ustx)
@@ -407,7 +409,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle. block_height={}", burn_height);
+        info!("Beginning reward cycle. block_height={}, reward_cycle_length={}, prepare_phase_length={}", burn_height, burnchain.pox_constants.reward_cycle_length, burnchain.pox_constants.prepare_length);
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
             ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
