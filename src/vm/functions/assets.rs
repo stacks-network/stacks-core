@@ -632,6 +632,13 @@ pub fn special_burn_token(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(TypeSignature::UIntType.size() as u64)?;
 
+        env.global_context.log_token_transfer(
+            burner,
+            &env.contract_context.contract_identifier,
+            token_name,
+            amount,
+        )?;
+
         Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadBurnFTArguments.into())
@@ -692,6 +699,13 @@ pub fn special_burn_asset(
             asset_name,
             &asset,
         )?;
+
+        env.global_context.log_asset_transfer(
+            sender_principal,
+            &env.contract_context.contract_identifier,
+            asset_name,
+            asset.clone(),
+        );
 
         let asset_identifier = AssetIdentifier {
             contract_identifier: env.contract_context.contract_identifier.clone(),

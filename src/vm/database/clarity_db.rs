@@ -1176,8 +1176,18 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        let result = self.get(&key);
-        result.ok_or(RuntimeErrorType::NoSuchToken.into())
+        let value: Option<Value> = self.get(&key);
+        let owner = match value {
+            Some(owner) => owner.expect_optional(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        let principal = match owner {
+            Some(value) => value.expect_principal(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        Ok(principal)
     }
 
     pub fn get_nft_key_type(
@@ -1208,7 +1218,8 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        self.put(&key, principal);
+        let value = Value::some(Value::Principal(principal.clone()))?;
+        self.put(&key, &value);
 
         Ok(())
     }
