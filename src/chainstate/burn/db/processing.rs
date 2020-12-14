@@ -224,6 +224,7 @@ impl<'a> SortitionHandleTx<'a> {
             parent_snapshot,
             &snapshot,
             &state_transition.accepted_ops,
+            missed_commits,
             next_pox_info,
             reward_info,
             initialize_bonus,

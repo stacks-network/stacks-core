@@ -640,6 +640,7 @@ pub mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i as usize],
+                        &vec![],
                         None,
                         None,
                         None,

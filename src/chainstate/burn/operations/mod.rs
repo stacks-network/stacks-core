@@ -44,7 +44,9 @@ use util::hash::Sha512Trunc256Sum;
 use burnchains::BurnchainBlockHeader;
 
 use burnchains::Error as BurnchainError;
-use chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
+use chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use chainstate::burn::Opcodes;
 use chainstate::burn::VRFSeed;
 use chainstate::stacks::index::TrieHash;
@@ -223,6 +225,8 @@ pub struct LeaderBlockCommitOp {
     /// the input transaction, used in mining commitment smoothing
     pub input: (Txid, u32),
 
+    pub burn_parent_modulus: u8,
+
     /// the apparent sender of the transaction. note: this
     ///  is *not* authenticated, and should be used only
     ///  for informational purposes (e.g., log messages)
@@ -345,7 +349,9 @@ impl BlockstackOperationType {
     pub fn set_block_height(&mut self, height: u64) {
         match self {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
-            BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.block_height = height,
+            BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
+                data.set_burn_height(height)
+            }
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,

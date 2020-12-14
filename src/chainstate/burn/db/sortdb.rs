@@ -278,6 +278,8 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .parse::<u64>()
             .expect("DB Corruption: Sunset burn is not parseable as u64");
 
+        let burn_parent_modulus: u8 = row.get("burn_parent_modulus");
+
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
             new_seed,
@@ -286,6 +288,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             key_block_ptr,
             key_vtxindex,
             memo,
+            burn_parent_modulus,
 
             burn_fee,
             input,
@@ -513,6 +516,7 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,
         apparent_sender TEXT NOT NULL,
+        burn_parent_modulus INTEGER NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -564,6 +568,14 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         memo TEXT NOT NULL,
 
         PRIMARY KEY(txid)
+    );"#,
+    r#"
+    CREATE TABLE missed_commits (
+        txid TEXT NOT NULL,
+        input TEXT NOT NULL,
+        intended_sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(txid, intended_sortition_id)
     );"#,
     r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
@@ -2893,7 +2905,7 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Vec<MissedBlockCommit>, db_error> {
-        let qry = "SELECT * FROM missed_commits WHERE sortition_id = ?1";
+        let qry = "SELECT * FROM missed_commits WHERE intended_sortition_id = ?1";
         let args: &[&dyn ToSql] = &[sortition];
 
         query_rows(conn, qry, args)
@@ -3159,6 +3171,7 @@ impl<'a> SortitionHandleTx<'a> {
         parent_snapshot: &BlockSnapshot,
         snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
+        missed_commits: &Vec<MissedBlockCommit>,
         next_pox_info: Option<RewardCycleInfo>,
         reward_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
@@ -3196,6 +3209,10 @@ impl<'a> SortitionHandleTx<'a> {
 
         for block_op in block_ops {
             self.store_burnchain_transaction(block_op, &sn.sortition_id)?;
+        }
+
+        for missed_commit in missed_commits {
+            self.insert_missed_block_commit(missed_commit)?;
         }
 
         Ok(root_hash)
@@ -3375,7 +3392,7 @@ impl<'a> SortitionHandleTx<'a> {
         let tx_input_str = serde_json::to_string(&block_commit.input)
             .map_err(|e| db_error::SerializationError(e))?;
 
-        // serialize tx input to JSON
+        // serialize apparent sender to JSON
         let apparent_sender_str = serde_json::to_string(&block_commit.apparent_sender)
             .map_err(|e| db_error::SerializationError(e))?;
 
@@ -3397,10 +3414,11 @@ impl<'a> SortitionHandleTx<'a> {
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
             &block_commit.sunset_burn.to_string(),
             &apparent_sender_str,
+            &block_commit.burn_parent_modulus,
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)?;
 
         Ok(())
     }
@@ -3437,6 +3455,28 @@ impl<'a> SortitionHandleTx<'a> {
 
         self.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee, sortition_id) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a missed block commit
+    fn insert_missed_block_commit(&mut self, op: &MissedBlockCommit) -> Result<(), db_error> {
+        // serialize tx input to JSON
+        let tx_input_str =
+            serde_json::to_string(&op.input).map_err(|e| db_error::SerializationError(e))?;
+
+        let args: &[&dyn ToSql] = &[&op.txid, &op.intended_sortition, &tx_input_str];
+
+        self.execute(
+            "INSERT OR REPLACE INTO missed_commits (txid, intended_sortition_id, input) \
+                      VALUES (?1, ?2, ?3)",
+            args,
+        )?;
+        info!(
+            "ACCEPTED missed block commit";
+            "txid" => %op.txid,
+            "intended_sortition" => %op.intended_sortition,
+        );
 
         Ok(())
     }
@@ -3825,7 +3865,8 @@ mod tests {
     use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
+        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -3881,7 +3922,7 @@ mod tests {
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
         let index_root = tx
-            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None, None, None)
+            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, &vec![], None, None, None)
             .unwrap();
         sn.index_root = index_root;
 
@@ -4051,6 +4092,7 @@ mod tests {
             .unwrap(),
             vtxindex: vtxindex,
             block_height: block_height + 2,
+            burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
 
@@ -4168,7 +4210,7 @@ mod tests {
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
             let index_root = tx
-                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None, None, None)
+                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None, None, None)
                 .unwrap();
             sn.index_root = index_root;
 
@@ -4503,6 +4545,7 @@ mod tests {
                         &last_snapshot,
                         &snapshot_row,
                         &vec![],
+                        &vec![],
                         None,
                         None,
                         None,
@@ -4750,6 +4793,7 @@ mod tests {
                         &last_snapshot,
                         &snapshot_row,
                         &vec![],
+                        &vec![],
                         None,
                         None,
                         None,
@@ -4854,6 +4898,7 @@ mod tests {
             .unwrap(),
             vtxindex: vtxindex,
             block_height: block_height + 2,
+            burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
 
@@ -5079,6 +5124,7 @@ mod tests {
                 &chain_tip,
                 &snapshot_without_sortition,
                 &vec![],
+                &vec![],
                 None,
                 None,
                 None,
@@ -5106,6 +5152,7 @@ mod tests {
             tx.append_chain_tip_snapshot(
                 &chain_tip,
                 &snapshot_with_sortition,
+                &vec![],
                 &vec![],
                 None,
                 None,
@@ -5297,8 +5344,16 @@ mod tests {
             ]);
 
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None, None)
-                .unwrap();
+            tx.append_chain_tip_snapshot(
+                &last_snapshot,
+                &next_snapshot,
+                &vec![],
+                &vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
             tx.commit().unwrap();
 
             last_snapshot = next_snapshot.clone();
@@ -5437,6 +5492,7 @@ mod tests {
                         &last_snapshot,
                         &next_snapshot,
                         &vec![],
+                        &vec![],
                         None,
                         None,
                         None,
@@ -5522,6 +5578,7 @@ mod tests {
                             &last_snapshot,
                             &next_snapshot,
                             &vec![],
+                            &vec![],
                             None,
                             None,
                             None,
@@ -5560,6 +5617,7 @@ mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &next_snapshot,
+                        &vec![],
                         &vec![],
                         None,
                         None,
@@ -5758,6 +5816,7 @@ mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &snapshot_row,
+                        &vec![],
                         &vec![],
                         None,
                         None,
@@ -6000,7 +6059,15 @@ mod tests {
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None, None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot,
+                        &vec![],
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 tx.commit().unwrap();
             }

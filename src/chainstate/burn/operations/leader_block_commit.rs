@@ -57,7 +57,7 @@ struct ParsedData {
     parent_vtxindex: u16,
     key_block_ptr: u32,
     key_vtxindex: u16,
-    memo: Vec<u8>,
+    burn_parent_modulus: u8,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
@@ -77,6 +77,11 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
             block_height: block_height,
+            burn_parent_modulus: if block_height > 0 {
+                ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
+            },
             new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
             key_vtxindex: paired_key.vtxindex as u16,
@@ -126,8 +131,20 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
+            burn_parent_modulus: BURN_BLOCK_MINED_AT_MODULUS as u8 - 1,
+
             burn_header_hash: BurnchainHeaderHash::zero(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_burn_height(&mut self, height: u64) {
+        self.block_height = height;
+        self.burn_parent_modulus = if height > 0 {
+            (height - 1) % BURN_BLOCK_MINED_AT_MODULUS
+        } else {
+            BURN_BLOCK_MINED_AT_MODULUS - 1
+        } as u8;
     }
 
     pub fn expected_chained_utxo(sunset_finished: bool) -> u32 {
@@ -140,7 +157,7 @@ impl LeaderBlockCommitOp {
     }
 
     fn burn_block_mined_at(&self) -> u64 {
-        0 % BURN_BLOCK_MINED_AT_MODULUS
+        self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -148,7 +165,7 @@ impl LeaderBlockCommitOp {
             Wire format:
             0      2  3            35               67     71     73    77   79     80
             |------|--|-------------|---------------|------|------|-----|-----|-----|
-             magic  op   block hash     new seed     parent parent key   key   memo
+             magic  op   block hash     new seed     parent parent key   key    burn_block_parent modulus
                                                      block  txoff  block txoff
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
@@ -173,7 +190,7 @@ impl LeaderBlockCommitOp {
         let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
         let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
         let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
-        let memo = data[76..77].to_vec();
+        let burn_parent_modulus = ((data[76] as u64) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
         Some(ParsedData {
             block_header_hash,
@@ -182,7 +199,7 @@ impl LeaderBlockCommitOp {
             parent_vtxindex,
             key_block_ptr,
             key_vtxindex,
-            memo,
+            burn_parent_modulus,
         })
     }
 
@@ -335,7 +352,8 @@ impl LeaderBlockCommitOp {
             parent_vtxindex: data.parent_vtxindex,
             key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            memo: data.memo,
+            memo: vec![],
+            burn_parent_modulus: data.burn_parent_modulus,
 
             commit_outs,
             sunset_burn,
@@ -576,6 +594,10 @@ impl LeaderBlockCommitOp {
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
         if actual_modulus != intended_modulus {
+            warn!("Invalid block commit: missed target block";
+                  "intended_modulus" => intended_modulus,
+                  "actual_modulus" => actual_modulus,
+                  "block_height" => self.block_height);
             // This transaction "missed" its target burn block, the transaction
             //  is not valid, but we should allow this UTXO to "chain" to valid
             //  UTXOs to allow the miner windowing to work in the face of missed
@@ -1200,6 +1222,7 @@ mod tests {
                     txid: Txid::from_hex("b08d5d1bc81049a3957e9ff9a5882463811735fd5de985e6d894e9b3d5c49501").unwrap(),
                     vtxindex: vtxindex,
                     block_height: block_height,
+                    burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: burn_header_hash,
                 })
             },
@@ -1434,6 +1457,7 @@ mod tests {
             .unwrap(),
             vtxindex: 444,
             block_height: 125,
+            burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
         };
 
@@ -1535,6 +1559,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
+                        &vec![],
                         None,
                         None,
                         None,
@@ -1598,6 +1623,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 444,
                     block_height: 80,
+                    burn_parent_modulus: (79 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
@@ -1647,6 +1673,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 444,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
@@ -1696,6 +1723,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoParent),
@@ -1745,6 +1773,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoParent),
@@ -1794,6 +1823,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -1843,6 +1873,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitBadInput),
@@ -1892,6 +1923,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -1941,6 +1973,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),

@@ -1019,7 +1019,7 @@ pub mod test {
                 }
             };
 
-            txop.block_height = self.block_height;
+            txop.set_burn_height(self.block_height);
             txop.vtxindex = self.txs.len() as u32;
             txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
                 txop.block_height,

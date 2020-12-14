@@ -95,8 +95,12 @@ impl LinkedCommitIdentifier {
 }
 
 impl BurnSamplePoint {
-    fn sanity_check_window(block_commits: &Vec<Vec<LeaderBlockCommitOp>>) {
+    fn sanity_check_window(
+        block_commits: &Vec<Vec<LeaderBlockCommitOp>>,
+        missed_commits: &Vec<Vec<MissedBlockCommit>>,
+    ) {
         assert!(block_commits.len() <= (MINING_COMMITMENT_WINDOW as usize));
+        assert_eq!(missed_commits.len() + 1, block_commits.len());
         let mut block_height_at_index = None;
         for (index, commits) in block_commits.iter().enumerate() {
             let index = index as u64;
@@ -145,7 +149,7 @@ impl BurnSamplePoint {
         // sanity check
         assert!(MINING_COMMITMENT_WINDOW > 0);
         let window_size = block_commits.len() as u8;
-        BurnSamplePoint::sanity_check_window(&block_commits);
+        BurnSamplePoint::sanity_check_window(&block_commits, &missed_commits);
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
@@ -274,7 +278,11 @@ impl BurnSamplePoint {
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
-        Self::make_min_median_distribution(vec![all_block_candidates], vec![], None)
+        Self::make_min_median_distribution(
+            vec![all_block_candidates],
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            None,
+        )
     }
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
@@ -345,6 +353,7 @@ impl BurnSamplePoint {
 mod tests {
     use super::BurnSamplePoint;
 
+    use core::MINING_COMMITMENT_WINDOW;
     use std::marker::PhantomData;
 
     use burnchains::Address;
@@ -353,7 +362,8 @@ mod tests {
     use burnchains::PublicKey;
 
     use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
+        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -452,6 +462,11 @@ mod tests {
             txid,
             vtxindex: 0,
             block_height: block_ht,
+            burn_parent_modulus: if block_ht > 0 {
+                ((block_ht - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
+            },
             burn_header_hash: BurnchainHeaderHash([0; 32]),
         }
     }
@@ -506,7 +521,7 @@ mod tests {
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
-            user_burns.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             Some(3),
         );
 
@@ -538,7 +553,7 @@ mod tests {
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
-            user_burns.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             Some(3),
         );
 
@@ -609,7 +624,7 @@ mod tests {
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
-            user_burns.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             None,
         );
 
@@ -675,7 +690,7 @@ mod tests {
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
-            user_burns.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             None,
         );
 
@@ -1030,6 +1045,7 @@ mod tests {
             .unwrap(),
             vtxindex: 443,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash::from_hex(
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
@@ -1074,6 +1090,7 @@ mod tests {
             .unwrap(),
             vtxindex: 444,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash::from_hex(
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
@@ -1118,6 +1135,7 @@ mod tests {
             .unwrap(),
             vtxindex: 445,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash::from_hex(
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )

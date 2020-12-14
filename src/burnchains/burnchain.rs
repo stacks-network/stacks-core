@@ -1460,7 +1460,8 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
+        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use chainstate::burn::distribution::BurnSamplePoint;
@@ -1833,6 +1834,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 444,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -1873,6 +1875,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 445,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -1913,6 +1916,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 446,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -2363,6 +2367,7 @@ pub mod tests {
                 .unwrap(),
                 vtxindex: (i + 2) as u32,
                 block_height: 5,
+                burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             });
             block_commits.push(op);
@@ -2393,6 +2398,7 @@ pub mod tests {
             txid: Txid([0xdd; 32]),
             vtxindex: 1,
             block_height: 5,
+            burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0xff; 32]),
         });
 
@@ -2622,6 +2628,9 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: (2 * i) as u32,
                     block_height: first_block_height + ((i + 1) as u64),
+                    burn_parent_modulus: ((first_block_height + (i as u64))
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: burn_block_hash.clone(),
                 };
 
