@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 use burnchains::{
@@ -29,15 +30,19 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+    boot::{
+        boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+    },
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
     },
-    events::StacksTransactionReceipt,
+    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+    TransactionPayload,
 };
 use monitoring::increment_stx_blocks_processed_counter;
+use net::atlas::{AtlasConfig, AttachmentInstance};
 use util::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
@@ -144,9 +149,11 @@ pub struct ChainsCoordinator<
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
     burnchain: Burnchain,
+    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
     reward_set_provider: R,
     notifier: N,
+    atlas_config: AtlasConfig,
 }
 
 #[derive(Debug)]
@@ -205,7 +212,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
         let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-            chainstate.headers_db(),
+            chainstate.db(),
             block_id,
         )?
         .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
@@ -239,6 +246,7 @@ impl<'a, T: BlockEventDispatcher>
     pub fn run(
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
     ) where
@@ -267,9 +275,11 @@ impl<'a, T: BlockEventDispatcher>
             chain_state_db,
             sortition_db,
             burnchain,
+            attachments_tx,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
+            atlas_config: AtlasConfig::default(),
         };
 
         loop {
@@ -277,8 +287,19 @@ impl<'a, T: BlockEventDispatcher>
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    if let Err(e) = inst.handle_new_stacks_block() {
-                        warn!("Error processing new stacks block: {:?}", e);
+                    match comms.kludgy_clarity_db_lock() {
+                        Ok(_) => {
+                            if let Err(e) = inst.handle_new_stacks_block() {
+                                warn!("Error processing new stacks block: {:?}", e);
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}",
+                                &e
+                            );
+                            panic!();
+                        }
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
@@ -303,6 +324,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         burnchain: &Burnchain,
         path: &str,
         reward_set_provider: U,
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
@@ -333,6 +355,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             dispatcher: None,
             reward_set_provider,
             notifier: (),
+            attachments_tx,
+            atlas_config: AtlasConfig::default(),
         }
     }
 }
@@ -391,7 +415,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.headers_db(),
+                &chain_state.db(),
                 &consensus_hash,
                 &stacks_block_hash,
             )?;
@@ -622,6 +646,45 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
                     let block_hash = block_receipt.header.anchored_header.block_hash();
+
+                    let mut attachments_instances = HashSet::new();
+                    for receipt in block_receipt.tx_receipts.iter() {
+                        if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
+                            if let TransactionPayload::ContractCall(ref contract_call) =
+                                transaction.payload
+                            {
+                                let contract_id = contract_call.to_clarity_contract_id();
+                                if self.atlas_config.contracts.contains(&contract_id) {
+                                    for event in receipt.events.iter() {
+                                        if let StacksTransactionEvent::SmartContractEvent(
+                                            ref event_data,
+                                        ) = event
+                                        {
+                                            let res = AttachmentInstance::try_new_from_value(
+                                                &event_data.value,
+                                                &contract_id,
+                                                &block_receipt.header.consensus_hash,
+                                                block_receipt.header.anchored_header.block_hash(),
+                                                block_receipt.header.block_height,
+                                            );
+                                            if let Some(attachment_instance) = res {
+                                                attachments_instances.insert(attachment_instance);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !attachments_instances.is_empty() {
+                        match self.attachments_tx.send(attachments_instances) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Error dispatching attachments {}", e);
+                                panic!();
+                            }
+                        };
+                    }
 
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;

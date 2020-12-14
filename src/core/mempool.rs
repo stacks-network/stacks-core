@@ -60,24 +60,13 @@ pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
 
 pub struct MemPoolAdmitter {
-    // mempool admission should have its own chain state view.
-    //   the mempool admitter interacts with the chain state
-    //   exclusively in read-only fashion, however, it should have
-    //   its own instance of things like the MARF index, because otherwise
-    //   mempool admission tests would block with chain processing.
-    chainstate: StacksChainState,
     cur_block: BlockHeaderHash,
     cur_consensus_hash: ConsensusHash,
 }
 
 impl MemPoolAdmitter {
-    pub fn new(
-        chainstate: StacksChainState,
-        cur_block: BlockHeaderHash,
-        cur_consensus_hash: ConsensusHash,
-    ) -> MemPoolAdmitter {
+    pub fn new(cur_block: BlockHeaderHash, cur_consensus_hash: ConsensusHash) -> MemPoolAdmitter {
         MemPoolAdmitter {
-            chainstate,
             cur_block,
             cur_consensus_hash,
         }
@@ -90,17 +79,11 @@ impl MemPoolAdmitter {
 
     pub fn will_admit_tx(
         &mut self,
-        mempool_conn: &DBConn,
+        chainstate: &mut StacksChainState,
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
-        self.chainstate.will_admit_mempool_tx(
-            mempool_conn,
-            &self.cur_consensus_hash,
-            &self.cur_block,
-            tx,
-            tx_size,
-        )
+        chainstate.will_admit_mempool_tx(&self.cur_consensus_hash, &self.cur_block, tx, tx_size)
     }
 }
 
@@ -242,6 +225,7 @@ impl<'a> MemPoolTx<'a> {
 
     fn is_block_in_fork(
         &mut self,
+        chainstate: &mut StacksChainState,
         check_consensus_hash: &ConsensusHash,
         check_stacks_block: &BlockHeaderHash,
         cur_consensus_hash: &ConsensusHash,
@@ -256,9 +240,7 @@ impl<'a> MemPoolTx<'a> {
             return Ok(true);
         }
 
-        let height_result = self
-            .admitter
-            .chainstate
+        let height_result = chainstate
             .with_clarity_marf(|marf| marf.get_block_height_of(&index_block, &admitter_block));
         match height_result {
             Ok(x) => {
@@ -348,11 +330,7 @@ impl MemPoolDB {
 
         let mut path = PathBuf::from(chainstate.root_path.clone());
 
-        let admitter = MemPoolAdmitter::new(
-            chainstate,
-            BlockHeaderHash([0u8; 32]),
-            ConsensusHash([0u8; 20]),
-        );
+        let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
         path.push("mempool.db");
         let db_path = path
@@ -414,7 +392,7 @@ impl MemPoolDB {
         }
 
         let ancestor_tip = {
-            let mut headers_tx = chainstate.headers_tx_begin()?;
+            let mut headers_tx = chainstate.index_tx_begin()?;
             let index_block =
                 StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
             match StacksChainState::get_index_tip_ancestor(
@@ -775,6 +753,7 @@ impl MemPoolDB {
     /// Don't call directly; use submit()
     fn try_add_tx<'a>(
         tx: &mut MemPoolTx<'a>,
+        chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
         txid: Txid,
@@ -808,6 +787,7 @@ impl MemPoolDB {
                 // is this a replace-by-fee ?
                 true
             } else if !tx.is_block_in_fork(
+                chainstate,
                 &prior_tx.consensus_hash,
                 &prior_tx.block_header_hash,
                 consensus_hash,
@@ -817,8 +797,15 @@ impl MemPoolDB {
                 true
             } else {
                 // there's a >= fee tx in this fork, cannot add
-                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee: new_txid={}, old_txid={}, origin_addr={}, origin_nonce={}, sponsor_addr={}, sponsor_nonce={}, new_fee={}, old_fee={}",
-                      txid, prior_tx.txid, origin_address, origin_nonce, sponsor_address, sponsor_nonce, estimated_fee, prior_tx.estimated_fee);
+                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee";
+                      "new_txid" => %txid, 
+                      "old_txid" => %prior_tx.txid,
+                      "origin_addr" => %origin_address,
+                      "origin_nonce" => origin_nonce,
+                      "sponsor_addr" => %sponsor_address,
+                      "sponsor_nonce" => sponsor_nonce,
+                      "new_fee" => estimated_fee,
+                      "old_fee" => prior_tx.estimated_fee);
                 false
             }
         } else {
@@ -877,6 +864,13 @@ impl MemPoolDB {
         Ok(())
     }
 
+    pub fn clear_before_height(&mut self, min_height: u64) -> Result<(), db_error> {
+        let mut tx = self.tx_begin()?;
+        MemPoolDB::garbage_collect(&mut tx, min_height)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Scan the chain tip for all available transactions (but do not remove them!)
     pub fn poll(
         &mut self,
@@ -908,6 +902,7 @@ impl MemPoolDB {
     /// Submit a transaction to the mempool at a particular chain tip.
     pub fn tx_submit(
         mempool_tx: &mut MemPoolTx,
+        chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
@@ -920,11 +915,7 @@ impl MemPoolDB {
             block_hash
         );
 
-        let height = match mempool_tx
-            .admitter
-            .chainstate
-            .get_stacks_block_height(consensus_hash, block_hash)
-        {
+        let height = match chainstate.get_stacks_block_height(consensus_hash, block_hash) {
             Ok(Some(h)) => h,
             Ok(None) => {
                 if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
@@ -969,13 +960,12 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx
-                .admitter
-                .will_admit_tx(&mempool_tx.tx, &tx, len)?;
+            mempool_tx.admitter.will_admit_tx(chainstate, &tx, len)?;
         }
 
         MemPoolDB::try_add_tx(
             mempool_tx,
+            chainstate,
             &consensus_hash,
             &block_hash,
             txid,
@@ -995,12 +985,20 @@ impl MemPoolDB {
     /// One-shot submit
     pub fn submit(
         &mut self,
+        chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(&mut mempool_tx, consensus_hash, block_hash, tx, true)?;
+        MemPoolDB::tx_submit(
+            &mut mempool_tx,
+            chainstate,
+            consensus_hash,
+            block_hash,
+            tx,
+            true,
+        )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
     }
@@ -1008,6 +1006,7 @@ impl MemPoolDB {
     /// Directly submit to the mempool, and don't do any admissions checks.
     pub fn submit_raw(
         &mut self,
+        chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
@@ -1016,7 +1015,14 @@ impl MemPoolDB {
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(&mut mempool_tx, consensus_hash, block_hash, tx, false)?;
+        MemPoolDB::tx_submit(
+            &mut mempool_tx,
+            chainstate,
+            consensus_hash,
+            block_hash,
+            tx,
+            false,
+        )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
     }
@@ -1071,7 +1077,10 @@ mod tests {
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::test::chainstate_path;
     use chainstate::stacks::db::test::instantiate_chainstate;
+    use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
     use chainstate::stacks::test::codec_all_transactions;
+    use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+    use core::FIRST_STACKS_BLOCK_HASH;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";
@@ -1088,7 +1097,12 @@ mod tests {
 
     #[test]
     fn mempool_do_not_replace_tx() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_do_not_replace_tx");
+        let mut chainstate = instantiate_chainstate_with_balances(
+            false,
+            0x80000000,
+            "mempool_do_not_replace_tx",
+            vec![],
+        );
 
         // genesis -> b_1 -> b_2
         //      \-> b_3
@@ -1116,8 +1130,8 @@ mod tests {
                 &chainstate_tx,
                 clar_tx,
                 &NULL_BURN_STATE_DB,
-                &ConsensusHash::empty(),
-                &BlockHeaderHash::sentinel(),
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
                 &b_1.0,
                 &b_1.1,
             );
@@ -1130,8 +1144,8 @@ mod tests {
                 &chainstate_tx,
                 clar_tx,
                 &NULL_BURN_STATE_DB,
-                &ConsensusHash::empty(),
-                &BlockHeaderHash::sentinel(),
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
                 &b_3.0,
                 &b_3.1,
             );
@@ -1195,6 +1209,7 @@ mod tests {
 
         MemPoolDB::try_add_tx(
             &mut mempool_tx,
+            &mut chainstate,
             &b_1.0,
             &b_1.1,
             txid,
@@ -1223,6 +1238,7 @@ mod tests {
 
         let err_resp = MemPoolDB::try_add_tx(
             &mut mempool_tx,
+            &mut chainstate,
             &b_2.0,
             &b_2.1,
             txid,
@@ -1247,7 +1263,7 @@ mod tests {
 
     #[test]
     fn mempool_db_load_store_replace_tx() {
-        let _chainstate =
+        let mut chainstate =
             instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
         let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -1296,6 +1312,7 @@ mod tests {
 
             MemPoolDB::try_add_tx(
                 &mut mempool_tx,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,
@@ -1357,6 +1374,7 @@ mod tests {
 
             MemPoolDB::try_add_tx(
                 &mut mempool_tx,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,
@@ -1421,6 +1439,7 @@ mod tests {
 
             assert!(match MemPoolDB::try_add_tx(
                 &mut mempool_tx,
+                &mut chainstate,
                 &ConsensusHash([0x1; 20]),
                 &BlockHeaderHash([0x2; 32]),
                 txid,

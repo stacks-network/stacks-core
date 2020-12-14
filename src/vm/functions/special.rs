@@ -16,17 +16,25 @@
 
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
+use vm::costs::{cost_functions, CostTracker, MemoryConsumer};
 
-use vm::contexts::GlobalContext;
+use vm::contexts::{Environment, GlobalContext};
 use vm::errors::Error;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::types::{
+    BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData, TypeSignature,
+    Value,
+};
 
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::db::MINER_REWARD_MATURITY;
 use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use chainstate::stacks::StacksMicroblockHeader;
 use vm::clarity::ClarityTransactionConnection;
+
+use util::hash::Hash160;
 
 fn parse_pox_stacking_result(
     result: &Value,

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod asn;
+pub mod atlas;
 pub mod chat;
 pub mod codec;
 pub mod connection;
@@ -33,7 +34,7 @@ pub mod server;
 
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
 use std::convert::TryFrom;
 use std::error;
@@ -100,6 +101,7 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::strings::UrlString;
 
 use util::get_epoch_time_secs;
+use util::hash::{hex_bytes, to_hex};
 
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
@@ -107,7 +109,11 @@ use serde::ser::Error as ser_Error;
 use chainstate::stacks::index::Error as marf_error;
 use vm::clarity::Error as clarity_error;
 
+use crate::util::hash::Sha256Sum;
+
 use self::dns::*;
+
+use net::atlas::{Attachment, AttachmentInstance};
 
 use core::POX_REWARD_CYCLE_LENGTH;
 
@@ -998,7 +1004,9 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: String,
+    pub genesis_chainstate_hash: Sha256Sum,
     pub unanchored_tip: StacksBlockId,
+    pub unanchored_seq: u16,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1072,6 +1080,44 @@ pub struct AccountEntryResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub nonce_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum UnconfirmedTransactionStatus {
+    Microblock {
+        block_hash: BlockHeaderHash,
+        seq: u16,
+    },
+    Mempool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnconfirmedTransactionResponse {
+    pub tx: String,
+    pub status: UnconfirmedTransactionStatus,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PostTransactionRequestBody {
+    pub tx: String,
+    pub attachment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetAttachmentResponse {
+    pub attachment: Attachment,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetAttachmentsInvResponse {
+    pub block_id: StacksBlockId,
+    pub pages: Vec<AttachmentPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachmentPage {
+    pub index: u32,
+    pub inventory: Vec<u8>,
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -1155,7 +1201,8 @@ pub enum HttpRequestType {
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
-    PostTransaction(HttpRequestMetadata, StacksTransaction),
+    GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
+    PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(
         HttpRequestMetadata,
@@ -1196,6 +1243,8 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
     ),
     OptionsPreflight(HttpRequestMetadata, String),
+    GetAttachment(HttpRequestMetadata, Hash160),
+    GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1285,6 +1334,9 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
+    GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
+    GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
@@ -1611,6 +1663,8 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
+    pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
 }
@@ -1627,6 +1681,8 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
+            uploaded_attachments: vec![],
+            attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
         }
@@ -1646,6 +1702,10 @@ impl NetworkResult {
         self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
     }
 
+    pub fn has_attachments(&self) -> bool {
+        self.attachments.len() > 0
+    }
+
     pub fn transactions(&self) -> Vec<StacksTransaction> {
         self.pushed_transactions
             .values()
@@ -1655,7 +1715,10 @@ impl NetworkResult {
     }
 
     pub fn has_data_to_store(&self) -> bool {
-        self.has_blocks() || self.has_microblocks() || self.has_transactions()
+        self.has_blocks()
+            || self.has_microblocks()
+            || self.has_transactions()
+            || self.has_attachments()
     }
 
     pub fn consume_unsolicited(
@@ -1723,10 +1786,17 @@ impl NetworkResult {
     }
 }
 
+pub trait Requestable: std::fmt::Display {
+    fn get_url(&self) -> &UrlString;
+
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
     use net::asn::*;
+    use net::atlas::*;
     use net::chat::*;
     use net::codec::*;
     use net::connection::*;
@@ -1784,6 +1854,7 @@ pub mod test {
     use std::net::*;
     use std::ops::Deref;
     use std::ops::DerefMut;
+    use std::sync::mpsc::sync_channel;
     use std::thread;
 
     use std::fs;
@@ -1805,9 +1876,9 @@ pub mod test {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
-                    Ok(())
-                }
+                BlockstackOperationType::TransferStx(_)
+                | BlockstackOperationType::PreStx(_)
+                | BlockstackOperationType::StackStx(_) => Ok(()),
             }
         }
 
@@ -2012,6 +2083,7 @@ pub mod test {
         pub data_url: UrlString,
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
+        pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
     }
@@ -2056,6 +2128,7 @@ pub mod test {
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
+                initial_lockups: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
             }
@@ -2211,6 +2284,9 @@ pub mod test {
             )
             .unwrap();
 
+            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let atlasdb = AtlasDB::connect(&atlasdb_path, true).unwrap();
+
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 if conf.setup_code.len() > 0 {
@@ -2274,6 +2350,12 @@ pub mod test {
                 Some(Box::new(post_flight_callback)),
             );
 
+            if !config.initial_lockups.is_empty() {
+                let lockups = config.initial_lockups.clone();
+                boot_data.get_bulk_initial_lockups =
+                    Some(Box::new(move || Box::new(lockups.into_iter().map(|e| e))));
+            }
+
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,
                 config.network_id,
@@ -2283,8 +2365,9 @@ pub mod test {
             )
             .unwrap();
 
+            let (tx, _) = sync_channel(100000);
             let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider());
+                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2346,6 +2429,7 @@ pub mod test {
             };
             let mut peer_network = PeerNetwork::new(
                 peerdb,
+                atlasdb,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
@@ -2408,6 +2492,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
+                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -2430,6 +2515,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
+                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);

@@ -599,7 +599,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
-                            tx_ref: (Txid::from_hex("20a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542").unwrap(), 2),
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 2),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -607,7 +607,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
-                            tx_ref: (Txid::from_hex("20a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542").unwrap(), 1),
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 1),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -615,7 +615,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
-                            tx_ref: (Txid::from_hex("20a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542").unwrap(), 4),
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 4),
                         }
                     ],
                     outputs: vec![
@@ -648,7 +648,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
-                            tx_ref: (Txid::from_hex("b4c2c2fede361654f0f6b65dd8ba385f3a4b05c76cd573f3689b09b7298b1422").unwrap(), 1),
+                            tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 1),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -658,7 +658,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
-                            tx_ref: (Txid::from_hex("b4c2c2fede361654f0f6b65dd8ba385f3a4b05c76cd573f3689b09b7298b1422").unwrap(), 2),
+                            tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 2),
                         },
                     ],
                     outputs: vec![
@@ -689,7 +689,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::SegwitP2SH,
-                            tx_ref: (Txid::from_hex("a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e").unwrap(), 1),
+                            tx_ref: (Txid::from_hex("9ec1e4c25610b96cc1afa2b00b2919ce31a7052081c069c586d72a72092befa7").unwrap(), 1),
                         }
                     ],
                     outputs: vec![
@@ -722,7 +722,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::SegwitP2SH,
-                            tx_ref: (Txid::from_hex("e411dc967b8503a27450c614a5cd984698762a6b4bf547293ffdf846ed4ebd22").unwrap(), 1),
+                            tx_ref: (Txid::from_hex("22bd4eed46f8fd3f2947f54b6b2a76984698cda514c65074a203857b96dc11e4").unwrap(), 1),
                         }
                     ],
                     outputs: vec![
@@ -800,7 +800,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::SegwitP2SH,
-                                    tx_ref: (Txid::from_hex("a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e").unwrap(), 1),
+                                    tx_ref: (Txid::from_hex("9ec1e4c25610b96cc1afa2b00b2919ce31a7052081c069c586d72a72092befa7").unwrap(), 1),
                                 }
                             ],
                             outputs: vec![
@@ -843,7 +843,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
-                                    tx_ref: (Txid::from_hex("c517ff49a374f8a41dd7a5d4028315374f875bd483a4e56bf946d76a0ec441f7").unwrap(), 1),
+                                    tx_ref: (Txid::from_hex("f741c40e6ad746f96be5a483d45b874f37158302d4a5d71da4f874a349ff17c5").unwrap(), 1),
                                 }
                             ],
                             outputs: vec![
@@ -871,7 +871,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
-                                    tx_ref: (Txid::from_hex("9311d3968c1529d7c88df93518af051a28967c2e40f7a9d71581d1b3d5c153ba").unwrap(), 0),
+                                    tx_ref: (Txid::from_hex("ba53c1d5b3d18115d7a9f7402e7c96281a05af1835f98dc8d729158c96d31193").unwrap(), 0),
                                 }
                             ],
                             outputs: vec![
@@ -899,7 +899,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
-                                    tx_ref: (Txid::from_hex("f433cac39fa99d6621e10148fdba962a98c0647214fb6a050c742cc423528cbb").unwrap(), 0),
+                                    tx_ref: (Txid::from_hex("bb8c5223c42c740c056afb147264c0982a96bafd4801e121669da99fc3ca33f4").unwrap(), 0),
                                 }
                             ],
                             outputs: vec![
@@ -927,7 +927,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
-                                    tx_ref: (Txid::from_hex("b4963d5c40a849f865a884e68a837d7629cfbdca449f53131ee1f54c8517e3a8").unwrap(), 0),
+                                    tx_ref: (Txid::from_hex("a8e317854cf5e11e13539f44cabdcf29767d838ae684a865f849a8405c3d96b4").unwrap(), 0),
                                 }
                             ],
                             outputs: vec![
@@ -955,7 +955,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
-                                    tx_ref: (Txid::from_hex("04c89617c9100361301adc113cc8420f0a2884465879612e2c3e7702c18e8bbe").unwrap(), 0),
+                                    tx_ref: (Txid::from_hex("be8b8ec102773e2c2e6179584684280a0f42c83c11dc1a30610310c91796c804").unwrap(), 0),
                                 }
                             ],
                             outputs: vec![

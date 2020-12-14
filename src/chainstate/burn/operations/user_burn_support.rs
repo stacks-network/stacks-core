@@ -215,10 +215,10 @@ impl StacksMessageCodec for UserBurnSupportOp {
 
 impl UserBurnSupportOp {
     pub fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
+        _block_header: &BurnchainBlockHeader,
+        _tx: &BurnchainTransaction,
     ) -> Result<UserBurnSupportOp, op_error> {
-        UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
+        Err(op_error::UserBurnSupportNotSupported)
     }
 
     pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
@@ -406,7 +406,11 @@ mod tests {
                 },
             };
 
-            let op = UserBurnSupportOp::from_tx(&header, &burnchain_tx);
+            let op = UserBurnSupportOp::parse_from_tx(
+                header.block_height,
+                &header.block_hash,
+                &burnchain_tx,
+            );
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
@@ -572,6 +576,7 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -634,6 +639,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i as usize],
+                        None,
                         None,
                         None,
                     )

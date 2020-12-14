@@ -12,6 +12,7 @@ serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
 stacks = { package = "blockstack-core", path = "../../." }
+stx_genesis = { package = "stx-genesis", path = "../../stx-genesis/."}
 toml = "0.5.6"
 async-h1 = "=1.0"
 async-std = { version = "<1.6", features = ["attributes"] }
@@ -34,4 +35,5 @@ path = "src/main.rs"
 monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json"]
 tx-log = ["stacks/tx_log"]
+prod-genesis-chainstate = []
 default = []

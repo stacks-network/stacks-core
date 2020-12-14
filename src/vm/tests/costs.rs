@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use util::hash::hex_bytes;
+use vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
@@ -33,7 +34,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::StacksBlockId;
 use vm::contexts::Environment;
-use vm::costs::ExecutionCost;
+use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
@@ -58,6 +59,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Modulo => "(mod 2 1)",
         Power => "(pow 2 3)",
         Sqrti => "(sqrti 81)",
+        Log2 => "(log2 8)",
         BitwiseXOR => "(xor 1 2)",
         And => "(and true false)",
         Or => "(or true false)",
@@ -74,6 +76,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Concat => "(concat list-bar list-bar)",
         AsMaxLen => "(as-max-len? list-bar u3)",
         Len => "(len list-bar)",
+        ElementAt => "(element-at list-bar u2)",
+        IndexOf => "(index-of list-bar 1)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo {a: 1})",
         SetEntry => "(map-set map-foo {a: 1} {b: 2})",
@@ -81,6 +85,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         DeleteEntry => "(map-delete map-foo {a: 1})",
         TupleCons => "(tuple (a 1))",
         TupleGet => "(get a tuple-foo)",
+        TupleMerge => "(merge {a: 1, b: 2} {b: 1})",
         Begin => "(begin 1)",
         Hash160 => "(hash160 1)",
         Sha256 => "(sha256 1)",
@@ -138,19 +143,19 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                             (foo-exec (int) (response int int))
                           ))";
     let contract_other = "(impl-trait .contract-trait.trait-1)
-                          (define-map map-foo ((a int)) ((b int)))
+                          (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
     let contract_self = format!(
-        "(define-map map-foo ((a int)) ((b int)))
-                         (define-non-fungible-token nft-foo int)
-                         (define-fungible-token ft-foo)
-                         (define-data-var var-foo int 0)
-                         (define-constant tuple-foo (tuple (a 1)))
-                         (define-constant list-foo (list true))
-                         (define-constant list-bar (list 1))
-                         (use-trait trait-1 .contract-trait.trait-1)
-                         (define-public (execute (contract <trait-1>)) (ok {}))",
+        "(define-map map-foo {{ a: int }} {{ b: int }})
+        (define-non-fungible-token nft-foo int)
+        (define-fungible-token ft-foo)
+        (define-data-var var-foo int 0)
+        (define-constant tuple-foo (tuple (a 1)))
+        (define-constant list-foo (list true))
+        (define-constant list-bar (list 1))
+        (use-trait trait-1 .contract-trait.trait-1)
+        (define-public (execute (contract <trait-1>)) (ok {}))",
         prog
     );
 
@@ -168,22 +173,22 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(
-        &StacksBlockId::sentinel(),
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-    );
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
 
-    {
-        marf_kv
-            .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-            .initialize();
-    }
+    let mut marf_kv = clarity_instance.destroy();
 
-    marf_kv.test_commit();
     marf_kv.begin(
         &StacksBlockHeader::make_index_block_hash(
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -192,8 +197,9 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         &StacksBlockId([1 as u8; 32]),
     );
 
-    let mut owned_env =
-        OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+    );
 
     owned_env
         .initialize_contract(trait_contract_id.clone(), contract_trait)
@@ -230,4 +236,196 @@ fn test_all() {
         let cost = test_tracked_costs(test);
         assert!(cost.exceeds(&baseline));
     }
+}
+
+#[test]
+fn test_cost_contract_short_circuits() {
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    let mut marf_kv = clarity_instance.destroy();
+
+    marf_kv.begin(
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &StacksBlockId([1 as u8; 32]),
+    );
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+
+    let cost_definer =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
+    let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
+    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
+
+    {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        let cost_definer_src = "
+    (define-read-only (cost-definition (size uint))
+       {
+         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
+       })
+    ";
+
+        let intercepted_src = "
+    (define-read-only (intercepted-function (a uint))
+       (if (>= a u10)
+           (+ (+ a a) (+ a a)
+              (+ a a) (+ a a))
+           u0))
+    ";
+
+        let caller_src = "
+    (define-public (execute (a uint))
+       (ok (contract-call? .intercepted intercepted-function a)))
+    ";
+
+        owned_env
+            .initialize_contract(cost_definer.clone(), cost_definer_src)
+            .unwrap();
+        owned_env
+            .initialize_contract(intercepted.clone(), intercepted_src)
+            .unwrap();
+        owned_env
+            .initialize_contract(caller.clone(), caller_src)
+            .unwrap();
+
+        let (_db, _tracker) = owned_env.destruct().unwrap();
+    }
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
+
+    let without_interposing_5 = {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    let without_interposing_10 = {
+        let mut owned_env = OwnedEnvironment::new_max_limit(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(10)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    marf_kv.test_commit();
+    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
+
+    let with_interposing_5 = {
+        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
+            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            vec![(
+                (intercepted.clone(), "intercepted-function".into()),
+                ClarityCostFunctionReference {
+                    contract_id: cost_definer.clone(),
+                    function_name: "cost-definition".into(),
+                },
+            )],
+        )
+        .unwrap();
+
+        let mut owned_env = OwnedEnvironment::new_cost_limited(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            cost_tracker,
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(5)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    let with_interposing_10 = {
+        let cost_tracker = LimitedCostTracker::new_max_limit_with_circuits(
+            &mut marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            vec![(
+                (intercepted.clone(), "intercepted-function".into()),
+                ClarityCostFunctionReference {
+                    contract_id: cost_definer.clone(),
+                    function_name: "cost-definition".into(),
+                },
+            )],
+        )
+        .unwrap();
+
+        let mut owned_env = OwnedEnvironment::new_cost_limited(
+            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            cost_tracker,
+        );
+
+        execute_transaction(
+            &mut owned_env,
+            p2.clone(),
+            &caller,
+            "execute",
+            &symbols_from_values(vec![Value::UInt(10)]),
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+
+        tracker.get_total()
+    };
+
+    assert!(without_interposing_5.exceeds(&with_interposing_5));
+    assert!(without_interposing_10.exceeds(&with_interposing_10));
+
+    assert_eq!(with_interposing_5, with_interposing_10);
+    assert!(without_interposing_5 != without_interposing_10);
 }

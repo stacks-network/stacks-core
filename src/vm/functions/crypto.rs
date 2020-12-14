@@ -16,7 +16,9 @@
 
 use util::hash;
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{constants as cost_constants, cost_functions, CostTracker, MemoryConsumer};
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -33,6 +35,7 @@ use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 
 use address::AddressHashMode;
 use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use vm::costs::cost_functions::ClarityCostFunction;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -71,7 +74,7 @@ pub fn special_principal_of(
     // arg0 => (buff 33)
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::PRINCIPAL_OF, env, 0)?;
+    runtime_cost(ClarityCostFunction::PrincipalOf, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
     let pub_key = match param0 {
@@ -108,7 +111,7 @@ pub fn special_secp256k1_recover(
     // arg0 => (buff 32), arg1 => (buff 65)
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::SECP256K1RECOVER, env, 0)?;
+    runtime_cost(ClarityCostFunction::Secp256k1recover, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
     let message = match param0 {
@@ -151,7 +154,7 @@ pub fn special_secp256k1_verify(
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
     check_argument_count(3, args)?;
 
-    runtime_cost!(cost_functions::SECP256K1VERIFY, env, 0)?;
+    runtime_cost(ClarityCostFunction::Secp256k1verify, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
     let message = match param0 {

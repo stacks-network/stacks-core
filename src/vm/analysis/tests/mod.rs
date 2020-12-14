@@ -145,14 +145,14 @@ fn test_no_such_variable() {
 
 #[test]
 fn test_bad_map_name() {
-    let snippet = "(define-map 1 ((key int)) ((value int)))";
+    let snippet = "(define-map 1 { key: int } { value: int })";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
 fn test_no_such_map() {
-    let snippet = "(map-get? unicorn ((key 1)))";
+    let snippet = "(map-get? unicorn { key: 1 })";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved map 'unicorn'"));
 }
@@ -169,13 +169,6 @@ fn test_bad_function_name() {
     let snippet = "(define-public (1) (ok 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("invalid function name"));
-}
-
-#[test]
-fn test_bad_map_type_definition() {
-    let snippet = "(define-map map (key int) (int))";
-    let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map definition"));
 }
 
 #[test]
@@ -276,7 +269,7 @@ fn test_variadic_needs_one_argument() {
 
 #[test]
 fn test_incorrect_argument_count() {
-    let snippet = "(define-map my-map ((val int)))";
+    let snippet = "(define-map my-map { val: int })";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting 3 arguments, got 2"));
 }

@@ -31,7 +31,8 @@ use stacks::burnchains::PublicKey;
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp,
+    UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::deps::bitcoin::blockdata::opcodes;
@@ -48,7 +49,7 @@ use stacks::util::sleep_ms;
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
 #[cfg(test)]
-use stacks::burnchains::BurnchainHeaderHash;
+use stacks::{burnchains::BurnchainHeaderHash, chainstate::burn::Opcodes};
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -570,6 +571,157 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
+    #[cfg(not(test))]
+    fn build_transfer_stacks_tx(
+        &mut self,
+        _payload: TransferStxOp,
+        _signer: &mut BurnchainOpSigner,
+        _utxo: Option<UTXO>,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    pub fn submit_manual(
+        &mut self,
+        operation: BlockstackOperationType,
+        op_signer: &mut BurnchainOpSigner,
+        utxo: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let transaction = match operation {
+            BlockstackOperationType::LeaderBlockCommit(_)
+            | BlockstackOperationType::LeaderKeyRegister(_)
+            | BlockstackOperationType::StackStx(_)
+            | BlockstackOperationType::UserBurnSupport(_) => {
+                unimplemented!();
+            }
+            BlockstackOperationType::PreStx(payload) => {
+                self.build_pre_stacks_tx(payload, op_signer)
+            }
+            BlockstackOperationType::TransferStx(payload) => {
+                self.build_transfer_stacks_tx(payload, op_signer, utxo)
+            }
+        }?;
+
+        let ser_transaction = SerializedTx::new(transaction.clone());
+
+        if self.send_transaction(ser_transaction) {
+            Some(transaction)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    /// Build a transfer stacks tx.
+    ///   this *only* works if the only existant UTXO is from a PreStx Op
+    ///   this is okay for testing, but obviously not okay for actual use.
+    ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
+    ///     and signing logic are fairly intertwined, and untangling the two seems excessive
+    ///     for a functionality that won't be implemented for production via this controller.
+    fn build_transfer_stacks_tx(
+        &mut self,
+        payload: TransferStxOp,
+        signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+
+        let (mut tx, utxos) = if let Some(utxo) = utxo_to_use {
+            (
+                Transaction {
+                    input: vec![],
+                    output: vec![],
+                    version: 1,
+                    lock_time: 0,
+                },
+                vec![utxo],
+            )
+        } else {
+            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, 1)?
+        };
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            payload.consensus_serialize(&mut bytes).ok()?;
+            bytes
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+        tx.output
+            .push(payload.recipient.to_bitcoin_tx_out(DUST_UTXO_LIMIT));
+
+        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, utxos, signer, 1)?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting stacks transfer op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_pre_stacks_tx(
+        &mut self,
+        _payload: PreStxOp,
+        _signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_pre_stacks_tx(
+        &mut self,
+        payload: PreStxOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+
+        let output_amt = 2 * (self.config.burnchain.burnchain_op_tx_fee + DUST_UTXO_LIMIT);
+        let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, 1)?;
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PreStx as u8);
+            bytes
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+        tx.output.push(payload.output.to_bitcoin_tx_out(output_amt));
+
+        self.finalize_tx(&mut tx, output_amt, utxos, signer, 1)?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting pre_stacks op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
     fn build_leader_block_commit_tx(
         &mut self,
         payload: LeaderBlockCommitOp,
@@ -628,7 +780,8 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_block_commit op - {}",
+            "Miner node: submitting leader_block_commit op for {} - {}",
+            &payload.block_header_hash,
             public_key.to_hex()
         );
 
@@ -978,7 +1131,12 @@ impl BurnchainController for BitcoinRegtestController {
             BlockstackOperationType::UserBurnSupport(payload) => {
                 self.build_user_burn_support_tx(payload, op_signer, attempt)
             }
-            BlockstackOperationType::PreStackStx(_payload) => unimplemented!(),
+            BlockstackOperationType::PreStx(payload) => {
+                self.build_pre_stacks_tx(payload, op_signer)
+            }
+            BlockstackOperationType::TransferStx(payload) => {
+                self.build_transfer_stacks_tx(payload, op_signer, None)
+            }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
         };
 
@@ -1056,10 +1214,10 @@ pub struct ParsedUTXO {
 
 #[derive(Clone)]
 pub struct UTXO {
-    txid: Sha256dHash,
-    vout: u32,
-    script_pub_key: Script,
-    amount: u64,
+    pub txid: Sha256dHash,
+    pub vout: u32,
+    pub script_pub_key: Script,
+    pub amount: u64,
 }
 
 impl ParsedUTXO {

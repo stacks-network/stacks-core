@@ -53,19 +53,19 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
                             (foo-exec (int) (response int int))
                           ))";
     let contract_other = "(impl-trait .contract-trait.trait-1)
-                          (define-map map-foo ((a int)) ((b int)))
+                          (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
     let contract_self = format!(
-        "(define-map map-foo ((a int)) ((b int)))
-                         (define-non-fungible-token nft-foo int)
-                         (define-fungible-token ft-foo)
-                         (define-data-var var-foo int 0)
-                         (define-constant tuple-foo (tuple (a 1)))
-                         (define-constant list-foo (list true))
-                         (define-constant list-bar (list 1))
-                         (use-trait trait-1 .contract-trait.trait-1)
-                         (define-public (execute (contract <trait-1>)) (ok {}))",
+        "(define-map map-foo {{ a: int }} {{ b: int }})
+        (define-non-fungible-token nft-foo int)
+        (define-fungible-token ft-foo)
+        (define-data-var var-foo int 0)
+        (define-constant tuple-foo (tuple (a 1)))
+        (define-constant list-foo (list true))
+        (define-constant list-bar (list 1))
+        (use-trait trait-1 .contract-trait.trait-1)
+        (define-public (execute (contract <trait-1>)) (ok {}))",
         prog
     );
 
@@ -75,10 +75,19 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    {
-        let mut conn = clarity_instance.begin_block(
+    clarity_instance
+        .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([0 as u8; 32]),
+            &StacksBlockId([1 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
@@ -99,8 +108,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([2 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
@@ -121,8 +130,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
+            &StacksBlockId([3 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );

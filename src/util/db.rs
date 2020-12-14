@@ -29,6 +29,7 @@ use util::hash::to_hex;
 use util::sleep_ms;
 
 use chainstate::burn::BlockHeaderHash;
+use vm::types::QualifiedContractIdentifier;
 
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
@@ -189,6 +190,16 @@ impl FromColumn<i64> for i64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
         let x: i64 = row.get(column_name);
         Ok(x)
+    }
+}
+
+impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
+    fn from_column<'a>(
+        row: &'a Row,
+        column_name: &str,
+    ) -> Result<QualifiedContractIdentifier, Error> {
+        let value: String = row.get(column_name);
+        QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
 
@@ -474,6 +485,12 @@ impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     }
 }
 
+impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
+    fn deref_mut(&mut self) -> &mut DBTx<'a> {
+        self.tx_mut()
+    }
+}
+
 pub fn tx_busy_handler(run_count: i32) -> bool {
     let mut sleep_count = 10;
     if run_count > 0 {
@@ -608,6 +625,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     pub fn tx(&self) -> &DBTx<'a> {
         self.index().sqlite_tx()
+    }
+
+    pub fn tx_mut(&mut self) -> &mut DBTx<'a> {
+        self.index_mut().sqlite_tx_mut()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {

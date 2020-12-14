@@ -233,6 +233,17 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
+const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(log2 n)",
+    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    example: "(log2 u8) ;; Returns u3
+(log2 8) ;; Returns 3
+(log2 u1) ;; Returns u0
+(log2 1000) ;; Returns 9
+"
+};
+
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(xor i1 i2)",
@@ -419,9 +430,13 @@ const LET_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
-evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.",
-    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
+evaluating each expression and _binding_ it to the corresponding variable name.
+`let` bindings are sequential: when a `let` binding is evaluated, it may refer to prior binding.
+The _context_ created by this set of bindings is used for evaluating its body expressions.
+ The let expression returns the value of the last such body expression.
+Note: intermediary statements returning a response type must be checked",
+    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20
+(let ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23",
 };
 
 const FETCH_VAR_API: SpecialAPI = SpecialAPI {
@@ -448,12 +463,14 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A) -> B, (list A)",
-    output_type: "(list B)",
-    signature: "(map func list)",
+    input_type: "Function(A, B, ..., N) -> X, (list A1 A2 ... Am), (list B1 B2 ... Bm), ..., (list N1 N2 ... Nm)",
+    output_type: "(list X)",
+    signature: "(map func list-A list-B ... list-N)",
     description: "The `map` function applies the input function `func` to each element of the
-input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns (false true false true)",
+input lists, and outputs a list containing the _outputs_ from those function applications.",
+    example: "
+(map not (list true false true false)) ;; Returns (false true false true)
+(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)",
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -523,6 +540,39 @@ const LEN_API: SpecialAPI = SpecialAPI {
 ",
 };
 
+const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, uint",
+    output_type: "(optional buff|A)",
+    signature: "(element-at sequence index)",
+    description:
+        "The `element-at` function returns the element at `index` in the provided sequence.
+If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
+For strings and buffers, this function will return 1-length strings or buffers.",
+    example: "(element-at \"blockstack\" u5) ;; Returns (some \"s\")
+(element-at (list 1 2 3 4 5) u5) ;; Returns none
+(element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
+(element-at \"abcd\" u1) ;; Returns (some \"b\")
+(element-at 0xfb01 u1) ;; Returns (some 0x01)
+",
+};
+
+const INDEX_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, buff|A",
+    output_type: "(optional uint)",
+    signature: "(index-of sequence item)",
+    description: "The `index-of` function returns the first index at which `item` can be
+found in the provided sequence (using `is-eq` checks).
+
+If this item is not found in the sequence (or an empty string/buffer is supplied), this
+function returns `none`.",
+    example: "(index-of \"blockstack\" \"b\") ;; Returns (some u0)
+(index-of \"blockstack\" \"k\") ;; Returns (some u4)
+(index-of \"blockstack\" \"\") ;; Returns none
+(index-of (list 1 2 3 4 5) 6) ;; Returns none
+(index-of 0xfb01 0x01) ;; Returns (some u1)
+",
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -537,7 +587,8 @@ const BEGIN_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(begin expr1 expr2 expr3 ... expr-last)",
     description: "The `begin` function evaluates each of its input expressions, returning the
-return value of the last such expression.",
+return value of the last such expression.
+Note: intermediary statements returning a response type must be checked.",
     example: "(begin (+ 1 2) 4 5) ;; Returns 5",
 };
 
@@ -558,10 +609,10 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
-(map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+(map-get? names-map { name: \"blockstack\" }) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -575,9 +626,9 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
-(map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -592,10 +643,10 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
-(map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -606,11 +657,11 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 10) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns false
-(map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+(map-delete names-map (tuple (name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -635,12 +686,23 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
-    example: "(define-map names-map ((name (string-ascii 12))) ((id int)))
+    example: "(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
 (get id (map-get? names-map (tuple (name \"non-existent\")))) ;; Returns none
 "
+};
+
+const TUPLE_MERGE_API: SpecialAPI = SpecialAPI {
+    input_type: "tuple, tuple",
+    output_type: "tuple",
+    signature: "(merge tuple { key1: val1 })",
+    description: "The `merge` function returns a new tuple with the combined fields, without mutating the supplied tuples.",
+    example: "(define-map users { id: int } { name: (string-ascii 12), address: (optional principal) })
+(map-insert users { id: 1337 } { name: \"john\", address: none }) ;; Returns true
+(let ((user (unwrap-panic (map-get? users { id: 1337 }))))
+    (merge user { address: (some 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) })) ;; Returns (tuple (address (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)) (name \"john\"))"
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
@@ -812,7 +874,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (define-private (get-name-or-err (name (string-ascii 12)))
   (let ((raw-name (unwrap! (map-get? names-map { name: name }) (err 1))))
@@ -832,7 +894,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (try! (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
@@ -856,7 +918,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
@@ -944,7 +1006,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
@@ -999,7 +1061,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
         "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
 (is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true",
@@ -1023,7 +1085,7 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
     example: "
-(define-map names-map ((name (string-ascii 12))) ((id int)))
+(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
 (is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
@@ -1185,9 +1247,9 @@ field of type `int`.
 Like other kinds of definition statements, `define-map` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
-(define-map squares ((x int)) ((square int)))
+(define-map squares { x: int } { square: int })
 (define-private (add-entry (x int))
-  (map-insert squares ((x 2)) ((square (* x x)))))
+  (map-insert squares { x: 2 } { square: (* x x) }))
 (add-entry 1)
 (add-entry 2)
 (add-entry 3)
@@ -1461,6 +1523,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
+        Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
         BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
@@ -1477,6 +1540,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Concat => make_for_special(&CONCAT_API, name),
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
+        ElementAt => make_for_special(&ELEMENT_AT_API, name),
+        IndexOf => make_for_special(&INDEX_OF_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),
@@ -1484,6 +1549,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         DeleteEntry => make_for_special(&DELETE_ENTRY_API, name),
         TupleCons => make_for_special(&TUPLE_CONS_API, name),
         TupleGet => make_for_special(&TUPLE_GET_API, name),
+        TupleMerge => make_for_special(&TUPLE_MERGE_API, name),
         Begin => make_for_special(&BEGIN_API, name),
         Hash160 => make_for_special(&HASH160_API, name),
         Sha256 => make_for_special(&SHA256_API, name),
@@ -1625,8 +1691,10 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
-        eval_all, execute, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
+        eval_all, execute,
+        types::PrincipalData,
+        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
+        Value,
     };
 
     struct DocHeadersDB {}
@@ -1717,7 +1785,7 @@ mod test {
         let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
-        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
 
         global_context
             .execute(|g| {
@@ -1767,17 +1835,19 @@ mod test {
         {
             let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+            let docs_principal_id = PrincipalData::Contract(docs_test_id);
             let mut env = OwnedEnvironment::new(conn);
             let balance = STXBalance::initial(1000);
-            env.execute_in_env(
+            env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
                 |e| {
-                    e.global_context.database.set_account_stx_balance(
-                        &QualifiedContractIdentifier::local("docs-test")
-                            .unwrap()
-                            .into(),
-                        &balance,
-                    );
+                    let mut snapshot = e
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                    snapshot.set_balance(balance);
+                    snapshot.save();
                     Ok(())
                 },
             )

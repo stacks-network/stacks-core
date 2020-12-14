@@ -1,6 +1,6 @@
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
+    make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
 use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
@@ -10,9 +10,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
-use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
@@ -21,16 +19,27 @@ use stacks::vm::database::ClarityDeserializable;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
-    config::EventKeyType, config::EventObserverConfig, config::InitialBalance, neon,
-    node::TESTNET_CHAIN_ID, BitcoinRegtestController, BurnchainController, Config, Keychain,
+    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
+    config::EventObserverConfig, config::InitialBalance, neon, node::TESTNET_CHAIN_ID,
+    operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
+    ConfigFile, Keychain,
 };
-use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
-use stacks::util::hash::bytes_to_hex;
+use stacks::net::{
+    AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
+};
 use stacks::util::hash::Hash160;
+use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::util::sleep_ms;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
+
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::{BurnchainHeaderHash, Txid};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -49,6 +58,12 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
 
+    // test to make sure config file parsing is correct
+    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
+        .burnchain
+        .magic_bytes;
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, 'e' as u8]);
+    conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
 
@@ -71,6 +86,7 @@ mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     }
 
     async fn handle_burn_block(
@@ -100,6 +116,17 @@ mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    async fn handle_attachments(
+        attachments: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let new_attachments = attachments.as_array().unwrap();
+        let mut attachments = ATTACHMENTS.lock().unwrap();
+        for new_attachment in new_attachments {
+            attachments.push(new_attachment.clone());
+        }
+        Ok(warp::http::StatusCode::OK)
+    }
+
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
     }
@@ -110,6 +137,10 @@ mod test_observer {
 
     pub fn get_burn_blocks() -> Vec<serde_json::Value> {
         BURN_BLOCKS.lock().unwrap().clone()
+    }
+
+    pub fn get_attachments() -> Vec<serde_json::Value> {
+        ATTACHMENTS.lock().unwrap().clone()
     }
 
     async fn serve() {
@@ -125,11 +156,20 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_burn_block);
+        let new_attachments = warp::path!("attachments" / "new")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_attachments);
 
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks))
-            .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
-            .await
+        warp::serve(
+            new_blocks
+                .or(mempool_txs)
+                .or(new_burn_blocks)
+                .or(new_attachments),
+        )
+        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
+        .await
     }
 
     pub fn spawn() {
@@ -137,6 +177,13 @@ mod test_observer {
             let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
         });
+    }
+
+    pub fn clear() {
+        ATTACHMENTS.lock().unwrap().clear();
+        BURN_BLOCKS.lock().unwrap().clear();
+        NEW_BLOCKS.lock().unwrap().clear();
+        MEMTXS.lock().unwrap().clear();
     }
 }
 
@@ -272,6 +319,221 @@ fn bitcoind_integration_test() {
     channel.stop_chains_coordinator();
 }
 
+fn get_balance<F: std::fmt::Display>(
+    client: &reqwest::blocking::Client,
+    http_origin: &str,
+    account: &F,
+) -> u128 {
+    let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    eprintln!("Response: {:#?}", res);
+    u128::from_str_radix(&res.balance[2..], 16).unwrap()
+}
+
+#[test]
+#[ignore]
+fn stx_transfer_btc_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
+    let _spender_btc_addr = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Regtest,
+        BitcoinAddressType::PublicKeyHash,
+        &spender_stx_addr.bytes.0,
+    )
+    .unwrap();
+
+    let spender_2_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
+    let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 100300,
+    });
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_2_addr.clone(),
+        amount: 100300,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the spender's account:
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
+
+    // okay, let's send a pre-stx op.
+    let pre_stx_op = PreStxOp {
+        output: spender_stx_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::PreStx(pre_stx_op),
+            &mut miner_signer,
+            1
+        ),
+        "Pre-stx operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // let's fire off our transfer op.
+    let recipient_sk = StacksPrivateKey::new();
+    let recipient_addr = to_addr(&recipient_sk);
+    let transfer_stx_op = TransferStxOp {
+        sender: spender_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
+        transfered_ustx: 100_000,
+        memo: vec![],
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::TransferStx(transfer_stx_op),
+            &mut spender_signer,
+            1
+        ),
+        "Transfer operation should submit successfully"
+    );
+    // should be elected in the same block as the transfer, so balances should be unchanged.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 0);
+
+    // this block should process the transfer
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+
+    // now let's do a pre-stx-op and a transfer op in the same burnchain block...
+    // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
+    //    so we have to get a little creative...
+
+    // okay, let's send a pre-stx op.
+    let pre_stx_op = PreStxOp {
+        output: spender_2_stx_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+
+    let pre_stx_tx = btc_regtest_controller
+        .submit_manual(
+            BlockstackOperationType::PreStx(pre_stx_op),
+            &mut miner_signer,
+            None,
+        )
+        .expect("Pre-stx operation should submit successfully");
+
+    let transfer_stx_utxo = UTXO {
+        txid: pre_stx_tx.txid(),
+        vout: 1,
+        script_pub_key: pre_stx_tx.output[1].script_pubkey.clone(),
+        amount: pre_stx_tx.output[1].value,
+    };
+
+    // let's fire off our transfer op.
+    let transfer_stx_op = TransferStxOp {
+        sender: spender_2_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
+        transfered_ustx: 100_000,
+        memo: vec![],
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk.clone(), false);
+
+    btc_regtest_controller
+        .submit_manual(
+            BlockstackOperationType::TransferStx(transfer_stx_op),
+            &mut spender_signer,
+            Some(transfer_stx_utxo),
+        )
+        .expect("Transfer operation should submit successfully");
+
+    // should be elected in the same block as the transfer, so balances should be unchanged.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+
+    // should process the transfer
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 200_000);
+    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 300);
+
+    channel.stop_chains_coordinator();
+}
+
 #[test]
 #[ignore]
 fn bitcoind_forking_test() {
@@ -394,6 +656,7 @@ fn microblock_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
 
     test_observer::spawn();
 
@@ -517,21 +780,24 @@ fn microblock_integration_test() {
     // put it into a microblock
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
+        let tip_hash =
+            StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
         let privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
             StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
-        // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
-        // block's cost (and it's not like we're going to overflow the block budget in this test).
+        chainstate
+            .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
+            .unwrap();
+
         make_microblock(
             &privk,
             &mut chainstate,
             &btc_regtest_controller.sortdb_ref().index_conn(),
             consensus_hash,
             stacks_block,
-            ExecutionCost::zero(),
             vec![unconfirmed_tx],
         )
     };
@@ -659,6 +925,80 @@ fn microblock_integration_test() {
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
 
+    // limited by chaining
+    for next_nonce in 2..5 {
+        // verify that the microblock miner can automatically pick up transactions
+        debug!(
+            "Try to send unconfirmed tx from {} to {}",
+            &spender_addr, &recipient
+        );
+        let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+            &spender_sk,
+            next_nonce,
+            1000,
+            &recipient.into(),
+            1000,
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(unconfirmed_tx_bytes.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // wait at least two p2p refreshes
+        // so it can produce the microblock
+        for i in 0..30 {
+            debug!(
+                "wait {} more seconds for microblock miner to find our transaction...",
+                30 - i
+            );
+            sleep_ms(1000);
+        }
+
+        // we can query _new_ unconfirmed state from the microblock we announced
+        let path = format!(
+            "{}/v2/accounts/{}?proof=0&tip={}",
+            &http_origin, &spender_addr, &tip_info.unanchored_tip
+        );
+        let res_text = client.get(&path).send().unwrap().text().unwrap();
+
+        eprintln!("text of {}\n{}", &path, &res_text);
+
+        let res = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<AccountEntryResponse>()
+            .unwrap();
+        eprintln!("{:?}", &path);
+        eprintln!("{:#?}", res);
+
+        // advanced!
+        assert_eq!(res.nonce, next_nonce + 1);
+        assert_eq!(
+            u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+            (96300 - 2000 * (next_nonce - 1)) as u128
+        );
+    }
+
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -690,13 +1030,16 @@ fn size_check_integration_test() {
             if ix % 2 == 0 {
                 make_contract_publish(spender_sk, 0, 1049230, "large-0", &giant_contract)
             } else {
-                make_contract_publish_microblock_only(
+                let tx = make_contract_publish_microblock_only(
                     spender_sk,
                     0,
                     1049230,
                     "large-0",
                     &giant_contract,
-                )
+                );
+                let parsed_tx = StacksTransaction::consensus_deserialize(&mut &tx[..]).unwrap();
+                debug!("Mine transaction {} in a microblock", &parsed_tx.txid());
+                tx
             }
         })
         .collect();
@@ -711,6 +1054,8 @@ fn size_check_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -727,7 +1072,11 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .unwrap();
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, None));
@@ -801,8 +1150,10 @@ fn size_check_integration_test() {
         }
     }
 
+    sleep_ms(60_000);
+
     // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _one_ transaction from the microblock
+    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
     //  be added),
     //  and _two_ transactions from the two anchor blocks that got mined (and processed)
@@ -811,7 +1162,7 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -838,9 +1189,15 @@ fn size_check_integration_test() {
         }
     }
 
-    assert_eq!(anchor_block_txs, 2);
-    assert_eq!(micro_block_txs, 1);
+    eprintln!(
+        "anchor_block_txs: {}, micro_block_txs: {}",
+        anchor_block_txs, micro_block_txs
+    );
 
+    assert_eq!(anchor_block_txs, 2);
+    assert_eq!(micro_block_txs, 2);
+
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1277,5 +1634,537 @@ fn pox_integration_test() {
 
     assert_eq!(tip_info.stacks_tip_height, 56);
 
+    test_observer::clear();
     channel.stop_chains_coordinator();
+}
+
+enum Signal {
+    BootstrapNodeReady,
+    ReplicatingAttachmentsStartTest1,
+    ReplicatingAttachmentsCheckTest1(u64),
+    ReplicatingAttachmentsStartTest2,
+    ReplicatingAttachmentsCheckTest2(u64),
+}
+
+#[test]
+#[ignore]
+fn atlas_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let user_1 = StacksPrivateKey::new();
+    let initial_balance_user_1 = InitialBalance {
+        address: to_addr(&user_1).into(),
+        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+    };
+
+    // Prepare the config of the bootstrap node
+    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let bootstrap_node_public_key = {
+        let keychain = Keychain::default(conf_bootstrap_node.node.seed.clone());
+        let mut pk = keychain.generate_op_signer().get_public_key();
+        pk.set_compressed(true);
+        pk.to_hex()
+    };
+    conf_bootstrap_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+
+    // Prepare the config of the follower node
+    let (mut conf_follower_node, _) = neon_integration_test_conf();
+    let bootstrap_node_url = format!(
+        "{}@{}",
+        bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
+    );
+    conf_follower_node
+        .node
+        .set_bootstrap_node(Some(bootstrap_node_url));
+    conf_follower_node.node.miner = false;
+    conf_follower_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+    conf_follower_node
+        .events_observers
+        .push(EventObserverConfig {
+            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            events_keys: vec![EventKeyType::AnyEvent],
+        });
+
+    // Our 2 nodes will share the bitcoind node
+    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
+    let (follower_node_tx, follower_node_rx) = mpsc::channel();
+
+    let bootstrap_node_thread = thread::spawn(move || {
+        let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
+
+        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+            conf_bootstrap_node.clone(),
+            None,
+            Some(burnchain_config.clone()),
+        );
+        let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
+
+        btc_regtest_controller.bootstrap_chain(201);
+
+        eprintln!("Chain bootstrapped...");
+
+        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+        let blocks_processed = run_loop.get_blocks_processed_arc();
+        let client = reqwest::blocking::Client::new();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+        // give the run loop some time to start up!
+        wait_for_runloop(&blocks_processed);
+
+        // first block wakes up the run loop
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // first block will hold our VRF registration
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // second block will be the first mined Stacks block
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // Let's setup the follower now.
+        follower_node_tx
+            .send(Signal::BootstrapNodeReady)
+            .expect("Unable to send signal");
+
+        match bootstrap_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsStartTest1) => {
+                println!("Follower node is ready...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
+
+        // (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
+        //                            (stx-to-burn uint))
+        let namespace = "passport";
+        let salt = "some-salt";
+        let salted_namespace = format!("{}{}", namespace, salt);
+        let hashed_namespace = Hash160::from_data(salted_namespace.as_bytes());
+        let tx_1 = make_contract_call(
+            &user_1,
+            0,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "namespace-preorder",
+            &[
+                Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
+                Value::UInt(1000),
+            ],
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx_1.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &tx_1[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // (define-public (namespace-reveal (namespace (buff 20))
+        //                                  (namespace-salt (buff 20))
+        //                                  (p-func-base uint)
+        //                                  (p-func-coeff uint)
+        //                                  (p-func-b1 uint)
+        //                                  (p-func-b2 uint)
+        //                                  (p-func-b3 uint)
+        //                                  (p-func-b4 uint)
+        //                                  (p-func-b5 uint)
+        //                                  (p-func-b6 uint)
+        //                                  (p-func-b7 uint)
+        //                                  (p-func-b8 uint)
+        //                                  (p-func-b9 uint)
+        //                                  (p-func-b10 uint)
+        //                                  (p-func-b11 uint)
+        //                                  (p-func-b12 uint)
+        //                                  (p-func-b13 uint)
+        //                                  (p-func-b14 uint)
+        //                                  (p-func-b15 uint)
+        //                                  (p-func-b16 uint)
+        //                                  (p-func-non-alpha-discount uint)
+        //                                  (p-func-no-vowel-discount uint)
+        //                                  (lifetime uint)
+        //                                  (namespace-import principal))
+        let tx_2 = make_contract_call(
+            &user_1,
+            1,
+            1000,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "namespace-reveal",
+            &[
+                Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                Value::buff_from(salt.as_bytes().to_vec()).unwrap(),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1),
+                Value::UInt(1000),
+                Value::Principal(initial_balance_user_1.address.clone()),
+            ],
+        );
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx_2.clone())
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &tx_2[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+        } else {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // (define-public (name-import (namespace (buff 20))
+        //                             (name (buff 32))
+        //                             (zonefile-hash (buff 20)))
+        let zonefile_hex = "facade00";
+        let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+        let tx_3 = make_contract_call(
+            &user_1,
+            2,
+            500,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "name-import",
+            &[
+                Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                Value::buff_from("johndoe".as_bytes().to_vec()).unwrap(),
+                Value::Principal(to_addr(&user_1).into()),
+                Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+            ],
+        );
+
+        let body = {
+            let content = PostTransactionRequestBody {
+                tx: bytes_to_hex(&tx_3),
+                attachment: Some(zonefile_hex.to_string()),
+            };
+            serde_json::to_vec(&json!(content)).unwrap()
+        };
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if !res.status().is_success() {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+
+        // From there, let's mine these transaction, and build an extra block.
+        let mut sort_height = channel.get_sortitions_processed();
+        eprintln!("=> Sort height: {}", sort_height);
+        let few_blocks = sort_height + 1 + 1;
+
+        // now let's mine until the next reward cycle starts ...
+        while sort_height < few_blocks {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+            eprintln!("Sort height: {}", sort_height);
+        }
+
+        // Then check that the follower is correctly replicating the attachment
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest1(sort_height))
+            .expect("Unable to send signal");
+
+        match bootstrap_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsStartTest2) => {
+                println!("Follower node is ready...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        // From there, let's mine these transaction, and build an extra block.
+        let mut sort_height = channel.get_sortitions_processed();
+        eprintln!("=> Sort height: {}", sort_height);
+        let few_blocks = sort_height + 1 + 1;
+
+        while sort_height < few_blocks {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+            eprintln!("Sort height: {}", sort_height);
+        }
+
+        // Poll GET v2/attachments/<attachment-hash>
+        for i in 1..10 {
+            let mut attachments_did_sync = false;
+            let mut timeout = 30;
+            while attachments_did_sync != true {
+                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+                let hashed_zonefile = Hash160::from_data(&zonefile_hex);
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
+                let res = client
+                    .get(&path)
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .unwrap();
+                eprintln!("{:#?}", res);
+                if res.status().is_success() {
+                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                    assert_eq!(attachment_response.attachment.content, zonefile_hex);
+                    attachments_did_sync = true;
+                } else {
+                    timeout -= 1;
+                    if timeout == 0 {
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    }
+                    eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
+                    thread::sleep(Duration::from_millis(1000));
+                }
+            }
+        }
+
+        // Then check that the follower is correctly replicating the attachment
+        follower_node_tx
+            .send(Signal::ReplicatingAttachmentsCheckTest2(sort_height))
+            .expect("Unable to send signal");
+
+        channel.stop_chains_coordinator();
+    });
+
+    let follower_node_thread = thread::spawn(move || {
+        // Start the attached observer
+        test_observer::spawn();
+
+        // The bootstrap node mined a few blocks and is ready, let's setup this node.
+        match follower_node_rx.recv() {
+            Ok(Signal::BootstrapNodeReady) => {
+                println!("Booting follower node...");
+            }
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
+        let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
+
+        eprintln!("Chain bootstrapped...");
+
+        let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
+        let blocks_processed = run_loop.get_blocks_processed_arc();
+        let client = reqwest::blocking::Client::new();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+
+        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+        // give the run loop some time to start up!
+        wait_for_runloop(&blocks_processed);
+
+        // Follower node is ready, the bootstrap node will now handover
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest1)
+            .expect("Unable to send signal");
+
+        // The bootstrap node published and mined a transaction that includes an attachment.
+        // Lets observe the attachments replication kicking in.
+        let target_height = match follower_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let mut sort_height = channel.get_sortitions_processed();
+        while sort_height < target_height {
+            wait_for_runloop(&blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+        }
+
+        // Now wait for the node to sync the attachment
+        let mut attachments_did_sync = false;
+        let mut timeout = 30;
+        while attachments_did_sync != true {
+            let zonefile_hex = "facade00";
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+            let path = format!(
+                "{}/v2/attachments/{}",
+                &http_origin,
+                hashed_zonefile.to_hex()
+            );
+            let res = client
+                .get(&path)
+                .header("Content-Type", "application/json")
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if res.status().is_success() {
+                eprintln!("Success syncing attachment - {}", res.text().unwrap());
+                attachments_did_sync = true;
+            } else {
+                timeout -= 1;
+                if timeout == 0 {
+                    panic!("Failed syncing 1 attachments between 2 neon runloops within 30s - Something is wrong");
+                }
+                eprintln!("Attachment {} not sync'd yet", zonefile_hex);
+                thread::sleep(Duration::from_millis(1000));
+            }
+        }
+
+        // Test 2: 9 transactions are posted to the follower.
+        // We want to make sure that the miner is able to
+        // 1) mine these transactions
+        // 2) retrieve the attachments staged on the follower node.
+        // 3) ensure that the follower is also instanciating the attachments after
+        // executing the transactions, once mined.
+        let namespace = "passport";
+        for i in 1..10 {
+            let user = StacksPrivateKey::new();
+            let zonefile_hex = format!("facade0{}", i);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+            let name = format!("johndoe{}", i);
+            let tx = make_contract_call(
+                &user_1,
+                2 + i,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-import",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::Principal(to_addr(&user).into()),
+                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        bootstrap_node_tx
+            .send(Signal::ReplicatingAttachmentsStartTest2)
+            .expect("Unable to send signal");
+
+        let target_height = match follower_node_rx.recv() {
+            Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
+            _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        };
+
+        let mut sort_height = channel.get_sortitions_processed();
+        while sort_height < target_height {
+            wait_for_runloop(&blocks_processed);
+            sort_height = channel.get_sortitions_processed();
+        }
+
+        // Poll GET v2/attachments/<attachment-hash>
+        for i in 1..10 {
+            let mut attachments_did_sync = false;
+            let mut timeout = 30;
+            while attachments_did_sync != true {
+                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+                let hashed_zonefile = Hash160::from_data(&zonefile_hex);
+                let path = format!(
+                    "{}/v2/attachments/{}",
+                    &http_origin,
+                    hashed_zonefile.to_hex()
+                );
+                let res = client
+                    .get(&path)
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .unwrap();
+                eprintln!("{:#?}", res);
+                if res.status().is_success() {
+                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                    assert_eq!(attachment_response.attachment.content, zonefile_hex);
+                    attachments_did_sync = true;
+                } else {
+                    timeout -= 1;
+                    if timeout == 0 {
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    }
+                    eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
+                    thread::sleep(Duration::from_millis(1000));
+                }
+            }
+        }
+
+        // Ensure that we the attached sidecar was able to receive a total of 10 attachments
+        assert_eq!(test_observer::get_attachments().len(), 10);
+        test_observer::clear();
+        channel.stop_chains_coordinator();
+    });
+
+    bootstrap_node_thread.join().unwrap();
+    follower_node_thread.join().unwrap();
 }

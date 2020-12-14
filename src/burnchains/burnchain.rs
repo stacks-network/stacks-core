@@ -57,8 +57,8 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -128,10 +128,13 @@ impl BurnchainStateTransition {
         // don't treat block commits and user burn supports just yet.
         for i in 0..block_ops.len() {
             match block_ops[i] {
-                BlockstackOperationType::PreStackStx(_) => {
-                    // PreStackStx ops don't need to be processed by sort db, so pass.
+                BlockstackOperationType::PreStx(_) => {
+                    // PreStx ops don't need to be processed by sort db, so pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::TransferStx(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
@@ -637,11 +640,14 @@ impl Burnchain {
     }
 
     /// Try to parse a burnchain transaction into a Blockstack operation
+    /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
+    ///   the currently-being-evaluated tx in the same burn block.
     pub fn classify_transaction(
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
         sunset_end_ht: u64,
+        pre_stx_op_map: &HashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
@@ -650,9 +656,9 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse leader key register tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
@@ -664,9 +670,9 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse leader block commit tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
@@ -678,42 +684,73 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse user burn support tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
                 }
             }
-            x if x == Opcodes::PreStackStx as u8 => {
-                match PreStackStxOp::from_tx(block_header, burn_tx, sunset_end_ht) {
-                    Ok(op) => Some(BlockstackOperationType::PreStackStx(op)),
+            x if x == Opcodes::PreStx as u8 => {
+                match PreStxOp::from_tx(block_header, burn_tx, sunset_end_ht) {
+                    Ok(op) => Some(BlockstackOperationType::PreStx(op)),
                     Err(e) => {
                         warn!(
                             "Failed to parse pre stack stx tx";
-                            "txid" => %burn_tx.txid().to_string(),
+                            "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
-                            "error" => %format!("{:?}", e)
+                            "error" => ?e,
                         );
                         None
                     }
                 }
             }
+            x if x == Opcodes::TransferStx as u8 => {
+                let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
+                    let sender = &pre_stx.output;
+                    match TransferStxOp::from_tx(block_header, burn_tx, sender) {
+                        Ok(op) => Some(BlockstackOperationType::TransferStx(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse transfer stx tx";
+                                "txid" => %burn_tx.txid(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to TransferStxOp";
+                        "txid" => %burn_tx.txid(),
+                        "pre_stx_txid" => %pre_stx_txid
+                    );
+                    None
+                }
+            }
             x if x == Opcodes::StackStx as u8 => {
-                let pre_stack_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stack_stx_tx = burnchain_db.get_burnchain_op(pre_stack_stx_txid);
-                if let Some(BlockstackOperationType::PreStackStx(pre_stack_stx)) = pre_stack_stx_tx
-                {
+                let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
                     match StackStxOp::from_tx(block_header, burn_tx, sender, sunset_end_ht) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
                         Err(e) => {
                             warn!(
                                 "Failed to parse stack stx tx";
-                                "txid" => %burn_tx.txid().to_string(),
+                                "txid" => %burn_tx.txid(),
                                 "data" => %to_hex(&burn_tx.data()),
-                                "error" => %format!("{:?}", e)
+                                "error" => ?e,
                             );
                             None
                         }
@@ -722,7 +759,7 @@ impl Burnchain {
                     warn!(
                         "Failed to find corresponding input to StackStxOp";
                         "txid" => %burn_tx.txid().to_string(),
-                        "pre_stx_txid" => %pre_stack_stx_txid.to_string()
+                        "pre_stx_txid" => %pre_stx_txid.to_string()
                     );
                     None
                 }
@@ -1869,6 +1906,7 @@ pub mod tests {
         let block_prev_chs_121 =
             vec![ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()];
         let mut block_121_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
@@ -1913,6 +1951,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
@@ -1964,6 +2003,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
@@ -2075,6 +2115,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2096,6 +2137,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2116,6 +2158,7 @@ pub mod tests {
                     None,
                     PoxId::stubbed(),
                     None,
+                    0,
                 )
                 .unwrap();
             tx.commit().unwrap();
@@ -2161,6 +2204,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
 
             let mut block_124_snapshot = BlockSnapshot {
+                accumulated_coinbase_ustx: 400_000_000,
                 pox_valid: true,
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
@@ -2224,6 +2268,7 @@ pub mod tests {
                         None,
                         PoxId::stubbed(),
                         None,
+                        0,
                     )
                     .unwrap();
                 tx.commit().unwrap();
@@ -2620,6 +2665,7 @@ pub mod tests {
                         None,
                         PoxId::stubbed(),
                         None,
+                        0,
                     )
                     .unwrap();
                 tx.commit().unwrap();

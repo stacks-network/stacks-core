@@ -33,27 +33,11 @@ use vm::types::*;
 use util::db::Error as db_error;
 use util::db::*;
 
-use vm::get_stx_balance_snapshot;
-
-pub type MinerPaymentCache = HashMap<StacksBlockId, Vec<MinerPaymentSchedule>>;
-
-impl StacksAccount {
-    pub fn get_available_balance_at_block(&self, burn_block_height: u64) -> u128 {
-        self.stx_balance
-            .get_available_balance_at_block(burn_block_height)
-    }
-
-    pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
-        self.stx_balance.has_locked_tokens(burn_block_height)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
     pub address: StacksAddress,
     pub coinbase: u128,
-    pub tx_fees_anchored_shared: u128,
-    pub tx_fees_anchored_exclusive: u128,
+    pub tx_fees_anchored: u128,
     pub tx_fees_streamed_produced: u128,
     pub tx_fees_streamed_confirmed: u128,
     pub vtxindex: u32, // will be 0 for the reward to the miner, and >0 for user burn supports
@@ -118,8 +102,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 impl MinerReward {
     pub fn total(&self) -> u128 {
         self.coinbase
-            + self.tx_fees_anchored_shared
-            + self.tx_fees_anchored_exclusive
+            + self.tx_fees_anchored
             + self.tx_fees_streamed_produced
             + self.tx_fees_streamed_confirmed
     }
@@ -182,24 +165,21 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+                let mut snapshot = db.get_stx_balance_snapshot(principal);
 
                 // last line of defense: if we don't have sufficient funds, panic.
                 // This should be checked by the block validation logic.
-                if !balance.can_transfer(amount as u128, block_height) {
+                if !snapshot.can_transfer(amount as u128) {
                     panic!(
                         "Tried to debit {} from account {} (which only has {})",
                         amount,
                         principal,
-                        balance.get_available_balance_at_block(block_height)
+                        snapshot.get_available_balance()
                     );
                 }
 
-                balance
-                    .debit(amount as u128, block_height)
-                    .expect("STX underflow");
-                db.set_account_stx_balance(principal, &balance);
-
+                snapshot.debit(amount as u128);
+                snapshot.save();
                 Ok(())
             })
             .expect("FATAL: failed to debit account")
@@ -214,16 +194,13 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
-                balance
-                    .credit(amount as u128, block_height)
-                    .expect("STX overflow");
-                db.set_account_stx_balance(principal, &balance);
-                info!(
-                    "{} credited: {} uSTX",
-                    principal,
-                    balance.get_available_balance_at_block(block_height)
-                );
+                let mut snapshot = db.get_stx_balance_snapshot(principal);
+                snapshot.credit(amount as u128);
+
+                let new_balance = snapshot.get_available_balance();
+                snapshot.save();
+
+                info!("{} credited: {} uSTX", principal, new_balance);
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
@@ -233,17 +210,21 @@ impl StacksChainState {
     pub fn account_genesis_credit(
         clarity_tx: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
-        amount: u64,
+        amount: u128,
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let balance = STXBalance::initial(amount as u128);
-                db.set_account_stx_balance(principal, &balance);
-                info!(
-                    "{} credited (genesis): {} uSTX",
-                    principal,
-                    balance.get_total_balance()
-                );
+                let mut balance = STXBalance::initial(amount);
+                let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
+                let existing_balance = snapshot.balance().amount_unlocked;
+                if existing_balance > 0 {
+                    balance.amount_unlocked = balance
+                        .amount_unlocked
+                        .checked_add(existing_balance)
+                        .expect("Genesis credit balance overflow");
+                }
+                snapshot.set_balance(balance);
+                snapshot.save();
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
@@ -274,29 +255,24 @@ impl StacksChainState {
         assert!(unlock_burn_height > 0);
         assert!(lock_amount > 0);
 
-        // consolidate if we need to, since the last tx sent could have been for a PoX lockup.
-        let mut balance = db.get_account_stx_balance(principal);
-        let cur_burn_height = db.get_current_burnchain_block_height() as u64;
-
-        if balance.has_locked_tokens(cur_burn_height) {
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+        if snapshot.has_locked_tokens() {
             return Err(Error::PoxAlreadyLocked);
         }
-
-        if !balance.can_transfer(lock_amount, cur_burn_height) {
+        if !snapshot.can_transfer(lock_amount) {
             return Err(Error::PoxInsufficientBalance);
         }
+        snapshot.lock_tokens(lock_amount, unlock_burn_height);
 
-        balance
-            .lock_tokens(lock_amount, unlock_burn_height, cur_burn_height)
-            .expect("Unable to lock tokens");
-        // set the locks
         debug!(
             "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            balance.amount_locked, balance.amount_unlocked, unlock_burn_height, principal
+            snapshot.balance().amount_locked,
+            snapshot.balance().amount_unlocked,
+            unlock_burn_height,
+            principal
         );
 
-        db.set_account_stx_balance(principal, &balance);
-
+        snapshot.save();
         Ok(())
     }
 
@@ -407,8 +383,23 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height
-    pub fn get_scheduled_block_rewards_in_fork<'a>(
+    /// Find the reported poison-microblock data for this block
+    /// Returns None if there are no forks.
+    pub fn get_poison_microblock_report<T: ClarityConnection>(
+        clarity_tx: &mut T,
+        height: u64,
+    ) -> Result<Option<(StacksAddress, u16)>, Error> {
+        let principal_seq_opt = clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
+                Ok(db.get_microblock_poison_report(height as u32))
+            })
+            .map_err(Error::ClarityError)?;
+
+        Ok(principal_seq_opt.map(|(principal, seq)| (principal.into(), seq)))
+    }
+
+    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
+    pub fn get_scheduled_block_rewards_in_fork_at_height<'a>(
         tx: &mut StacksDBTx<'a>,
         tip: &StacksHeaderInfo,
         block_height: u64,
@@ -436,17 +427,17 @@ impl StacksChainState {
         Ok(rows)
     }
 
-    /// Get all scheduled miner rewards for a given index hash
-    pub fn get_scheduled_block_rewards(
-        conn: &DBConn,
-        index_block_hash: &StacksBlockId,
+    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
+    pub fn get_scheduled_block_rewards<'a>(
+        tx: &mut StacksDBTx<'a>,
+        tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        let qry =
-            "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[index_block_hash];
-        let rows =
-            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
-        Ok(rows)
+        if tip.block_height < MINER_REWARD_MATURITY {
+            return Ok(vec![]);
+        }
+
+        let block_height = tip.block_height - MINER_REWARD_MATURITY;
+        StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
     /// Get the miner info at a particular burn/stacks block
@@ -484,66 +475,44 @@ impl StacksChainState {
         }
     }
 
-    /// Calculate the total reward for a miner (or user burn support), given a sample of scheduled miner payments.
-    /// The scheduled miner payments must be in order by block height (sample[0] is the oldest).
-    /// The first tuple item is the miner's reward; the second tuple item is the list of
-    /// user-support burns that helped the miner win.
+    /// What's the commission for reporting a poison microblock stream?
+    fn poison_microblock_commission(coinbase: u128) -> u128 {
+        (coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION) / 100
+    }
+
+    /// Calculate a block mining participant's coinbase reward, given the block's miner and list of
+    /// user-burn-supporters.
     ///
-    /// There must be MINER_REWARD_WINDOW items in the sample.
+    /// If poison_reporter_opt is not None, then the returned MinerReward will reward the _poison reporter_,
+    /// not the miner, for reporting the microblock stream fork.
     ///
     /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
     /// out for now -- it only grants miners and user burn supports their coinbases.
+    ///
     fn calculate_miner_reward(
+        mainnet: bool,
+        participant: &MinerPaymentSchedule,
         miner: &MinerPaymentSchedule,
-        sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>,
+        users: &Vec<MinerPaymentSchedule>,
+        poison_reporter_opt: Option<&StacksAddress>,
     ) -> MinerReward {
-        for i in 0..sample.len() {
-            assert!(sample[i].0.miner);
-            for u in sample[i].1.iter() {
-                assert!(!u.miner);
-            }
-        }
-
-        // how many blocks this miner mined or supported
-        let mut num_mined: u128 = 0;
-
-        ////////////////////// number of blocks this miner mined or supported //////
-        for i in 0..sample.len() {
-            let block_miner = &sample[i].0;
-            let user_supports = &sample[i].1;
-
-            if block_miner.address == miner.address {
-                num_mined += 1;
-            } else {
-                // considering a user's share of the coinbase (count the block's miner as another
-                // user, distinct from this one)
-                for user_support in user_supports.iter() {
-                    if user_support.address == miner.address {
-                        num_mined += 1;
-                        break;
-                    }
-                }
-            }
-        }
-
         ////////////////////// coinbase reward total /////////////////////////////////
         let (this_burn_total, other_burn_total) = {
-            let block_miner = &sample[0].0;
-            let user_supports = &sample[0].1;
-
-            if block_miner.address == miner.address {
+            if participant.address == miner.address {
+                // we're calculating the miner's reward
                 let mut total_user: u128 = 0;
-                for user_support in user_supports.iter() {
+                for user_support in users.iter() {
                     total_user = total_user
                         .checked_add(user_support.burnchain_commit_burn as u128)
                         .expect("FATAL: user support burn overflow");
                 }
-                (block_miner.burnchain_commit_burn as u128, total_user)
+                (participant.burnchain_commit_burn as u128, total_user)
             } else {
+                // we're calculating a user burn support's reward
                 let mut this_user: u128 = 0;
-                let mut total_other: u128 = block_miner.burnchain_commit_burn as u128;
-                for user_support in user_supports.iter() {
-                    if user_support.address != miner.address {
+                let mut total_other: u128 = miner.burnchain_commit_burn as u128;
+                for user_support in users.iter() {
+                    if user_support.address != participant.address {
                         total_other = total_other
                             .checked_add(user_support.burnchain_commit_burn as u128)
                             .expect("FATAL: user support burn overflow");
@@ -555,40 +524,70 @@ impl StacksChainState {
             }
         };
 
-        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
-        // * r is the number of tokens added by the blocks mined (or supported) by this miner
-        // * R is the number of tokens added by all blocks mined in this interval
-        // * b is the amount of burn tokens destroyed by this miner
-        // * B is the total amount of burn tokens destroyed over this interval
-        let coinbase_reward: u128 = if num_mined == 0 {
-            // this miner didn't help at all
-            0
+        let burn_total = other_burn_total
+            .checked_add(this_burn_total)
+            .expect("FATAL: combined burns exceed u128");
+
+        test_debug!(
+            "{}: Coinbase reward = {} * ({}/{})",
+            participant.address.to_string(),
+            participant.coinbase,
+            this_burn_total,
+            burn_total
+        );
+
+        // each participant gets a share of the coinbase proportional to the fraction it burned out
+        // of all participants' burns.
+        let coinbase_reward = participant
+            .coinbase
+            .checked_mul(this_burn_total as u128)
+            .expect("FATAL: STX coinbase reward overflow")
+            / (burn_total as u128);
+
+        // process poison -- someone can steal a fraction of the total coinbase if they can present
+        // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
+        // destroyed if this happens.
+        let (recipient, coinbase_reward) = if let Some(reporter_address) = poison_reporter_opt {
+            if participant.address == miner.address {
+                // the poison-reporter, not the miner, gets a (fraction of the) reward
+                debug!(
+                    "{:?} will recieve poison-microblock commission {}",
+                    &reporter_address.to_string(),
+                    StacksChainState::poison_microblock_commission(coinbase_reward)
+                );
+                (
+                    reporter_address.clone(),
+                    StacksChainState::poison_microblock_commission(coinbase_reward),
+                )
+            } else {
+                // users that helped a miner that reported a poison-microblock get nothing
+                (StacksAddress::burn_address(mainnet), coinbase_reward)
+            }
         } else {
-            let burn_total = other_burn_total
-                .checked_add(this_burn_total)
-                .expect("FATAL: combined burns exceed u128");
-            test_debug!(
-                "{}: Coinbase reward = {} * ({}/{})",
-                miner.address.to_string(),
-                miner.coinbase,
-                this_burn_total,
-                burn_total
-            );
-            miner
-                .coinbase
-                .checked_mul(this_burn_total as u128)
-                .expect("FATAL: STX coinbase reward overflow")
-                / (burn_total as u128)
+            // no poison microblock reported
+            (participant.address, coinbase_reward)
         };
 
         // TODO: missing transaction fee calculation
+        let tx_fees_anchored = 0;
+        let tx_fees_streamed_produced = 0;
+        let tx_fees_streamed_confirmed = 0;
+        debug!(
+            "{}: {} coinbase, {} anchored fees, {} streamed fees, {} confirmed fees",
+            &recipient.to_string(),
+            coinbase_reward,
+            tx_fees_anchored,
+            tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed
+        );
+
+        // ("bad miner! no coinbase!")
         let miner_reward = MinerReward {
-            address: miner.address.clone(),
+            address: recipient,
             coinbase: coinbase_reward,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
+            tx_fees_anchored: tx_fees_anchored,
+            tx_fees_streamed_produced: tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
             vtxindex: miner.vtxindex,
         };
         miner_reward
@@ -596,137 +595,72 @@ impl StacksChainState {
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners.
-    /// If cache is Some(..), look there for miner payments there before hitting the DB.  Add newly-found
-    /// scheduled miner payments to the cache.  Miner payments are immutable once written, and are
-    /// keyed to the index block hash (which is globally unique), so once cached, no invalidation
-    /// should be necessary.
-    pub fn find_mature_miner_rewards(
-        tx: &mut StacksDBTx,
+    pub fn find_mature_miner_rewards<'a>(
+        clarity_tx: &mut ClarityTx<'a>,
         tip: &StacksHeaderInfo,
-        mut cache: Option<&mut MinerPaymentCache>,
-    ) -> Result<Option<(Vec<MinerReward>, MinerRewardInfo)>, Error> {
-        if tip.block_height <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+        mut latest_matured_miners: Vec<MinerPaymentSchedule>,
+    ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerRewardInfo)>, Error> {
+        let mainnet = clarity_tx.config.mainnet;
+        if tip.block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let latest_matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(
-            tx,
-            tip,
-            tip.block_height - MINER_REWARD_MATURITY,
-        )?;
+        let reward_height = tip.block_height - MINER_REWARD_MATURITY;
+
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
-        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &latest_matured_miners[0].parent_consensus_hash,
-            &latest_matured_miners[0].parent_block_hash,
-        );
-        let mut scheduled_payments = vec![(
-            latest_matured_miners[0].clone(),
-            latest_matured_miners[1..].to_vec(),
-        )];
+        let users = latest_matured_miners.split_off(1);
+        let miner = latest_matured_miners
+            .pop()
+            .expect("BUG: no matured miners despite prior check");
 
-        // load all miner rewards from tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW
-        // up to tip.block_height - MINER_REWARD_MATURITY, in that order.
-        for _i in 0..MINER_REWARD_WINDOW {
-            let scheduled_rewards = if let Some(ref mut cache) = cache {
-                if let Some(miner_rewards) = cache.get(&index_block_hash) {
-                    miner_rewards.clone()
-                } else {
-                    debug!("CACHE MISS MINER REWARDS {}", &index_block_hash);
-                    let rewards =
-                        StacksChainState::get_scheduled_block_rewards(tx, &index_block_hash)?;
-                    cache.insert(index_block_hash.clone(), rewards.clone());
-                    rewards
-                }
-            } else {
-                StacksChainState::get_scheduled_block_rewards(tx, &index_block_hash)?
-            };
-
-            assert!(
-                scheduled_rewards.len() > 0,
-                format!("BUG: no rewards in {} ({})", &index_block_hash, _i)
-            );
-            assert!(scheduled_rewards[0].vtxindex == 0);
-            assert!(scheduled_rewards[0].miner);
-
-            let mut miner_reward_opt = None;
-            for reward in scheduled_rewards.iter() {
-                if reward.miner {
-                    miner_reward_opt = Some(reward.clone());
-                    break;
-                }
-            }
-
-            let miner_reward = miner_reward_opt.expect(&format!(
-                "FATAL: missing miner reward for block {}",
-                index_block_hash
-            ));
-            let mut user_burns = vec![];
-            for reward in scheduled_rewards.iter() {
-                if !reward.miner {
-                    user_burns.push(reward.clone());
-                }
-            }
-
-            assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
-            scheduled_payments.push((miner_reward, user_burns));
-
-            index_block_hash = StacksChainState::get_parent_index_block(
-                &scheduled_rewards[0].parent_consensus_hash,
-                &scheduled_rewards[0].parent_block_hash,
-            );
-            test_debug!(
-                "Reward index hash: {} = {} + {}",
-                &index_block_hash,
-                &scheduled_rewards[0].parent_consensus_hash,
-                &scheduled_rewards[0].parent_block_hash
-            );
-        }
-
-        // scheduled_payments[0] should be the oldest rewards
-        scheduled_payments.reverse();
-        let matured_miners = scheduled_payments[0].clone();
-
-        if cfg!(test) {
-            let rs_before = StacksChainState::get_scheduled_block_rewards_in_fork(
-                tx,
-                tip,
-                tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW,
-            )?;
-            assert!(rs_before.len() > 0);
-
-            let mut matured_miners_list = vec![matured_miners.0.clone()];
-            matured_miners_list.append(&mut matured_miners.1.clone());
-            assert_eq!(matured_miners_list, rs_before);
-
-            let rs_after = StacksChainState::get_scheduled_block_rewards_in_fork(
-                tx,
-                tip,
-                tip.block_height - MINER_REWARD_MATURITY,
-            )?;
-            assert!(rs_after.len() > 0);
-            let rs_miners_after = (rs_after[0].clone(), rs_after[1..].to_vec());
-            assert_eq!(*scheduled_payments.last().unwrap(), rs_miners_after);
-        }
-
-        let matured_rewards_info = MinerRewardInfo {
-            from_stacks_block_hash: matured_miners.0.block_hash.clone(),
-            from_block_consensus_hash: matured_miners.0.consensus_hash.clone(),
+        let reward_info = MinerRewardInfo {
+            from_stacks_block_hash: miner.block_hash.clone(),
+            from_block_consensus_hash: miner.consensus_hash.clone(),
         };
 
-        let mut rewards = vec![];
-        let miner_reward =
-            StacksChainState::calculate_miner_reward(&matured_miners.0, &scheduled_payments);
-        rewards.push(miner_reward);
+        // was this block penalized for mining a forked microblock stream?
+        // If so, find the principal that detected the poison, and reward them instead.
+        let poison_recipient_opt =
+            StacksChainState::get_poison_microblock_report(clarity_tx, reward_height)?
+                .map(|(reporter, _)| reporter);
 
-        for user_reward in matured_miners.1.iter() {
-            let reward = StacksChainState::calculate_miner_reward(user_reward, &scheduled_payments);
-            rewards.push(reward);
+        if let Some(ref _poison_reporter) = poison_recipient_opt.as_ref() {
+            test_debug!(
+                "Poison-microblock reporter {} at height {}",
+                &_poison_reporter.to_string(),
+                reward_height
+            );
+        } else {
+            test_debug!("No poison-microblock report at height {}", reward_height);
         }
-        Ok(Some((rewards, matured_rewards_info)))
+
+        // calculate miner reward
+        let miner_reward = StacksChainState::calculate_miner_reward(
+            mainnet,
+            &miner,
+            &miner,
+            &users,
+            poison_recipient_opt.as_ref(),
+        );
+
+        // calculate reward for each user-support-burn
+        let mut user_rewards = vec![];
+        for user_reward in users.iter() {
+            let reward = StacksChainState::calculate_miner_reward(
+                mainnet,
+                user_reward,
+                &miner,
+                &users,
+                poison_recipient_opt.as_ref(),
+            );
+            user_rewards.push(reward);
+        }
+
+        Ok(Some((miner_reward, user_rewards, reward_info)))
     }
 }
 
@@ -840,7 +774,7 @@ mod test {
             user_burn.consensus_hash = new_tip.consensus_hash.clone();
         }
 
-        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let mut tx = chainstate.index_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(
             &mut tx,
             &parent_header_info.anchored_header,
@@ -855,6 +789,7 @@ mod test {
             &user_burns,
             new_tip.total_liquid_ustx,
             &ExecutionCost::zero(),
+            123,
         )
         .unwrap();
         tx.commit().unwrap();
@@ -890,7 +825,7 @@ mod test {
         let mut user_supports = vec![user_support];
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
                 &StacksHeaderInfo::regtest_genesis(0),
@@ -908,7 +843,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
 
@@ -921,7 +856,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
@@ -976,13 +911,16 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
 
         {
-            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin().unwrap();
             let payments_0 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 0).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
+                    .unwrap();
             let payments_1 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 1).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
+                    .unwrap();
             let payments_2 =
-                StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
+                    .unwrap();
 
             let mut expected_user_support = user_reward.clone();
             expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
@@ -997,64 +935,7 @@ mod test {
         };
     }
 
-    // this is the older version of find_mature_miner_rewards, without caching.
-    fn old_find_mature_miner_rewards<'a>(
-        tx: &mut StacksDBTx<'a>,
-        tip: &StacksHeaderInfo,
-    ) -> Result<Option<Vec<MinerReward>>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-            // no mature rewards exist
-            return Ok(None);
-        }
-
-        let matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(
-            tx,
-            tip,
-            tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW,
-        )?;
-        assert!(matured_miners.len() > 0);
-
-        let mut scheduled_payments = vec![];
-        for i in 0..MINER_REWARD_WINDOW {
-            let height = tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW + i; // safe due to the above check
-            let scheduled_rewards = if i == 0 {
-                matured_miners.clone()
-            } else {
-                StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, height)?
-            };
-
-            assert!(scheduled_rewards.len() > 0);
-
-            let mut miner_reward_opt = None;
-            for reward in scheduled_rewards.iter() {
-                if reward.miner {
-                    miner_reward_opt = Some(reward.clone());
-                    break;
-                }
-            }
-
-            let miner_reward = miner_reward_opt
-                .expect(&format!("FATAL: missing miner reward for block {}", height));
-            let mut user_burns = vec![];
-            for reward in scheduled_rewards.iter() {
-                if !reward.miner {
-                    user_burns.push(reward.clone());
-                }
-            }
-
-            assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
-            scheduled_payments.push((miner_reward, user_burns));
-        }
-
-        let mut rewards = vec![];
-        for matured_miner in matured_miners {
-            let reward =
-                StacksChainState::calculate_miner_reward(&matured_miner, &scheduled_payments);
-            rewards.push(reward);
-        }
-        Ok(Some(rewards))
-    }
-
+    /*
     #[test]
     fn find_mature_miner_rewards() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "find_mature_miner_rewards");
@@ -1067,11 +948,9 @@ mod test {
 
         let mut parent_tip = StacksHeaderInfo::regtest_genesis(0);
 
-        let mut cache = MinerPaymentCache::new();
-        let mut matured_miners = vec![];
-        let mut expected_scheduled_payments = vec![];
+        let mut matured_miners = (make_dummy_miner_payment_schedule(&miner_1, 0, 0, 0, 0, 0), vec![]);
 
-        for i in 0..(MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) + 1 {
+        for i in 0..(MINER_REWARD_MATURITY + 1) {
             let mut miner_reward = make_dummy_miner_payment_schedule(
                 &miner_1,
                 500,
@@ -1092,10 +971,8 @@ mod test {
             let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
 
             if i == 0 {
-                matured_miners = vec![miner_reward.clone(), user_reward.clone()];
+                matured_miners = (miner_reward.clone(), vec![user_reward.clone()]);
             }
-
-            expected_scheduled_payments.push((miner_reward.clone(), vec![user_reward.clone()]));
 
             let mut user_supports = vec![user_support];
 
@@ -1106,156 +983,111 @@ mod test {
                 &mut user_supports,
             );
 
-            if i < (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) {
-                let mut tx = chainstate.headers_tx_begin().unwrap();
+            if i < MINER_REWARD_MATURITY {
+                let mut tx = chainstate.chainstate_tx_begin().unwrap();
                 let rewards_opt =
-                    StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None)
+                    StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, vec![])
                         .unwrap();
-                assert!(rewards_opt.is_none()); // not mature yet
-
-                let rewards_opt = StacksChainState::find_mature_miner_rewards(
-                    &mut tx,
-                    &parent_tip,
-                    Some(&mut cache),
-                )
-                .unwrap();
                 assert!(rewards_opt.is_none()); // not mature yet
             }
             test_debug!("next tip = {:?}", &next_tip);
             parent_tip = next_tip;
         }
 
-        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let mut tx = chainstate.chainstate_tx_begin().unwrap().0;
 
         test_debug!("parent tip = {:?}", &parent_tip);
-        let expected_rewards = {
-            let mut rewards = vec![];
-            for matured_miner in matured_miners {
-                let reward = StacksChainState::calculate_miner_reward(
-                    &matured_miner,
-                    &expected_scheduled_payments,
-                );
-                rewards.push(reward);
-            }
-            rewards
-        };
+        let miner_reward = StacksChainState::calculate_miner_reward(
+            false,
+            &matured_miners.0,
+            &matured_miners.0,
+            &matured_miners.1,
+            None
+        );
+        let mut user_rewards = vec![];
+        for user_reward in matured_miners.1.iter() {
+            let rw = StacksChainState::calculate_miner_reward(
+                false,
+                user_reward,
+                &matured_miners.0,
+                &matured_miners.1,
+                None
+            );
+            user_rewards.push(rw);
+        }
 
-        let legacy_rewards = old_find_mature_miner_rewards(&mut tx, &parent_tip)
-            .unwrap()
-            .unwrap();
+        let mut matured_rewards = vec![];
+        matured_rewards.push(miner_reward.clone());
+        matured_rewards.append(&mut user_rewards.clone());
 
-        assert_eq!(legacy_rewards, expected_rewards);
+        let rewards_opt =
+            StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, &matured_rewards).unwrap();
+        assert!(rewards_opt.is_some());
 
-        let (rewards, _) = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(rewards.len(), 2);
-        assert_eq!(rewards, expected_rewards);
-
-        let (rewards_cached, _) =
-            StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut cache))
-                .unwrap()
-                .unwrap();
-
-        assert_eq!(rewards_cached, rewards);
-        assert_eq!(rewards_cached, expected_rewards);
-
-        let mut empty_cache = MinerPaymentCache::new();
-        let (rewards_cached, _) = StacksChainState::find_mature_miner_rewards(
-            &mut tx,
-            &parent_tip,
-            Some(&mut empty_cache),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(rewards_cached, rewards);
-        assert_eq!(rewards_cached, expected_rewards);
+        let rewards = rewards_opt.unwrap();
+        assert_eq!(rewards.0, miner_reward);
+        assert_eq!(rewards.1, user_rewards);
     }
+    */
 
     #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users() {
-        let mut sample = vec![];
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
         let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        sample.push((participant.clone(), vec![]));
 
-        for i in 0..9 {
-            let next_participant =
-                make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        }
-
-        let reward = StacksChainState::calculate_miner_reward(&participant, &sample);
-
-        // miner should have received the entire coinbase
-        assert_eq!(reward.coinbase, 500);
-        assert_eq!(reward.tx_fees_anchored_shared, 0);
-        assert_eq!(reward.tx_fees_anchored_exclusive, 0);
-        assert_eq!(reward.tx_fees_streamed_produced, 0);
-        assert_eq!(reward.tx_fees_streamed_confirmed, 0);
-    }
-
-    #[test]
-    fn miner_reward_two_miners_no_tx_fees_no_users() {
-        let mut sample = vec![];
-        let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
-        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        sample.push((participant.clone(), vec![]));
-
-        for i in 0..9 {
-            let next_participant =
-                make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-            sample.push((next_participant, vec![]));
-        }
-
-        let reward = StacksChainState::calculate_miner_reward(&participant, &sample);
+        let miner_reward = StacksChainState::calculate_miner_reward(
+            false,
+            &participant,
+            &participant,
+            &vec![],
+            None,
+        );
 
         // miner should have received the entire coinbase
-        assert_eq!(reward.coinbase, 500);
-        assert_eq!(reward.tx_fees_anchored_shared, 0);
-        assert_eq!(reward.tx_fees_anchored_exclusive, 0);
-        assert_eq!(reward.tx_fees_streamed_produced, 0);
-        assert_eq!(reward.tx_fees_streamed_confirmed, 0);
+        assert_eq!(miner_reward.coinbase, 500);
+        assert_eq!(miner_reward.tx_fees_anchored, 0);
+        assert_eq!(miner_reward.tx_fees_streamed_produced, 0);
+        assert_eq!(miner_reward.tx_fees_streamed_confirmed, 0);
     }
 
     #[test]
     fn miner_reward_one_miner_one_user_no_tx_fees() {
-        let mut sample = vec![];
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
         let user_1 =
             StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
                 .unwrap();
-        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
+
+        let miner = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
         let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
-        sample.push((participant.clone(), vec![user.clone()]));
 
-        for i in 0..9 {
-            let next_participant =
-                make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-            sample.push((next_participant, vec![]));
-        }
-
-        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant, &sample);
-        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(
+            false,
+            &miner,
+            &miner,
+            &vec![user.clone()],
+            None,
+        );
+        let reward_user_1 = StacksChainState::calculate_miner_reward(
+            false,
+            &user,
+            &miner,
+            &vec![user.clone()],
+            None,
+        );
 
         // miner should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1292,15 +1124,13 @@ mod test {
 
         // miner should have received 1/4 the coinbase, and miner should have received only shared
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 1000);        // same miner, so they get everything
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 1000);        // same miner, so they get everything
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1350,22 +1180,19 @@ mod test {
 
         // if miner 1 won, then it should have received 1/4 the coinbase, and miner should have received only shared tx fees
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 500);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored, 500);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // miner 2 didn't mine this block
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, 500);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_2.tx_fees_anchored, 500);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1425,22 +1252,19 @@ mod test {
 
         // miner 1 should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
 
         // miner 2 didn't win this block, so it gets no coinbase
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
@@ -1500,22 +1324,19 @@ mod test {
 
         // miner 1 produced this block with the help from users 3x as interested, so it gets 1/4 of the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
-        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 240);                  // produced half of the microblocks, should get half the 2/5 of the reward
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 240);                 // confirmed half of the microblocks, should get half of the 3/5 reward
 
         // miner 2 didn't produce this block, so no coinbase
         assert_eq!(reward_miner_2.coinbase, 0);
-        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
-        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_anchored, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 200);
         assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 300);
 
         // user should have received 3/4 the coinbase, but no tx fees
         assert_eq!(reward_user_1.coinbase, 375);
-        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
-        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }

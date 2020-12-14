@@ -22,6 +22,7 @@ pub mod monitoring;
 pub mod burnchains;
 pub mod config;
 pub mod event_dispatcher;
+pub mod genesis_data;
 pub mod keychain;
 pub mod neon_node;
 pub mod node;
@@ -185,7 +186,7 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\tExample:
 \t\t  stacks-node start --config=/path/to/config.toml
 
-version\t\tDisplay informations about the current version and our release cycle.
+version\t\tDisplay information about the current version and our release cycle.
 
 help\t\tDisplay this help.
 

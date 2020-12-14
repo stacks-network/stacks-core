@@ -29,6 +29,7 @@ pub enum CheckErrors {
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
     MemoryBalanceExceeded(u64, u64),
+    CostComputationFailed(String),
 
     ValueTooLarge,
     ValueOutOfBounds,
@@ -67,6 +68,7 @@ pub enum CheckErrors {
     ExpectedOptionalOrResponseValue(Value),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
+    UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
 
@@ -238,6 +240,10 @@ impl From<CostErrors> for CheckErrors {
             CostErrors::CostOverflow => CheckErrors::CostOverflow,
             CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
             CostErrors::MemoryBalanceExceeded(a, b) => CheckErrors::MemoryBalanceExceeded(a, b),
+            CostErrors::CostComputationFailed(s) => CheckErrors::CostComputationFailed(s),
+            CostErrors::CostContractLoadFailure => {
+                CheckErrors::CostComputationFailed("Failed to load cost contract".into())
+            }
         }
     }
 }
@@ -399,6 +405,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
+            CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
+            CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
         }
     }
 

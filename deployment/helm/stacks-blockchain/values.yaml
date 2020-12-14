@@ -206,7 +206,7 @@ node:
 ## You can choose to either configure the node via the following YAML fields:
 ##   * config.node
 ##   * config.burnchain
-##   * config.mstx_balance
+##   * config.ustx_balance
 ##
 ## OR you can uncomment the config.raw field, which will take precedence over the aforementationed config fields
 ##
@@ -216,7 +216,7 @@ node:
 ##
 config:
   # More configs can be added than what's shown below.
-  # All children fields under the node, burnchain, and mstx_balance fields will be converted from YAML to valid TOML format in the configmap
+  # All children fields under the node, burnchain, and ustx_balance fields will be converted from YAML to valid TOML format in the configmap
   node:
     rpc_bind: 0.0.0.0:20443 # Port should match node.rpcPort
     p2p_bind: 0.0.0.0:20444 # Port should match node.p2pPort
@@ -231,7 +231,7 @@ config:
     # commit_anchor_block_within: 10000
     rpc_port: 18443
     peer_port: 18444
-  mstx_balance:
+  ustx_balance:
     - address: STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6
       amount: "10000000000000000"
     - address: ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y
@@ -263,16 +263,16 @@ config:
   #   rpc_port = 18443
   #   peer_port = 18444
 
-  #   [[mstx_balance]]
+  #   [[ustx_balance]]
   #   address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
   #   amount = 10000000000000000
-  #   [[mstx_balance]]
+  #   [[ustx_balance]]
   #   address = "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
   #   amount = 10000000000000000
-  #   [[mstx_balance]]
+  #   [[ustx_balance]]
   #   address = "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
   #   amount = 10000000000000000
-  #   [[mstx_balance]]
+  #   [[ustx_balance]]
   #   address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
   #   amount = 10000000000000000
 

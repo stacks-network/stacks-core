@@ -1,6 +1,5 @@
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
@@ -24,23 +23,83 @@ const MINIMUM_DUST_FEE: u64 = 5500;
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+    pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub block_limit: Option<BlockLimitFile>,
 }
 
+#[derive(Clone, Deserialize, Default)]
+pub struct LegacyMstxConfigFile {
+    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_load_legacy_mstx_balances_toml() {
+        let config = ConfigFile::from_str(
+            r#"
+            [[ustx_balance]]
+            address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+            amount = 10000000000000000
+
+            [[ustx_balance]]
+            address = "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+            amount = 10000000000000000
+            "#,
+        );
+        assert!(config.ustx_balance.is_some());
+        let balances = config
+            .ustx_balance
+            .expect("Failed to parse stx balances from toml");
+        assert_eq!(balances.len(), 4);
+        assert_eq!(
+            balances[0].address,
+            "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+        );
+        assert_eq!(
+            balances[1].address,
+            "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+        );
+        assert_eq!(
+            balances[2].address,
+            "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+        );
+        assert_eq!(
+            balances[3].address,
+            "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+        );
+    }
+}
+
 impl ConfigFile {
     pub fn from_path(path: &str) -> ConfigFile {
-        let path = File::open(path).unwrap();
-        let mut config_file_reader = BufReader::new(path);
-        let mut config_file = vec![];
-        config_file_reader.read_to_end(&mut config_file).unwrap();
-        toml::from_slice(&config_file[..]).unwrap()
+        let content_str = fs::read_to_string(path).unwrap();
+        Self::from_str(&content_str)
     }
 
     pub fn from_str(content: &str) -> ConfigFile {
-        toml::from_slice(&content.as_bytes()).unwrap()
+        let mut config: ConfigFile = toml::from_str(content).unwrap();
+        let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
+        if let Some(mstx_balance) = legacy_config.mstx_balance {
+            warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
+            config.ustx_balance = match config.ustx_balance {
+                Some(balance) => Some([balance, mstx_balance].concat()),
+                None => Some(mstx_balance),
+            };
+        }
+        config
     }
 
     pub fn neon() -> ConfigFile {
@@ -80,7 +139,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -123,7 +182,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -166,7 +225,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -177,6 +236,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
+            magic_bytes: Some("Xe".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -208,7 +268,7 @@ impl ConfigFile {
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            mstx_balance: Some(balances),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -301,6 +361,7 @@ lazy_static! {
         download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
+        max_inflight_attachments: 6,
         .. std::default::Default::default()
     };
 }
@@ -314,11 +375,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 };
 
 impl Config {
-    pub fn from_config_file_path(path: &str) -> Config {
-        let config_file = ConfigFile::from_path(path);
-        Config::from_config_file(config_file)
-    }
-
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
@@ -352,6 +408,12 @@ impl Config {
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
+                    microblock_frequency: node
+                        .microblock_frequency
+                        .unwrap_or(default_node_config.microblock_frequency),
+                    max_microblocks: node
+                        .max_microblocks
+                        .unwrap_or(default_node_config.max_microblocks),
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
@@ -370,8 +432,15 @@ impl Config {
         };
 
         let default_burnchain_config = BurnchainConfig::default();
+
         let burnchain = match config_file.burnchain {
-            Some(burnchain) => {
+            Some(mut burnchain) => {
+                if burnchain.mode.as_deref() == Some("xenon") {
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+                    }
+                }
+
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
@@ -410,7 +479,14 @@ impl Config {
                     spv_headers_path: burnchain
                         .spv_headers_path
                         .unwrap_or(node.get_default_spv_headers_path()),
-                    magic_bytes: default_burnchain_config.magic_bytes,
+                    magic_bytes: burnchain
+                        .magic_bytes
+                        .map(|magic_ascii| {
+                            assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
+                            assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
+                            MagicBytes::from(magic_ascii.as_bytes())
+                        })
+                        .unwrap_or(default_burnchain_config.magic_bytes),
                     local_mining_public_key: burnchain.local_mining_public_key,
                     burnchain_op_tx_fee: burnchain
                         .burnchain_op_tx_fee
@@ -437,7 +513,7 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
-        let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
+        let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => balances
                 .iter()
                 .map(|balance| {
@@ -589,6 +665,11 @@ impl Config {
                             .max_inflight_blocks
                             .clone()
                     }),
+                    max_inflight_attachments: opts.max_inflight_attachments.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_inflight_attachments
+                            .clone()
+                    }),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(
                         || {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS
@@ -668,6 +749,10 @@ impl Config {
 
     pub fn get_peer_db_path(&self) -> String {
         format!("{}/peer_db.sqlite", self.node.working_dir)
+    }
+
+    pub fn get_atlas_db_path(&self) -> String {
+        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
@@ -823,6 +908,8 @@ pub struct NodeConfig {
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
+    pub microblock_frequency: u64,
+    pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
@@ -858,6 +945,8 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
+            microblock_frequency: 5000,
+            max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 5000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
@@ -949,6 +1038,7 @@ pub struct ConnectionOptionsFile {
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
+    pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
     pub read_only_call_limit_write_count: Option<u64>,
@@ -986,6 +1076,8 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
+    pub microblock_frequency: Option<u64>,
+    pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
@@ -1068,7 +1160,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,

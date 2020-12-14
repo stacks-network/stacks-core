@@ -49,8 +49,8 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -86,8 +86,7 @@ use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
 use std::collections::HashMap;
 
-use core::FIRST_BURNCHAIN_BLOCK_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
+use core::{FIRST_BURNCHAIN_BLOCK_HASH, FIRST_STACKS_BLOCK_HASH, INITIAL_MINING_BONUS_WINDOW};
 
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
@@ -154,6 +153,11 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
         let pox_valid = row.get("pox_valid");
 
+        let accumulated_coinbase_ustx_str: String = row.get("accumulated_coinbase_ustx");
+        let accumulated_coinbase_ustx = accumulated_coinbase_ustx_str
+            .parse::<u128>()
+            .expect("DB CORRUPTION: failed to parse stored value");
+
         let total_burn = total_burn_str
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -183,6 +187,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
             sortition_id,
             pox_valid,
+            accumulated_coinbase_ustx,
         };
         Ok(snapshot)
     }
@@ -346,11 +351,44 @@ impl FromRow<StackStxOp> for StackStxOp {
     }
 }
 
+impl FromRow<TransferStxOp> for TransferStxOp {
+    fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let recipient = StacksAddress::from_column(row, "recipient_addr")?;
+        let transfered_ustx_str: String = row.get("transfered_ustx");
+        let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let memo_hex: String = row.get("memo");
+        let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
+
+        Ok(TransferStxOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            recipient,
+            transfered_ustx,
+            memo,
+        })
+    }
+}
+
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
     pub block_hash: BlockHeaderHash,       // stacks block hash
     pub height: u64,                       // stacks block height
+}
+
+pub struct InitialMiningBonus {
+    pub total_reward: u128,
+    pub per_block: u128,
 }
 
 impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
@@ -402,6 +440,8 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         canonical_stacks_tip_consensus_hash TEXT NOT NULL,   -- burn hash of highest known Stacks fork's tip block in this burn chain fork
 
         pox_valid INTEGER NOT NULL,
+
+        accumulated_coinbase_ustx TEXT NOT NULL,
 
         PRIMARY KEY(sortition_id)
     );"#,
@@ -493,6 +533,20 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         reward_addr TEXT NOT NULL,
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
+
+        PRIMARY KEY(txid)
+    );"#,
+    r#"
+    CREATE TABLE transfer_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        recipient_addr TEXT NOT NULL,
+        transfered_ustx TEXT NOT NULL,
+        memo TEXT NOT NULL,
 
         PRIMARY KEY(txid)
     );"#,
@@ -651,6 +705,14 @@ impl db_keys {
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
+    }
+
+    pub fn initial_mining_bonus_remaining() -> &'static str {
+        "sortition_db::initial_mining::remaining"
+    }
+
+    pub fn initial_mining_bonus_per_block() -> &'static str {
+        "sortition_db::initial_mining::per_block"
     }
 
     pub fn sortition_id_for_bhh(bhh: &BurnchainHeaderHash) -> String {
@@ -2044,7 +2106,7 @@ impl SortitionDB {
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
         let index_root =
-            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None)?;
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot)?;
@@ -2451,6 +2513,19 @@ impl SortitionDB {
             sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
         };
 
+        // Get any initial mining bonus which would be due to the winner of this block.
+        let bonus_remaining =
+            sortition_db_handle.get_initial_mining_bonus_remaining(&parent_sort_id)?;
+
+        let initial_mining_bonus = if bonus_remaining > 0 {
+            let mining_bonus_per_block = sortition_db_handle
+                .get_initial_mining_bonus_per_block(&parent_sort_id)?
+                .expect("BUG: initial mining bonus amount written, but not the per block amount.");
+            cmp::min(bonus_remaining, mining_bonus_per_block)
+        } else {
+            0
+        };
+
         let new_snapshot = sortition_db_handle.process_block_txs(
             &parent_snapshot,
             burn_header,
@@ -2459,6 +2534,7 @@ impl SortitionDB {
             next_pox_info,
             parent_pox,
             reward_set_info.as_ref(),
+            initial_mining_bonus,
         )?;
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
@@ -2554,6 +2630,17 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
+    }
+
+    pub fn get_transfer_stx_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<TransferStxOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM transfer_stx WHERE burn_header_hash = ?",
             &[burn_header_hash],
         )
     }
@@ -3038,6 +3125,8 @@ impl SortitionDB {
 impl<'a> SortitionHandleTx<'a> {
     /// Append a snapshot to a chain tip, and update various chain tip statistics.
     /// Returns the new state root of this fork.
+    /// `initialize_bonus` - if Some(..), then this snapshot is the first mined snapshot,
+    ///    and this method should initialize the `initial_mining_bonus` fields in the sortition db.
     pub fn append_chain_tip_snapshot(
         &mut self,
         parent_snapshot: &BlockSnapshot,
@@ -3045,6 +3134,7 @@ impl<'a> SortitionHandleTx<'a> {
         block_ops: &Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
         reward_info: Option<&RewardSetInfo>,
+        initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         assert_eq!(
             snapshot.parent_burn_header_hash,
@@ -3064,6 +3154,7 @@ impl<'a> SortitionHandleTx<'a> {
             block_ops,
             next_pox_info,
             reward_info,
+            initialize_bonus,
         )?;
 
         let mut sn = snapshot.clone();
@@ -3081,6 +3172,24 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         Ok(root_hash)
+    }
+
+    fn get_initial_mining_bonus_remaining(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<u128, db_error> {
+        self.get_indexed(&chain_tip, db_keys::initial_mining_bonus_remaining())?
+            .map(|s| Ok(s.parse().expect("BUG: bad mining bonus stored in DB")))
+            .unwrap_or(Ok(0))
+    }
+
+    fn get_initial_mining_bonus_per_block(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<Option<u128>, db_error> {
+        Ok(self
+            .get_indexed(&chain_tip, db_keys::initial_mining_bonus_per_block())?
+            .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
     }
 
     fn store_transition_ops(
@@ -3142,7 +3251,14 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_stack_stx(op)
             }
-            BlockstackOperationType::PreStackStx(ref op) => {
+            BlockstackOperationType::TransferStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) transfer stx opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_transfer_stx(op)
+            }
+            BlockstackOperationType::PreStx(ref op) => {
                 info!(
                     "ACCEPTED({}) pre stack stx op {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
@@ -3195,6 +3311,24 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a transfer-stx op
+    fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &op.recipient.to_string(),
+            &op.transfered_ustx.to_string(),
+            &to_hex(&op.memo),
+        ];
+
+        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -3295,8 +3429,6 @@ impl<'a> SortitionHandleTx<'a> {
             snapshot.num_sortitions
         );
 
-        let total_burn_str = format!("{}", snapshot.total_burn);
-
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(snapshot.block_height)?,
             &snapshot.burn_header_hash,
@@ -3304,7 +3436,7 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.parent_burn_header_hash,
             &snapshot.consensus_hash,
             &snapshot.ops_hash,
-            &total_burn_str,
+            &snapshot.total_burn.to_string(),
             &snapshot.sortition,
             &snapshot.sortition_hash,
             &snapshot.winning_block_txid,
@@ -3319,12 +3451,13 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.sortition_id,
             &snapshot.pox_valid,
+            &snapshot.accumulated_coinbase_ustx.to_string(),
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
-                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid, accumulated_coinbase_ustx) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -3354,6 +3487,7 @@ impl<'a> SortitionHandleTx<'a> {
         block_ops: &Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
+        initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(
@@ -3388,6 +3522,33 @@ impl<'a> SortitionHandleTx<'a> {
                 &snapshot.winning_stacks_block_hash,
             ));
             values.push(snapshot.sortition_id.to_hex());
+        }
+
+        if let Some(initialize_bonus) = initialize_bonus {
+            // first sortition with a winner, set the initial mining bonus fields
+            keys.push(db_keys::initial_mining_bonus_per_block().into());
+            values.push(initialize_bonus.per_block.to_string());
+
+            let total_reward_remaining = initialize_bonus
+                .total_reward
+                .saturating_sub(initialize_bonus.per_block);
+            keys.push(db_keys::initial_mining_bonus_remaining().into());
+            values.push(total_reward_remaining.to_string());
+        } else if parent_snapshot.total_burn > 0 {
+            // mining has started, check if there's still any remaining bonus that this
+            //  block consumed, and then decrement
+            let prior_bonus_remaining =
+                self.get_initial_mining_bonus_remaining(&parent_snapshot.sortition_id)?;
+            if prior_bonus_remaining > 0 {
+                let mining_bonus_per_block = self
+                    .get_initial_mining_bonus_per_block(&parent_snapshot.sortition_id)?
+                    .expect(
+                        "BUG: initial mining bonus amount written, but not the per block amount.",
+                    );
+                let bonus_remaining = prior_bonus_remaining.saturating_sub(mining_bonus_per_block);
+                keys.push(db_keys::initial_mining_bonus_remaining().into());
+                values.push(bonus_remaining.to_string());
+            }
         }
 
         // if this is the start of a reward cycle, store the new PoX keys
@@ -3693,7 +3854,7 @@ mod tests {
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
         let index_root = tx
-            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None, None)
+            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None, None, None)
             .unwrap();
         sn.index_root = index_root;
 
@@ -3980,7 +4141,7 @@ mod tests {
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
             let index_root = tx
-                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None, None)
+                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None, None, None)
                 .unwrap();
             sn.index_root = index_root;
 
@@ -4217,6 +4378,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -4310,7 +4472,14 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -4456,6 +4625,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
+                    accumulated_coinbase_ustx: 0,
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -4549,7 +4719,14 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -4721,6 +4898,7 @@ mod tests {
         .unwrap();
 
         let mut first_snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height - 2,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -4755,6 +4933,7 @@ mod tests {
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -4803,6 +4982,7 @@ mod tests {
         };
 
         let snapshot_without_sortition = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: block_height - 1,
             burn_header_timestamp: get_epoch_time_secs(),
@@ -4874,6 +5054,7 @@ mod tests {
                 &vec![],
                 None,
                 None,
+                None,
             )
             .unwrap();
             tx.commit().unwrap();
@@ -4895,8 +5076,15 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], None, None)
-                .unwrap();
+            tx.append_chain_tip_snapshot(
+                &chain_tip,
+                &snapshot_with_sortition,
+                &vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
             tx.commit().unwrap();
         }
 
@@ -5082,7 +5270,7 @@ mod tests {
             ]);
 
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None, None)
                 .unwrap();
             tx.commit().unwrap();
 
@@ -5218,7 +5406,14 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &next_snapshot,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 tx.commit().unwrap();
 
@@ -5302,6 +5497,7 @@ mod tests {
                             &vec![],
                             None,
                             None,
+                            None,
                         )
                         .unwrap();
                     tx.commit().unwrap();
@@ -5334,7 +5530,14 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &next_snapshot,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 tx.commit().unwrap();
                 next_index_root
@@ -5371,6 +5574,7 @@ mod tests {
             for i in 0..256 {
                 let snapshot_row = if i % 3 == 0 {
                     BlockSnapshot {
+                        accumulated_coinbase_ustx: 0,
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
@@ -5445,6 +5649,7 @@ mod tests {
                     total_burn += 1;
                     total_sortitions += 1;
                     BlockSnapshot {
+                        accumulated_coinbase_ustx: 0,
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
@@ -5523,7 +5728,14 @@ mod tests {
                     SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
                 let index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None, None)
+                    .append_chain_tip_snapshot(
+                        &last_snapshot,
+                        &snapshot_row,
+                        &vec![],
+                        None,
+                        None,
+                        None,
+                    )
                     .unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
@@ -5735,6 +5947,7 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
+                accumulated_coinbase_ustx: 0,
                 pox_valid: true,
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
@@ -5760,7 +5973,7 @@ mod tests {
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
-                    .append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None, None)
+                    .append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None, None, None)
                     .unwrap();
                 tx.commit().unwrap();
             }

@@ -29,10 +29,13 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::index::TrieHash;
 use core;
+use core::*;
+
 use monitoring::increment_stx_blocks_processed_counter;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc::sync_channel,
     Arc, RwLock,
 };
 use util::vrf::*;
@@ -291,8 +294,9 @@ pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
+    let (tx, _) = sync_channel(100000);
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
-    ChainsCoordinator::test_new(&burnchain, path, OnChainRewardSetProvider())
+    ChainsCoordinator::test_new(&burnchain, path, OnChainRewardSetProvider(), tx)
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
@@ -315,10 +319,12 @@ fn make_reward_set_coordinator<'a>(
     addrs: Vec<StacksAddress>,
     pox_consts: Option<PoxConstants>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
+    let (tx, _) = sync_channel(100000);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
         path,
         StubbedRewardSetProvider(addrs),
+        tx,
     )
 }
 
@@ -557,7 +563,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
         &parent_block, &parents_sortition.sortition_id
     );
     let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
-        state.headers_db(),
+        state.db(),
         &parents_sortition.consensus_hash,
         parent_block,
     )
@@ -753,17 +759,19 @@ fn test_simple_setup() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1039,17 +1047,19 @@ fn test_sortition_with_reward_set() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         // we only got to block height 49, because of the little fork at the end.
         Value::UInt(49)
     );
@@ -1263,17 +1273,19 @@ fn test_sortition_with_burner_reward_set() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1415,7 +1427,7 @@ fn test_pox_btc_ops() {
 
         if ix == 0 {
             // add a pre-stack-stx op
-            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
@@ -1440,18 +1452,20 @@ fn test_pox_btc_ops() {
             let stacks_tip =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
             let mut chainstate = get_chainstate(path);
-            let (stacker_balance, burn_height) = chainstate.with_read_only_clarity_tx(
-                &sort_db.index_conn(),
-                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-                |conn| {
-                    conn.with_clarity_db_readonly(|db| {
-                        (
-                            db.get_account_stx_balance(&stacker.clone().into()),
-                            db.get_current_block_height(),
-                        )
-                    })
-                },
-            );
+            let (stacker_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
 
             if ix > 2 && reward_cycle_count < 6 {
                 assert_eq!(
@@ -1462,7 +1476,7 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked, stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_block(burn_height as u64),
+                    stacker_balance.get_available_balance_at_burn_block(burn_height as u64),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -1516,17 +1530,19 @@ fn test_pox_btc_ops() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(50)
     );
 
@@ -1537,6 +1553,514 @@ fn test_pox_btc_ops() {
                    "11111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
+}
+
+#[test]
+fn test_stx_transfer_btc_ops() {
+    let path = "/tmp/stacks-blockchain-stx_transfer-btc-ops";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let recipient = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    let mut started_first_reward_cycle = false;
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut anchor_blocks = vec![];
+
+    // track the reward set consumption
+    let mut reward_recipients = HashSet::new();
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+        if reward_cycle_info.is_some() {
+            // did we process a reward set last cycle? check if the
+            //  recipient set size matches our expectation
+            assert_eq!(reward_recipients.len(), 0);
+            // clear the reward recipients tracker, since those
+            //  recipients are now eligible again in the new reward cycle
+            reward_recipients.clear();
+        }
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .unwrap();
+        if next_mock_header.block_height >= sunset_ht {
+            assert!(next_block_recipients.is_none());
+        }
+
+        if let Some(ref next_block_recipients) = next_block_recipients {
+            for (addr, _) in next_block_recipients.recipients.iter() {
+                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
+                reward_recipients.insert(addr.clone());
+            }
+        }
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+
+        if ix == 0 {
+            // add a pre-stack-stx op
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: stacker.clone(),
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: recipient.clone(),
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: stacker.clone(),
+                recipient: recipient.clone(),
+                transfered_ustx: transfer_amt,
+                memo: vec![],
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 2 {
+            // shouldn't be accepted -- transfer amount is too large
+            ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: recipient.clone(),
+                recipient: stacker.clone(),
+                transfered_ustx: transfer_amt + 1,
+                memo: vec![],
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        // check our locked balance
+        if ix > 0 {
+            let stacks_tip =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+            let mut chainstate = get_chainstate(path);
+            let (sender_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
+
+            let (recipient_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&recipient.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
+
+            if ix > 2 {
+                assert_eq!(
+                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    (balance as u128) - transfer_amt,
+                    "Transfer should have decremented balance"
+                );
+                assert_eq!(
+                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    transfer_amt,
+                    "Recipient should have incremented balance"
+                );
+            } else {
+                assert_eq!(
+                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    balance as u128,
+                );
+                assert_eq!(
+                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    0,
+                );
+            }
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            if new_burnchain_tip.block_height < sunset_ht {
+                started_first_reward_cycle = true;
+                // store the anchor block for this sortition for later checking
+                let ic = sort_db.index_handle_at_tip();
+                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
+                anchor_blocks.push(bhh);
+            } else {
+                // store the anchor block for this sortition for later checking
+                let ic = sort_db.index_handle_at_tip();
+                assert!(
+                    ic.get_last_anchor_block_hash().unwrap().is_none(),
+                    "No PoX anchor block should be chosen after PoX sunset"
+                );
+            }
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+    assert_eq!(
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+        Value::UInt(50)
+    );
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "11111111111",
+                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+}
+
+#[test]
+fn test_initial_coinbase_reward_distributions() {
+    let path = "/tmp/initial_coinbase_reward_distributions";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    // produce some burn blocks without sortitions:
+    for _ix in 0..50 {
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            vec![],
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+    }
+    let initial_missed_blocks = {
+        let burnchain = get_burnchain_db(path, pox_consts.clone());
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        // +1 here, because the # of missed blocks is (first_sortition_height - first_burn_block_height)
+        burnchain_tip.block_height + 1
+    };
+
+    let initial_block_bonus = (initial_missed_blocks as u128 * MICROSTACKS_PER_STACKS as u128)
+        * 1_000
+        / (INITIAL_MINING_BONUS_WINDOW as u128);
+
+    // now we'll mine 20 burn blocks, every other one with a sortition.
+    //   we should get:
+    //   block  0: initial_block_bonus + 1_000STX
+    //   block  1: no sortition
+    //   block  2: 2*(initial_block_bonus + 1_000)
+    //   ...
+    //   block  8: 2*(initial_block_bonus + 1_000)
+    //   block  9: no sortition
+    //   block 10: 1_000 + (initial_block_bonus + 1_000)
+    //   block 11: no sortition
+    //   block 12: 2_000
+    //   block 13: no sortition
+    //   block 14: 2_000
+
+    for ix in 0..20 {
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        eprintln!("BURNCHAIN TIP HEIGHT = {}", burnchain_tip.block_height);
+        if ix % 2 == 1 {
+            produce_burn_block(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                vec![],
+                vec![].iter_mut(),
+            );
+            coord.handle_new_burnchain_block().unwrap();
+        } else {
+            let vrf_key = &vrf_keys[ix];
+            let miner = &committers[ix];
+
+            let mut chainstate = get_chainstate(path);
+
+            let parent = if ix == 0 {
+                BlockHeaderHash([0; 32])
+            } else {
+                stacks_blocks[ix / 2 - 1].1.header.block_hash()
+            };
+
+            let (good_op, block) = if ix == 0 {
+                make_genesis_block_with_recipients(
+                    &sort_db,
+                    &mut chainstate,
+                    &parent,
+                    miner,
+                    10000,
+                    vrf_key,
+                    ix as u32,
+                    None,
+                )
+            } else {
+                make_stacks_block_with_recipients(
+                    &sort_db,
+                    &mut chainstate,
+                    &parent,
+                    miner,
+                    1000,
+                    vrf_key,
+                    ix as u32,
+                    None,
+                )
+            };
+            let expected_winner = good_op.txid();
+            let ops = vec![good_op];
+
+            let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+            produce_burn_block(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                ops,
+                vec![].iter_mut(),
+            );
+            // handle the sortition
+            coord.handle_new_burnchain_block().unwrap();
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+            assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+            // load the block into staging
+            let block_hash = block.header.block_hash();
+
+            assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+            preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+            // handle the stacks block
+            coord.handle_new_stacks_block().unwrap();
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+
+        let base_coinbase = 1_000 * MICROSTACKS_PER_STACKS as u128;
+        eprintln!(
+            "At index = {}, total: {}",
+            ix,
+            tip.accumulated_coinbase_ustx + base_coinbase
+        );
+
+        if ix % 2 == 1 {
+            assert!(!tip.sortition, "Odd indexes should not produce sortitions");
+        } else if ix == 0 {
+            assert_eq!(
+                tip.accumulated_coinbase_ustx + base_coinbase,
+                initial_block_bonus + base_coinbase
+            );
+        } else if ix < 10 {
+            assert_eq!(
+                tip.accumulated_coinbase_ustx + base_coinbase,
+                2 * (initial_block_bonus + base_coinbase)
+            );
+        } else if ix == 10 {
+            assert_eq!(
+                tip.accumulated_coinbase_ustx + base_coinbase,
+                initial_block_bonus + (2 * base_coinbase)
+            );
+        } else {
+            assert_eq!(
+                tip.accumulated_coinbase_ustx + base_coinbase,
+                2 * base_coinbase
+            );
+        }
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+    assert_eq!(
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+        Value::UInt(10)
+    );
 }
 
 #[test]
@@ -1749,17 +2273,19 @@ fn test_sortition_with_sunset() {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
     assert_eq!(
-        chainstate.with_read_only_clarity_tx(
-            &sort_db.index_conn(),
-            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-            |conn| conn
-                .with_readonly_clarity_env(
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    LimitedCostTracker::new_max_limit(),
-                    |env| env.eval_raw("block-height")
-                )
-                .unwrap()
-        ),
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
         Value::UInt(100)
     );
 
@@ -2559,18 +3085,20 @@ fn test_pox_fork_out_of_order() {
 fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -> Value {
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(chainstate_path);
-    chainstate.with_read_only_clarity_tx(
-        &sort_db.index_conn(),
-        &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
-        |conn| {
-            conn.with_readonly_clarity_env(
-                PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                LimitedCostTracker::new_max_limit(),
-                |env| env.eval_raw(eval),
-            )
-            .unwrap()
-        },
-    )
+    chainstate
+        .with_read_only_clarity_tx(
+            &sort_db.index_conn(),
+            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+            |conn| {
+                conn.with_readonly_clarity_env(
+                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                    LimitedCostTracker::new_free(),
+                    |env| env.eval_raw(eval),
+                )
+                .unwrap()
+            },
+        )
+        .unwrap()
 }
 
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
