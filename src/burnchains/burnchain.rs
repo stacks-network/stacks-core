@@ -475,11 +475,14 @@ impl Burnchain {
             false
         } else {
             let effective_height = block_height - self.first_block_height;
+            let reward_index = effective_height % (self.pox_constants.reward_cycle_length as u64);
 
-            // NOTE: use >, not >=, because the last block of the reward cycle is
-            // at effective height `0 mod reward_cycle_length`.
-            effective_height % (self.pox_constants.reward_cycle_length as u64)
-                > (self.pox_constants.prepare_length as u64)
+            // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
+            // prepare phase.
+            reward_index == 0
+                || reward_index
+                    > ((self.pox_constants.reward_cycle_length - self.pox_constants.prepare_length)
+                        as u64)
         }
     }
 
