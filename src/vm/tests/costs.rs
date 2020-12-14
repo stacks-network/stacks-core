@@ -509,7 +509,7 @@ fn test_cost_voting_integration() {
     ";
 
         let bad_cost_args_definer_src = "
-    (define-read-only (cost-definition (b uint) (b uint))
+    (define-read-only (cost-definition (a uint) (b uint))
        {
          runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
        })
