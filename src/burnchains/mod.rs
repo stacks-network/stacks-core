@@ -358,7 +358,7 @@ impl PoxConstants {
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        // 5 reward slots; 5 prepare-phase slots
+        // 20 reward slots; 10 prepare-phase slots
         PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
     }
 
