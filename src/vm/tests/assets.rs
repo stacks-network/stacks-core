@@ -755,7 +755,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     )
     .unwrap();
     assert_eq!(result, Value::UInt(10104));
-    
+
     // Burn 9101 tokens from p2's balance (out of 9100) - Should fail with error code 1
     let (result, _asset_map, _events) = execute_transaction(
         owned_env,
