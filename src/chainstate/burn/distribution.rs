@@ -357,9 +357,10 @@ mod tests {
     use burnchains::BurnchainSigner;
     use burnchains::PublicKey;
 
+    use chainstate::burn::db::sortdb::SortitionId;
     use chainstate::burn::operations::{
-        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
-        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::{MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS},
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -417,6 +418,20 @@ mod tests {
             vtxindex: 0,  // index in the block where this tx occurs
             block_height, // block height at which this tx occurs
             burn_header_hash: BurnchainHeaderHash([0; 32]), // hash of burnchain block with this tx
+        }
+    }
+
+    fn make_missed_commit(txid_id: u64, input_tx: u64) -> MissedBlockCommit {
+        let mut txid = [0; 32];
+        txid[0..8].copy_from_slice(&txid_id.to_be_bytes());
+        let mut input_txid = [0; 32];
+        input_txid[0..8].copy_from_slice(&input_tx.to_be_bytes());
+        let txid = Txid(txid);
+        let input_txid = Txid(input_txid);
+        MissedBlockCommit {
+            txid,
+            input: (input_txid, 3),
+            intended_sortition: SortitionId([0; 32]),
         }
     }
 
@@ -699,6 +714,62 @@ mod tests {
 
         assert_eq!(result[0].user_burns.len(), 0);
         assert_eq!(result[1].user_burns.len(), 0);
+    }
+
+    #[test]
+    fn missed_block_commits() {
+        // test case 1:
+        //    miner 1:  3 4 5 4 missed 4
+        //    miner 2:  3 3 missed 3 3 3
+        //
+        // miner 1 => min = 0, median = 4.
+        // miner 2 => min = 0, median = 3.
+
+        let commits = vec![
+            vec![
+                make_block_commit(3, 1, 1, 1, None, 1),
+                make_block_commit(1, 2, 2, 2, None, 1),
+            ],
+            vec![
+                make_block_commit(4, 3, 3, 3, Some(1), 2),
+                make_block_commit(3, 4, 4, 4, Some(2), 2),
+            ],
+            vec![make_block_commit(5, 5, 5, 5, Some(3), 3)],
+            vec![
+                make_block_commit(4, 7, 7, 7, Some(5), 4),
+                make_block_commit(3, 8, 8, 8, Some(6), 4),
+            ],
+            vec![make_block_commit(3, 10, 10, 10, Some(8), 5)],
+            vec![
+                make_block_commit(4, 11, 11, 11, Some(9), 6),
+                make_block_commit(3, 12, 12, 12, Some(10), 6),
+            ],
+        ];
+
+        let missed_commits = vec![
+            vec![],
+            vec![],
+            vec![make_missed_commit(6, 4)],
+            vec![],
+            vec![make_missed_commit(9, 7)],
+        ];
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            commits.clone(),
+            missed_commits.clone(),
+            None,
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 2);
+        assert_eq!(result[1].burns, 1);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
     }
 
     #[test]
