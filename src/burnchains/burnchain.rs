@@ -294,7 +294,7 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_testnet_address(&self) -> String {
+    pub fn to_address(&self, network_type: BitcoinNetworkType) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
@@ -302,7 +302,7 @@ impl BurnchainSigner {
             _ => BitcoinAddressType::ScriptHash,
         };
         BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Testnet,
+            network_type,
             addr_type,
             &self.to_address_bits(),
         )

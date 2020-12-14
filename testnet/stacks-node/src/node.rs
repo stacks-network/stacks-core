@@ -788,12 +788,13 @@ impl Node {
     }
 
     // Constructs a coinbase transaction
-    fn generate_coinbase_tx(&mut self) -> StacksTransaction {
+    fn generate_coinbase_tx(&mut self, is_mainnet: bool,) -> StacksTransaction {
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
         tx_auth.set_origin_nonce(self.nonce);
 
+        let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
         let mut tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
+            version,
             tx_auth,
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
         );

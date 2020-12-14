@@ -85,6 +85,7 @@ enum RelayerDirective {
 }
 
 pub struct InitializedNeonNode {
+    config: Config,
     relay_channel: SyncSender<RelayerDirective>,
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
@@ -155,12 +156,13 @@ fn inner_process_tenure(
     Ok(true)
 }
 
-fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64, chain_id: u32) -> StacksTransaction {
+fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64, is_mainnet: bool, chain_id: u32) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
+    let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
     let mut tx = StacksTransaction::new(
-        TransactionVersion::Testnet,
+        version,
         tx_auth,
         TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
     );
@@ -175,13 +177,14 @@ fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64, chain_id: u32
 fn inner_generate_poison_microblock_tx(
     keychain: &mut Keychain,
     nonce: u64,
-    poison_payload: TransactionPayload,
+    poison_payload: TransactionPayload, is_mainnet: bool,
     chain_id: u32,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
-    let mut tx = StacksTransaction::new(TransactionVersion::Testnet, tx_auth, poison_payload);
+    let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
+    let mut tx = StacksTransaction::new(version, tx_auth, poison_payload);
     tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&tx);
@@ -1080,6 +1083,7 @@ impl InitializedNeonNode {
         let active_keys = vec![];
 
         InitializedNeonNode {
+            config: config.clone(),
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
@@ -1417,7 +1421,7 @@ impl InitializedNeonNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
-        let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce, config.burnchain.chain_id);
+        let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce, config.is_mainnet(), config.burnchain.chain_id);
 
         // find the longest microblock tail we can build off of
         let microblock_info_opt =
@@ -1459,6 +1463,7 @@ impl InitializedNeonNode {
                     keychain,
                     coinbase_nonce + 1,
                     poison_payload,
+                    config.is_mainnet(),
                     config.burnchain.chain_id,
                 );
 
@@ -1595,12 +1600,14 @@ impl InitializedNeonNode {
 
         update_active_miners_count_gauge(block_commits.len() as i64);
 
+        let (_, network) = self.config.burnchain.get_bitcoin_network();
+
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.apparent_sender.to_testnet_address(),
+                    op.apparent_sender.to_address(network),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
@@ -1609,7 +1616,7 @@ impl InitializedNeonNode {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.apparent_sender.to_testnet_address(),
+                        op.apparent_sender.to_address(network),
                         &op.block_header_hash
                     );
                 }
