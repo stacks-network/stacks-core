@@ -65,7 +65,7 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     input: T,
 ) -> Result<()> {
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = tracker.compute_cost(cost_function, vec![size])?;
+    let cost = tracker.compute_cost(cost_function, &[size])?;
 
     tracker.add_cost(cost)
 }
@@ -87,7 +87,7 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
     let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
     let cost = track.compute_cost(
         ClarityCostFunction::AnalysisTypeCheck,
-        vec![cmp::max(t1_size, t2_size) as u64],
+        &[cmp::max(t1_size, t2_size) as u64],
     )?;
     track.add_cost(cost)
 }
@@ -106,7 +106,7 @@ pub trait CostTracker {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: Vec<u64>,
+        input: &[u64],
     ) -> Result<ExecutionCost>;
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<()>;
     fn add_memory(&mut self, memory: u64) -> Result<()>;
@@ -128,7 +128,7 @@ impl CostTracker for () {
     fn compute_cost(
         &mut self,
         _cost_function: ClarityCostFunction,
-        _input: Vec<u64>,
+        _input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         Ok(ExecutionCost::zero())
     }
@@ -739,7 +739,7 @@ fn parse_cost(
 fn compute_cost(
     cost_tracker: &mut LimitedCostTracker,
     cost_function_reference: ClarityCostFunctionReference,
-    input_sizes: Vec<u64>,
+    input_sizes: &[u64],
 ) -> Result<ExecutionCost> {
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
@@ -757,12 +757,11 @@ fn compute_cost(
         cost_function_reference.function_name[..].into(),
     )];
 
-    let mut args = input_sizes
-        .into_iter()
-        .map(|size| SymbolicExpression::atom_value(Value::UInt(size.into())))
-        .collect::<Vec<SymbolicExpression>>();
-
-    program.append(&mut args);
+    for input_size in input_sizes.iter() {
+        program.push(SymbolicExpression::atom_value(Value::UInt(
+            *input_size as u128,
+        )));
+    }
 
     let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
 
@@ -806,7 +805,7 @@ impl CostTracker for LimitedCostTracker {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: Vec<u64>,
+        input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         if self.free {
             return Ok(ExecutionCost::zero());
@@ -857,7 +856,7 @@ impl CostTracker for LimitedCostTracker {
         // grr, if HashMap::get didn't require Borrow, we wouldn't need this cloning.
         let lookup_key = (contract.clone(), function.clone());
         if let Some(cost_function) = self.contract_call_circuits.get(&lookup_key).cloned() {
-            compute_cost(self, cost_function, input.to_vec())?;
+            compute_cost(self, cost_function, input)?;
             Ok(true)
         } else {
             Ok(false)
@@ -869,7 +868,7 @@ impl CostTracker for &mut LimitedCostTracker {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: Vec<u64>,
+        input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         LimitedCostTracker::compute_cost(self, cost_function, input)
     }
