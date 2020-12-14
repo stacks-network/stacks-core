@@ -189,7 +189,7 @@ pub fn check_special_transfer_token(
 pub fn check_special_get_token_supply(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
-    context: &TypingContext,
+    _context: &TypingContext,
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
