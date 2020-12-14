@@ -156,11 +156,20 @@ fn inner_process_tenure(
     Ok(true)
 }
 
-fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64, is_mainnet: bool, chain_id: u32) -> StacksTransaction {
+fn inner_generate_coinbase_tx(
+    keychain: &mut Keychain,
+    nonce: u64,
+    is_mainnet: bool,
+    chain_id: u32,
+) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
-    let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
+    let version = if is_mainnet {
+        TransactionVersion::Mainnet
+    } else {
+        TransactionVersion::Testnet
+    };
     let mut tx = StacksTransaction::new(
         version,
         tx_auth,
@@ -177,13 +186,18 @@ fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64, is_mainnet: b
 fn inner_generate_poison_microblock_tx(
     keychain: &mut Keychain,
     nonce: u64,
-    poison_payload: TransactionPayload, is_mainnet: bool,
+    poison_payload: TransactionPayload,
+    is_mainnet: bool,
     chain_id: u32,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
-    let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
+    let version = if is_mainnet {
+        TransactionVersion::Mainnet
+    } else {
+        TransactionVersion::Testnet
+    };
     let mut tx = StacksTransaction::new(version, tx_auth, poison_payload);
     tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -469,8 +483,12 @@ fn spawn_peer(
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
-    let mut mem_pool = MemPoolDB::open(is_mainnet, config.burnchain.chain_id, &stacks_chainstate_path)
-        .map_err(NetError::DBError)?;
+    let mut mem_pool = MemPoolDB::open(
+        is_mainnet,
+        config.burnchain.chain_id,
+        &stacks_chainstate_path,
+    )
+    .map_err(NetError::DBError)?;
 
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
@@ -1421,7 +1439,12 @@ impl InitializedNeonNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
-        let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce, config.is_mainnet(), config.burnchain.chain_id);
+        let coinbase_tx = inner_generate_coinbase_tx(
+            keychain,
+            coinbase_nonce,
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+        );
 
         // find the longest microblock tail we can build off of
         let microblock_info_opt =

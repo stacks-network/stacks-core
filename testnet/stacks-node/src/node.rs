@@ -140,15 +140,15 @@ fn spawn_peer(
                     }
                 };
 
-            let mut mem_pool =
-                match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting to mempool db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let mut mem_pool = match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
+            {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
             let mut attachments = HashSet::new();
             let net_result = this
                 .run(
@@ -246,11 +246,14 @@ impl Node {
         let chainstate_path = config.get_chainstate_path();
         let sortdb_path = config.get_burn_db_file_path();
 
-        let (chain_state, _) =
-            match StacksChainState::open(config.is_mainnet(), config.burnchain.chain_id, &chainstate_path) {
-                Ok(x) => x,
-                Err(_e) => panic!(),
-            };
+        let (chain_state, _) = match StacksChainState::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &chainstate_path,
+        ) {
+            Ok(x) => x,
+            Err(_e) => panic!(),
+        };
 
         let mut node = Node {
             active_registered_key: None,
@@ -537,8 +540,12 @@ impl Node {
             },
         };
 
-        let mem_pool = MemPoolDB::open(self.config.is_mainnet(), self.config.burnchain.chain_id, &self.chain_state.root_path)
-            .expect("FATAL: failed to open mempool");
+        let mem_pool = MemPoolDB::open(
+            self.config.is_mainnet(),
+            self.config.burnchain.chain_id,
+            &self.chain_state.root_path,
+        )
+        .expect("FATAL: failed to open mempool");
 
         // Construct the coinbase transaction - 1st txn that should be handled and included in
         // the upcoming tenure.
@@ -788,11 +795,15 @@ impl Node {
     }
 
     // Constructs a coinbase transaction
-    fn generate_coinbase_tx(&mut self, is_mainnet: bool,) -> StacksTransaction {
+    fn generate_coinbase_tx(&mut self, is_mainnet: bool) -> StacksTransaction {
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
         tx_auth.set_origin_nonce(self.nonce);
 
-        let version = if is_mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet };
+        let version = if is_mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,

@@ -301,13 +301,9 @@ impl BurnchainSigner {
             }
             _ => BitcoinAddressType::ScriptHash,
         };
-        BitcoinAddress::from_bytes(
-            network_type,
-            addr_type,
-            &self.to_address_bits(),
-        )
-        .unwrap()
-        .to_string()
+        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
+            .unwrap()
+            .to_string()
     }
 
     pub fn to_address_bits(&self) -> Vec<u8> {

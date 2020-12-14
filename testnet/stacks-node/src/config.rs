@@ -366,7 +366,6 @@ impl Config {
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Config {
-        
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -429,21 +428,31 @@ impl Config {
                             let chain_id = hex_bytes(&chain_id).expect("Unable to read chain id");
                             u32::from_be_bytes([chain_id[0], chain_id[1], chain_id[2], chain_id[3]])
                         }
-                        None => if &burnchain_mode == "mainnet" {
-                            MAINNET_CHAIN_ID
-                        } else {
-                            TESTNET_CHAIN_ID
+                        None => {
+                            if &burnchain_mode == "mainnet" {
+                                MAINNET_CHAIN_ID
+                            } else {
+                                TESTNET_CHAIN_ID
+                            }
                         }
                     },
                     peer_version: match burnchain.peer_version {
                         Some(peer_version) => {
-                            let peer_version = hex_bytes(&peer_version).expect("Unable to read chain id");
-                            u32::from_be_bytes([peer_version[0], peer_version[1], peer_version[2], peer_version[3]])
+                            let peer_version =
+                                hex_bytes(&peer_version).expect("Unable to read chain id");
+                            u32::from_be_bytes([
+                                peer_version[0],
+                                peer_version[1],
+                                peer_version[2],
+                                peer_version[3],
+                            ])
                         }
-                        None => if &burnchain_mode == "mainnet" {
-                            MAINNET_PEER_VERSION
-                        } else {
-                            TESTNET_PEER_VERSION
+                        None => {
+                            if &burnchain_mode == "mainnet" {
+                                MAINNET_PEER_VERSION
+                            } else {
+                                TESTNET_PEER_VERSION
+                            }
                         }
                     },
                     mode: burnchain_mode.clone(),
@@ -496,7 +505,9 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet"];
+        let supported_modes = vec![
+            "mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet",
+        ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
             panic!(
@@ -934,6 +945,7 @@ impl NodeConfig {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
+
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
         let rpc_port = 20443;
@@ -975,7 +987,12 @@ impl NodeConfig {
         format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 
-    fn default_neighbor(addr: SocketAddr, pubk: Secp256k1PublicKey, chain_id: u32, peer_version: u32) -> Neighbor {
+    fn default_neighbor(
+        addr: SocketAddr,
+        pubk: Secp256k1PublicKey,
+        chain_id: u32,
+        peer_version: u32,
+    ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
                 peer_version: peer_version,
@@ -995,7 +1012,12 @@ impl NodeConfig {
         }
     }
 
-    pub fn set_bootstrap_node(&mut self, bootstrap_node: Option<String>, chain_id: u32, peer_version: u32) {
+    pub fn set_bootstrap_node(
+        &mut self,
+        bootstrap_node: Option<String>,
+        chain_id: u32,
+        peer_version: u32,
+    ) {
         if let Some(bootstrap_node) = bootstrap_node {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
@@ -1005,7 +1027,8 @@ impl NodeConfig {
 
                     let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
                     let sock_addr = addrs_iter.next().unwrap();
-                    let neighbor = NodeConfig::default_neighbor(sock_addr, pubk, chain_id, peer_version);
+                    let neighbor =
+                        NodeConfig::default_neighbor(sock_addr, pubk, chain_id, peer_version);
                     self.bootstrap_node = Some(neighbor);
                 }
                 _ => {}
@@ -1018,7 +1041,7 @@ impl NodeConfig {
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
             Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
-            chain_id, 
+            chain_id,
             peer_version,
         );
         self.deny_nodes.push(neighbor);
