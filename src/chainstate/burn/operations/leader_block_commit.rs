@@ -384,7 +384,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 
         0      2  3            35               67     71     73    77   79     80
         |------|--|-------------|---------------|------|------|-----|-----|-----|
-         magic  op   block hash     new seed     parent parent key   key   memo
+         magic  op   block hash     new seed     parent parent key   key   burn parent modulus
                                                 block  txoff  block txoff
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -396,11 +396,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
-        if self.memo.len() > 0 {
-            write_next(fd, &self.memo[0])?;
-        } else {
-            write_next(fd, &0u8)?;
-        }
+        write_next(fd, &self.burn_parent_modulus)?;
         Ok(())
     }
 
@@ -1192,8 +1188,8 @@ mod tests {
         let tx_fixtures = vec![
             OpFixture {
                 // valid
-                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
-                opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707180".to_string(),
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370710239300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
+                opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707102".to_string(),
                 result: Some(LeaderBlockCommitOp {
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
@@ -1202,7 +1198,7 @@ mod tests {
                     parent_vtxindex: 0x5051,
                     key_block_ptr: 0x60616263,
                     key_vtxindex: 0x7071,
-                    memo: vec![0x80],
+                    memo: vec![],
 
                     commit_outs: vec![
                         StacksAddress { version: 26, bytes: Hash160::empty() },
@@ -1219,7 +1215,7 @@ mod tests {
                         hash_mode: AddressHashMode::SerializeP2PKH
                     },
 
-                    txid: Txid::from_hex("b08d5d1bc81049a3957e9ff9a5882463811735fd5de985e6d894e9b3d5c49501").unwrap(),
+                    txid: Txid::from_hex("2f863079a57f86979fa93d25fae75b0ec45571f59c9bb26da6111476251a82e8").unwrap(),
                     vtxindex: vtxindex,
                     block_height: block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,

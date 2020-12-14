@@ -2076,10 +2076,6 @@ pub mod tests {
                 BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
             ],
             vec![
-                BlockstackOperationType::UserBurnSupport(user_burn_1.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_1_2.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_2.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_2_2.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
@@ -2216,7 +2212,7 @@ pub mod tests {
             let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
                 let bf = match op {
                     BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
-                    BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
+                    BlockstackOperationType::UserBurnSupport(ref op) => 0,
                     _ => 0,
                 };
                 acc += bf;

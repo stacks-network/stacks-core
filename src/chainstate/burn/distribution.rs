@@ -278,11 +278,7 @@ impl BurnSamplePoint {
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
-        Self::make_min_median_distribution(
-            vec![all_block_candidates],
-            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
-            None,
-        )
+        Self::make_min_median_distribution(vec![all_block_candidates], vec![], None)
     }
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
@@ -537,9 +533,7 @@ mod tests {
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
 
         assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 1);
-
-        assert_eq!(result[1].user_burns[0].txid, user_burns[5][0].txid);
+        assert_eq!(result[1].user_burns.len(), 0);
 
         // now correct the back pointers so that they point
         //   at the correct UTXO position *post-sunset*
@@ -561,17 +555,15 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 4);
-        assert_eq!(result[1].burns, 3);
+        assert_eq!(result[0].burns, 3);
+        assert_eq!(result[1].burns, 2);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
 
         assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 1);
-
-        assert_eq!(result[1].user_burns[0].txid, user_burns[5][0].txid);
+        assert_eq!(result[1].user_burns.len(), 0);
     }
 
     #[test]
@@ -584,8 +576,10 @@ mod tests {
         //              0 1 0 0 0 0
         //                   ..
 
-        // miner 1 => min = 4, median = 4.
-        // miner 2 => min = 2, median = 4.
+        // user burns are ignored:
+        //
+        // miner 1 => min = 3, median = 4.
+        // miner 2 => min = 1, median = 3.
 
         let commits = vec![
             vec![
@@ -632,17 +626,15 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 4);
-        assert_eq!(result[1].burns, 3);
+        assert_eq!(result[0].burns, 3);
+        assert_eq!(result[1].burns, 2);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
 
         assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 1);
-
-        assert_eq!(result[1].user_burns[0].txid, user_burns[5][0].txid);
+        assert_eq!(result[1].user_burns.len(), 0);
 
         // test case 2:
         //    miner 1:  4 4 5 4 5 3
@@ -650,8 +642,8 @@ mod tests {
         //       ub  :  0 0 0 0 0 2
         //               *split*
 
-        // miner 1 => min = 4, median = 4.
-        // miner 2 => min = 2, median = 4.
+        // miner 1 => min = 3, median = 4.
+        // miner 2 => min = 1, median = 4.
 
         let commits = vec![
             vec![
@@ -698,18 +690,15 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 4);
-        assert_eq!(result[1].burns, 3);
+        assert_eq!(result[0].burns, 3);
+        assert_eq!(result[1].burns, 2);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
 
-        assert_eq!(result[0].user_burns.len(), 1);
-        assert_eq!(result[1].user_burns.len(), 1);
-
-        assert_eq!(result[1].user_burns[0].txid, user_burns[5][0].txid);
-        assert_eq!(result[0].user_burns[0].txid, user_burns[5][0].txid);
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 0);
     }
 
     #[test]
@@ -1281,24 +1270,24 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: (block_commit_1.burn_fee + user_burn_1.burn_fee).into(),
+                        burns: block_commit_1.burn_fee.into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
-                            0x441d393138e5a796,
-                            0xbada4a3d4046d839,
-                            0xa24749933957018c,
-                            0xa4e5f328cf38744d,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![user_burn_1.clone()],
+                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         range_start: Uint256([
-                            0x441d393138e5a796,
-                            0xbada4a3d4046d839,
-                            0xa24749933957018c,
-                            0xa4e5f328cf38744d,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
@@ -1317,28 +1306,28 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: (block_commit_1.burn_fee + user_burn_1.burn_fee).into(),
+                        burns: block_commit_1.burn_fee.into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
-                            0x65db6527a5c06ed7,
-                            0xfbf9725ae754dd80,
-                            0xeafb8d991cf9964d,
-                            0x6898693a2f1713b4,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![user_burn_1.clone()],
+                        user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: (block_commit_2.burn_fee + user_burn_2.burn_fee).into(),
+                        burns: block_commit_2.burn_fee.into(),
                         range_start: Uint256([
-                            0x65db6527a5c06ed7,
-                            0xfbf9725ae754dd80,
-                            0xeafb8d991cf9964d,
-                            0x6898693a2f1713b4,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![user_burn_2.clone()],
+                        user_burns: vec![],
                     },
                 ],
             },
@@ -1355,34 +1344,28 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: (block_commit_1.burn_fee
-                            + user_burn_1.burn_fee
-                            + user_burn_1_2.burn_fee)
-                            .into(),
+                        burns: block_commit_1.burn_fee.into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
-                            0xbc9e168afe8ad47e,
-                            0xbbb6d3eb8d1be6c9,
-                            0x45a410039d0a7dc5,
-                            0x6b7815d84b0f9fc0,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![user_burn_1.clone(), user_burn_1_2.clone()],
+                        user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: (block_commit_2.burn_fee
-                            + user_burn_2.burn_fee
-                            + user_burn_2_2.burn_fee)
-                            .into(),
+                        burns: block_commit_2.burn_fee.into(),
                         range_start: Uint256([
-                            0xbc9e168afe8ad47e,
-                            0xbbb6d3eb8d1be6c9,
-                            0x45a410039d0a7dc5,
-                            0x6b7815d84b0f9fc0,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0xffffffffffffffff,
+                            0x7fffffffffffffff,
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![user_burn_2.clone(), user_burn_2_2.clone()],
+                        user_burns: vec![],
                     },
                 ],
             },
@@ -1407,47 +1390,41 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: (block_commit_1.burn_fee
-                            + user_burn_1.burn_fee
-                            + user_burn_1_2.burn_fee)
-                            .into(),
+                        burns: block_commit_1.burn_fee.into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
-                            0xcb48ed15c5086a5c,
-                            0x6b29682cfbe4089c,
-                            0x4a30e732285c18c9,
-                            0x5a7416b691bddbad,
+                            0x3ed94d3cb0a84709,
+                            0x0963dded799a7c1a,
+                            0x70989faf596c8b65,
+                            0x41a3ed94d3cb0a84,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![user_burn_1.clone(), user_burn_1_2.clone()],
+                        user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: (block_commit_2.burn_fee
-                            + user_burn_2.burn_fee
-                            + user_burn_2_2.burn_fee)
-                            .into(),
+                        burns: block_commit_2.burn_fee.into(),
                         range_start: Uint256([
-                            0xcb48ed15c5086a5c,
-                            0x6b29682cfbe4089c,
-                            0x4a30e732285c18c9,
-                            0x5a7416b691bddbad,
+                            0x3ed94d3cb0a84709,
+                            0x0963dded799a7c1a,
+                            0x70989faf596c8b65,
+                            0x41a3ed94d3cb0a84,
                         ]),
                         range_end: Uint256([
-                            0xa224e0451efa00f5,
-                            0xa57394a7b38d5b1c,
-                            0x6bfdbf24cdb0b617,
-                            0xd777aa6d9e769e59,
+                            0x7db29a7961508e12,
+                            0x12c7bbdaf334f834,
+                            0xe1313f5eb2d916ca,
+                            0x8347db29a7961508,
                         ]),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![user_burn_2.clone(), user_burn_2_2.clone()],
+                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
                         range_start: Uint256([
-                            0xa224e0451efa00f5,
-                            0xa57394a7b38d5b1c,
-                            0x6bfdbf24cdb0b617,
-                            0xd777aa6d9e769e59,
+                            0x7db29a7961508e12,
+                            0x12c7bbdaf334f834,
+                            0xe1313f5eb2d916ca,
+                            0x8347db29a7961508,
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_3.clone(),
@@ -1459,6 +1436,7 @@ mod tests {
 
         for i in 0..fixtures.len() {
             let f = &fixtures[i];
+            eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
                 f.block_commits.iter().cloned().collect(),
                 f.consumed_leader_keys.iter().cloned().collect(),
