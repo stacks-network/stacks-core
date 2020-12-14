@@ -1003,14 +1003,12 @@ impl<'a> ClarityDatabase<'a> {
         self.insert_metadata(contract_identifier, &key, &data);
 
         // total supply _is_ included in the consensus hash
-        if total_supply.is_some() {
-            let supply_key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            self.put(&supply_key, &(0 as u128));
-        }
+        let supply_key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        self.put(&supply_key, &(0 as u128));
     }
 
     fn load_ft(
@@ -1056,29 +1054,27 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         let descriptor = self.load_ft(contract_identifier, token_name)?;
 
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        let new_supply = current_supply
+            .checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
         if let Some(total_supply) = descriptor.total_supply {
-            let key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            let current_supply: u128 = self
-                .get(&key)
-                .expect("ERROR: Clarity VM failed to track token supply.");
-
-            let new_supply = current_supply
-                .checked_add(amount)
-                .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-
             if new_supply > total_supply {
-                Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
-            } else {
-                self.put(&key, &new_supply);
-                Ok(())
+                return Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into());
             }
-        } else {
-            Ok(())
         }
+
+        self.put(&key, &new_supply);
+        Ok(())
     }
 
     pub fn checked_decrease_token_supply(

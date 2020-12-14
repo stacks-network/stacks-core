@@ -566,7 +566,7 @@ pub fn special_get_token_supply(
     env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
 
@@ -643,7 +643,7 @@ pub fn special_burn_asset(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
 
