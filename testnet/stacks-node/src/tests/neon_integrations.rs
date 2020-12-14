@@ -1370,7 +1370,7 @@ fn pox_integration_test() {
         .unwrap();
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-    assert_eq!(tip_info.stacks_tip_height, 34);
+    assert_eq!(tip_info.stacks_tip_height, 36);
 
     // now let's mine into the sunset
     while sort_height < ((17 * pox_constants.reward_cycle_length) - 1).into() {
@@ -1389,7 +1389,7 @@ fn pox_integration_test() {
         .unwrap();
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-    assert_eq!(tip_info.stacks_tip_height, 47);
+    assert_eq!(tip_info.stacks_tip_height, 51);
 
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
@@ -1429,7 +1429,7 @@ fn pox_integration_test() {
         .unwrap();
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-    assert_eq!(tip_info.stacks_tip_height, 62);
+    assert_eq!(tip_info.stacks_tip_height, 66);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
