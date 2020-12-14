@@ -1061,6 +1061,11 @@ impl<'a> SortitionHandleTx<'a> {
             if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) =
                 next_pox_info.anchor_status
             {
+                test_debug!(
+                    "Pick recipients for anchor block {} -- {} reward recipient(s)",
+                    anchor_block,
+                    reward_set.len()
+                );
                 if reward_set.len() == 0 {
                     return Ok(None);
                 }
@@ -1087,6 +1092,7 @@ impl<'a> SortitionHandleTx<'a> {
                         .collect(),
                 }))
             } else {
+                test_debug!("No anchor block known for this reward cycle");
                 Ok(None)
             }
         } else {
@@ -1096,6 +1102,10 @@ impl<'a> SortitionHandleTx<'a> {
                 // get the reward set size
                 let reward_set_size = self.get_reward_set_size()?;
                 if reward_set_size == 0 {
+                    test_debug!(
+                        "No more reward recipients descending from anchor block {}",
+                        anchor_block
+                    );
                     Ok(None)
                 } else {
                     let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
@@ -1105,6 +1115,7 @@ impl<'a> SortitionHandleTx<'a> {
                         let recipient = self.get_reward_set_entry(ix)?;
                         recipients.push((recipient, ix));
                     }
+                    test_debug!("PoX reward recipients: {:?}", &recipients);
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,
@@ -1112,6 +1123,7 @@ impl<'a> SortitionHandleTx<'a> {
                 }
             } else {
                 // no anchor block selected
+                test_debug!("No anchor block selected for this reward cycle");
                 Ok(None)
             }
         }
