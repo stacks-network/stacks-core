@@ -549,7 +549,7 @@ impl Node {
 
         // Construct the coinbase transaction - 1st txn that should be handled and included in
         // the upcoming tenure.
-        let coinbase_tx = self.generate_coinbase_tx();
+        let coinbase_tx = self.generate_coinbase_tx(self.config.is_mainnet());
 
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
 
