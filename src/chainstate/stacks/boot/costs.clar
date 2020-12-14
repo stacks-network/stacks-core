@@ -507,6 +507,33 @@
         read_length: u1
     })
 
+(define-read-only (cost_ft_get_supply (n uint))
+    {
+        runtime: u1,
+        write_length: u0,
+        write_count: u0,
+        read_count: u1,
+        read_length: u1
+    })
+
+(define-read-only (cost_ft_burn (n uint))
+    {
+        runtime: u1,
+        write_length: u1,
+        write_count: u2,
+        read_count: u2,
+        read_length: u1
+    })
+
+(define-read-only (cost_nft_burn (n uint))
+    {
+        runtime: (linear n u1 u1),
+        write_length: u1,
+        write_count: u1,
+        read_count: u1,
+        read_length: u1
+    })
+
 (define-read-only (poison_microblock (n uint))
     {
         runtime: u1,
