@@ -679,6 +679,7 @@ pub mod test {
         pub block_commits: Vec<LeaderBlockCommitOp>,
         pub id: usize,
         pub nonce: u64,
+        pub spent_at_nonce: HashMap<u64, u128>,
     }
 
     pub struct TestMinerFactory {
@@ -704,6 +705,7 @@ pub mod test {
                 block_commits: vec![],
                 id: 0,
                 nonce: 0,
+                spent_at_nonce: HashMap::new(),
             }
         }
 
