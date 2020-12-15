@@ -496,7 +496,7 @@ fn test_cost_voting_integration() {
        })
     (define-read-only (cost-definition-le (size uint))
        {
-         runtime: u2, write_length: u0, write_count: u0, read_count: u0, read_length: u0
+         runtime: u0, write_length: u0, write_count: u0, read_count: u0, read_length: u0
        })
     (define-read-only (cost-definition-multi-arg (a uint) (b uint) (c uint))
        {
@@ -536,6 +536,8 @@ fn test_cost_voting_integration() {
         let caller_src = "
     (define-public (execute (a uint))
        (ok (contract-call? .intercepted intercepted-function a)))
+    (define-public (execute-2 (a uint))
+       (ok (< a a)))
     ";
 
         for (contract_name, contract_src) in [
@@ -676,7 +678,7 @@ fn test_cost_voting_integration() {
     marf_kv.test_commit();
     marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
 
-    {
+    let le_cost_without_interception = {
         let mut owned_env = OwnedEnvironment::new_max_limit(
             marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
@@ -685,7 +687,7 @@ fn test_cost_voting_integration() {
             &mut owned_env,
             p2.clone(),
             &caller,
-            "execute",
+            "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),
         )
         .unwrap();
@@ -707,6 +709,8 @@ fn test_cost_voting_integration() {
                 "All cost functions should still point to the boot costs"
             );
         }
+
+        tracker.get_total()
     };
 
     let good_cases = vec![
@@ -779,12 +783,15 @@ fn test_cost_voting_integration() {
             &mut owned_env,
             p2.clone(),
             &caller,
-            "execute",
+            "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),
         )
         .unwrap();
 
         let (_db, tracker) = owned_env.destruct().unwrap();
+
+        // cost of `le` should be less now, because the proposal made it free
+        assert!(le_cost_without_interception.exceeds(&tracker.get_total()));
 
         let circuits = tracker.contract_call_circuits();
         assert_eq!(circuits.len(), 2);
