@@ -2309,7 +2309,7 @@ pub mod test {
                                 hash_mode: SinglesigHashMode::P2PKH,
                                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                                 nonce: 0,
-                                fee_rate: 0,
+                                tx_fee: 0,
                                 signature: MessageSignature::empty(),
                             }),
                         );

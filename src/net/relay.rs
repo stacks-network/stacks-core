@@ -2567,7 +2567,7 @@ mod test {
 
                     tx_contract.chain_id = 0x80000000;
                     tx_contract.auth.set_origin_nonce(cur_nonce);
-                    tx_contract.set_fee_rate(MINIMUM_TX_FEE_RATE_PER_BYTE * 500);
+                    tx_contract.set_tx_fee(MINIMUM_TX_FEE_RATE_PER_BYTE * 500);
 
                     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
                     spending_account.sign_as_origin(&mut tx_signer);
