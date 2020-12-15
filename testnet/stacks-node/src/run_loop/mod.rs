@@ -110,7 +110,7 @@ impl RunLoopCallbacks {
                 TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => {
                     println!(
                         "-> Tx issued by {:?} (fee: {}, nonce: {})",
-                        auth.signer, auth.fee_rate, auth.nonce
+                        auth.signer, auth.tx_fee, auth.nonce
                     )
                 }
                 _ => println!("-> Tx {:?}", tx.auth),
