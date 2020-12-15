@@ -425,6 +425,11 @@ impl Burnchain {
             return 0;
         }
 
+        // no sunset burn needed in prepare phase -- it's already getting burnt
+        if self.is_in_prepare_phase(burn_height) {
+            return 0;
+        }
+
         let reward_cycle_height = self.reward_cycle_to_block_height(
             self.block_height_to_reward_cycle(burn_height)
                 .expect("BUG: Sunset start is less than first_block_height"),
@@ -660,10 +665,10 @@ impl Burnchain {
     /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
     ///   the currently-being-evaluated tx in the same burn block.
     pub fn classify_transaction(
+        burnchain: &Burnchain,
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
-        sunset_end_ht: u64,
         pre_stx_op_map: &HashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
@@ -682,7 +687,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::LeaderBlockCommit as u8 => {
-                match LeaderBlockCommitOp::from_tx(block_header, burn_tx, sunset_end_ht) {
+                match LeaderBlockCommitOp::from_tx(burnchain, block_header, burn_tx) {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {
                         warn!(
@@ -710,7 +715,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::PreStx as u8 => {
-                match PreStxOp::from_tx(block_header, burn_tx, sunset_end_ht) {
+                match PreStxOp::from_tx(block_header, burn_tx, burnchain.pox_constants.sunset_end) {
                     Ok(op) => Some(BlockstackOperationType::PreStx(op)),
                     Err(e) => {
                         warn!(
@@ -760,7 +765,12 @@ impl Burnchain {
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
-                    match StackStxOp::from_tx(block_header, burn_tx, sender, sunset_end_ht) {
+                    match StackStxOp::from_tx(
+                        block_header,
+                        burn_tx,
+                        sender,
+                        burnchain.pox_constants.sunset_end,
+                    ) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
                         Err(e) => {
                             warn!(
@@ -895,9 +905,9 @@ impl Burnchain {
 
     /// Top-level entry point to check and process a block.
     pub fn process_block(
+        burnchain: &Burnchain,
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
-        sunset_end_ht: u64,
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
         debug!(
             "Process block {} {}",
@@ -905,7 +915,7 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block, sunset_end_ht)?;
+        let _blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
 
         let header = block.header();
 
@@ -927,7 +937,7 @@ impl Burnchain {
         );
 
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block, u64::max_value())?;
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -1301,6 +1311,8 @@ impl Burnchain {
         let mut downloader = indexer.downloader();
         let mut parser = indexer.parser();
 
+        let myself = self.clone();
+
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
@@ -1353,7 +1365,6 @@ impl Burnchain {
                 Ok(())
             });
 
-        let sunset_end = self.pox_constants.sunset_end;
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::spawn(move || {
                 let mut last_processed = burn_chain_tip;
@@ -1366,7 +1377,7 @@ impl Burnchain {
 
                     let insert_start = get_epoch_time_ms();
                     last_processed =
-                        Burnchain::process_block(&mut burnchain_db, &burnchain_block, sunset_end)?;
+                        Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)?;
                     if !coord_comm.announce_new_burn_block() {
                         return Err(burnchain_error::CoordinatorClosed);
                     }
