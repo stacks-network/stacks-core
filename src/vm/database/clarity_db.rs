@@ -1003,14 +1003,12 @@ impl<'a> ClarityDatabase<'a> {
         self.insert_metadata(contract_identifier, &key, &data);
 
         // total supply _is_ included in the consensus hash
-        if total_supply.is_some() {
-            let supply_key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            self.put(&supply_key, &(0 as u128));
-        }
+        let supply_key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        self.put(&supply_key, &(0 as u128));
     }
 
     fn load_ft(
@@ -1056,29 +1054,52 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         let descriptor = self.load_ft(contract_identifier, token_name)?;
 
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        let new_supply = current_supply
+            .checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
         if let Some(total_supply) = descriptor.total_supply {
-            let key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            let current_supply: u128 = self
-                .get(&key)
-                .expect("ERROR: Clarity VM failed to track token supply.");
-
-            let new_supply = current_supply
-                .checked_add(amount)
-                .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-
             if new_supply > total_supply {
-                Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
-            } else {
-                self.put(&key, &new_supply);
-                Ok(())
+                return Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into());
             }
-        } else {
-            Ok(())
         }
+
+        self.put(&key, &new_supply);
+        Ok(())
+    }
+
+    pub fn checked_decrease_token_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+        amount: u128,
+    ) -> Result<()> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        if amount > current_supply {
+            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into());
+        }
+
+        let new_supply = current_supply - amount;
+
+        self.put(&key, &new_supply);
+        Ok(())
     }
 
     pub fn get_ft_balance(
@@ -1121,6 +1142,22 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    pub fn get_ft_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+    ) -> Result<u128> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let supply = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+        Ok(supply)
+    }
+
     pub fn get_nft_owner(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1139,8 +1176,18 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        let result = self.get(&key);
-        result.ok_or(RuntimeErrorType::NoSuchToken.into())
+        let value: Option<Value> = self.get(&key);
+        let owner = match value {
+            Some(owner) => owner.expect_optional(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        let principal = match owner {
+            Some(value) => value.expect_principal(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        Ok(principal)
     }
 
     pub fn get_nft_key_type(
@@ -1171,8 +1218,31 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        self.put(&key, principal);
+        let value = Value::some(Value::Principal(principal.clone()))?;
+        self.put(&key, &value);
 
+        Ok(())
+    }
+
+    pub fn burn_nft(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        asset_name: &str,
+        asset: &Value,
+    ) -> Result<()> {
+        let descriptor = self.load_nft(contract_identifier, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        }
+
+        let key = ClarityDatabase::make_key_for_quad(
+            contract_identifier,
+            StoreType::NonFungibleToken,
+            asset_name,
+            asset.serialize(),
+        );
+
+        self.put(&key, &(Value::none()));
         Ok(())
     }
 }

@@ -938,8 +938,8 @@ impl StacksChainState {
                         );
                         allocation_events.push(mint_event);
                     }
+                    info!("Committing {} balances to genesis tx", balances_count);
                 });
-                info!("Done initializing chain with {} balances", balances_count);
             }
 
             let allocations_tx = StacksTransaction::new(

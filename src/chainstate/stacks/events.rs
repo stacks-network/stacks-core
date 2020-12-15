@@ -127,6 +127,13 @@ impl StacksTransactionEvent {
                 "type": "nft_mint_event",
                 "nft_mint_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "nft_burn_event",
+                "nft_burn_event": event_data.json_serialize()
+            }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
@@ -140,6 +147,13 @@ impl StacksTransactionEvent {
                 "committed": committed,
                 "type": "ft_mint_event",
                 "ft_mint_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "ft_burn_event",
+                "ft_burn_event": event_data.json_serialize()
             }),
         }
     }
@@ -157,12 +171,14 @@ pub enum STXEventType {
 pub enum NFTEventType {
     NFTTransferEvent(NFTTransferEventData),
     NFTMintEvent(NFTMintEventData),
+    NFTBurnEvent(NFTBurnEventData),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FTEventType {
     FTTransferEvent(FTTransferEventData),
     FTMintEvent(FTMintEventData),
+    FTBurnEvent(FTBurnEventData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,6 +296,30 @@ impl NFTMintEventData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct NFTBurnEventData {
+    pub asset_identifier: AssetIdentifier,
+    pub sender: PrincipalData,
+    pub value: Value,
+}
+
+impl NFTBurnEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let raw_value = {
+            let mut bytes = vec![];
+            self.value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        json!({
+            "asset_identifier": format!("{}", self.asset_identifier),
+            "sender": format!("{}",self.sender),
+            "value": self.value,
+            "raw_value": format!("0x{}", raw_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FTTransferEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
@@ -310,6 +350,23 @@ impl FTMintEventData {
         json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
+            "amount": format!("{}", self.amount),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FTBurnEventData {
+    pub asset_identifier: AssetIdentifier,
+    pub sender: PrincipalData,
+    pub amount: u128,
+}
+
+impl FTBurnEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        json!({
+            "asset_identifier": format!("{}", self.asset_identifier),
+            "sender": format!("{}",self.sender),
             "amount": format!("{}", self.amount),
         })
     }
