@@ -3236,6 +3236,30 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
     }
 
+    #[cfg(test)]
+    fn store_burn_distribution(
+        &mut self,
+        new_sortition: &SortitionId,
+        transition: &BurnchainStateTransition,
+    ) {
+        let create = "CREATE TABLE IF NOT EXISTS snapshot_burn_distributions (sortition_id TEXT PRIMARY KEY, data TEXT NOT NULL);";
+        self.execute(create, NO_PARAMS).unwrap();
+        let sql = "INSERT INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
+        let args: &[&dyn ToSql] = &[
+            new_sortition,
+            &serde_json::to_string(&transition.burn_dist).unwrap(),
+        ];
+        self.execute(sql, args).unwrap();
+    }
+
+    #[cfg(not(test))]
+    fn store_burn_distribution(
+        &mut self,
+        _new_sortition: &SortitionId,
+        _transition: &BurnchainStateTransition,
+    ) {
+    }
+
     fn store_transition_ops(
         &mut self,
         new_sortition: &SortitionId,
@@ -3248,6 +3272,7 @@ impl<'a> SortitionHandleTx<'a> {
             &serde_json::to_string(&transition.consumed_leader_keys).unwrap(),
         ];
         self.execute(sql, args)?;
+        self.store_burn_distribution(new_sortition, transition);
         Ok(())
     }
 

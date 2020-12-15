@@ -42,7 +42,7 @@ use util::vrf::VRFPublicKey;
 
 use core::MINING_COMMITMENT_WINDOW;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
     pub burns: u128,
     pub range_start: Uint256,
@@ -88,7 +88,7 @@ impl LinkedCommitIdentifier {
 
     fn burn_fee(&self) -> u64 {
         match self {
-            LinkedCommitIdentifier::Missed(_) => 0,
+            LinkedCommitIdentifier::Missed(_) => 1,
             LinkedCommitIdentifier::Valid(ref op) => op.burn_fee,
         }
     }
