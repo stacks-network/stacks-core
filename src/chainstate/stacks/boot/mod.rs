@@ -747,7 +747,7 @@ pub mod test {
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         payload: TransactionPayload,
     ) -> StacksTransaction {
         let auth = TransactionAuth::from_p2pkh(key).unwrap();
@@ -756,7 +756,7 @@ pub mod test {
         tx.chain_id = 0x80000000;
         tx.auth.set_origin_nonce(nonce);
         tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        tx.set_fee_rate(fee_rate);
+        tx.set_tx_fee(tx_fee);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         tx_signer.sign_origin(key).unwrap();
@@ -845,23 +845,23 @@ pub mod test {
     fn make_bare_contract(
         key: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         name: &str,
         code: &str,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_smart_contract(name, code).unwrap();
-        make_tx(key, nonce, fee_rate, payload)
+        make_tx(key, nonce, tx_fee, payload)
     }
 
     fn make_token_transfer(
         key: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         dest: PrincipalData,
         amount: u64,
     ) -> StacksTransaction {
         let payload = TransactionPayload::TokenTransfer(dest, amount, TokenTransferMemo([0u8; 34]));
-        make_tx(key, nonce, fee_rate, payload)
+        make_tx(key, nonce, tx_fee, payload)
     }
 
     fn make_pox_lockup_contract(
