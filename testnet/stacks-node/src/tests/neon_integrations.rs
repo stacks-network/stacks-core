@@ -1649,7 +1649,8 @@ enum Signal {
 #[test]
 #[ignore]
 fn atlas_integration_test() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+    // to run this test, BITCOIND_TEST=1 and ATLAS_TEST=1 must be set
+    if env::var("BITCOIND_TEST") != Ok("1".into()) || env::var("ATLAS_TEST") != Ok("1".into()) {
         return;
     }
 
