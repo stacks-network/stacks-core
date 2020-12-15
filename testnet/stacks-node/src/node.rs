@@ -433,11 +433,12 @@ impl Node {
         let mut last_sortitioned_block = None;
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
+        let is_mainnet = self.config.is_mainnet();
 
         for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    if op.address == self.keychain.get_address() {
+                    if op.address == self.keychain.get_address(is_mainnet) {
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
@@ -725,7 +726,7 @@ impl Node {
 
     /// Returns the Stacks address of the node
     pub fn get_address(&self) -> StacksAddress {
-        self.keychain.get_address()
+        self.keychain.get_address(self.config.is_mainnet())
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -737,7 +738,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            address: self.keychain.get_address(),
+            address: self.keychain.get_address(self.config.is_mainnet()),
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),

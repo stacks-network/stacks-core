@@ -122,7 +122,8 @@ impl BurnchainParameters {
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
+                .unwrap(),
             first_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
         }
     }
@@ -135,7 +136,8 @@ impl BurnchainParameters {
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH).unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
+                .unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
         }
     }
@@ -148,7 +150,8 @@ impl BurnchainParameters {
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
+                .unwrap(),
             first_block_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
         }
     }

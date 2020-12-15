@@ -107,11 +107,14 @@ impl RunLoop {
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
+            let node_address = Keychain::address_from_burnchain_signer(
+                &keychain.get_burnchain_signer(),
+                self.config.is_mainnet(),
+            );
             let btc_addr = BitcoinAddress::from_bytes(
                 self.config.burnchain.get_bitcoin_network().1,
                 BitcoinAddressType::PublicKeyHash,
-                &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer())
-                    .to_bytes(),
+                &node_address.to_bytes(),
             )
             .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);

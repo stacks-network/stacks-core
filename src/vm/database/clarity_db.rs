@@ -52,8 +52,9 @@ use chainstate::burn::db::sortdb::{
 };
 
 use core::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    POX_REWARD_CYCLE_LENGTH,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -271,7 +272,8 @@ impl HeadersDB for NullHeadersDB {
                 &FIRST_STACKS_BLOCK_HASH,
             )
         {
-            let first_block_hash = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+            let first_block_hash =
+                BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
             Some(first_block_hash)
         } else {
             None

@@ -226,6 +226,7 @@ fn inner_generate_leader_key_register_op(
 }
 
 fn rotate_vrf_and_register(
+    is_mainnet: bool,
     keychain: &mut Keychain,
     burn_block: &BlockSnapshot,
     btc_controller: &mut BitcoinRegtestController,
@@ -233,7 +234,7 @@ fn rotate_vrf_and_register(
     let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
     let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
     let op = inner_generate_leader_key_register_op(
-        keychain.get_address(),
+        keychain.get_address(is_mainnet),
         vrf_pk,
         burnchain_tip_consensus_hash,
     );
@@ -903,6 +904,7 @@ fn spawn_miner_relayer(
                         continue;
                     }
                     did_register_key = rotate_vrf_and_register(
+                        is_mainnet,
                         &mut keychain,
                         last_burn_block,
                         &mut bitcoin_controller,
@@ -1650,6 +1652,11 @@ impl InitializedNeonNode {
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
 
+        let node_address = Keychain::address_from_burnchain_signer(
+            &self.burnchain_signer,
+            self.config.is_mainnet(),
+        );
+
         for op in key_registers.into_iter() {
             if self.is_miner {
                 info!(
@@ -1657,7 +1664,7 @@ impl InitializedNeonNode {
                     block_height, op.address
                 );
             }
-            if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
+            if op.address == node_address {
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined

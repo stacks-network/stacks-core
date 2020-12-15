@@ -1088,10 +1088,18 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            let (first_block_hash_hex, first_block_height, first_block_ts, ) = if mainnet {
-                (BITCOIN_MAINNET_FIRST_BLOCK_HASH, BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT, BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP)
+            let (first_block_hash_hex, first_block_height, first_block_ts) = if mainnet {
+                (
+                    BITCOIN_MAINNET_FIRST_BLOCK_HASH,
+                    BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+                    BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+                )
             } else {
-                (BITCOIN_TESTNET_FIRST_BLOCK_HASH, BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP)
+                (
+                    BITCOIN_TESTNET_FIRST_BLOCK_HASH,
+                    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                    BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+                )
             };
             let first_block_hash = BurnchainHeaderHash::from_hex(first_block_hash_hex).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
@@ -1100,9 +1108,9 @@ impl StacksBlockBuilder {
                 &first_block_hash,
                 first_block_height as u32,
                 first_block_ts as u64,
-                    &proof,
+                &proof,
                 pubkey_hash,
-            )    
+            )
         } else {
             // building off an existing stacks block
             let new_work = StacksWorkScore {
@@ -1133,7 +1141,8 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            let first_block_hash = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+            let first_block_hash =
+                BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -1142,7 +1151,7 @@ impl StacksBlockBuilder {
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64,
                 &proof,
                 pubkey_hash,
-            )    
+            )
         } else {
             // building off an existing stacks block
             let new_work = StacksWorkScore {
@@ -1163,7 +1172,7 @@ impl StacksBlockBuilder {
         };
         Ok(builder)
     }
-    
+
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
