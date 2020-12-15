@@ -330,7 +330,14 @@ fn store_state_summary(
 ///    checks those proposals for validity, and then applies those changes to the cached set
 ///    of cost functions.
 ///
-fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+/// `apply_updates` - tells this function to look for any changes in the cost voting contract
+///   which would need to be applied. if `false`, just load the last computed cost state in this
+///   fork.
+///
+fn load_cost_functions(
+    clarity_db: &mut ClarityDatabase,
+    apply_updates: bool,
+) -> Result<CostStateSummary> {
     let last_processed_count = clarity_db
         .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
         .unwrap_or(Value::UInt(0))
@@ -347,6 +354,10 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
     // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
     let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
     let mut state_summary = load_state_summary(clarity_db)?;
+    if !apply_updates {
+        return Ok(state_summary);
+    }
+
     for confirmed_proposal in fetch_start..fetch_end {
         // fetch the proposal data
         let entry = clarity_db
@@ -572,7 +583,25 @@ impl LimitedCostTracker {
             free: false,
         };
         assert!(clarity_db.is_stack_empty());
-        cost_tracker.load_costs(clarity_db)?;
+        cost_tracker.load_costs(clarity_db, true)?;
+        Ok(cost_tracker)
+    }
+
+    pub fn new_mid_block(
+        limit: ExecutionCost,
+        clarity_db: &mut ClarityDatabase,
+    ) -> Result<LimitedCostTracker> {
+        let mut cost_tracker = LimitedCostTracker {
+            cost_function_references: HashMap::new(),
+            cost_contracts: HashMap::new(),
+            contract_call_circuits: HashMap::new(),
+            limit,
+            memory_limit: CLARITY_MEMORY_LIMIT,
+            total: ExecutionCost::zero(),
+            memory: 0,
+            free: false,
+        };
+        cost_tracker.load_costs(clarity_db, false)?;
         Ok(cost_tracker)
     }
 
@@ -593,14 +622,18 @@ impl LimitedCostTracker {
             free: true,
         }
     }
-    pub fn load_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<()> {
+
+    /// `apply_updates` - tells this function to look for any changes in the cost voting contract
+    ///   which would need to be applied. if `false`, just load the last computed cost state in this
+    ///   fork.
+    fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         let boot_costs_id = (*STACKS_BOOT_COST_CONTRACT).clone();
 
         clarity_db.begin();
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
-        } = load_cost_functions(clarity_db).map_err(|e| {
+        } = load_cost_functions(clarity_db, apply_updates).map_err(|e| {
             clarity_db.roll_back();
             e
         })?;
@@ -650,7 +683,11 @@ impl LimitedCostTracker {
         self.cost_function_references = m;
         self.cost_contracts = cost_contracts;
 
-        clarity_db.commit();
+        if apply_updates {
+            clarity_db.commit();
+        } else {
+            clarity_db.roll_back();
+        }
 
         return Ok(());
     }

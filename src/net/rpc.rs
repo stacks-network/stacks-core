@@ -1127,7 +1127,10 @@ impl ConversationHttp {
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new(options.read_only_call_limit.clone(), clarity_db)
+                        LimitedCostTracker::new_mid_block(
+                            options.read_only_call_limit.clone(),
+                            clarity_db,
+                        )
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
