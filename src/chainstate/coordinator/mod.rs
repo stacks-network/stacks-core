@@ -380,11 +380,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         provider,
     )?;
     sort_db
-        .get_next_block_recipients(
-            sortition_tip,
-            reward_cycle_info.as_ref(),
-            burnchain.pox_constants.sunset_end,
-        )
+        .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
         .map_err(|e| Error::from(e))
 }
 
@@ -409,7 +405,11 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle. block_height={}, reward_cycle_length={}, prepare_phase_length={}", burn_height, burnchain.pox_constants.reward_cycle_length, burnchain.pox_constants.prepare_length);
+        info!("Beginning reward cycle";
+              "burn_height" => burn_height,
+              "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
+              "prepare_phase_length" => burnchain.pox_constants.prepare_length);
+
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
             ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
