@@ -478,6 +478,8 @@ fn spawn_peer(
     let server_thread = thread::spawn(move || {
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
+            genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
+                .unwrap(),
             ..RPCHandlerArgs::default()
         };
 
@@ -1094,10 +1096,6 @@ impl InitializedNeonNode {
                 debug!("Using key {:?}", &key.vrf_public_key);
                 // sleep a little before building the anchor block, to give any broadcasted
                 //   microblocks time to propagate.
-                info!(
-                    "Sleeping {} before issuing tenure",
-                    self.sleep_before_tenure
-                );
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))

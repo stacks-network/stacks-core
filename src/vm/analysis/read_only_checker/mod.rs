@@ -178,9 +178,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
             | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
             | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner => {
-                self.check_all_read_only(args)
-            }
+            | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner
+            | GetTokenSupply | ElementAt | IndexOf => self.check_all_read_only(args),
             AtBlock => {
                 check_argument_count(2, args)?;
 
@@ -196,7 +195,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_all_read_only(args)
             }
             StxTransfer | StxBurn | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
-            | MintToken | TransferAsset | TransferToken => {
+            | MintToken | TransferAsset | TransferToken | BurnAsset | BurnToken => {
                 self.check_all_read_only(args)?;
                 Ok(false)
             }

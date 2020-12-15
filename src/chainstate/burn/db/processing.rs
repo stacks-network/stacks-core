@@ -83,8 +83,15 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 BurnchainError::OpError(e)
             }),
-            BlockstackOperationType::PreStackStx(_) => {
-                // no check() required for PreStackStx
+            BlockstackOperationType::TransferStx(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) transfer stx op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PreStx(_) => {
+                // no check() required for PreStx
                 Ok(())
             }
         }

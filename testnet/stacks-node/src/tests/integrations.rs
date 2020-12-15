@@ -625,7 +625,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {} (invalid)", path);
 
                 // tx_xfer_invalid is 180 bytes long
-                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 10).into(), 200,     // bad nonce
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200,     // bad nonce
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
@@ -757,12 +757,12 @@ fn contract_stx_transfer() {
                         )
                         .unwrap();
                 }
-                // this one should fail:
+                // this one should fail because the nonce is already in the mempool
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 3, 200, &contract_identifier.clone().into(), 1000);
+                    make_stacks_transfer(&sk_3, 3, 190, &contract_identifier.clone().into(), 1000);
                 let xfer_to_contract =
                     StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
-                let result = match tenure
+                match tenure
                     .mem_pool
                     .submit(
                         &mut chainstate_copy,
@@ -772,10 +772,9 @@ fn contract_stx_transfer() {
                     )
                     .unwrap_err()
                 {
-                    MemPoolRejection::TooMuchChaining => true,
-                    _ => false,
+                    MemPoolRejection::ConflictingNonceInMempool => (),
+                    e => panic!("{:?}", e),
                 };
-                assert!(result);
             }
 
             return;
@@ -1399,8 +1398,8 @@ fn mempool_errors() {
                 eprintln!("Test: POST {} (invalid)", path);
                 let tx_xfer_invalid = make_stacks_transfer(
                     &spender_sk,
-                    3,
-                    200, // bad nonce
+                    30, // bad nonce -- too much chaining
+                    200,
                     &send_to,
                     456,
                 );
@@ -1425,15 +1424,18 @@ fn mempool_errors() {
                     res.get("error").unwrap().as_str().unwrap(),
                     "transaction rejected"
                 );
-                assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "BadNonce");
+                assert_eq!(
+                    res.get("reason").unwrap().as_str().unwrap(),
+                    "TooMuchChaining"
+                );
                 let data = res.get("reason_data").unwrap();
                 assert_eq!(data.get("is_origin").unwrap().as_bool().unwrap(), true);
                 assert_eq!(
                     data.get("principal").unwrap().as_str().unwrap(),
                     &spender_addr.to_string()
                 );
-                assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 0);
-                assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 3);
+                assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 26);
+                assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 30);
 
                 let tx_xfer_invalid = make_stacks_transfer(
                     &spender_sk,

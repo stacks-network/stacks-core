@@ -1064,6 +1064,7 @@ impl StacksChainState {
             TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
+
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
             }

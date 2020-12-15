@@ -215,6 +215,15 @@ impl ClarityBlockConnection<'_> {
         }
     }
 
+    pub fn set_cost_tracker(&mut self, tracker: LimitedCostTracker) -> LimitedCostTracker {
+        let old = self
+            .cost_track
+            .take()
+            .expect("BUG: Clarity block connection lost cost tracker instance");
+        self.cost_track.replace(tracker);
+        old
+    }
+
     /// Get the current cost so far
     pub fn cost_so_far(&self) -> ExecutionCost {
         match self.cost_track {

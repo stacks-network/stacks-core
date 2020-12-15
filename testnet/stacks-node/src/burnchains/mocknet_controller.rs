@@ -12,8 +12,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::util::get_epoch_time_secs;
@@ -189,8 +189,17 @@ impl BurnchainController for MocknetController {
                         burn_header_hash: next_block_header.block_hash,
                     })
                 }
-                BlockstackOperationType::PreStackStx(payload) => {
-                    BlockstackOperationType::PreStackStx(PreStackStxOp {
+                BlockstackOperationType::PreStx(payload) => {
+                    BlockstackOperationType::PreStx(PreStxOp {
+                        txid,
+                        vtxindex,
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::TransferStx(payload) => {
+                    BlockstackOperationType::TransferStx(TransferStxOp {
                         txid,
                         vtxindex,
                         block_height: next_block_header.block_height,
