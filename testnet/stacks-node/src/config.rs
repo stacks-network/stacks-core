@@ -476,12 +476,13 @@ impl Config {
 
         let burnchain = match config_file.burnchain {
             Some(mut burnchain) => {
-                let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
                 if burnchain.mode.as_deref() == Some("xenon") {
                     if burnchain.magic_bytes.is_none() {
                         burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
                     }
                 }
+                let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
+
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: match burnchain.chain_id {
