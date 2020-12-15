@@ -413,7 +413,7 @@ fn make_genesis_block_with_recipients(
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
-    let mut builder = StacksBlockBuilder::make_block_builder(
+    let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         &parent_stacks_header,
         proof.clone(),
         0,
@@ -575,7 +575,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
 
     let iconn = sort_db.index_conn();
 
-    let mut builder = StacksBlockBuilder::make_block_builder(
+    let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         &parent_stacks_header,
         proof.clone(),
         total_burn,

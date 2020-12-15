@@ -34,7 +34,7 @@ use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 
 use address::AddressHashMode;
 use core::{
-    FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
 use vm::types::Value::Response;
@@ -189,7 +189,7 @@ impl HeadersDB for TestSimHeadersDB {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_HASH)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
         } else {
             self.get_burn_block_height_for_block(id_bhh)?;
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
@@ -214,18 +214,18 @@ impl HeadersDB for TestSimHeadersDB {
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_TIMESTAMP)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP)
         } else {
             let burn_block_height = self.get_burn_block_height_for_block(id_bhh)? as u64;
             Some(
-                FIRST_BURNCHAIN_BLOCK_TIMESTAMP + burn_block_height
-                    - FIRST_BURNCHAIN_BLOCK_HEIGHT as u64,
+                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP + burn_block_height
+                    - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64,
             )
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_HEIGHT)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT)
         } else {
             let input_height = test_sim_hash_to_height(&id_bhh.0)?;
             if input_height > self.height {
@@ -233,7 +233,7 @@ impl HeadersDB for TestSimHeadersDB {
                 None
             } else {
                 Some(
-                    (FIRST_BURNCHAIN_BLOCK_HEIGHT as u64 + input_height)
+                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64 + input_height)
                         .try_into()
                         .unwrap(),
                 )

@@ -65,11 +65,6 @@ use util::hash::Hash160;
 
 use util::secp256k1::MessageSignature;
 
-const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1894315;
-const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1606093490;
-const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
-    "000000000000003efa81a29f2ee638ca4d4928a073e68789bb06a4fc0b153653";
-
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
@@ -126,9 +121,9 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_MAINNET,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
-            first_block_height: 0,
-            first_block_hash: BurnchainHeaderHash::zero(),
-            first_block_timestamp: 0,
+            first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+            first_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
         }
     }
 
@@ -140,8 +135,7 @@ impl BurnchainParameters {
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
-                .unwrap(),
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH).unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
         }
     }
@@ -153,9 +147,9 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_REGTEST,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
-            first_block_height: 0,
-            first_block_hash: BurnchainHeaderHash::zero(),
-            first_block_timestamp: 0,
+            first_block_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            first_block_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
         }
     }
 
@@ -382,8 +376,8 @@ impl PoxConstants {
             192,
             25,
             5,
-            POX_SUNSET_START,
-            POX_SUNSET_END,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
     }
 
@@ -394,8 +388,8 @@ impl PoxConstants {
             20,
             3333333333333333,
             5,
-            POX_SUNSET_START,
-            POX_SUNSET_END,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         ) // total liquid supply is 40000000000000000 µSTX
     }
 }
@@ -1265,7 +1259,7 @@ pub mod test {
     impl TestBurnchainNode {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
-            let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
+            let first_block_hash = BurnchainHeaderHash([0u8; 32]);
             let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 sortdb: db,

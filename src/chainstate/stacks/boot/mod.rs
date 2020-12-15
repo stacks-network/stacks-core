@@ -1032,7 +1032,7 @@ pub mod test {
 
                     let block_txs = vec![coinbase_tx];
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1136,7 +1136,7 @@ pub mod test {
 
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -1227,7 +1227,7 @@ pub mod test {
 
                     let block_txs = vec![coinbase_tx, burn_tx];
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1331,7 +1331,7 @@ pub mod test {
                         block_txs.push(alice_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1533,7 +1533,7 @@ pub mod test {
                         block_txs.push(alice_stack);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1794,7 +1794,7 @@ pub mod test {
                         block_txs.push(bob_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2038,7 +2038,7 @@ pub mod test {
                     block_txs.push(charlie_test_tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -2200,7 +2200,7 @@ pub mod test {
                         block_txs.push(alice_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2485,7 +2485,7 @@ pub mod test {
                         block_txs.push(charlie_stack);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3029,7 +3029,7 @@ pub mod test {
                         block_txs.push(alice_withdraw_tx);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3401,7 +3401,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {

@@ -1081,21 +1081,28 @@ impl StacksBlockBuilder {
 
     /// Create a block builder for mining
     pub fn make_block_builder(
+        mainnet: bool,
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
         total_burn: u64,
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+            let (first_block_hash_hex, first_block_height, first_block_ts, ) = if mainnet {
+                (BITCOIN_MAINNET_FIRST_BLOCK_HASH, BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT, BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP)
+            } else {
+                (BITCOIN_TESTNET_FIRST_BLOCK_HASH, BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP)
+            };
+            let first_block_hash = BurnchainHeaderHash::from_hex(first_block_hash_hex).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_BURNCHAIN_BLOCK_HASH,
-                FIRST_BURNCHAIN_BLOCK_HEIGHT,
-                FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
-                &proof,
+                &first_block_hash,
+                first_block_height as u32,
+                first_block_ts as u64,
+                    &proof,
                 pubkey_hash,
-            )
+            )    
         } else {
             // building off an existing stacks block
             let new_work = StacksWorkScore {
@@ -1118,6 +1125,45 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    /// Create a block builder for regtest mining
+    pub fn make_regtest_block_builder(
+        stacks_parent_header: &StacksHeaderInfo,
+        proof: VRFProof,
+        total_burn: u64,
+        pubkey_hash: Hash160,
+    ) -> Result<StacksBlockBuilder, Error> {
+        let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+            let first_block_hash = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+            StacksBlockBuilder::first_pubkey_hash(
+                0,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &first_block_hash,
+                BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32,
+                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64,
+                &proof,
+                pubkey_hash,
+            )    
+        } else {
+            // building off an existing stacks block
+            let new_work = StacksWorkScore {
+                burn: total_burn,
+                work: stacks_parent_header
+                    .block_height
+                    .checked_add(1)
+                    .expect("FATAL: block height overflow"),
+            };
+
+            StacksBlockBuilder::from_parent_pubkey_hash(
+                0,
+                stacks_parent_header,
+                &new_work,
+                &proof,
+                pubkey_hash,
+            )
+        };
+        Ok(builder)
+    }
+    
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
@@ -1153,6 +1199,7 @@ impl StacksBlockBuilder {
         let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
 
         let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
             parent_stacks_header,
             proof,
             total_burn,
