@@ -1369,12 +1369,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // opening a different Trie than the one we're extending
-        self.data.cur_block_id =
-            Some(trie_sql::get_block_identifier(&self.db, bhh).map_err(|e| {
-                debug!("Failed to load identifier for block";
-                       "trie_identifier" =>  %bhh);
-                e
-            })?);
+        self.data.cur_block_id = Some(trie_sql::get_block_identifier(&self.db, bhh)?);
         self.data.cur_block = bhh.clone();
 
         Ok(())

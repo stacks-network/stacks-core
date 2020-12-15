@@ -58,6 +58,7 @@ struct ParsedData {
     key_block_ptr: u32,
     key_vtxindex: u16,
     burn_parent_modulus: u8,
+    memo: u8,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
@@ -190,7 +191,12 @@ impl LeaderBlockCommitOp {
         let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
         let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
         let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
-        let burn_parent_modulus = ((data[76] as u64) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+
+        let burn_parent_modulus_and_memo_byte = data[76];
+
+        let burn_parent_modulus = ((burn_parent_modulus_and_memo_byte & 0b111) as u64
+            % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+        let memo = (burn_parent_modulus_and_memo_byte >> 3) & 0x1f;
 
         Some(ParsedData {
             block_header_hash,
@@ -200,6 +206,7 @@ impl LeaderBlockCommitOp {
             key_block_ptr,
             key_vtxindex,
             burn_parent_modulus,
+            memo,
         })
     }
 
@@ -352,7 +359,7 @@ impl LeaderBlockCommitOp {
             parent_vtxindex: data.parent_vtxindex,
             key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            memo: vec![],
+            memo: vec![data.memo],
             burn_parent_modulus: data.burn_parent_modulus,
 
             commit_outs,
@@ -396,7 +403,9 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
-        write_next(fd, &self.burn_parent_modulus)?;
+        let memo_burn_parent_modulus =
+            (self.memo.get(0).copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
+        write_next(fd, &memo_burn_parent_modulus)?;
         Ok(())
     }
 
@@ -1188,8 +1197,8 @@ mod tests {
         let tx_fixtures = vec![
             OpFixture {
                 // valid
-                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370710239300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
-                opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707102".to_string(),
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa39300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
+                opstr: "69645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa".to_string(),
                 result: Some(LeaderBlockCommitOp {
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
@@ -1198,7 +1207,7 @@ mod tests {
                     parent_vtxindex: 0x5051,
                     key_block_ptr: 0x60616263,
                     key_vtxindex: 0x7071,
-                    memo: vec![],
+                    memo: vec![0x1f],
 
                     commit_outs: vec![
                         StacksAddress { version: 26, bytes: Hash160::empty() },
@@ -1215,7 +1224,7 @@ mod tests {
                         hash_mode: AddressHashMode::SerializeP2PKH
                     },
 
-                    txid: Txid::from_hex("2f863079a57f86979fa93d25fae75b0ec45571f59c9bb26da6111476251a82e8").unwrap(),
+                    txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
                     vtxindex: vtxindex,
                     block_height: block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
