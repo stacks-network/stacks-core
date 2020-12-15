@@ -368,6 +368,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn initialize(&mut self) {}
 
+    pub fn is_stack_empty(&self) -> bool {
+        self.store.depth() == 0
+    }
+
     pub fn begin(&mut self) {
         self.store.nest();
     }

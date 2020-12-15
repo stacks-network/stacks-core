@@ -571,33 +571,14 @@ impl LimitedCostTracker {
             memory: 0,
             free: false,
         };
+        assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db)?;
         Ok(cost_tracker)
-    }
-    pub fn new_max_limit(clarity_db: &mut ClarityDatabase) -> Result<LimitedCostTracker> {
-        LimitedCostTracker::new(ExecutionCost::max_value(), clarity_db)
     }
 
-    #[cfg(test)]
-    pub fn new_max_limit_with_circuits(
-        clarity_db: &mut ClarityDatabase,
-        circuits: Vec<(
-            (QualifiedContractIdentifier, ClarityName),
-            ClarityCostFunctionReference,
-        )>,
-    ) -> Result<LimitedCostTracker> {
-        let mut cost_tracker = LimitedCostTracker {
-            cost_function_references: HashMap::new(),
-            cost_contracts: HashMap::new(),
-            contract_call_circuits: circuits.into_iter().collect(),
-            limit: ExecutionCost::max_value(),
-            memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
-            memory: 0,
-            free: false,
-        };
-        cost_tracker.load_costs(clarity_db)?;
-        Ok(cost_tracker)
+    pub fn new_max_limit(clarity_db: &mut ClarityDatabase) -> Result<LimitedCostTracker> {
+        assert!(clarity_db.is_stack_empty());
+        LimitedCostTracker::new(ExecutionCost::max_value(), clarity_db)
     }
 
     pub fn new_free() -> LimitedCostTracker {
@@ -619,7 +600,10 @@ impl LimitedCostTracker {
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
-        } = load_cost_functions(clarity_db)?;
+        } = load_cost_functions(clarity_db).map_err(|e| {
+            clarity_db.roll_back();
+            e
+        })?;
 
         self.contract_call_circuits = contract_call_circuits;
 
