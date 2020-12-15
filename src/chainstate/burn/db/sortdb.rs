@@ -49,8 +49,8 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -351,6 +351,34 @@ impl FromRow<StackStxOp> for StackStxOp {
     }
 }
 
+impl FromRow<TransferStxOp> for TransferStxOp {
+    fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let recipient = StacksAddress::from_column(row, "recipient_addr")?;
+        let transfered_ustx_str: String = row.get("transfered_ustx");
+        let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let memo_hex: String = row.get("memo");
+        let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
+
+        Ok(TransferStxOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            recipient,
+            transfered_ustx,
+            memo,
+        })
+    }
+}
+
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
@@ -505,6 +533,20 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         reward_addr TEXT NOT NULL,
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
+
+        PRIMARY KEY(txid)
+    );"#,
+    r#"
+    CREATE TABLE transfer_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        recipient_addr TEXT NOT NULL,
+        transfered_ustx TEXT NOT NULL,
+        memo TEXT NOT NULL,
 
         PRIMARY KEY(txid)
     );"#,
@@ -2592,6 +2634,17 @@ impl SortitionDB {
         )
     }
 
+    pub fn get_transfer_stx_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<TransferStxOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM transfer_stx WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
+    }
+
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
@@ -3198,7 +3251,14 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_stack_stx(op)
             }
-            BlockstackOperationType::PreStackStx(ref op) => {
+            BlockstackOperationType::TransferStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) transfer stx opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_transfer_stx(op)
+            }
+            BlockstackOperationType::PreStx(ref op) => {
                 info!(
                     "ACCEPTED({}) pre stack stx op {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
@@ -3251,6 +3311,24 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a transfer-stx op
+    fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &op.recipient.to_string(),
+            &op.transfered_ustx.to_string(),
+            &to_hex(&op.memo),
+        ];
+
+        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }

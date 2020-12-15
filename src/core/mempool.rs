@@ -79,18 +79,11 @@ impl MemPoolAdmitter {
 
     pub fn will_admit_tx(
         &mut self,
-        mempool_conn: &DBConn,
         chainstate: &mut StacksChainState,
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
-        chainstate.will_admit_mempool_tx(
-            mempool_conn,
-            &self.cur_consensus_hash,
-            &self.cur_block,
-            tx,
-            tx_size,
-        )
+        chainstate.will_admit_mempool_tx(&self.cur_consensus_hash, &self.cur_block, tx, tx_size)
     }
 }
 
@@ -804,8 +797,15 @@ impl MemPoolDB {
                 true
             } else {
                 // there's a >= fee tx in this fork, cannot add
-                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee: new_txid={}, old_txid={}, origin_addr={}, origin_nonce={}, sponsor_addr={}, sponsor_nonce={}, new_fee={}, old_fee={}",
-                      txid, prior_tx.txid, origin_address, origin_nonce, sponsor_address, sponsor_nonce, estimated_fee, prior_tx.estimated_fee);
+                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee";
+                      "new_txid" => %txid, 
+                      "old_txid" => %prior_tx.txid,
+                      "origin_addr" => %origin_address,
+                      "origin_nonce" => origin_nonce,
+                      "sponsor_addr" => %sponsor_address,
+                      "sponsor_nonce" => sponsor_nonce,
+                      "new_fee" => estimated_fee,
+                      "old_fee" => prior_tx.estimated_fee);
                 false
             }
         } else {
@@ -960,9 +960,7 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx
-                .admitter
-                .will_admit_tx(&mempool_tx.tx, chainstate, &tx, len)?;
+            mempool_tx.admitter.will_admit_tx(chainstate, &tx, len)?;
         }
 
         MemPoolDB::try_add_tx(

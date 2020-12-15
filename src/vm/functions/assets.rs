@@ -48,6 +48,16 @@ enum TransferTokenErrorCodes {
     SENDER_IS_RECIPIENT = 2,
     NON_POSITIVE_AMOUNT = 3,
 }
+
+enum BurnAssetErrorCodes {
+    NOT_OWNED_BY = 1,
+    DOES_NOT_EXIST = 3,
+}
+enum BurnTokenErrorCodes {
+    NOT_ENOUGH_BALANCE = 1,
+    NON_POSITIVE_AMOUNT = 3,
+}
+
 enum StxErrorCodes {
     NOT_ENOUGH_BALANCE = 1,
     SENDER_IS_RECIPIENT = 2,
@@ -548,5 +558,163 @@ pub fn special_get_owner(
         }
         Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e),
+    }
+}
+
+pub fn special_get_token_supply(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    _context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
+
+    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let supply = env
+        .global_context
+        .database
+        .get_ft_supply(&env.contract_context.contract_identifier, token_name)?;
+    Ok(Value::UInt(supply))
+}
+
+pub fn special_burn_token(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
+
+    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let amount = eval(&args[1], env, context)?;
+    let from = eval(&args[2], env, context)?;
+
+    if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
+        if amount <= 0 {
+            return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
+        }
+
+        let burner_bal = env.global_context.database.get_ft_balance(
+            &env.contract_context.contract_identifier,
+            token_name,
+            burner,
+        )?;
+
+        if amount > burner_bal {
+            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE);
+        }
+
+        env.global_context.database.checked_decrease_token_supply(
+            &env.contract_context.contract_identifier,
+            token_name,
+            amount,
+        )?;
+
+        let final_burner_bal = burner_bal - amount;
+
+        env.global_context.database.set_ft_balance(
+            &env.contract_context.contract_identifier,
+            token_name,
+            burner,
+            final_burner_bal,
+        )?;
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: token_name.clone(),
+        };
+        env.register_ft_burn_event(burner.clone(), amount, asset_identifier)?;
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+
+        env.global_context.log_token_transfer(
+            burner,
+            &env.contract_context.contract_identifier,
+            token_name,
+            amount,
+        )?;
+
+        Ok(Value::okay_true())
+    } else {
+        Err(CheckErrors::BadBurnFTArguments.into())
+    }
+}
+
+pub fn special_burn_asset(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
+
+    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+
+    let asset = eval(&args[1], env, context)?;
+    let sender = eval(&args[2], env, context)?;
+
+    let expected_asset_type = env
+        .global_context
+        .database
+        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+
+    runtime_cost(
+        ClarityCostFunction::NftBurn,
+        env,
+        expected_asset_type.size(),
+    )?;
+
+    if !expected_asset_type.admits(&asset) {
+        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+    }
+
+    if let Value::Principal(ref sender_principal) = sender {
+        let owner = match env.global_context.database.get_nft_owner(
+            &env.contract_context.contract_identifier,
+            asset_name,
+            &asset,
+        ) {
+            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
+            }
+            Ok(owner) => Ok(owner),
+            Err(e) => Err(e),
+        }?;
+
+        if &owner != sender_principal {
+            return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
+        }
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(expected_asset_type.size() as u64)?;
+
+        env.global_context.database.burn_nft(
+            &env.contract_context.contract_identifier,
+            asset_name,
+            &asset,
+        )?;
+
+        env.global_context.log_asset_transfer(
+            sender_principal,
+            &env.contract_context.contract_identifier,
+            asset_name,
+            asset.clone(),
+        );
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: asset_name.clone(),
+        };
+        env.register_nft_burn_event(sender_principal.clone(), asset, asset_identifier)?;
+
+        Ok(Value::okay_true())
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
     }
 }

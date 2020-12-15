@@ -34,6 +34,8 @@ use util::db::{
     FromColumn, FromRow,
 };
 
+use std::collections::HashMap;
+
 pub struct BurnchainDB {
     conn: Connection,
 }
@@ -300,13 +302,36 @@ impl BurnchainDB {
             block.block_height(),
             &block.block_hash()
         );
-        block
-            .txs()
-            .iter()
-            .filter_map(|tx| {
-                Burnchain::classify_transaction(self, block_header, &tx, sunset_end_ht)
-            })
-            .collect()
+
+        let mut ops = Vec::new();
+        let mut pre_stx_ops = HashMap::new();
+
+        for tx in block.txs().iter() {
+            let result = Burnchain::classify_transaction(
+                self,
+                block_header,
+                &tx,
+                sunset_end_ht,
+                &pre_stx_ops,
+            );
+            if let Some(classified_tx) = result {
+                if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
+                    pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
+                } else {
+                    ops.push(classified_tx);
+                }
+            }
+        }
+
+        ops.extend(
+            pre_stx_ops
+                .into_iter()
+                .map(|(_, op)| BlockstackOperationType::PreStx(op)),
+        );
+
+        ops.sort_by_key(|op| op.vtxindex());
+
+        ops
     }
 
     pub fn store_new_burnchain_block(
@@ -518,7 +543,7 @@ mod tests {
         let pre_stack_stx_0 = BitcoinTransaction {
             txid: pre_stack_stx_0_txid.clone(),
             vtxindex: 0,
-            opcode: Opcodes::PreStackStx as u8,
+            opcode: Opcodes::PreStx as u8,
             data: vec![0; 80],
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
@@ -537,10 +562,10 @@ mod tests {
             }],
         };
 
-        // this one will have a corresponding pre_stack_stx tx.
+        // this one will not have a corresponding pre_stack_stx tx.
         let stack_stx_0 = BitcoinTransaction {
             txid: Txid([4; 32]),
-            vtxindex: 0,
+            vtxindex: 1,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -548,7 +573,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: (pre_stack_stx_0_txid.clone(), 1),
+                tx_ref: (Txid([0; 32]), 1),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -563,7 +588,7 @@ mod tests {
         // this one will have a corresponding pre_stack_stx tx.
         let stack_stx_0_second_attempt = BitcoinTransaction {
             txid: Txid([4; 32]),
-            vtxindex: 0,
+            vtxindex: 2,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -586,7 +611,7 @@ mod tests {
         // this one won't have a corresponding pre_stack_stx tx.
         let stack_stx_1 = BitcoinTransaction {
             txid: Txid([3; 32]),
-            vtxindex: 0,
+            vtxindex: 3,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -609,7 +634,7 @@ mod tests {
         // this one won't use the correct output
         let stack_stx_2 = BitcoinTransaction {
             txid: Txid([8; 32]),
-            vtxindex: 0,
+            vtxindex: 4,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
@@ -686,7 +711,7 @@ mod tests {
             bytes: Hash160([2; 20]),
         });
 
-        if let BlockstackOperationType::PreStackStx(op) = &processed_ops_0[0] {
+        if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {
             assert_eq!(&op.output, &expected_pre_stack_addr);
         } else {
             panic!("EXPECTED to parse a pre stack stx op");

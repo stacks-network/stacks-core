@@ -430,10 +430,13 @@ const LET_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
-evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.
+evaluating each expression and _binding_ it to the corresponding variable name.
+`let` bindings are sequential: when a `let` binding is evaluated, it may refer to prior binding.
+The _context_ created by this set of bindings is used for evaluating its body expressions.
+ The let expression returns the value of the last such body expression.
 Note: intermediary statements returning a response type must be checked",
-    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
+    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20
+(let ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23",
 };
 
 const FETCH_VAR_API: SpecialAPI = SpecialAPI {
@@ -534,6 +537,39 @@ const LEN_API: SpecialAPI = SpecialAPI {
     description: "The `len` function returns the length of a given buffer or list.",
     example: "(len \"blockstack\") ;; Returns u10
 (len (list 1 2 3 4 5)) ;; Returns u5
+",
+};
+
+const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, uint",
+    output_type: "(optional buff|A)",
+    signature: "(element-at sequence index)",
+    description:
+        "The `element-at` function returns the element at `index` in the provided sequence.
+If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
+For strings and buffers, this function will return 1-length strings or buffers.",
+    example: "(element-at \"blockstack\" u5) ;; Returns (some \"s\")
+(element-at (list 1 2 3 4 5) u5) ;; Returns none
+(element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
+(element-at \"abcd\" u1) ;; Returns (some \"b\")
+(element-at 0xfb01 u1) ;; Returns (some 0x01)
+",
+};
+
+const INDEX_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list A, buff|A",
+    output_type: "(optional uint)",
+    signature: "(index-of sequence item)",
+    description: "The `index-of` function returns the first index at which `item` can be
+found in the provided sequence (using `is-eq` checks).
+
+If this item is not found in the sequence (or an empty string/buffer is supplied), this
+function returns `none`.",
+    example: "(index-of \"blockstack\" \"b\") ;; Returns (some u0)
+(index-of \"blockstack\" \"k\") ;; Returns (some u4)
+(index-of \"blockstack\" \"\") ;; Returns none
+(index-of (list 1 2 3 4 5) 6) ;; Returns none
+(index-of 0xfb01 0x01) ;; Returns (some u1)
 ",
 };
 
@@ -950,15 +986,15 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
   (match x
   value (+ 10 value)
   10))
-(add-10 (some 5)) ;; returns 15
-(add-10 none) ;; returns 10
+(add-10 (some 5)) ;; Returns 15
+(add-10 none) ;; Returns 10
 
 (define-private (add-or-pass-err (x (response int (string-ascii 10))) (to-add int))
   (match x
    value (+ to-add value)
    err-value (err err-value)))
-(add-or-pass-err (ok 5) 20) ;; returns 25
-(add-or-pass-err (err \"ERROR\") 20) ;; returns (err \"ERROR\")
+(add-or-pass-err (ok 5) 20) ;; Returns 25
+(add-or-pass-err (err \"ERROR\") 20) ;; Returns (err \"ERROR\")
 ",
 };
 
@@ -1152,7 +1188,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 ",
     example: "
 (define-constant four (+ 2 2))
-(+ 4 four) ;; returns 8
+(+ 4 four) ;; Returns 8
 "
 };
 
@@ -1173,7 +1209,7 @@ Private functions may return any type.",
   (if (> i1 i2)
       i1
       i2))
-(max-of 4 6) ;; returns 6
+(max-of 4 6) ;; Returns 6
 "
 };
 
@@ -1315,7 +1351,7 @@ returns `(ok true)`.
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 "
 };
 
@@ -1335,7 +1371,7 @@ Otherwise, on successfuly mint, it returns `(ok true)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
-(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 "
 };
 
@@ -1363,7 +1399,7 @@ The token type must have been defined using `define-fungible-token`.",
     example: "
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-get-balance stackaroo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u100
+(ft-get-balance stackaroo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u100
 ",
 };
 
@@ -1384,8 +1420,8 @@ one of the following error codes:
     example: "
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
-(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err u1)
+(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u1)
 "
 };
 
@@ -1407,9 +1443,61 @@ one of the following error codes:
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err u1)
-(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err u3)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u1)
+(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u3)
+"
+};
+
+const GET_TOKEN_SUPPLY: SpecialAPI = SpecialAPI {
+    input_type: "TokenName",
+    output_type: "uint",
+    signature: "(ft-get-supply token-name)",
+    description: "`ft-get-balance` returns `token-name` circulating supply.
+The token type must have been defined using `define-fungible-token`.",
+    example: "
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-get-supply stackaroo) ;; Returns u100
+",
+};
+
+const BURN_TOKEN: SpecialAPI = SpecialAPI {
+    input_type: "TokenName, uint, principal",
+    output_type: "(response bool uint)",
+    signature: "(ft-burn? token-name amount sender)",
+    description: "`ft-burn?` is used to decrease the token balance for the `sender` principal for a token
+type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
+rather destroyed, reducing the circulating supply.  
+
+If a non-positive amount is provided to burn, this function returns `(err 1)`. Otherwise, on successfuly burn, it
+returns `(ok true)`.
+",
+    example: "
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(ft-burn? stackaroo u50 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+"
+};
+
+const BURN_ASSET: SpecialAPI = SpecialAPI {
+    input_type: "AssetName, A, principal",
+    output_type: "(response bool uint)",
+    signature: "(nft-burn? asset-class asset-identifier recipient)",
+    description: "`nft-burn?` is used to burn an asset and remove that asset's owner from the `recipient` principal.
+The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
+that definition.
+
+If an asset identified by `asset-identifier` _doesn't exist_, this function will return an error with the following error code:
+
+`(err u1)`
+
+Otherwise, on successfuly burn, it returns `(ok true)`.
+",
+    example: "
+(define-non-fungible-token stackaroo (string-ascii 40))
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(nft-burn? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 "
 };
 
@@ -1422,8 +1510,8 @@ This function returns the STX balance of the `owner` principal. In the event tha
 principal isn't materialized, it returns 0.
 ",
     example: "
-(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u0
-(stx-get-balance (as-contract tx-sender)) ;; returns u10000
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
+(stx-get-balance (as-contract tx-sender)) ;; Returns u1000
 ",
 };
 
@@ -1443,9 +1531,9 @@ one of the following error codes:
 ",
     example: "
 (as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; returns (ok true)
+  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; returns (err u4)
+  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
 "
 };
 
@@ -1464,9 +1552,9 @@ one of the following error codes:
 ",
     example: "
 (as-contract
-  (stx-burn? u60 tx-sender)) ;; returns (ok true)
+  (stx-burn? u60 tx-sender)) ;; Returns (ok true)
 (as-contract
-  (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; returns (err u4)
+  (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (err u4)
 "
 };
 
@@ -1504,6 +1592,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Concat => make_for_special(&CONCAT_API, name),
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
+        ElementAt => make_for_special(&ELEMENT_AT_API, name),
+        IndexOf => make_for_special(&INDEX_OF_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),
@@ -1547,6 +1637,9 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetAssetOwner => make_for_special(&GET_OWNER, name),
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
+        BurnToken => make_for_special(&BURN_TOKEN, name),
+        BurnAsset => make_for_special(&BURN_ASSET, name),
+        GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),

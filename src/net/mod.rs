@@ -1876,9 +1876,9 @@ pub mod test {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
-                    Ok(())
-                }
+                BlockstackOperationType::TransferStx(_)
+                | BlockstackOperationType::PreStx(_)
+                | BlockstackOperationType::StackStx(_) => Ok(()),
             }
         }
 
@@ -2083,6 +2083,7 @@ pub mod test {
         pub data_url: UrlString,
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
+        pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
     }
@@ -2127,6 +2128,7 @@ pub mod test {
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
+                initial_lockups: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
             }
@@ -2347,6 +2349,12 @@ pub mod test {
                 config.initial_balances.clone(),
                 Some(Box::new(post_flight_callback)),
             );
+
+            if !config.initial_lockups.is_empty() {
+                let lockups = config.initial_lockups.clone();
+                boot_data.get_bulk_initial_lockups =
+                    Some(Box::new(move || Box::new(lockups.into_iter().map(|e| e))));
+            }
 
             let (chainstate, _) = StacksChainState::open_and_exec(
                 false,

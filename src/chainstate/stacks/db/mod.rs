@@ -81,7 +81,7 @@ use vm::clarity::{
     Error as clarity_error,
 };
 use vm::contexts::OwnedEnvironment;
-use vm::costs::ExecutionCost;
+use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::marf::MarfedKV;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
@@ -304,6 +304,28 @@ impl<'a> ClarityTx<'a> {
 
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
+    }
+
+    /// Set the ClarityTx's cost tracker.
+    /// Returns the replaced cost tracker.
+    fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {
+        self.block.set_cost_tracker(new_tracker)
+    }
+
+    /// Run `todo` in this ClarityTx with `new_tracker`.
+    /// Returns the result of `todo` and the `new_tracker`
+    pub fn with_temporary_cost_tracker<F, R>(
+        &mut self,
+        new_tracker: LimitedCostTracker,
+        todo: F,
+    ) -> (R, LimitedCostTracker)
+    where
+        F: FnOnce(&mut ClarityTx) -> R,
+    {
+        let original_tracker = self.set_cost_tracker(new_tracker);
+        let result = todo(self);
+        let new_tracker = self.set_cost_tracker(original_tracker);
+        (result, new_tracker)
     }
 
     #[cfg(test)]
@@ -597,15 +619,27 @@ pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth ove
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
+#[derive(Debug, Clone)]
 pub struct ChainstateAccountBalance {
     pub address: String,
     pub amount: u64,
 }
 
-pub struct ChainStateAccountLockup {
+#[derive(Debug, Clone)]
+pub struct ChainstateAccountLockup {
     pub address: String,
     pub amount: u64,
     pub block_height: u64,
+}
+
+impl ChainstateAccountLockup {
+    pub fn new(address: StacksAddress, amount: u64, block_height: u64) -> ChainstateAccountLockup {
+        ChainstateAccountLockup {
+            address: address.to_string(),
+            amount,
+            block_height,
+        }
+    }
 }
 
 pub struct ChainStateBootData {
@@ -615,7 +649,7 @@ pub struct ChainStateBootData {
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_lockups:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainStateAccountLockup>>>>,
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountBalance>>>>,
 }
@@ -904,8 +938,8 @@ impl StacksChainState {
                         );
                         allocation_events.push(mint_event);
                     }
+                    info!("Committing {} balances to genesis tx", balances_count);
                 });
-                info!("Done initializing chain with {} balances", balances_count);
             }
 
             let allocations_tx = StacksTransaction::new(
@@ -925,87 +959,48 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-            let mut total_locked_amount: u128 = 0;
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with locked balances");
-                let mut lockup_count = 0;
+                info!("Initializing chain with lockups");
+                let mut lockups_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
+                let initial_lockups = get_schedules();
+                for schedule in initial_lockups {
+                    let stx_address =
+                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                    let value = Value::Tuple(
+                        TupleData::from_data(vec![
+                            ("recipient".into(), Value::Principal(stx_address)),
+                            ("amount".into(), Value::UInt(schedule.amount.into())),
+                        ])
+                        .unwrap(),
+                    );
+                    match lockups_per_block.entry(schedule.block_height) {
+                        Entry::Occupied(schedules) => {
+                            schedules.into_mut().push(value);
+                        }
+                        Entry::Vacant(entry) => {
+                            let schedules = vec![value];
+                            entry.insert(schedules);
+                        }
+                    };
+                }
+                let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
-                    let initial_lockups = get_schedules();
-                    let mut unlocks_per_blocks: HashMap<u64, u32> = HashMap::new();
-                    let lockup_contract_id = boot_code_id("lockup");
-                    for schedule in initial_lockups {
-                        total_locked_amount = total_locked_amount
-                            .checked_add(schedule.amount as u128)
-                            .expect("FATAL: locked STX overflow");
-                        lockup_count = lockup_count + 1;
-                        let value = unlocks_per_blocks.get(&schedule.block_height).unwrap_or(&0);
-                        let index = value + 1;
-                        unlocks_per_blocks.insert(schedule.block_height, index);
-                        let stx_address =
-                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
-                        clarity
-                            .with_clarity_db(|db| {
-                                let key = TupleData::from_data(vec![
-                                    (
-                                        "stx-height".into(),
-                                        Value::UInt(schedule.block_height.into()),
-                                    ),
-                                    ("index".into(), Value::UInt(index.into())),
-                                ])
-                                .unwrap();
-
-                                let value = TupleData::from_data(vec![
-                                    ("owner".into(), Value::Principal(stx_address)),
-                                    ("metadata".into(), Value::buff_from_byte(0)),
-                                    ("unlock-ustx".into(), Value::UInt(schedule.amount.into())),
-                                ])
-                                .unwrap();
+                    clarity
+                        .with_clarity_db(|db| {
+                            for (block_height, schedule) in lockups_per_block.into_iter() {
+                                let key = Value::UInt(block_height.into());
                                 db.insert_entry(
                                     &lockup_contract_id,
-                                    "internal-locked-stx",
-                                    Value::Tuple(key),
-                                    Value::Tuple(value),
+                                    "lockups",
+                                    key,
+                                    Value::list_from(schedule).unwrap(),
                                 )?;
-
-                                let key = TupleData::from_data(vec![(
-                                    "stx-height".into(),
-                                    Value::UInt(schedule.block_height.into()),
-                                )])
-                                .unwrap();
-                                let value = TupleData::from_data(vec![(
-                                    "total-unlocked".into(),
-                                    Value::UInt(index.into()),
-                                )])
-                                .unwrap();
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "unlocked-stx-per-block",
-                                    Value::Tuple(key),
-                                    Value::Tuple(value),
-                                )?;
-
-                                Ok(())
-                            })
-                            .unwrap();
-                    }
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
                 });
-                info!(
-                    "Done initializing chain with {} locked balances",
-                    lockup_count
-                );
             }
-
-            info!(
-                "Credit lockup contract with balance {}",
-                total_locked_amount
-            );
-            clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::account_genesis_credit(
-                    clarity,
-                    &PrincipalData::from(boot_code_id("lockup")),
-                    total_locked_amount,
-                )
-            });
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);

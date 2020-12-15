@@ -955,6 +955,7 @@ impl StacksBlockBuilder {
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
         let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
+        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
         let mut tx = chainstate.block_begin(
             burn_dbconn,
@@ -1007,6 +1008,7 @@ impl StacksBlockBuilder {
         );
 
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
+        StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);
 
         Ok(tx)
     }

@@ -22,6 +22,7 @@ pub mod monitoring;
 pub mod burnchains;
 pub mod config;
 pub mod event_dispatcher;
+pub mod genesis_data;
 pub mod keychain;
 pub mod neon_node;
 pub mod node;

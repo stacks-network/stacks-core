@@ -1,4 +1,7 @@
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use super::{
+    genesis_data::GENESIS_DATA, BurnchainController, BurnchainTip, Config, EventDispatcher,
+    Keychain, Tenure,
+};
 use crate::run_loop::RegisteredKey;
 
 use std::collections::HashSet;
@@ -29,7 +32,7 @@ use stacks::net::{
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainStateAccountLockup, ChainstateAccountBalance},
+    chainstate::stacks::db::{ChainstateAccountBalance, ChainstateAccountLockup},
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -81,22 +84,26 @@ pub struct Node {
     nonce: u64,
 }
 
-pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainStateAccountLockup>> {
+pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainstateAccountLockup>> {
     Box::new(
-        stx_genesis::read_lockups().map(|item| ChainStateAccountLockup {
-            address: item.address,
-            amount: item.amount,
-            block_height: item.block_height,
-        }),
+        GENESIS_DATA
+            .read_lockups()
+            .map(|item| ChainstateAccountLockup {
+                address: item.address,
+                amount: item.amount,
+                block_height: item.block_height,
+            }),
     )
 }
 
 pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
     Box::new(
-        stx_genesis::read_balances().map(|item| ChainstateAccountBalance {
-            address: item.address,
-            amount: item.amount,
-        }),
+        GENESIS_DATA
+            .read_balances()
+            .map(|item| ChainstateAccountBalance {
+                address: item.address,
+                amount: item.amount,
+            }),
     )
 }
 
@@ -455,8 +462,9 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::PreStackStx(_)
+                BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::UserBurnSupport(_) => {
                     // no-op, ops are not supported / produced at this point.
                 }

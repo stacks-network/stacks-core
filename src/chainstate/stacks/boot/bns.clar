@@ -106,18 +106,11 @@
     (asserts!
       (> namespace-len u0)
       (err ERR_NAMESPACE_BLANK))
-    (ok (get value (fold 
-      element-at 
-      NAMESPACE_PRICE_TIERS 
-      { limit: (min u8 namespace-len), cursor: u0, value: u0 })))))
+    (ok (unwrap-panic
+      (element-at NAMESPACE_PRICE_TIERS (min u7 (- namespace-len u1)))))))
 
-(define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
-  (if (is-eq (get cursor acc) (get limit acc))
-    { limit: (get limit acc), cursor: (+ u1 (get cursor acc)), value: i }
-    { limit: (get limit acc), cursor: (+ u1 (get cursor acc)), value: (get value acc) }))
-  
 (define-private (get-exp-at-index (buckets (list 16 uint)) (index uint))
-  (get value (fold element-at buckets { limit: index, cursor: u0, value: u0 })))
+  (unwrap-panic (element-at buckets index)))
 
 (define-private (is-digit (char (buff 1)))
   (or 

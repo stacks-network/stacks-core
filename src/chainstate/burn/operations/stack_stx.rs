@@ -27,7 +27,7 @@ use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 
 use chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, PreStackStxOp, StackStxOp,
+    parse_u128_from_be, BlockstackOperationType, PreStxOp, StackStxOp,
 };
 use core::POX_MAX_NUM_CYCLES;
 
@@ -56,10 +56,10 @@ struct ParsedData {
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 
-impl PreStackStxOp {
+impl PreStxOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress) -> PreStackStxOp {
-        PreStackStxOp {
+    pub fn new(sender: &StacksAddress) -> PreStxOp {
+        PreStxOp {
             output: sender.clone(),
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -73,8 +73,8 @@ impl PreStackStxOp {
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
         pox_sunset_ht: u64,
-    ) -> Result<PreStackStxOp, op_error> {
-        PreStackStxOp::parse_from_tx(
+    ) -> Result<PreStxOp, op_error> {
+        PreStxOp::parse_from_tx(
             block_header.block_height,
             &block_header.block_hash,
             tx,
@@ -82,14 +82,14 @@ impl PreStackStxOp {
         )
     }
 
-    /// parse a PreStackStxOp
+    /// parse a PreStxOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         tx: &BurnchainTransaction,
         pox_sunset_ht: u64,
-    ) -> Result<PreStackStxOp, op_error> {
+    ) -> Result<PreStxOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
         let outputs = tx.get_recipients();
@@ -112,7 +112,7 @@ impl PreStackStxOp {
             return Err(op_error::InvalidInput);
         }
 
-        if tx.opcode() != Opcodes::PreStackStx as u8 {
+        if tx.opcode() != Opcodes::PreStx as u8 {
             warn!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
         };
@@ -120,13 +120,13 @@ impl PreStackStxOp {
         // check if we've reached PoX disable
         if block_height >= pox_sunset_ht {
             debug!(
-                "PreStackStxOp broadcasted after sunset. Ignoring. txid={}",
+                "PreStxOp broadcasted after sunset. Ignoring. txid={}",
                 tx.txid()
             );
             return Err(op_error::InvalidInput);
         }
 
-        Ok(PreStackStxOp {
+        Ok(PreStxOp {
             output: outputs[0].address,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
@@ -194,9 +194,7 @@ impl StackStxOp {
         match tx.get_input_tx_ref(0) {
             Some((ref txid, vout)) => {
                 if *vout != 1 {
-                    warn!(
-                        "Invalid tx: StackStxOp must spend the second output of the PreStackStxOp"
-                    );
+                    warn!("Invalid tx: StackStxOp must spend the second output of the PreStxOp");
                     Err(op_error::InvalidInput)
                 } else {
                     Ok(txid)
@@ -376,7 +374,7 @@ mod tests {
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
-            opcode: Opcodes::PreStackStx as u8,
+            opcode: Opcodes::PreStx as u8,
             data: vec![1; 80],
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
@@ -417,7 +415,7 @@ mod tests {
             version: 0,
             bytes: Hash160([0; 20]),
         };
-        let op = PreStackStxOp::parse_from_tx(
+        let op = PreStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),

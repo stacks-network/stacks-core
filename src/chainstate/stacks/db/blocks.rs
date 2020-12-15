@@ -62,8 +62,8 @@ use net::Error as net_error;
 use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 use vm::contexts::AssetMap;
@@ -78,6 +78,7 @@ pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use vm::contracts::Contract;
+use vm::costs::LimitedCostTracker;
 
 use rand::thread_rng;
 use rand::RngCore;
@@ -142,7 +143,12 @@ pub enum MemPoolRejection {
     NoCoinbaseViaMempool,
     NoSuchChainTip(ConsensusHash, BlockHeaderHash),
     ConflictingNonceInMempool,
-    TooMuchChaining,
+    TooMuchChaining {
+        max_nonce: u64,
+        actual_nonce: u64,
+        principal: PrincipalData,
+        is_origin: bool,
+    },
     DBError(db_error),
     Other(String),
 }
@@ -155,9 +161,22 @@ impl MemPoolRejection {
             DeserializationFailure(e) => {
                 ("Deserialization", Some(json!({"message": e.to_string()})))
             }
-            TooMuchChaining => (
+            TooMuchChaining {
+                max_nonce,
+                actual_nonce,
+                principal,
+                is_origin,
+                ..
+            } => (
                 "TooMuchChaining",
-                Some(json!({"message": "Nonce would exceed chaining limit in mempool"})),
+                Some(
+                    json!({"message": "Nonce would exceed chaining limit in mempool",
+                                "expected": max_nonce,
+                                "actual": actual_nonce,
+                                "principal": principal.to_string(),
+                                "is_origin": is_origin
+                    }),
+                ),
             ),
             FailedToValidate(e) => (
                 "SignatureValidation",
@@ -3799,6 +3818,54 @@ impl StacksChainState {
         all_receipts
     }
 
+    /// Process any STX transfer bitcoin operations
+    ///  that haven't been processed in this Stacks fork yet.
+    pub fn process_transfer_ops(
+        clarity_tx: &mut ClarityTx,
+        mut operations: Vec<TransferStxOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        operations.sort_by_key(|op| op.vtxindex);
+        let (all_receipts, _) =
+            clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
+                operations
+                    .into_iter()
+                    .filter_map(|transfer_stx_op| {
+                        let TransferStxOp {
+                            sender,
+                            recipient,
+                            transfered_ustx,
+                            txid,
+                            burn_header_hash,
+                            ..
+                        } = transfer_stx_op;
+                        let result = clarity_tx.connection().as_transaction(|tx| {
+                            tx.run_stx_transfer(&sender.into(), &recipient.into(), transfered_ustx)
+                        });
+                        match result {
+                            Ok((value, _, events)) => Some(StacksTransactionReceipt {
+                                transaction: TransactionOrigin::Burn(txid),
+                                events,
+                                result: value,
+                                post_condition_aborted: false,
+                                stx_burned: 0,
+                                contract_analysis: None,
+                                execution_cost: ExecutionCost::zero(),
+                            }),
+                            Err(e) => {
+                                info!("TransferStx burn op processing error.";
+                              "error" => ?e,
+                              "txid" => %txid,
+                              "burn_block" => %burn_header_hash);
+                                None
+                            }
+                        }
+                    })
+                    .collect()
+            });
+
+        all_receipts
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
     fn process_block_transactions(
@@ -3869,9 +3936,49 @@ impl StacksChainState {
 
     /// Process all STX that unlock at this block height.
     /// Return the total number of uSTX unlocked in this block
-    pub fn process_stx_unlocks<'a>(_clarity_tx: &mut ClarityTx<'a>) -> Result<u128, Error> {
-        // TODO: call into the .lockup contract and get the list of unlocks
-        Ok(0)
+    pub fn process_stx_unlocks<'a>(
+        clarity_tx: &mut ClarityTx<'a>,
+    ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
+        let lockup_contract_id = boot::boot_code_id("lockup");
+        clarity_tx
+            .connection()
+            .as_transaction(|tx_connection| {
+                let result = tx_connection.with_clarity_db(|db| {
+                    let block_height = Value::UInt(db.get_current_block_height().into());
+                    let res = db.fetch_entry(&lockup_contract_id, "lockups", &block_height)?;
+                    Ok(res)
+                })?;
+
+                let entries = match result {
+                    Value::Optional(_) => match result.expect_optional() {
+                        Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
+                        _ => return Ok((0, vec![])),
+                    },
+                    _ => return Ok((0, vec![])),
+                };
+
+                let mut total_minted = 0;
+                let mut events = vec![];
+                for entry in entries.into_iter() {
+                    let schedule: TupleData = entry.expect_tuple();
+                    let amount = schedule
+                        .get("amount")
+                        .expect("Lockup malformed")
+                        .to_owned()
+                        .expect_u128();
+                    let recipient = schedule
+                        .get("recipient")
+                        .expect("Lockup malformed")
+                        .to_owned()
+                        .expect_principal();
+                    total_minted += amount;
+                    StacksChainState::account_credit(tx_connection, &recipient, amount as u64);
+                    let event = STXEventType::STXMintEvent(STXMintEventData { recipient, amount });
+                    events.push(StacksTransactionEvent::STXEvent(event));
+                }
+                Ok((total_minted, events))
+            })
+            .map_err(Error::ClarityError)
     }
 
     /// Process the next pre-processed staging block.
@@ -3975,6 +4082,8 @@ impl StacksChainState {
             .parent_burn_header_hash;
             let stacking_burn_ops =
                 SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
+            let transfer_burn_ops =
+                SortitionDB::get_transfer_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
 
             let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),
@@ -4101,6 +4210,11 @@ impl StacksChainState {
             let mut receipts =
                 StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
 
+            receipts.extend(StacksChainState::process_transfer_ops(
+                &mut clarity_tx,
+                transfer_burn_ops,
+            ));
+
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
@@ -4153,7 +4267,8 @@ impl StacksChainState {
                 .expect("Overflow: Too many STX burnt");
 
             // unlock any uSTX
-            let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+            let (new_unlocked_ustx, _unlocked_events) =
+                StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
 
             // calculate total liquid uSTX
             let total_liquid_ustx = parent_chain_tip
@@ -4838,7 +4953,6 @@ impl StacksChainState {
     /// unconfirmed microblock stream trailing off of it.
     pub fn will_admit_mempool_tx(
         &mut self,
-        mempool_conn: &DBConn,
         current_consensus_hash: &ConsensusHash,
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -4881,14 +4995,7 @@ impl StacksChainState {
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
         let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
-            StacksChainState::can_include_tx(
-                mempool_conn,
-                conn,
-                &conf,
-                has_microblock_pubk,
-                tx,
-                tx_size,
-            )
+            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
             Some(r) => r,
             None => Err(MemPoolRejection::NoSuchChainTip(
@@ -4909,7 +5016,6 @@ impl StacksChainState {
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
                     self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
                         StacksChainState::can_include_tx(
-                            mempool_conn,
                             conn,
                             &conf,
                             has_microblock_pubk,
@@ -4928,8 +5034,7 @@ impl StacksChainState {
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
     /// Used when mining transactions.
-    pub fn can_include_tx<T: ClarityConnection>(
-        mempool: &DBConn,
+    fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
         has_microblock_pubkey: bool,
@@ -4956,46 +5061,35 @@ impl StacksChainState {
         let (origin, payer) =
             match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
                 Ok(x) => x,
-                Err((mut e, (origin, payer))) => {
-                    // let's see if the tx has matching nonce in the mempool
-                    //  ->  you can _only_ replace-by-fee or replace-across-fork
-                    //      for nonces that increment the current chainstate's nonce.
-                    //      if there are "chained" transactions in the mempool,
-                    //      this check won't admit a rbf/raf for those.
-                    let origin_addr = tx.origin_address();
-                    let origin_nonce = tx.get_origin().nonce();
-                    let origin_next_nonce =
-                        MemPoolDB::get_next_nonce_for_address(mempool, &origin_addr)?;
-                    if origin_next_nonce < origin.nonce {
-                        return Err(e.into());
-                    }
-                    if origin_next_nonce - origin.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
-                        return Err(MemPoolRejection::TooMuchChaining);
-                    }
-                    if origin_nonce != origin_next_nonce {
-                        e.is_origin = true;
-                        e.principal = origin_addr.into();
-                        e.expected = origin_next_nonce;
-                        e.actual = origin_nonce;
+                // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
+                Err((e, (origin, payer))) => {
+                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                    if e.actual < e.expected {
                         return Err(e.into());
                     }
 
+                    let tx_origin_nonce = tx.get_origin().nonce();
+
+                    let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                    if origin_max_nonce < tx_origin_nonce {
+                        return Err(MemPoolRejection::TooMuchChaining {
+                            max_nonce: origin_max_nonce,
+                            actual_nonce: tx_origin_nonce,
+                            principal: tx.origin_address().into(),
+                            is_origin: true,
+                        });
+                    }
+
                     if let Some(sponsor_addr) = tx.sponsor_address() {
-                        let sponsor_nonce = tx.get_payer().nonce();
-                        let sponsor_next_nonce =
-                            MemPoolDB::get_next_nonce_for_address(mempool, &sponsor_addr)?;
-                        if sponsor_next_nonce < payer.nonce {
-                            return Err(e.into());
-                        }
-                        if sponsor_next_nonce - payer.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
-                            return Err(MemPoolRejection::TooMuchChaining);
-                        }
-                        if sponsor_nonce != sponsor_next_nonce {
-                            e.is_origin = false;
-                            e.principal = sponsor_addr.into();
-                            e.expected = sponsor_next_nonce;
-                            e.actual = sponsor_nonce;
-                            return Err(e.into());
+                        let tx_sponsor_nonce = tx.get_payer().nonce();
+                        let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                        if sponsor_max_nonce < tx_sponsor_nonce {
+                            return Err(MemPoolRejection::TooMuchChaining {
+                                max_nonce: sponsor_max_nonce,
+                                actual_nonce: tx_sponsor_nonce,
+                                principal: sponsor_addr.into(),
+                                is_origin: false,
+                            });
                         }
                     }
                     (origin, payer)
