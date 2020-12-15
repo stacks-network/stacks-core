@@ -190,7 +190,7 @@ impl HeadersDB for TestSimHeadersDB {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
+            Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
         } else {
             self.get_burn_block_height_for_block(id_bhh)?;
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
@@ -215,18 +215,18 @@ impl HeadersDB for TestSimHeadersDB {
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
             let burn_block_height = self.get_burn_block_height_for_block(id_bhh)? as u64;
             Some(
-                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP + burn_block_height
+                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64 + burn_block_height
                     - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64,
             )
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
             let input_height = test_sim_hash_to_height(&id_bhh.0)?;
             if input_height > self.height {
@@ -234,7 +234,7 @@ impl HeadersDB for TestSimHeadersDB {
                 None
             } else {
                 Some(
-                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64 + input_height)
+                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32 + input_height as u32)
                         .try_into()
                         .unwrap(),
                 )

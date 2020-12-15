@@ -455,7 +455,7 @@ fn main() {
             &old_burnchaindb_path,
             first_burnchain_block_height,
             &first_burnchain_block_hash,
-            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
             true,
         )
         .unwrap();
