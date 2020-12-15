@@ -167,11 +167,12 @@ impl ArithmeticOnlyChecker {
         match function {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
-            | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance => {
+            | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
+            | GetTokenSupply | BurnToken | BurnAsset => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract => {
+            | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
@@ -226,9 +227,6 @@ impl ArithmeticOnlyChecker {
                 }
 
                 self.check_all(&args[1..args.len()])
-            }
-            Map | Filter | Fold => {
-                return Err(Error::FunctionNotPermitted(function));
             }
             TupleCons => {
                 for pair in args.iter() {

@@ -51,17 +51,13 @@ pub fn special_contract_call(
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
     let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let (rest_args, rest_args_sizes) = {
-        let rest_args = &args[2..];
-        let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| eval(x, env, context)).collect();
-        let mut rest_args = rest_args?;
-        let sizes: Vec<_> = rest_args.iter().map(|x| x.size() as u64).collect();
-        let atom_vals: Vec<_> = rest_args
-            .into_iter()
-            .map(|x| SymbolicExpression::atom_value(x))
-            .collect();
-        (atom_vals, sizes)
-    };
+    let mut rest_args = vec![];
+    let mut rest_args_sizes = vec![];
+    for arg in args[2..].iter() {
+        let evaluated_arg = eval(arg, env, context)?;
+        rest_args_sizes.push(evaluated_arg.size() as u64);
+        rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
+    }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
