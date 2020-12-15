@@ -292,7 +292,7 @@ fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumma
         .fetch_metadata_manual::<String>(
             last_processed_at,
             &STACKS_BOOT_COST_VOTE_CONTRACT,
-            "state_summary",
+            "::state_summary",
         )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
     let serialized: SerializedCostStateSummary = match metadata_result {
@@ -317,7 +317,7 @@ fn store_state_summary(
             .expect("BUG: failure to serialize cost state summary struct");
     clarity_db.set_metadata(
         &STACKS_BOOT_COST_VOTE_CONTRACT,
-        "state_summary",
+        "::state_summary",
         &serialized_summary,
     );
 
@@ -358,7 +358,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
                         "confirmed-id".into(),
                         Value::UInt(confirmed_proposal),
                     )])
-                    .unwrap(),
+                    .expect("BUG: failed to construct simple tuple"),
                 ),
             )
             .expect("BUG: Failed querying confirmed-proposals")
@@ -367,7 +367,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             .expect_tuple();
         let target_contract = match entry
             .get("function-contract")
-            .unwrap()
+            .expect("BUG: malformed cost proposal tuple")
             .clone()
             .expect_principal()
         {
@@ -379,7 +379,11 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             }
         };
         let target_function = match ClarityName::try_from(
-            entry.get("function-name").unwrap().clone().expect_ascii(),
+            entry
+                .get("function-name")
+                .expect("BUG: malformed cost proposal tuple")
+                .clone()
+                .expect_ascii(),
         ) {
             Ok(x) => x,
             Err(_) => {
@@ -390,7 +394,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
         };
         let cost_contract = match entry
             .get("cost-function-contract")
-            .unwrap()
+            .expect("BUG: malformed cost proposal tuple")
             .clone()
             .expect_principal()
         {
@@ -405,7 +409,7 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
         let cost_function = match ClarityName::try_from(
             entry
                 .get_owned("cost-function-name")
-                .unwrap()
+                .expect("BUG: malformed cost proposal tuple")
                 .expect_ascii(),
         ) {
             Ok(x) => x,
@@ -502,42 +506,30 @@ fn load_cost_functions(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumm
             // referring to a user-defined function
             match clarity_db.load_contract_analysis(&target_contract) {
                 Some(c) => {
-                    if !c.read_only_function_types.contains_key(&target_function) {
+                    if let Some(Fixed(tf)) = c.read_only_function_types.get(&target_function) {
+                        if cost_func_type.args.len() != tf.args.len() {
+                            warn!("Confirmed cost proposal invalid: cost-function contains the wrong number of arguments";
+                                  "confirmed_proposal_id" => confirmed_proposal,
+                                  "target_contract_name" => %target_contract,
+                                  "target_function_name" => %target_function,
+                            );
+                            continue;
+                        }
+                        for arg in &cost_func_type.args {
+                            if &arg.signature != &TypeSignature::UIntType {
+                                warn!("Confirmed cost proposal invalid: contains non uint argument";
+                                      "confirmed_proposal_id" => confirmed_proposal,
+                                );
+                                continue;
+                            }
+                        }
+                    } else {
                         warn!("Confirmed cost proposal invalid: function-name not defined or is not read-only";
                               "confirmed_proposal_id" => confirmed_proposal,
                               "target_contract_name" => %target_contract,
                               "target_function_name" => %target_function,
                         );
                         continue;
-                    }
-                    match (
-                        c.read_only_function_types.get(&target_function).unwrap(),
-                        &cost_func_type,
-                    ) {
-                        (Fixed(tf), cf) => {
-                            if cf.args.len() != tf.args.len() {
-                                warn!("Confirmed cost proposal invalid: cost-function contains the wrong number of arguments";
-                                      "confirmed_proposal_id" => confirmed_proposal,
-                                      "target_contract_name" => %target_contract,
-                                      "target_function_name" => %target_function,
-                                );
-                                continue;
-                            }
-                            for arg in &cf.args {
-                                match &arg.signature {
-                                    TypeSignature::UIntType => {}
-                                    _ => {
-                                        warn!("Confirmed cost proposal invalid: contains non UInt argument";
-                                              "confirmed_proposal_id" => confirmed_proposal,
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            panic!("Cost and target functions should be Fixed");
-                        }
                     }
                 }
                 None => {
