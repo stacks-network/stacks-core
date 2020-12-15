@@ -76,6 +76,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Concat => "(concat list-bar list-bar)",
         AsMaxLen => "(as-max-len? list-bar u3)",
         Len => "(len list-bar)",
+        ElementAt => "(element-at list-bar u2)",
+        IndexOf => "(index-of list-bar 1)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo {a: 1})",
         SetEntry => "(map-set map-foo {a: 1} {b: 2})",
@@ -119,6 +121,9 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
         TransferToken => "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         TransferAsset => "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        BurnToken => "(ft-burn? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        BurnAsset => "(nft-burn? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        GetTokenSupply => "(ft-get-supply ft-foo)",
         AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxTransfer => "(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",

@@ -421,6 +421,13 @@ impl EventDispatcher {
                             &mut dispatch_matrix,
                         );
                     }
+                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                     StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
                             &event_data.asset_identifier,
@@ -429,6 +436,13 @@ impl EventDispatcher {
                         );
                     }
                     StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
+                    StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
                             &event_data.asset_identifier,
                             i,

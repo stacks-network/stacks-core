@@ -148,7 +148,7 @@ cargo testnet start --config=./testnet/stacks-node/Stacks.toml
 `Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
 
 ```
-[[mstx_balance]]
+[[ustx_balance]]
 address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
 amount = 100000000
 ```

@@ -233,7 +233,8 @@ fn check_special_let(
             )));
         }
 
-        let typed_result = checker.type_check(var_sexp, context)?;
+        let typed_result = checker.type_check(var_sexp, &out_context)?;
+
         runtime_cost(
             ClarityCostFunction::AnalysisBindName,
             checker,
@@ -674,6 +675,11 @@ impl TypedNativeFunction {
             TransferAsset => Special(SpecialNativeFunction(&assets::check_special_transfer_asset)),
             MintAsset => Special(SpecialNativeFunction(&assets::check_special_mint_asset)),
             MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
+            BurnAsset => Special(SpecialNativeFunction(&assets::check_special_burn_asset)),
+            BurnToken => Special(SpecialNativeFunction(&assets::check_special_burn_token)),
+            GetTokenSupply => Special(SpecialNativeFunction(
+                &assets::check_special_get_token_supply,
+            )),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
@@ -686,6 +692,8 @@ impl TypedNativeFunction {
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),
             AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
+            ElementAt => Special(SpecialNativeFunction(&sequences::check_special_element_at)),
+            IndexOf => Special(SpecialNativeFunction(&sequences::check_special_index_of)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),

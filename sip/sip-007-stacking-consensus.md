@@ -534,21 +534,26 @@ Where `total_block_commit_amount` is equal to the sum of outputs [1, M+1].
 After the sunset phase _ends_ (i.e., blocks >= 500,000th burn block), block commits are _only_ burns, with
 a single burn output at index 1.
 
-## Stacking Operations on Bitcoin
+## STX Operations on Bitcoin
 
-As described above, PoX allows stackers to submit `stack-stx` operations on Bitcoin as well as on
-the Stacks blockchain. Any such operations must be evaluated by miners before beginning execution of
-any anchor block following those operations.
+As described above, PoX allows stackers to submit `stack-stx`
+operations on Bitcoin as well as on the Stacks blockchain. The Stacks
+chain also allows addresses to submit STX transfers on the Bitcoin
+chain. Such operations are only evaluated by the miner of an anchor block
+elected in the burn block that immediately follows the burn block that included the
+operations. For example, if a `TransferStxOp` occurs in burnchain block 100, then the
+Stacks block elected by burnchain block 101 will process that transfer.
 
 In order to submit on the Bitcoin chain, stackers must submit two Bitcoin transactions:
 
-* `PreStackStxOp`: this operation prepares the Stacks blockchain node to validate the subsequent
-  StackStxOp.
+* `PreStxOp`: this operation prepares the Stacks blockchain node to validate the subsequent
+  `StackStxOp` or `TransferStxOp`.
 * `StackStxOp`: this operation executes the `stack-stx` operation.
+* `TransferStxOp`: this operation transfers STX from a sender to a recipient
 
-The wire formats for the above two operations are as follows:
+The wire formats for the above operations are as follows:
 
-### PreStackStxOp
+### PreStxOp
 
 This operation includes an `OP_RETURN` output for the first Bitcoin output that looks as follows:
 
@@ -566,7 +571,7 @@ address must be a standard address type parseable by the stacks-blockchain node.
 ### StackStxOp
 
 The first input to the Bitcoin operation _must_ consume a UTXO that is
-the second output of a `PreStackStxOp`. This validates that the `StackStxOp` was signed
+the second output of a `PreStxOp`. This validates that the `StackStxOp` was signed
 by the appropriate Stacker address.
 
 This operation includes an `OP_RETURN` output for the first Bitcoin output:
@@ -579,6 +584,28 @@ This operation includes an `OP_RETURN` output for the first Bitcoin output:
 
 Where `op = x` (ascii encoded).
 
-Where the unsigned integers are big-endian encoded.
+Where the unsigned integer is big-endian encoded.
 
 The second Bitcoin output will be used as the reward address for any stacking rewards.
+
+### TransferStxOp
+
+The first input to the Bitcoin operation _must_ consume a UTXO that is
+the second output of a `PreStxOp`. This validates that the `TransferStxOp` was signed
+by the appropriate STX address.
+
+This operation includes an `OP_RETURN` output for the first Bitcoin output:
+
+```
+            0      2  3                             19        80
+            |------|--|-----------------------------|---------|
+             magic  op     uSTX to transfer (u128)     memo (up to 61 bytes)
+```
+
+Where `op = $` (ascii encoded).
+
+Where the unsigned integer is big-endian encoded.
+
+The second Bitcoin output is either a `p2pkh` or `p2sh` output such
+that the recipient Stacks address can be derived from the
+corresponding 20-byte hash (hash160).

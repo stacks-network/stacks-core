@@ -1,4 +1,7 @@
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use super::{
+    genesis_data::GENESIS_DATA, BurnchainController, BurnchainTip, Config, EventDispatcher,
+    Keychain, Tenure,
+};
 use crate::run_loop::RegisteredKey;
 
 use std::collections::HashSet;
@@ -86,20 +89,24 @@ pub struct Node {
 
 pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainstateAccountLockup>> {
     Box::new(
-        stx_genesis::read_lockups().map(|item| ChainstateAccountLockup {
-            address: item.address,
-            amount: item.amount,
-            block_height: item.block_height,
-        }),
+        GENESIS_DATA
+            .read_lockups()
+            .map(|item| ChainstateAccountLockup {
+                address: item.address,
+                amount: item.amount,
+                block_height: item.block_height,
+            }),
     )
 }
 
 pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
     Box::new(
-        stx_genesis::read_balances().map(|item| ChainstateAccountBalance {
-            address: item.address,
-            amount: item.amount,
-        }),
+        GENESIS_DATA
+            .read_balances()
+            .map(|item| ChainstateAccountBalance {
+                address: item.address,
+                amount: item.amount,
+            }),
     )
 }
 
@@ -450,8 +457,9 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::PreStackStx(_)
+                BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::UserBurnSupport(_) => {
                     // no-op, ops are not supported / produced at this point.
                 }

@@ -112,7 +112,8 @@ pub enum Opcodes {
     LeaderKeyRegister = '^' as u8,
     UserBurnSupport = '_' as u8,
     StackStx = 'x' as u8,
-    PreStackStx = 'p' as u8,
+    PreStx = 'p' as u8,
+    TransferStx = '$' as u8,
 }
 
 // a burnchain block snapshot
