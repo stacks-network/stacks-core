@@ -888,11 +888,11 @@ fn missed_block_commits() {
             } else {
                 1
             };
-            let _last_burn = if ix % 6 == 3 { 0 } else { 10000 };
+            let last_burn = if ix % 6 == 3 { 0 } else { 10000 };
 
             assert_eq!(
                 burn_distribution[0].burns,
-                (min_burn + median_burn) / 2,
+                cmp::min(last_burn, median_burn),
                 "Burn distribution should match at ix = {}",
                 ix
             );

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
@@ -127,6 +128,9 @@ impl BurnSamplePoint {
     /// If a burn refers to more than one commitment, its burn amount is *split* between those
     ///   commitments
     ///
+    ///  Burns are evaluated over MINING_COMMITMENT_WINDOW, where the effective burn for
+    ///   a commitment is := min(last_burn_amount, median over MINING_COMMITMENT_WINDOW)
+    ///
     /// Returns the distribution, which consumes the given lists of operations.
     ///
     /// * `block_commits`: this is a mapping from relative block_height to the block
@@ -233,8 +237,9 @@ impl BurnSamplePoint {
                         }
                     })
                     .collect();
+                let most_recent_burn = all_burns[0];
+
                 all_burns.sort();
-                let min_burn = all_burns[0];
                 let median_burn = if window_size % 2 == 0 {
                     (all_burns[(window_size / 2) as usize]
                         + all_burns[(window_size / 2 - 1) as usize])
@@ -243,7 +248,7 @@ impl BurnSamplePoint {
                     all_burns[(window_size / 2) as usize]
                 };
 
-                let burns = (min_burn + median_burn) / 2;
+                let burns = cmp::min(median_burn, most_recent_burn);
                 let candidate = if let LinkedCommitIdentifier::Valid(op) =
                     linked_commits.remove(0).unwrap().op
                 {
@@ -251,9 +256,11 @@ impl BurnSamplePoint {
                 } else {
                     unreachable!("BUG: first linked commit should always be valid");
                 };
+                assert_eq!(candidate.burn_fee as u128, most_recent_burn);
+
                 debug!("Burn sample";
                        "txid" => %candidate.txid.to_string(),
-                       "min_burn" => %min_burn,
+                       "most_recent_burn" => %most_recent_burn,
                        "median_burn" => %median_burn,
                        "all_burns" => %format!("{:?}", all_burns));
 
@@ -492,8 +499,8 @@ mod tests {
         //              0 1 0 0 0 0
         //                   ..
 
-        // miner 1 => min = 1, median = 1.
-        // miner 2 => min = 1, median = 1.
+        // miner 1 => min = 1, median = 1, last_burn = 4
+        // miner 2 => min = 1, median = 1, last_burn = 3
 
         let mut commits = vec![
             vec![
@@ -560,6 +567,11 @@ mod tests {
             }
         }
 
+        //    miner 1:  3 4 5 4 5 4
+        //    miner 2:  1 3 3 3 3 3
+        // miner 1 => min = 3, median = 4, last_burn = 4
+        // miner 2 => min = 1, median = 3, last_burn = 3
+
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
@@ -570,8 +582,8 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 3);
-        assert_eq!(result[1].burns, 2);
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
@@ -593,8 +605,8 @@ mod tests {
 
         // user burns are ignored:
         //
-        // miner 1 => min = 3, median = 4.
-        // miner 2 => min = 1, median = 3.
+        // miner 1 => min = 3, median = 4, last_burn = 4
+        // miner 2 => min = 1, median = 3, last_burn = 3
 
         let commits = vec![
             vec![
@@ -641,8 +653,8 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 3);
-        assert_eq!(result[1].burns, 2);
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
@@ -657,8 +669,8 @@ mod tests {
         //       ub  :  0 0 0 0 0 2
         //               *split*
 
-        // miner 1 => min = 3, median = 4.
-        // miner 2 => min = 1, median = 4.
+        // miner 1 => min = 3, median = 4, last_burn = 3
+        // miner 2 => min = 1, median = 4, last_burn = 1
 
         let commits = vec![
             vec![
@@ -706,7 +718,7 @@ mod tests {
         result.sort_by_key(|sample| sample.candidate.txid);
 
         assert_eq!(result[0].burns, 3);
-        assert_eq!(result[1].burns, 2);
+        assert_eq!(result[1].burns, 1);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
@@ -722,8 +734,8 @@ mod tests {
         //    miner 1:  3 4 5 4 missed 4
         //    miner 2:  3 3 missed 3 3 3
         //
-        // miner 1 => min = 0, median = 4.
-        // miner 2 => min = 0, median = 3.
+        // miner 1 => min = 0, median = 4, last_burn = 4
+        // miner 2 => min = 0, median = 3, last_burn = 3
 
         let commits = vec![
             vec![
@@ -764,8 +776,8 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        assert_eq!(result[0].burns, 2);
-        assert_eq!(result[1].burns, 1);
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
 
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
