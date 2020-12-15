@@ -1516,7 +1516,9 @@ impl InitializedNeonNode {
         let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
         let rest_commit = burn_fee_cap - sunset_burn;
 
-        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end {
+        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end
+            && !burnchain.is_in_prepare_phase(burn_block.block_height + 1)
+        {
             RewardSetInfo::into_commit_outs(recipients, false)
         } else {
             vec![StacksAddress::burn_address(false)]
