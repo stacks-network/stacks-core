@@ -742,6 +742,7 @@ fn missed_block_commits() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
     let mut last_txid: Option<Txid> = None;
+    let b = get_burnchain(path, None);
 
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
@@ -767,7 +768,7 @@ fn missed_block_commits() {
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
 
         let mut ops = vec![];
