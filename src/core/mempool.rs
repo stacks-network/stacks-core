@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -97,7 +97,7 @@ pub struct MemPoolTxInfo {
 pub struct MemPoolTxMetadata {
     pub txid: Txid,
     pub len: u64,
-    pub fee_rate: u64,
+    pub tx_fee: u64,
     pub estimated_fee: u64, // upper bound on what the fee to pay will be
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
@@ -115,7 +115,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let estimated_fee = u64::from_column(row, "estimated_fee")?;
-        let fee_rate = u64::from_column(row, "fee_rate")?;
+        let tx_fee = u64::from_column(row, "tx_fee")?;
         let height = u64::from_column(row, "height")?;
         let len = u64::from_column(row, "length")?;
         let ts = u64::from_column(row, "accept_time")?;
@@ -127,7 +127,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         Ok(MemPoolTxMetadata {
             txid: txid,
             estimated_fee: estimated_fee,
-            fee_rate: fee_rate,
+            tx_fee: tx_fee,
             len: len,
             consensus_hash: consensus_hash,
             block_header_hash: block_header_hash,
@@ -168,7 +168,7 @@ const MEMPOOL_SQL: &'static [&'static str] = &[
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
         estimated_fee INTEGER NOT NULL,
-        fee_rate INTEGER NOT NULL,
+        tx_fee INTEGER NOT NULL,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
         block_header_hash TEXT NOT NULL,
@@ -277,7 +277,7 @@ impl MemPoolTxInfo {
         let metadata = MemPoolTxMetadata {
             txid: txid,
             len: tx_data.len() as u64,
-            fee_rate: tx.get_fee_rate(),
+            tx_fee: tx.get_tx_fee(),
             estimated_fee: estimated_fee,
             consensus_hash: consensus_hash,
             block_header_hash: block_header_hash,
@@ -709,7 +709,7 @@ impl MemPoolDB {
                           sponsor_address,
                           sponsor_nonce,
                           estimated_fee,
-                          fee_rate,
+                          tx_fee,
                           length,
                           consensus_hash,
                           block_header_hash,
@@ -759,7 +759,7 @@ impl MemPoolDB {
         txid: Txid,
         tx_bytes: Vec<u8>,
         estimated_fee: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         height: u64,
         origin_address: &StacksAddress,
         origin_nonce: u64,
@@ -824,7 +824,7 @@ impl MemPoolDB {
             sponsor_address,
             sponsor_nonce,
             estimated_fee,
-            fee_rate,
+            tx_fee,
             length,
             consensus_hash,
             block_header_hash,
@@ -840,7 +840,7 @@ impl MemPoolDB {
             &sponsor_address.to_string(),
             &u64_to_sql(sponsor_nonce)?,
             &u64_to_sql(estimated_fee)?,
-            &u64_to_sql(fee_rate)?,
+            &u64_to_sql(tx_fee)?,
             &u64_to_sql(length)?,
             consensus_hash,
             block_header_hash,
@@ -941,7 +941,7 @@ impl MemPoolDB {
             .map_err(MemPoolRejection::SerializationFailure)?;
 
         let len = tx_data.len() as u64;
-        let fee_rate = tx.get_fee_rate();
+        let tx_fee = tx.get_tx_fee();
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
         let (sponsor_address, sponsor_nonce) =
@@ -951,8 +951,8 @@ impl MemPoolDB {
                 (origin_address.clone(), origin_nonce)
             };
 
-        // TODO; estimate the true fee using Clarity analysis data.  For now, just do fee_rate
-        let estimated_fee = fee_rate
+        // TODO; estimate the true fee using Clarity analysis data.  For now, just do tx_fee
+        let estimated_fee = tx_fee
             .checked_mul(len)
             .ok_or(MemPoolRejection::Other("Fee numeric overflow".to_string()))?;
 
@@ -971,7 +971,7 @@ impl MemPoolDB {
             txid,
             tx_data,
             estimated_fee,
-            fee_rate,
+            tx_fee,
             height,
             &origin_address,
             origin_nonce,
@@ -1189,14 +1189,14 @@ mod tests {
             bytes: Hash160::from_data(&[1; 32]),
         };
 
-        tx.set_fee_rate(123);
+        tx.set_tx_fee(123);
 
         // test insert
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
 
         let len = tx_bytes.len() as u64;
-        let estimated_fee = tx.get_fee_rate() * len; //TODO: use clarity analysis data to make this estimate
+        let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
         let height = 100;
 
         let origin_nonce = tx.get_origin_nonce();
@@ -1215,7 +1215,7 @@ mod tests {
             txid,
             tx_bytes,
             estimated_fee,
-            tx.get_fee_rate(),
+            tx.get_tx_fee(),
             height,
             &origin_address,
             origin_nonce,
@@ -1229,11 +1229,11 @@ mod tests {
         let prior_txid = txid.clone();
 
         // now, let's try inserting again, with a lower fee, but at a different block hash
-        tx.set_fee_rate(100);
+        tx.set_tx_fee(100);
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
         let len = tx_bytes.len() as u64;
-        let estimated_fee = tx.get_fee_rate() * len; //TODO: use clarity analysis data to make this estimate
+        let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
         let height = 100;
 
         let err_resp = MemPoolDB::try_add_tx(
@@ -1244,7 +1244,7 @@ mod tests {
             txid,
             tx_bytes,
             estimated_fee,
-            tx.get_fee_rate(),
+            tx.get_tx_fee(),
             height,
             &origin_address,
             origin_nonce,
@@ -1290,7 +1290,7 @@ mod tests {
                 bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
             };
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
 
             // test insert
             let txid = tx.txid();
@@ -1299,7 +1299,7 @@ mod tests {
             let expected_tx = tx.clone();
 
             let len = tx_bytes.len() as u64;
-            let estimated_fee = tx.get_fee_rate() * len; //TODO: use clarity analysis data to make this estimate
+            let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
             let height = 100;
 
             let origin_nonce = tx.get_origin_nonce();
@@ -1318,7 +1318,7 @@ mod tests {
                 txid,
                 tx_bytes,
                 estimated_fee,
-                tx.get_fee_rate(),
+                tx.get_tx_fee(),
                 height,
                 &origin_address,
                 origin_nonce,
@@ -1336,7 +1336,7 @@ mod tests {
             assert_eq!(tx_info.tx, expected_tx);
             assert_eq!(tx_info.metadata.len, len);
             assert_eq!(tx_info.metadata.estimated_fee, estimated_fee);
-            assert_eq!(tx_info.metadata.fee_rate, 123);
+            assert_eq!(tx_info.metadata.tx_fee, 123);
             assert_eq!(tx_info.metadata.origin_address, origin_address);
             assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
             assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
@@ -1351,14 +1351,14 @@ mod tests {
             // test replace-by-fee with a higher fee
             let old_txid = txid;
 
-            tx.set_fee_rate(124);
+            tx.set_tx_fee(124);
             assert!(txid != tx.txid());
 
             let txid = tx.txid();
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
             let expected_tx = tx.clone();
-            let estimated_fee = tx.get_fee_rate() * len; // TODO: use clarity analysis data to make this estimate
+            let estimated_fee = tx.get_tx_fee() * len; // TODO: use clarity analysis data to make this estimate
 
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
@@ -1380,7 +1380,7 @@ mod tests {
                 txid,
                 tx_bytes,
                 estimated_fee,
-                tx.get_fee_rate(),
+                tx.get_tx_fee(),
                 height,
                 &origin_address,
                 origin_nonce,
@@ -1413,7 +1413,7 @@ mod tests {
             assert_eq!(tx_info.tx, expected_tx);
             assert_eq!(tx_info.metadata.len, len);
             assert_eq!(tx_info.metadata.estimated_fee, estimated_fee);
-            assert_eq!(tx_info.metadata.fee_rate, 124);
+            assert_eq!(tx_info.metadata.tx_fee, 124);
             assert_eq!(tx_info.metadata.origin_address, origin_address);
             assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
             assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
@@ -1428,14 +1428,14 @@ mod tests {
             // test replace-by-fee with a lower fee
             let old_txid = txid;
 
-            tx.set_fee_rate(122);
+            tx.set_tx_fee(122);
             assert!(txid != tx.txid());
 
             let txid = tx.txid();
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
             let _expected_tx = tx.clone();
-            let estimated_fee = tx.get_fee_rate() * len; // TODO: use clarity analysis metadata to make this estimate
+            let estimated_fee = tx.get_tx_fee() * len; // TODO: use clarity analysis metadata to make this estimate
 
             assert!(match MemPoolDB::try_add_tx(
                 &mut mempool_tx,
@@ -1445,7 +1445,7 @@ mod tests {
                 txid,
                 tx_bytes,
                 estimated_fee,
-                tx.get_fee_rate(),
+                tx.get_tx_fee(),
                 height,
                 &origin_address,
                 origin_nonce,

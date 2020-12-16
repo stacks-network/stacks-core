@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -558,13 +558,13 @@ impl StacksTransaction {
     }
 
     /// Get fee rate
-    pub fn get_fee_rate(&self) -> u64 {
-        self.auth.get_fee_rate()
+    pub fn get_tx_fee(&self) -> u64 {
+        self.auth.get_tx_fee()
     }
 
     /// Set fee rate
-    pub fn set_fee_rate(&mut self, fee_rate: u64) -> () {
-        self.auth.set_fee_rate(fee_rate);
+    pub fn set_tx_fee(&mut self, tx_fee: u64) -> () {
+        self.auth.set_tx_fee(tx_fee);
     }
 
     /// Get origin nonce
@@ -650,7 +650,7 @@ impl StacksTransaction {
         let (next_sig, next_sighash) = TransactionSpendingCondition::next_signature(
             cur_sighash,
             auth_flag,
-            condition.fee_rate(),
+            condition.tx_fee(),
             condition.nonce(),
             privk,
         )?;
@@ -1402,7 +1402,7 @@ mod test {
 
         // mess with transaction fee
         let mut corrupt_tx_fee = signed_tx.clone();
-        corrupt_tx_fee.set_fee_rate(corrupt_tx_fee.get_fee_rate() + 1);
+        corrupt_tx_fee.set_tx_fee(corrupt_tx_fee.get_tx_fee() + 1);
         assert!(corrupt_tx_fee.txid() != signed_tx.txid());
 
         // mess with anchor mode
@@ -3401,7 +3401,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -3480,7 +3480,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -3494,7 +3494,7 @@ mod test {
                 StacksPublicKey::from_private(&privk_diff_sponsor),
             )
             .unwrap();
-            sponsor_auth.set_fee_rate(456);
+            sponsor_auth.set_tx_fee(456);
             sponsor_auth.set_nonce(789);
 
             let mut tx_sponsor_signer =
@@ -3504,7 +3504,7 @@ mod test {
             tx_sponsor_signer.sign_sponsor(&privk_diff_sponsor).unwrap();
 
             // make comparable
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_sponsor_signer.get_tx().unwrap();
 
@@ -3518,7 +3518,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), 456);
+            assert_eq!(tx.get_tx_fee(), 456);
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -3596,7 +3596,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -3677,7 +3677,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
@@ -3686,13 +3686,13 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_sponsored).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -3706,7 +3706,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -3797,7 +3797,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -3902,7 +3902,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -3911,7 +3911,7 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
@@ -3919,7 +3919,7 @@ mod test {
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -3932,7 +3932,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4038,7 +4038,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4143,7 +4143,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -4152,7 +4152,7 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
@@ -4160,7 +4160,7 @@ mod test {
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -4172,7 +4172,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4274,7 +4274,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4379,7 +4379,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -4388,7 +4388,7 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
@@ -4396,7 +4396,7 @@ mod test {
             tx_signer.append_sponsor(&pubk_2).unwrap();
             tx_signer.sign_sponsor(&privk_3).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -4409,7 +4409,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4496,7 +4496,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4573,7 +4573,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -4582,13 +4582,13 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -4601,7 +4601,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4690,7 +4690,7 @@ mod test {
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
@@ -4795,7 +4795,7 @@ mod test {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
-            tx.set_fee_rate(123);
+            tx.set_tx_fee(123);
             tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
@@ -4804,7 +4804,7 @@ mod test {
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
             origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
-            origin_tx.set_fee_rate(456);
+            origin_tx.set_tx_fee(456);
             origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
@@ -4812,7 +4812,7 @@ mod test {
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
 
-            tx.set_fee_rate(456);
+            tx.set_tx_fee(456);
             tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
@@ -4826,7 +4826,7 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_tx_fee(), signed_tx.get_tx_fee());
             assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
             assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);

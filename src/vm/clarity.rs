@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1611,7 +1611,7 @@ mod tests {
             hash_mode: SinglesigHashMode::P2PKH,
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
-            fee_rate: 1,
+            tx_fee: 1,
             signature: MessageSignature::from_raw(&vec![0xfe; 65]),
         });
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1096,7 +1096,7 @@ impl StacksChainState {
         // TODO: this field is the fee *rate*, not the absolute fee.  This code is broken until we have
         // the true block reward system built.
         let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
-        let fee = tx.get_fee_rate();
+        let fee = tx.get_tx_fee();
         StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
 
         // update the account nonces
@@ -1168,7 +1168,7 @@ pub mod test {
 
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
         signer.sign_origin(&privk).unwrap();
@@ -1226,7 +1226,7 @@ pub mod test {
 
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_tx_fee(0);
         tx_stx_transfer.set_origin_nonce(1);
 
         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
@@ -1373,12 +1373,12 @@ pub mod test {
         tx_stx_transfer_wrong_nonce_sponsored.post_condition_mode =
             TransactionPostConditionMode::Allow;
 
-        tx_stx_transfer_same_receiver.set_fee_rate(0);
-        tx_stx_transfer_wrong_network.set_fee_rate(0);
-        tx_stx_transfer_wrong_chain_id.set_fee_rate(0);
-        tx_stx_transfer_postconditions.set_fee_rate(0);
-        tx_stx_transfer_wrong_nonce.set_fee_rate(0);
-        tx_stx_transfer_wrong_nonce_sponsored.set_fee_rate(0);
+        tx_stx_transfer_same_receiver.set_tx_fee(0);
+        tx_stx_transfer_wrong_network.set_tx_fee(0);
+        tx_stx_transfer_wrong_chain_id.set_tx_fee(0);
+        tx_stx_transfer_postconditions.set_tx_fee(0);
+        tx_stx_transfer_wrong_nonce.set_tx_fee(0);
+        tx_stx_transfer_wrong_nonce_sponsored.set_tx_fee(0);
 
         let error_frags = vec![
             "address tried to send to itself".to_string(),
@@ -1490,7 +1490,7 @@ pub mod test {
 
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
         signer.sign_origin(&privk_origin).unwrap();
@@ -1573,7 +1573,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract_call);
         signer.sign_origin(&privk).unwrap();
@@ -1670,7 +1670,7 @@ pub mod test {
             );
 
             tx_contract.chain_id = 0x80000000;
-            tx_contract.set_fee_rate(0);
+            tx_contract.set_tx_fee(0);
             tx_contract.set_origin_nonce(next_nonce);
 
             let mut signer = StacksTransactionSigner::new(&tx_contract);
@@ -1769,7 +1769,7 @@ pub mod test {
             );
 
             tx_contract.chain_id = 0x80000000;
-            tx_contract.set_fee_rate(0);
+            tx_contract.set_tx_fee(0);
             tx_contract.set_origin_nonce(i as u64);
 
             let mut signer = StacksTransactionSigner::new(&tx_contract);
@@ -1843,7 +1843,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract_call);
         signer.sign_origin(&privk_origin).unwrap();
@@ -1919,7 +1919,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk).unwrap();
@@ -1947,7 +1947,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_tx_fee(0);
 
         let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
         signer_2.sign_origin(&privk_2).unwrap();
@@ -2041,7 +2041,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk).unwrap();
@@ -2094,7 +2094,7 @@ pub mod test {
             );
 
             tx_contract_call.chain_id = 0x80000000;
-            tx_contract_call.set_fee_rate(0);
+            tx_contract_call.set_tx_fee(0);
             tx_contract_call.set_origin_nonce(next_nonce);
 
             let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
@@ -2165,7 +2165,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk).unwrap();
@@ -2240,7 +2240,7 @@ pub mod test {
             );
 
             tx_contract_call.chain_id = 0x80000000;
-            tx_contract_call.set_fee_rate(0);
+            tx_contract_call.set_tx_fee(0);
 
             let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
             signer_2.sign_origin(&privk_2).unwrap();
@@ -2298,7 +2298,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk).unwrap();
@@ -2336,7 +2336,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_tx_fee(0);
 
         let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
         signer_2.sign_origin(&privk_origin).unwrap();
@@ -2516,7 +2516,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk_origin).unwrap();
@@ -2546,7 +2546,7 @@ pub mod test {
         );
 
         tx_contract_call_stackaroos.chain_id = 0x80000000;
-        tx_contract_call_stackaroos.set_fee_rate(0);
+        tx_contract_call_stackaroos.set_tx_fee(0);
 
         // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
         // to check it.
@@ -2647,7 +2647,7 @@ pub mod test {
         );
 
         tx_contract_call_user_stackaroos.chain_id = 0x80000000;
-        tx_contract_call_user_stackaroos.set_fee_rate(0);
+        tx_contract_call_user_stackaroos.set_tx_fee(0);
 
         // recv_addr sends 100 stackaroos back to addr_publisher.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
@@ -2733,7 +2733,7 @@ pub mod test {
             );
 
             tx_contract_call_names.chain_id = 0x80000000;
-            tx_contract_call_names.set_fee_rate(0);
+            tx_contract_call_names.set_tx_fee(0);
             tx_contract_call_names.set_origin_nonce(nonce);
 
             tx_contract_call_names.add_post_condition(TransactionPostCondition::Nonfungible(
@@ -2852,7 +2852,7 @@ pub mod test {
             );
 
             tx_contract_call_names.chain_id = 0x80000000;
-            tx_contract_call_names.set_fee_rate(0);
+            tx_contract_call_names.set_tx_fee(0);
             tx_contract_call_names.set_origin_nonce(nonce);
 
             tx_contract_call_names.add_post_condition(TransactionPostCondition::Nonfungible(
@@ -3209,7 +3209,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk_origin).unwrap();
@@ -3252,7 +3252,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3295,7 +3295,7 @@ pub mod test {
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Allow;
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(nonce);
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
@@ -3333,7 +3333,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3384,7 +3384,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3430,7 +3430,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3475,7 +3475,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3522,7 +3522,7 @@ pub mod test {
             );
 
             tx_contract_call_both.chain_id = 0x80000000;
-            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_tx_fee(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -3846,7 +3846,7 @@ pub mod test {
         );
 
         tx_contract.chain_id = 0x80000000;
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk_origin).unwrap();
@@ -3866,7 +3866,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(0);
+        tx_contract_call.set_tx_fee(0);
         tx_contract_call.set_origin_nonce(1);
 
         tx_contract_call.post_condition_mode = TransactionPostConditionMode::Deny;
@@ -6969,7 +6969,7 @@ pub mod test {
         );
 
         tx_contract_create.chain_id = 0x80000000;
-        tx_contract_create.set_fee_rate(0);
+        tx_contract_create.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract_create);
         signer.sign_origin(&privk).unwrap();
@@ -6995,7 +6995,7 @@ pub mod test {
         );
 
         tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.set_fee_rate(1);
+        tx_contract_call.set_tx_fee(1);
         tx_contract_call.set_origin_nonce(1);
         tx_contract_call.post_condition_mode = TransactionPostConditionMode::Allow;
 
@@ -7054,7 +7054,7 @@ pub mod test {
         );
 
         tx_contract_create.chain_id = 0x80000000;
-        tx_contract_create.set_fee_rate(0);
+        tx_contract_create.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_contract_create);
         signer.sign_origin(&tx_privk).unwrap();
@@ -7145,7 +7145,7 @@ pub mod test {
         );
 
         tx_poison_microblock.chain_id = 0x80000000;
-        tx_poison_microblock.set_fee_rate(0);
+        tx_poison_microblock.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock);
         signer.sign_origin(&reporter_privk).unwrap();
@@ -7255,7 +7255,7 @@ pub mod test {
         );
 
         tx_poison_microblock.chain_id = 0x80000000;
-        tx_poison_microblock.set_fee_rate(0);
+        tx_poison_microblock.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock);
         signer.sign_origin(&reporter_privk).unwrap();
@@ -7349,7 +7349,7 @@ pub mod test {
         );
 
         tx_poison_microblock_1.chain_id = 0x80000000;
-        tx_poison_microblock_1.set_fee_rate(0);
+        tx_poison_microblock_1.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock_1);
         signer.sign_origin(&reporter_privk_1).unwrap();
@@ -7373,7 +7373,7 @@ pub mod test {
         );
 
         tx_poison_microblock_2.chain_id = 0x80000000;
-        tx_poison_microblock_2.set_fee_rate(0);
+        tx_poison_microblock_2.set_tx_fee(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_poison_microblock_2);
         signer.sign_origin(&reporter_privk_2).unwrap();

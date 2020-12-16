@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -832,7 +832,7 @@ fn test_sortition_with_reward_set() {
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 10;
+    let reward_set_size = 4;
     let reward_set: Vec<_> = (0..reward_set_size)
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
@@ -872,6 +872,8 @@ fn test_sortition_with_reward_set() {
     let WRONG_OUTS_OFFSET = 100;
     let vrf_key_wrong_outs = vrf_key_burners.split_off(50);
     let miner_wrong_outs = miner_burners.split_off(50);
+
+    let b = get_burnchain(path, None);
 
     // track the reward set consumption
     let mut reward_recipients = HashSet::new();
@@ -918,7 +920,7 @@ fn test_sortition_with_reward_set() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path, None)
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), 5000)
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
@@ -1081,7 +1083,7 @@ fn test_sortition_with_burner_reward_set() {
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 9;
+    let reward_set_size = 3;
     let mut reward_set: Vec<_> = (0..reward_set_size - 1)
         .map(|_| StacksAddress::burn_address(false))
         .collect();
@@ -1122,6 +1124,8 @@ fn test_sortition_with_burner_reward_set() {
     let WRONG_OUTS_OFFSET = 100;
     let vrf_key_wrong_outs = vrf_key_burners.split_off(50);
     let miner_wrong_outs = miner_burners.split_off(50);
+
+    let b = get_burnchain(path, None);
 
     // track the reward set consumption
     let mut reward_recipients = HashSet::new();
@@ -1165,7 +1169,7 @@ fn test_sortition_with_burner_reward_set() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path, None)
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), 5000)
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
@@ -1324,7 +1328,7 @@ fn test_pox_btc_ops() {
         Some(initial_balances),
     );
 
-    let mut coord = make_coordinator(path, Some(burnchain_conf));
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -1385,7 +1389,7 @@ fn test_pox_btc_ops() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .test_get_next_block_recipients(&burnchain_conf, reward_cycle_info.as_ref())
             .unwrap();
         if next_mock_header.block_height >= sunset_ht {
             assert!(next_block_recipients.is_none());
@@ -1581,7 +1585,7 @@ fn test_stx_transfer_btc_ops() {
         Some(initial_balances),
     );
 
-    let mut coord = make_coordinator(path, Some(burnchain_conf));
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -1638,7 +1642,7 @@ fn test_stx_transfer_btc_ops() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .test_get_next_block_recipients(&burnchain_conf, reward_cycle_info.as_ref())
             .unwrap();
         if next_mock_header.block_height >= sunset_ht {
             assert!(next_block_recipients.is_none());
@@ -2069,13 +2073,14 @@ fn test_sortition_with_sunset() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 80;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 10;
+    let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
+    assert_eq!(reward_set_size, 6);
     let reward_set: Vec<_> = (0..reward_set_size)
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
@@ -2144,13 +2149,35 @@ fn test_sortition_with_sunset() {
             // did we process a reward set last cycle? check if the
             //  recipient set size matches our expectation
             if started_first_reward_cycle {
-                if burnchain_tip.block_height == sunset_ht {
-                    // sunset finished in the last reward cycle,
-                    //   the last two slots were left unfilled.
-                    assert_eq!(reward_recipients.len(), reward_set_size - 2);
-                } else if burnchain_tip.block_height > sunset_ht {
+                let last_reward_cycle_block = (sunset_ht
+                    / (pox_consts.as_ref().unwrap().reward_cycle_length as u64))
+                    * (pox_consts.as_ref().unwrap().reward_cycle_length as u64);
+                if burnchain_tip.block_height == last_reward_cycle_block {
+                    eprintln!(
+                        "End of PoX (at sunset height {}): reward set size is {}",
+                        burnchain_tip.block_height,
+                        reward_recipients.len()
+                    );
+                    assert_eq!(reward_recipients.len(), 6); // still hasn't cleared yet, so still 6
+                } else if burnchain_tip.block_height
+                    > last_reward_cycle_block
+                        + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
+                {
+                    eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
                     assert_eq!(reward_recipients.len(), 0);
+                } else if burnchain_tip.block_height > last_reward_cycle_block {
+                    eprintln!(
+                        "End of PoX (beyond sunset height {}): reward set size is {}",
+                        burnchain_tip.block_height,
+                        reward_recipients.len()
+                    );
+                    assert_eq!(reward_recipients.len(), 2); // still haven't cleared this yet, so still 2
                 } else {
+                    eprintln!(
+                        "End of PoX (before sunset height {}): reward set size is {}",
+                        burnchain_tip.block_height,
+                        reward_recipients.len()
+                    );
                     assert_eq!(reward_recipients.len(), reward_set_size);
                 }
             }
@@ -2159,13 +2186,15 @@ fn test_sortition_with_sunset() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
-            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .test_get_next_block_recipients(&burnchain_conf, reward_cycle_info.as_ref())
             .unwrap();
         if next_mock_header.block_height >= sunset_ht {
             assert!(next_block_recipients.is_none());
         }
 
         if let Some(ref next_block_recipients) = next_block_recipients {
+            // this is only Some(..) if we're pre-sunset
+            assert!(burnchain_tip.block_height <= sunset_ht);
             for (addr, _) in next_block_recipients.recipients.iter() {
                 if !addr.is_burn() {
                     assert!(
@@ -2176,6 +2205,12 @@ fn test_sortition_with_sunset() {
                 }
                 reward_recipients.insert(addr.clone());
             }
+            eprintln!(
+                "at {}: reward_recipients ({}) = {:?}",
+                burnchain_tip.block_height,
+                reward_recipients.len(),
+                reward_recipients
+            );
         }
 
         let sunset_burn = burnchain_conf.expected_sunset_burn(next_mock_header.block_height, 10000);
@@ -2207,6 +2242,7 @@ fn test_sortition_with_sunset() {
             )
         };
 
+        eprintln!("good op: {:?}", &good_op);
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
 
@@ -2293,7 +2329,7 @@ fn test_sortition_with_sunset() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "111111111111111111111",
+                   "11111111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }

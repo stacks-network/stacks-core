@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -765,10 +765,15 @@ impl StacksBlockBuilder {
         assert!(!self.anchored_done);
 
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards)) = self.miner_payouts {
+        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) = self.miner_payouts {
             // grant in order by miner, then users
-            StacksChainState::process_matured_miner_rewards(clarity_tx, miner_reward, user_rewards)
-                .expect("FATAL: failed to process miner rewards");
+            StacksChainState::process_matured_miner_rewards(
+                clarity_tx,
+                miner_reward,
+                user_rewards,
+                parent_reward,
+            )
+            .expect("FATAL: failed to process miner rewards");
         }
 
         // process unlocks
@@ -888,10 +893,16 @@ impl StacksBlockBuilder {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
     ) -> Result<ClarityTx<'a>, Error> {
+        let mainnet = chainstate.config().mainnet;
+
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        let latest_matured_miners = {
+        let (latest_matured_miners, matured_miner_parent) = {
             let mut tx = chainstate.index_tx_begin()?;
-            StacksChainState::get_scheduled_block_rewards(&mut tx, &self.chain_tip)?
+            let latest_miners =
+                StacksChainState::get_scheduled_block_rewards(&mut tx, &self.chain_tip)?;
+            let parent_miner =
+                StacksChainState::get_parent_matured_miner(&mut tx, mainnet, &latest_miners)?;
+            (latest_miners, parent_miner)
         };
 
         // there's no way the miner can learn either the burn block hash or the stacks block hash,
@@ -906,11 +917,13 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts)) = self.miner_payouts {
+        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward)) = self.miner_payouts
+        {
             test_debug!(
-                "Miner payout to process: {:?}; user payouts: {:?}",
+                "Miner payout to process: {:?}; user payouts: {:?}; parent payout: {:?}",
                 _miner_payout,
-                _user_payouts
+                _user_payouts,
+                _parent_reward
             );
         }
 
@@ -969,9 +982,11 @@ impl StacksBlockBuilder {
             &mut tx,
             &self.chain_tip,
             latest_matured_miners,
+            matured_miner_parent,
         )?;
 
-        self.miner_payouts = matured_miner_rewards_opt.map(|(miner, users, _)| (miner, users));
+        self.miner_payouts =
+            matured_miner_rewards_opt.map(|(miner, users, parent, _)| (miner, users, parent));
 
         test_debug!(
             "Miner {}: Apply {} parent microblocks",
@@ -1503,8 +1518,23 @@ pub mod test {
     }
 
     impl TestStacksNode {
-        pub fn new(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
-            let chainstate = instantiate_chainstate(mainnet, chain_id, test_name);
+        pub fn new(
+            mainnet: bool,
+            chain_id: u32,
+            test_name: &str,
+            mut initial_balance_recipients: Vec<StacksAddress>,
+        ) -> TestStacksNode {
+            initial_balance_recipients.sort();
+            let initial_balances = initial_balance_recipients
+                .into_iter()
+                .map(|addr| (addr, 10_000_000_000))
+                .collect();
+            let chainstate = instantiate_chainstate_with_balances(
+                mainnet,
+                chain_id,
+                test_name,
+                initial_balances,
+            );
             TestStacksNode {
                 chainstate: chainstate,
                 prev_keys: vec![],
@@ -2029,22 +2059,107 @@ pub mod test {
         block_height: u64,
         prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
     ) -> bool {
-        let mut total: u128 = 0;
+        let mut block_rewards = HashMap::new();
+        let mut stream_rewards = HashMap::new();
+        let mut heights = HashMap::new();
+        let mut confirmed = HashSet::new();
+        for (i, reward_list) in prev_block_rewards.iter().enumerate() {
+            for reward in reward_list.iter() {
+                let ibh = StacksBlockHeader::make_index_block_hash(
+                    &reward.consensus_hash,
+                    &reward.block_hash,
+                );
+                if reward.coinbase > 0 {
+                    block_rewards.insert(ibh.clone(), reward.clone());
+                }
+                if reward.tx_fees_streamed > 0 {
+                    stream_rewards.insert(ibh.clone(), reward.clone());
+                }
+                heights.insert(ibh.clone(), i);
+                confirmed.insert((
+                    StacksBlockHeader::make_index_block_hash(
+                        &reward.parent_consensus_hash,
+                        &reward.parent_block_hash,
+                    ),
+                    i,
+                ));
+            }
+        }
+
+        // what was the miner's total spend?
+        let miner_nonce = clarity_tx.with_clarity_db_readonly(|db| {
+            db.get_account_nonce(
+                &StandardPrincipalData::from(miner.origin_address().unwrap()).into(),
+            )
+        });
+
+        let mut spent_total = 0;
+        for (nonce, spent) in miner.spent_at_nonce.iter() {
+            if *nonce < miner_nonce {
+                spent_total += *spent;
+            }
+        }
+
+        let mut total: u128 = 10_000_000_000 - spent_total;
+        test_debug!(
+            "Miner {} has spent {} in total so far",
+            &miner.origin_address().unwrap(),
+            spent_total
+        );
+
         if block_height >= MINER_REWARD_MATURITY {
             for (i, prev_block_reward) in prev_block_rewards.iter().enumerate() {
                 if i as u64 > block_height - MINER_REWARD_MATURITY {
                     break;
                 }
+                let mut found = false;
                 for recipient in prev_block_reward {
                     if recipient.address == miner.origin_address().unwrap() {
-                        let reward: u128 = recipient.coinbase; // TODO: expand to cover tx fees
+                        let reward: u128 = recipient.coinbase
+                            + recipient.tx_fees_anchored
+                            + (3 * recipient.tx_fees_streamed / 5);
+
                         test_debug!(
-                            "Miner {} received a reward {} at block {}",
+                            "Miner {} received a reward {} = {} + {} + {} at block {}",
                             &recipient.address.to_string(),
                             reward,
+                            recipient.coinbase,
+                            recipient.tx_fees_anchored,
+                            (3 * recipient.tx_fees_streamed / 5),
                             i
                         );
                         total += reward;
+                        found = true;
+                    }
+                }
+                if !found {
+                    test_debug!(
+                        "Miner {} received no reward at block {}",
+                        miner.origin_address().unwrap(),
+                        i
+                    );
+                }
+            }
+
+            for (parent_block, confirmed_block_height) in confirmed.into_iter() {
+                if confirmed_block_height as u64 > block_height - MINER_REWARD_MATURITY {
+                    continue;
+                }
+                if let Some(ref parent_reward) = stream_rewards.get(&parent_block) {
+                    if parent_reward.address == miner.origin_address().unwrap() {
+                        let parent_streamed = (2 * parent_reward.tx_fees_streamed) / 5;
+                        let parent_ibh = StacksBlockHeader::make_index_block_hash(
+                            &parent_reward.consensus_hash,
+                            &parent_reward.block_hash,
+                        );
+                        test_debug!(
+                            "Miner {} received a produced-stream reward {} from {} confirmed at {}",
+                            miner.origin_address().unwrap().to_string(),
+                            parent_streamed,
+                            heights.get(&parent_ibh).unwrap(),
+                            confirmed_block_height
+                        );
+                        total += parent_streamed;
                     }
                 }
             }
@@ -2149,11 +2264,17 @@ pub mod test {
         G: FnMut(&StacksBlock, &Vec<StacksMicroblock>) -> bool,
     {
         let full_test_name = format!("{}-1_fork_1_miner_1_burnchain", test_name);
-        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
         let mut burn_node = TestBurnchainNode::new();
         let mut miner_factory = TestMinerFactory::new();
         let mut miner =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+        let mut node = TestStacksNode::new(
+            false,
+            0x80000000,
+            &full_test_name,
+            vec![miner.origin_address().unwrap()],
+        );
 
         let first_snapshot =
             SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
@@ -2315,13 +2436,22 @@ pub mod test {
         ) -> (StacksBlock, Vec<StacksMicroblock>),
     {
         let full_test_name = format!("{}-1_fork_2_miners_1_burnchain", test_name);
-        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
         let mut burn_node = TestBurnchainNode::new();
         let mut miner_factory = TestMinerFactory::new();
         let mut miner_1 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
         let mut miner_2 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+        let mut node = TestStacksNode::new(
+            false,
+            0x80000000,
+            &full_test_name,
+            vec![
+                miner_1.origin_address().unwrap(),
+                miner_2.origin_address().unwrap(),
+            ],
+        );
 
         let mut sortition_winners = vec![];
 
@@ -2742,13 +2872,22 @@ pub mod test {
         ) -> (StacksBlock, Vec<StacksMicroblock>),
     {
         let full_test_name = format!("{}-2_forks_2_miners_1_burnchain", test_name);
-        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
         let mut burn_node = TestBurnchainNode::new();
         let mut miner_factory = TestMinerFactory::new();
         let mut miner_1 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
         let mut miner_2 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+        let mut node = TestStacksNode::new(
+            false,
+            0x80000000,
+            &full_test_name,
+            vec![
+                miner_1.origin_address().unwrap(),
+                miner_2.origin_address().unwrap(),
+            ],
+        );
 
         let mut sortition_winners = vec![];
 
@@ -3322,12 +3461,21 @@ pub mod test {
     {
         let full_test_name = format!("{}-1_fork_2_miners_2_burnchain", test_name);
         let mut burn_node = TestBurnchainNode::new();
-        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
         let mut miner_factory = TestMinerFactory::new();
         let mut miner_1 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
         let mut miner_2 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+        let mut node = TestStacksNode::new(
+            false,
+            0x80000000,
+            &full_test_name,
+            vec![
+                miner_1.origin_address().unwrap(),
+                miner_2.origin_address().unwrap(),
+            ],
+        );
 
         let first_snapshot =
             SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
@@ -3852,12 +4000,21 @@ pub mod test {
     {
         let full_test_name = format!("{}-2_forks_2_miner_2_burnchains", test_name);
         let mut burn_node = TestBurnchainNode::new();
-        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
         let mut miner_factory = TestMinerFactory::new();
         let mut miner_1 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
         let mut miner_2 =
             miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+        let mut node = TestStacksNode::new(
+            false,
+            0x80000000,
+            &full_test_name,
+            vec![
+                miner_1.origin_address().unwrap(),
+                miner_2.origin_address().unwrap(),
+            ],
+        );
 
         let first_snapshot =
             SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
@@ -4525,7 +4682,16 @@ pub mod test {
         let mut nodes = HashMap::new();
         for (i, test_name) in test_names.iter().enumerate() {
             let rnd_test_name = format!("{}-replay_randomized", test_name);
-            let next_node = TestStacksNode::new(false, 0x80000000, &rnd_test_name);
+            let next_node = TestStacksNode::new(
+                false,
+                0x80000000,
+                &rnd_test_name,
+                miner_trace
+                    .miners
+                    .iter()
+                    .map(|ref miner| miner.origin_address().unwrap())
+                    .collect(),
+            );
             nodes.insert(test_name, next_node);
         }
 
@@ -4801,7 +4967,13 @@ pub mod test {
 
         tx_contract.chain_id = 0x80000000;
         tx_contract.auth.set_origin_nonce(miner.get_nonce());
-        tx_contract.set_fee_rate(0);
+
+        if miner.test_with_tx_fees {
+            tx_contract.set_tx_fee(123);
+            miner.spent_at_nonce.insert(miner.get_nonce(), 123);
+        } else {
+            tx_contract.set_tx_fee(0);
+        }
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
         miner.sign_as_origin(&mut tx_signer);
@@ -4833,7 +5005,13 @@ pub mod test {
 
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
-        tx_contract_call.set_fee_rate(0);
+
+        if miner.test_with_tx_fees {
+            tx_contract_call.set_tx_fee(456);
+            miner.spent_at_nonce.insert(miner.get_nonce(), 456);
+        } else {
+            tx_contract_call.set_tx_fee(0);
+        }
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
         miner.sign_as_origin(&mut tx_signer);
@@ -4861,7 +5039,7 @@ pub mod test {
         tx_stx_transfer
             .auth
             .set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
-        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_tx_fee(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
         miner.sign_as_origin(&mut tx_signer);
@@ -4901,6 +5079,10 @@ pub mod test {
         );
         builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
+        if miner.spent_at_nonce.get(&1).is_none() {
+            miner.spent_at_nonce.insert(1, 11111);
+        }
+
         let tx2 = make_token_transfer(
             miner,
             burnchain_height,
@@ -4910,6 +5092,10 @@ pub mod test {
             &TokenTransferMemo([2u8; 34]),
         );
         builder.force_mine_tx(clarity_tx, &tx2).unwrap();
+
+        if miner.spent_at_nonce.get(&2).is_none() {
+            miner.spent_at_nonce.insert(2, 22222);
+        }
 
         let tx3 = make_token_transfer(
             miner,
@@ -4934,6 +5120,7 @@ pub mod test {
         let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
+
         (stacks_block, vec![])
     }
 
@@ -5725,7 +5912,7 @@ pub mod test {
     pub fn make_user_contract_publish(
         sender: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         contract_name: &str,
         contract_content: &str,
     ) -> StacksTransaction {
@@ -5734,13 +5921,13 @@ pub mod test {
 
         let payload = TransactionSmartContract { name, code_body };
 
-        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
     }
 
     pub fn make_user_stacks_transfer(
         sender: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         recipient: &PrincipalData,
         amount: u64,
     ) -> StacksTransaction {
@@ -5749,39 +5936,39 @@ pub mod test {
             amount,
             TokenTransferMemo([0; 34]),
         );
-        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
     }
 
     pub fn make_user_coinbase(
         sender: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
     ) -> StacksTransaction {
         let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
-        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
     }
 
     pub fn make_user_poison_microblock(
         sender: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
         payload: TransactionPayload,
     ) -> StacksTransaction {
-        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
     }
 
     pub fn sign_standard_singlesig_tx(
         payload: TransactionPayload,
         sender: &StacksPrivateKey,
         nonce: u64,
-        fee_rate: u64,
+        tx_fee: u64,
     ) -> StacksTransaction {
         let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
             StacksPublicKey::from_private(sender),
         )
         .expect("Failed to create p2pkh spending condition from public key.");
         spending_condition.set_nonce(nonce);
-        spending_condition.set_fee_rate(fee_rate);
+        spending_condition.set_tx_fee(tx_fee);
         let auth = TransactionAuth::Standard(spending_condition);
         let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
 
