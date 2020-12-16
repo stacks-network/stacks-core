@@ -987,8 +987,11 @@ impl StacksChainState {
                 clarity_tx.connection().as_transaction(|clarity| {
                     clarity
                         .with_clarity_db(|db| {
-                            for (block_height, schedule) in lockups_per_block.into_iter() {
-                                let key = Value::UInt(block_height.into());
+                            let mut ordered_keys: Vec<_> = lockups_per_block.keys().clone().collect();
+                            ordered_keys.sort();
+                            for block_height in ordered_keys.into_iter() {
+                                let schedule = lockups_per_block.remove(&block_height).unwrap();
+                                let key = Value::UInt(*block_height as u128);
                                 db.insert_entry(
                                     &lockup_contract_id,
                                     "lockups",
