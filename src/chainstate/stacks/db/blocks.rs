@@ -3350,9 +3350,6 @@ impl StacksChainState {
     /// Create the block reward.
     /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
     ///    accumulated rewards from missed sortitions or initial mining rewards.
-    // TODO: calculate how full the block was.
-    // TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
-    // rate, times the fraction of the block's total utilization.
     fn make_scheduled_miner_reward(
         mainnet: bool,
         parent_block_hash: &BlockHeaderHash,
@@ -3360,12 +3357,11 @@ impl StacksChainState {
         block: &StacksBlock,
         block_consensus_hash: &ConsensusHash,
         block_height: u64,
-        tx_fees: u128,
+        anchored_fees: u128,
         streamed_fees: u128,
         stx_burns: u128,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        fill: u64,
         coinbase_reward_ustx: u128,
     ) -> Result<MinerPaymentSchedule, Error> {
         let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock(
@@ -3385,12 +3381,11 @@ impl StacksChainState {
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
             coinbase: coinbase_reward_ustx,
-            tx_fees_anchored: tx_fees,
+            tx_fees_anchored: anchored_fees,
             tx_fees_streamed: streamed_fees,
             stx_burns: stx_burns,
             burnchain_commit_burn: burnchain_commit_burn,
             burnchain_sortition_burn: burnchain_sortition_burn,
-            fill: fill,
             miner: true,
             stacks_block_height: block_height,
             vtxindex: 0,
@@ -3924,6 +3919,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
         miner_share: &MinerReward,
         users_share: &Vec<MinerReward>,
+        parent_share: &MinerReward,
     ) -> Result<u128, Error> {
         let mut coinbase_reward = miner_share.coinbase;
         StacksChainState::process_matured_miner_reward(clarity_tx, miner_share)?;
@@ -3931,6 +3927,10 @@ impl StacksChainState {
             coinbase_reward += reward.coinbase;
             StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
         }
+
+        // give the parent its confirmed share of the streamed microblocks
+        assert_eq!(parent_share.total(), parent_share.tx_fees_streamed_produced);
+        StacksChainState::process_matured_miner_reward(clarity_tx, parent_share)?;
         Ok(coinbase_reward)
     }
 
@@ -3981,6 +3981,44 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
+    /// Given the list of matured miners, find the miner reward schedule that produced the parent
+    /// of the block whose coinbase just matured.
+    pub fn get_parent_matured_miner(
+        stacks_tx: &mut StacksDBTx,
+        mainnet: bool,
+        latest_matured_miners: &Vec<MinerPaymentSchedule>,
+    ) -> Result<MinerPaymentSchedule, Error> {
+        let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
+            StacksChainState::get_scheduled_block_rewards_at_block(
+                stacks_tx,
+                &StacksBlockHeader::make_index_block_hash(
+                    &miner.parent_consensus_hash,
+                    &miner.parent_block_hash,
+                ),
+            )?
+            .pop()
+            .unwrap_or_else(|| {
+                if miner.parent_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH
+                    && miner.parent_block_hash == FIRST_STACKS_BLOCK_HASH
+                {
+                    MinerPaymentSchedule::genesis(mainnet)
+                } else {
+                    panic!(
+                        "CORRUPTION: parent {}/{} of {}/{} not found in DB",
+                        &miner.parent_consensus_hash,
+                        &miner.parent_block_hash,
+                        &miner.consensus_hash,
+                        &miner.block_hash
+                    );
+                }
+            })
+        } else {
+            MinerPaymentSchedule::genesis(mainnet)
+        };
+
+        Ok(parent_miner)
+    }
+
     /// Process the next pre-processed staging block.
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
@@ -4019,6 +4057,12 @@ impl StacksChainState {
         let latest_matured_miners = StacksChainState::get_scheduled_block_rewards(
             chainstate_tx.deref_mut(),
             &parent_chain_tip,
+        )?;
+
+        let matured_miner_parent = StacksChainState::get_parent_matured_miner(
+            chainstate_tx.deref_mut(),
+            mainnet,
+            &latest_matured_miners,
         )?;
 
         let (
@@ -4117,6 +4161,7 @@ impl StacksChainState {
                 &mut clarity_tx,
                 parent_chain_tip,
                 latest_matured_miners,
+                matured_miner_parent,
             ) {
                 Ok(miner_rewards_opt) => miner_rewards_opt,
                 Err(e) => {
@@ -4235,27 +4280,30 @@ impl StacksChainState {
             let block_cost = clarity_tx.cost_so_far();
 
             // grant matured miner rewards
-            let new_liquid_miner_ustx = if let Some((ref miner_reward, ref user_rewards, _)) =
-                matured_miner_rewards_opt.as_ref()
-            {
-                // grant in order by miner, then users
-                StacksChainState::process_matured_miner_rewards(
-                    &mut clarity_tx,
-                    miner_reward,
-                    user_rewards,
-                )?
-            } else {
-                0
-            };
+            let new_liquid_miner_ustx =
+                if let Some((ref miner_reward, ref user_rewards, ref parent_miner_reward, _)) =
+                    matured_miner_rewards_opt.as_ref()
+                {
+                    // grant in order by miner, then users
+                    StacksChainState::process_matured_miner_rewards(
+                        &mut clarity_tx,
+                        miner_reward,
+                        user_rewards,
+                        parent_miner_reward,
+                    )?
+                } else {
+                    0
+                };
 
             // obtain reward info for receipt
             let (matured_rewards, matured_rewards_info) =
-                if let Some((miner_reward, mut user_rewards, reward_ptr)) =
+                if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
                 {
                     let mut ret = vec![];
                     ret.push(miner_reward);
                     ret.append(&mut user_rewards);
+                    ret.push(parent_reward);
                     (ret, Some(reward_ptr))
                 } else {
                     (vec![], None)
@@ -4347,12 +4395,11 @@ impl StacksChainState {
                 &block,
                 chain_tip_consensus_hash,
                 next_block_height,
-                block_fees, // TODO: calculate (STX/compute unit) * (compute used)
+                block_fees,
                 microblock_fees,
                 total_burnt,
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
-                0xffffffffffffffff,
                 total_coinbase,
             ) // TODO: calculate total compute budget and scale up
             .expect("FATAL: parsed and processed a block without a coinbase");
@@ -5048,7 +5095,7 @@ impl StacksChainState {
             .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
 
         // 3: it must pay a tx fee
-        let fee = tx.get_fee_rate();
+        let fee = tx.get_tx_fee();
 
         if fee < MINIMUM_TX_FEE || fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
             return Err(MemPoolRejection::FeeTooLow(

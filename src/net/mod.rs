@@ -2102,12 +2102,13 @@ pub mod test {
             burnchain.pox_constants =
                 PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
 
-            let spending_account = TestMinerFactory::new().next_miner(
+            let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
                 1,
                 1,
                 AddressHashMode::SerializeP2PKH,
             );
+            spending_account.test_with_tx_fees = false; // manually set transaction fees
 
             TestPeerConfig {
                 network_id: 0x80000000,
@@ -2239,9 +2240,13 @@ pub mod test {
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
 
+            // manually set fees
+            miner.test_with_tx_fees = false;
+
             let mut burnchain = get_burnchain(&test_path, None);
             burnchain.first_block_height = config.burnchain.first_block_height;
             burnchain.first_block_hash = config.burnchain.first_block_hash;
+            burnchain.pox_constants = config.burnchain.pox_constants;
 
             config.burnchain = burnchain.clone();
 
@@ -2309,7 +2314,7 @@ pub mod test {
                                 hash_mode: SinglesigHashMode::P2PKH,
                                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                                 nonce: 0,
-                                fee_rate: 0,
+                                tx_fee: 0,
                                 signature: MessageSignature::empty(),
                             }),
                         );
@@ -3061,6 +3066,12 @@ pub mod test {
                         Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
                         None => vec![],
                     };
+                    test_debug!(
+                        "Block commit at height {} has {} recipients: {:?}",
+                        block_commit_op.block_height,
+                        block_commit_op.commit_outs.len(),
+                        &block_commit_op.commit_outs
+                    );
                 }
                 Err(e) => {
                     panic!("Failure fetching recipient set: {:?}", e);

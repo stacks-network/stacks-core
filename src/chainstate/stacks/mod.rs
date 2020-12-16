@@ -547,8 +547,8 @@ impl MultisigHashMode {
 pub struct MultisigSpendingCondition {
     pub hash_mode: MultisigHashMode,
     pub signer: Hash160,
-    pub nonce: u64,    // nth authorization from this account
-    pub fee_rate: u64, // microSTX/compute rate offered by this account
+    pub nonce: u64,  // nth authorization from this account
+    pub tx_fee: u64, // microSTX/compute rate offered by this account
     pub fields: Vec<TransactionAuthField>,
     pub signatures_required: u16,
 }
@@ -557,8 +557,8 @@ pub struct MultisigSpendingCondition {
 pub struct SinglesigSpendingCondition {
     pub hash_mode: SinglesigHashMode,
     pub signer: Hash160,
-    pub nonce: u64,    // nth authorization from this account
-    pub fee_rate: u64, // microSTX/compute rate offerred by this account
+    pub nonce: u64,  // nth authorization from this account
+    pub tx_fee: u64, // microSTX/compute rate offerred by this account
     pub key_encoding: TransactionPublicKeyEncoding,
     pub signature: MessageSignature,
 }
@@ -891,7 +891,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>)>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
     parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
 }
@@ -964,7 +964,7 @@ pub mod test {
                 hash_mode: SinglesigHashMode::P2PKH,
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                 nonce: 123,
-                fee_rate: 456,
+                tx_fee: 456,
                 signature: MessageSignature::from_raw(&vec![0xff; 65])
             }),
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -972,14 +972,14 @@ pub mod test {
                 hash_mode: SinglesigHashMode::P2PKH,
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 234,
-                fee_rate: 567,
+                tx_fee: 567,
                 signature: MessageSignature::from_raw(&vec![0xff; 65])
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
                 hash_mode: MultisigHashMode::P2SH,
                 nonce: 345,
-                fee_rate: 678,
+                tx_fee: 678,
                 fields: vec![
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
@@ -991,7 +991,7 @@ pub mod test {
                 signer: Hash160([0x11; 20]),
                 hash_mode: MultisigHashMode::P2SH,
                 nonce: 456,
-                fee_rate: 789,
+                tx_fee: 789,
                 fields: vec![
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
@@ -1004,14 +1004,14 @@ pub mod test {
                 hash_mode: SinglesigHashMode::P2WPKH,
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 567,
-                fee_rate: 890,
+                tx_fee: 890,
                 signature: MessageSignature::from_raw(&vec![0xfe; 65]),
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
                 hash_mode: MultisigHashMode::P2WSH,
                 nonce: 678,
-                fee_rate: 901,
+                tx_fee: 901,
                 fields: vec![
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
                     TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),

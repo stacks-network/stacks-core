@@ -1594,7 +1594,7 @@ mod tests {
             hash_mode: SinglesigHashMode::P2PKH,
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
-            fee_rate: 1,
+            tx_fee: 1,
             signature: MessageSignature::from_raw(&vec![0xfe; 65]),
         });
 
