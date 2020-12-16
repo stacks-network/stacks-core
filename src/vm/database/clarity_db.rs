@@ -38,6 +38,7 @@ use chainstate::stacks::{StacksAddress, StacksBlockId};
 
 use util::db::{DBConn, FromRow};
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::costs::CostOverflowingMath;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
@@ -367,6 +368,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn initialize(&mut self) {}
 
+    pub fn is_stack_empty(&self) -> bool {
+        self.store.depth() == 0
+    }
+
     pub fn begin(&mut self) {
         self.store.nest();
     }
@@ -463,6 +468,15 @@ impl<'a> ClarityDatabase<'a> {
             .flatten()
     }
 
+    pub fn set_metadata(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        key: &str,
+        data: &str,
+    ) {
+        self.store.insert_metadata(contract_identifier, key, data);
+    }
+
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -491,6 +505,36 @@ impl<'a> ClarityDatabase<'a> {
         self.store
             .get_metadata(contract_identifier, key)
             .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
+    }
+
+    pub fn fetch_metadata_manual<T>(
+        &mut self,
+        at_height: u32,
+        contract_identifier: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store
+            .get_metadata_manual(at_height, contract_identifier, key)
+            .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
+    }
+
+    // load contract analysis stored by an analysis_db instance.
+    //   in unit testing, where the interpreter is invoked without
+    //   an analysis pass, this function will fail to find contract
+    //   analysis data
+    pub fn load_contract_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Option<ContractAnalysis> {
+        self.store
+            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            // treat NoSuchContract error thrown by get_metadata as an Option::None --
+            //    the analysis will propagate that as a CheckError anyways.
+            .ok()?
+            .map(|x| ContractAnalysis::deserialize(&x))
     }
 
     pub fn get_contract_size(
@@ -1003,14 +1047,12 @@ impl<'a> ClarityDatabase<'a> {
         self.insert_metadata(contract_identifier, &key, &data);
 
         // total supply _is_ included in the consensus hash
-        if total_supply.is_some() {
-            let supply_key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            self.put(&supply_key, &(0 as u128));
-        }
+        let supply_key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        self.put(&supply_key, &(0 as u128));
     }
 
     fn load_ft(
@@ -1056,29 +1098,52 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         let descriptor = self.load_ft(contract_identifier, token_name)?;
 
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        let new_supply = current_supply
+            .checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
         if let Some(total_supply) = descriptor.total_supply {
-            let key = ClarityDatabase::make_key_for_trip(
-                contract_identifier,
-                StoreType::CirculatingSupply,
-                token_name,
-            );
-            let current_supply: u128 = self
-                .get(&key)
-                .expect("ERROR: Clarity VM failed to track token supply.");
-
-            let new_supply = current_supply
-                .checked_add(amount)
-                .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-
             if new_supply > total_supply {
-                Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
-            } else {
-                self.put(&key, &new_supply);
-                Ok(())
+                return Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into());
             }
-        } else {
-            Ok(())
         }
+
+        self.put(&key, &new_supply);
+        Ok(())
+    }
+
+    pub fn checked_decrease_token_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+        amount: u128,
+    ) -> Result<()> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let current_supply: u128 = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+
+        if amount > current_supply {
+            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into());
+        }
+
+        let new_supply = current_supply - amount;
+
+        self.put(&key, &new_supply);
+        Ok(())
     }
 
     pub fn get_ft_balance(
@@ -1121,6 +1186,22 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    pub fn get_ft_supply(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        token_name: &str,
+    ) -> Result<u128> {
+        let key = ClarityDatabase::make_key_for_trip(
+            contract_identifier,
+            StoreType::CirculatingSupply,
+            token_name,
+        );
+        let supply = self
+            .get(&key)
+            .expect("ERROR: Clarity VM failed to track token supply.");
+        Ok(supply)
+    }
+
     pub fn get_nft_owner(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1139,8 +1220,18 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        let result = self.get(&key);
-        result.ok_or(RuntimeErrorType::NoSuchToken.into())
+        let value: Option<Value> = self.get(&key);
+        let owner = match value {
+            Some(owner) => owner.expect_optional(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        let principal = match owner {
+            Some(value) => value.expect_principal(),
+            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+        };
+
+        Ok(principal)
     }
 
     pub fn get_nft_key_type(
@@ -1171,8 +1262,31 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        self.put(&key, principal);
+        let value = Value::some(Value::Principal(principal.clone()))?;
+        self.put(&key, &value);
 
+        Ok(())
+    }
+
+    pub fn burn_nft(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        asset_name: &str,
+        asset: &Value,
+    ) -> Result<()> {
+        let descriptor = self.load_nft(contract_identifier, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        }
+
+        let key = ClarityDatabase::make_key_for_quad(
+            contract_identifier,
+            StoreType::NonFungibleToken,
+            asset_name,
+            asset.serialize(),
+        );
+
+        self.put(&key, &(Value::none()));
         Ok(())
     }
 }

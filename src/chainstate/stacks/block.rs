@@ -931,6 +931,7 @@ impl StacksMicroblock {
 #[cfg(test)]
 mod test {
     use super::*;
+    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
     use net::codec::test::*;
@@ -1397,6 +1398,8 @@ mod test {
             .unwrap(),
             vtxindex: 444,
             block_height: 125,
+            burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+
             burn_header_hash: BurnchainHeaderHash([0xff; 32]),
         };
 

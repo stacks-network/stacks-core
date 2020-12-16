@@ -81,7 +81,7 @@ impl CostTracker for TypeChecker<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64,
+        input: &[u64],
     ) -> Result<ExecutionCost, CostErrors> {
         self.cost_track.compute_cost(cost_function, input)
     }

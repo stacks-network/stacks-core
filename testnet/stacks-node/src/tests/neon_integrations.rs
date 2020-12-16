@@ -62,7 +62,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, 'e' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '2' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
@@ -1270,8 +1270,20 @@ fn pox_integration_test() {
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
-    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15, 239, 250);
-    burnchain_config.pox_constants = pox_constants;
+
+    // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
+    let reward_cycle_len = 15;
+    let prepare_phase_len = 5;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -1382,7 +1394,7 @@ fn pox_integration_test() {
     eprintln!("Sort height: {}", sort_height);
 
     // now let's mine until the next reward cycle starts ...
-    while sort_height < 222 {
+    while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1417,8 +1429,11 @@ fn pox_integration_test() {
 
             let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
             let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+            // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+            // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+            // cycle length of 15 blocks, is a burnchain height of 300)
             assert_eq!(parsed.to_string(),
-                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
+                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
                                &spender_addr));
             tested = true;
         }
@@ -1519,7 +1534,7 @@ fn pox_integration_test() {
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
-    while sort_height < 229 {
+    while sort_height < ((15 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1538,7 +1553,7 @@ fn pox_integration_test() {
     // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
-    while sort_height < 239 {
+    while sort_height < ((16 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1575,10 +1590,11 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 36);
 
     // now let's mine into the sunset
-    while sort_height < 249 {
+    while sort_height < ((17 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1593,7 +1609,8 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
-    assert_eq!(tip_info.stacks_tip_height, 46);
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
+    assert_eq!(tip_info.stacks_tip_height, 51);
 
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
@@ -1606,7 +1623,7 @@ fn pox_integration_test() {
     );
 
     // and after sunset
-    while sort_height < 259 {
+    while sort_height < ((18 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1632,7 +1649,8 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
-    assert_eq!(tip_info.stacks_tip_height, 56);
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
+    assert_eq!(tip_info.stacks_tip_height, 66);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -1949,7 +1967,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 30;
+            let mut timeout = 60;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -1971,7 +1989,7 @@ fn atlas_integration_test() {
                 } else {
                     timeout -= 1;
                     if timeout == 0 {
-                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
                     }
                     eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                     thread::sleep(Duration::from_millis(1000));
@@ -1987,57 +2005,151 @@ fn atlas_integration_test() {
         channel.stop_chains_coordinator();
     });
 
-    let follower_node_thread = thread::spawn(move || {
-        // Start the attached observer
-        test_observer::spawn();
+    // Start the attached observer
+    test_observer::spawn();
 
-        // The bootstrap node mined a few blocks and is ready, let's setup this node.
-        match follower_node_rx.recv() {
-            Ok(Signal::BootstrapNodeReady) => {
-                println!("Booting follower node...");
-            }
-            _ => panic!("Bootstrap node could nod boot. Aborting test."),
-        };
-
-        let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
-        let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
-
-        eprintln!("Chain bootstrapped...");
-
-        let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
-        let blocks_processed = run_loop.get_blocks_processed_arc();
-        let client = reqwest::blocking::Client::new();
-        let channel = run_loop.get_coordinator_channel().unwrap();
-
-        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
-
-        // give the run loop some time to start up!
-        wait_for_runloop(&blocks_processed);
-
-        // Follower node is ready, the bootstrap node will now handover
-        bootstrap_node_tx
-            .send(Signal::ReplicatingAttachmentsStartTest1)
-            .expect("Unable to send signal");
-
-        // The bootstrap node published and mined a transaction that includes an attachment.
-        // Lets observe the attachments replication kicking in.
-        let target_height = match follower_node_rx.recv() {
-            Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
-            _ => panic!("Bootstrap node could nod boot. Aborting test."),
-        };
-
-        let mut sort_height = channel.get_sortitions_processed();
-        while sort_height < target_height {
-            wait_for_runloop(&blocks_processed);
-            sort_height = channel.get_sortitions_processed();
+    // The bootstrap node mined a few blocks and is ready, let's setup this node.
+    match follower_node_rx.recv() {
+        Ok(Signal::BootstrapNodeReady) => {
+            println!("Booting follower node...");
         }
+        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+    };
 
-        // Now wait for the node to sync the attachment
+    let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
+    let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // Follower node is ready, the bootstrap node will now handover
+    bootstrap_node_tx
+        .send(Signal::ReplicatingAttachmentsStartTest1)
+        .expect("Unable to send signal");
+
+    // The bootstrap node published and mined a transaction that includes an attachment.
+    // Lets observe the attachments replication kicking in.
+    let target_height = match follower_node_rx.recv() {
+        Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
+        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+    };
+
+    let mut sort_height = channel.get_sortitions_processed();
+    while sort_height < target_height {
+        wait_for_runloop(&blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+    }
+
+    // Now wait for the node to sync the attachment
+    let mut attachments_did_sync = false;
+    let mut timeout = 60;
+    while attachments_did_sync != true {
+        let zonefile_hex = "facade00";
+        let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+        let path = format!(
+            "{}/v2/attachments/{}",
+            &http_origin,
+            hashed_zonefile.to_hex()
+        );
+        let res = client
+            .get(&path)
+            .header("Content-Type", "application/json")
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if res.status().is_success() {
+            eprintln!("Success syncing attachment - {}", res.text().unwrap());
+            attachments_did_sync = true;
+        } else {
+            timeout -= 1;
+            if timeout == 0 {
+                panic!("Failed syncing 1 attachments between 2 neon runloops within 60s - Something is wrong");
+            }
+            eprintln!("Attachment {} not sync'd yet", zonefile_hex);
+            thread::sleep(Duration::from_millis(1000));
+        }
+    }
+
+    // Test 2: 9 transactions are posted to the follower.
+    // We want to make sure that the miner is able to
+    // 1) mine these transactions
+    // 2) retrieve the attachments staged on the follower node.
+    // 3) ensure that the follower is also instanciating the attachments after
+    // executing the transactions, once mined.
+    let namespace = "passport";
+    for i in 1..10 {
+        let user = StacksPrivateKey::new();
+        let zonefile_hex = format!("facade0{}", i);
+        let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+        let name = format!("johndoe{}", i);
+        let tx = make_contract_call(
+            &user_1,
+            2 + i,
+            500,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "bns",
+            "name-import",
+            &[
+                Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                Value::Principal(to_addr(&user).into()),
+                Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+            ],
+        );
+
+        let body = {
+            let content = PostTransactionRequestBody {
+                tx: bytes_to_hex(&tx),
+                attachment: Some(zonefile_hex.to_string()),
+            };
+            serde_json::to_vec(&json!(content)).unwrap()
+        };
+
+        let path = format!("{}/v2/transactions", &http_origin);
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .unwrap();
+        eprintln!("{:#?}", res);
+        if !res.status().is_success() {
+            eprintln!("{}", res.text().unwrap());
+            panic!("");
+        }
+    }
+
+    bootstrap_node_tx
+        .send(Signal::ReplicatingAttachmentsStartTest2)
+        .expect("Unable to send signal");
+
+    let target_height = match follower_node_rx.recv() {
+        Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
+        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+    };
+
+    let mut sort_height = channel.get_sortitions_processed();
+    while sort_height < target_height {
+        wait_for_runloop(&blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+    }
+
+    // Poll GET v2/attachments/<attachment-hash>
+    for i in 1..10 {
         let mut attachments_did_sync = false;
         let mut timeout = 30;
         while attachments_did_sync != true {
-            let zonefile_hex = "facade00";
-            let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
+            let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+            let hashed_zonefile = Hash160::from_data(&zonefile_hex);
             let path = format!(
                 "{}/v2/attachments/{}",
                 &http_origin,
@@ -2050,121 +2162,24 @@ fn atlas_integration_test() {
                 .unwrap();
             eprintln!("{:#?}", res);
             if res.status().is_success() {
-                eprintln!("Success syncing attachment - {}", res.text().unwrap());
+                let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                assert_eq!(attachment_response.attachment.content, zonefile_hex);
                 attachments_did_sync = true;
             } else {
                 timeout -= 1;
                 if timeout == 0 {
-                    panic!("Failed syncing 1 attachments between 2 neon runloops within 30s - Something is wrong");
+                    panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
                 }
-                eprintln!("Attachment {} not sync'd yet", zonefile_hex);
+                eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                 thread::sleep(Duration::from_millis(1000));
             }
         }
+    }
 
-        // Test 2: 9 transactions are posted to the follower.
-        // We want to make sure that the miner is able to
-        // 1) mine these transactions
-        // 2) retrieve the attachments staged on the follower node.
-        // 3) ensure that the follower is also instanciating the attachments after
-        // executing the transactions, once mined.
-        let namespace = "passport";
-        for i in 1..10 {
-            let user = StacksPrivateKey::new();
-            let zonefile_hex = format!("facade0{}", i);
-            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-            let name = format!("johndoe{}", i);
-            let tx = make_contract_call(
-                &user_1,
-                2 + i,
-                500,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-                "bns",
-                "name-import",
-                &[
-                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
-                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
-                    Value::Principal(to_addr(&user).into()),
-                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
-                ],
-            );
-
-            let body = {
-                let content = PostTransactionRequestBody {
-                    tx: bytes_to_hex(&tx),
-                    attachment: Some(zonefile_hex.to_string()),
-                };
-                serde_json::to_vec(&json!(content)).unwrap()
-            };
-
-            let path = format!("{}/v2/transactions", &http_origin);
-            let res = client
-                .post(&path)
-                .header("Content-Type", "application/json")
-                .body(body)
-                .send()
-                .unwrap();
-            eprintln!("{:#?}", res);
-            if !res.status().is_success() {
-                eprintln!("{}", res.text().unwrap());
-                panic!("");
-            }
-        }
-
-        bootstrap_node_tx
-            .send(Signal::ReplicatingAttachmentsStartTest2)
-            .expect("Unable to send signal");
-
-        let target_height = match follower_node_rx.recv() {
-            Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
-            _ => panic!("Bootstrap node could nod boot. Aborting test."),
-        };
-
-        let mut sort_height = channel.get_sortitions_processed();
-        while sort_height < target_height {
-            wait_for_runloop(&blocks_processed);
-            sort_height = channel.get_sortitions_processed();
-        }
-
-        // Poll GET v2/attachments/<attachment-hash>
-        for i in 1..10 {
-            let mut attachments_did_sync = false;
-            let mut timeout = 30;
-            while attachments_did_sync != true {
-                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
-                let hashed_zonefile = Hash160::from_data(&zonefile_hex);
-                let path = format!(
-                    "{}/v2/attachments/{}",
-                    &http_origin,
-                    hashed_zonefile.to_hex()
-                );
-                let res = client
-                    .get(&path)
-                    .header("Content-Type", "application/json")
-                    .send()
-                    .unwrap();
-                eprintln!("{:#?}", res);
-                if res.status().is_success() {
-                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
-                    assert_eq!(attachment_response.attachment.content, zonefile_hex);
-                    attachments_did_sync = true;
-                } else {
-                    timeout -= 1;
-                    if timeout == 0 {
-                        panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
-                    }
-                    eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
-                    thread::sleep(Duration::from_millis(1000));
-                }
-            }
-        }
-
-        // Ensure that we the attached sidecar was able to receive a total of 10 attachments
-        assert_eq!(test_observer::get_attachments().len(), 10);
-        test_observer::clear();
-        channel.stop_chains_coordinator();
-    });
+    // Ensure that we the attached sidecar was able to receive a total of 10 attachments
+    assert_eq!(test_observer::get_attachments().len(), 10);
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 
     bootstrap_node_thread.join().unwrap();
-    follower_node_thread.join().unwrap();
 }

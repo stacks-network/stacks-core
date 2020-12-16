@@ -12,8 +12,8 @@ use std::{thread, thread::JoinHandle, time};
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp,
+    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::{
@@ -772,7 +772,17 @@ impl Node {
             ),
         };
 
-        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let commit_outs = if burnchain_tip.block_snapshot.block_height + 1
+            < burnchain.pox_constants.sunset_end
+            && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
+        {
+            RewardSetInfo::into_commit_outs(None, false)
+        } else {
+            vec![StacksAddress::burn_address(false)]
+        };
+        let burn_parent_modulus =
+            (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -791,6 +801,7 @@ impl Node {
             commit_outs,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
+            burn_parent_modulus,
         })
     }
 

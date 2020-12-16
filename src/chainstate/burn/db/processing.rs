@@ -23,7 +23,10 @@ use chainstate::burn::db::sortdb::{InitialMiningBonus, PoxId, SortitionHandleTx,
 
 use chainstate::coordinator::RewardCycleInfo;
 
-use chainstate::burn::operations::{leader_block_commit::RewardSetInfo, BlockstackOperationType};
+use chainstate::burn::operations::{
+    leader_block_commit::{MissedBlockCommit, RewardSetInfo},
+    BlockstackOperationType, Error as OpError,
+};
 
 use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainStateTransition,
@@ -97,37 +100,6 @@ impl<'a> SortitionHandleTx<'a> {
         }
     }
 
-    /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
-    /// blockstack operations extracted from get_blockstack_transactions.
-    /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops(
-        &mut self,
-        burnchain: &Burnchain,
-        mut block_ops: Vec<BlockstackOperationType>,
-        reward_info: Option<&RewardSetInfo>,
-    ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
-        debug!(
-            "Check Blockstack transactions from sortition_id: {}",
-            &self.context.chain_tip
-        );
-
-        // classify and check each transaction
-        block_ops.retain(|blockstack_op| {
-            self.check_transaction(burnchain, blockstack_op, reward_info)
-                .is_ok()
-        });
-
-        // block-wide check: no duplicate keys registered
-        let ret_filtered = Burnchain::filter_block_VRF_dups(block_ops);
-        assert!(Burnchain::ops_are_sorted(&ret_filtered));
-
-        // block-wide check: at most one block-commit can consume a VRF key
-        let ret_filtered = Burnchain::filter_block_commits_with_same_VRF_key(ret_filtered);
-        assert!(Burnchain::ops_are_sorted(&ret_filtered));
-
-        Ok(ret_filtered)
-    }
-
     /// Process all block's checked transactions
     /// * make the burn distribution
     /// * insert the ones that went into the burn distribution
@@ -139,6 +111,7 @@ impl<'a> SortitionHandleTx<'a> {
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
         this_block_ops: &Vec<BlockstackOperationType>,
+        missed_commits: &Vec<MissedBlockCommit>,
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
@@ -148,7 +121,7 @@ impl<'a> SortitionHandleTx<'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops, burnchain.pox_constants.sunset_end)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -251,6 +224,7 @@ impl<'a> SortitionHandleTx<'a> {
             parent_snapshot,
             &snapshot,
             &state_transition.accepted_ops,
+            missed_commits,
             next_pox_info,
             reward_info,
             initialize_bonus,
@@ -309,15 +283,32 @@ impl<'a> SortitionHandleTx<'a> {
         blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         // check each transaction, and filter out only the ones that are valid
-        let block_ops = self
-            .check_block_ops(burnchain, blockstack_txs, reward_set_info)
-            .map_err(|e| {
-                error!(
-                    "TRANSACTION ABORTED when checking block {} ({}): {:?}",
-                    block_header.block_height, &block_header.block_hash, e
-                );
-                e
-            })?;
+        debug!(
+            "Check Blockstack transactions from sortition_id: {}",
+            &self.context.chain_tip
+        );
+
+        let mut missed_block_commits = vec![];
+
+        // classify and check each transaction
+        blockstack_txs.retain(|blockstack_op| {
+            match self.check_transaction(burnchain, blockstack_op, reward_set_info) {
+                Ok(_) => true,
+                Err(BurnchainError::OpError(OpError::MissedBlockCommit(missed_op))) => {
+                    missed_block_commits.push(missed_op);
+                    false
+                }
+                Err(_) => false,
+            }
+        });
+
+        // block-wide check: no duplicate keys registered
+        let ret_filtered = Burnchain::filter_block_VRF_dups(blockstack_txs);
+        assert!(Burnchain::ops_are_sorted(&ret_filtered));
+
+        // block-wide check: at most one block-commit can consume a VRF key
+        let block_ops = Burnchain::filter_block_commits_with_same_VRF_key(ret_filtered);
+        assert!(Burnchain::ops_are_sorted(&block_ops));
 
         // process them
         let res = self
@@ -326,6 +317,7 @@ impl<'a> SortitionHandleTx<'a> {
                 parent_snapshot,
                 block_header,
                 &block_ops,
+                &missed_block_commits,
                 next_pox_info,
                 parent_pox,
                 reward_set_info,

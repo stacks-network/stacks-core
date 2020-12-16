@@ -30,6 +30,8 @@ use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Res
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
+         (define-read-only (get-total-supply)
+            (ft-get-supply stackaroos)) 
          (define-public (my-token-transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -39,6 +41,8 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
+         (define-public (burn (amount uint))
+           (ft-burn? stackaroos amount tx-sender))
          (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                 (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
                 (ft-mint? stackaroos u4 .tokens))";
@@ -70,6 +74,8 @@ const ASSET_NAMES: &str =
 
          (define-public (force-mint (name int))
            (nft-mint? names name tx-sender))
+         (define-public (force-burn (name int))
+           (nft-burn? names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
              (contract-call? .tokens my-token-transfer burn-address u50000)
@@ -530,6 +536,11 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!(),
     };
 
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!(),
+    };
+
     let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
 
     let token_identifier = AssetIdentifier {
@@ -693,6 +704,71 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(result, Value::UInt(1003));
 
+    // Get the total supply - Total minted so far = 10204
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env,
+        p1.clone(),
+        &token_contract_id.clone(),
+        "get-total-supply",
+        &symbols_from_values(vec![]),
+    )
+    .unwrap();
+    assert_eq!(result, Value::UInt(10204));
+
+    // Burn 100 tokens from p2's balance (out of 9200)
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p2.clone(),
+        &token_contract_id.clone(),
+        "burn",
+        &symbols_from_values(vec![Value::UInt(100)]),
+    )
+    .unwrap();
+
+    let asset_map = asset_map.to_table();
+    assert!(is_committed(&result));
+    println!("{:?}", asset_map);
+    assert_eq!(
+        asset_map[&p2_principal][&token_identifier],
+        AssetMapEntry::Token(100)
+    );
+
+    // Get p2's balance we should get 9200 - 100 = 9100
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env,
+        p1.clone(),
+        &token_contract_id.clone(),
+        "my-ft-get-balance",
+        &symbols_from_values(vec![p2.clone()]),
+    )
+    .unwrap();
+
+    assert_eq!(result, Value::UInt(9100));
+
+    // Get the new total supply
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env,
+        p1.clone(),
+        &token_contract_id.clone(),
+        "get-total-supply",
+        &symbols_from_values(vec![]),
+    )
+    .unwrap();
+    assert_eq!(result, Value::UInt(10104));
+
+    // Burn 9101 tokens from p2's balance (out of 9100) - Should fail with error code 1
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env,
+        p2.clone(),
+        &token_contract_id.clone(),
+        "burn",
+        &symbols_from_values(vec![Value::UInt(9101)]),
+    )
+    .unwrap();
+
+    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 1));
+
     let (result, asset_map, _events) = execute_transaction(
         owned_env,
         p1.clone(),
@@ -832,6 +908,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
         _ => panic!(),
     };
 
@@ -1104,6 +1185,71 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // preorder must exist!
     assert!(is_err_code(&result, 5));
+
+    // p1 burning 5 should fail (not owner anymore).
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p1.clone(),
+        &names_contract_id,
+        "force-burn",
+        &symbols_from_values(vec![Value::Int(5)]),
+    )
+    .unwrap();
+
+    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 1));
+
+    // p2 burning 5 should succeed.
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p2.clone(),
+        &names_contract_id,
+        "force-burn",
+        &symbols_from_values(vec![Value::Int(5)]),
+    )
+    .unwrap();
+
+    let asset_map = asset_map.to_table();
+
+    assert!(is_committed(&result));
+    assert_eq!(
+        asset_map[&p2_principal][&names_identifier],
+        AssetMapEntry::Asset(vec![Value::Int(5)])
+    );
+
+    // p2 re-burning 5 should succeed.
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p2.clone(),
+        &names_contract_id,
+        "force-burn",
+        &symbols_from_values(vec![Value::Int(5)]),
+    )
+    .unwrap();
+    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 3));
+
+    // p1 re-minting 5 should succeed
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p1.clone(),
+        &names_contract_id,
+        "force-mint",
+        &symbols_from_values(vec![Value::Int(5)]),
+    )
+    .unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        assert_eq!(
+            env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
+                .unwrap(),
+            Value::some(p1.clone()).unwrap()
+        );
+    }
 }
 
 #[test]

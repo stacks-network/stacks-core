@@ -21,7 +21,7 @@ use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
+use chainstate::burn::{BlockHeaderHash, SortitionId, VRFSeed};
 
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -57,10 +57,12 @@ struct ParsedData {
     parent_vtxindex: u16,
     key_block_ptr: u32,
     key_vtxindex: u16,
-    memo: Vec<u8>,
+    burn_parent_modulus: u8,
+    memo: u8,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
+pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]
@@ -76,6 +78,11 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
             block_height: block_height,
+            burn_parent_modulus: if block_height > 0 {
+                ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
+            },
             new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
             key_vtxindex: paired_key.vtxindex as u16,
@@ -125,8 +132,20 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
+            burn_parent_modulus: BURN_BLOCK_MINED_AT_MODULUS as u8 - 1,
+
             burn_header_hash: BurnchainHeaderHash::zero(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_burn_height(&mut self, height: u64) {
+        self.block_height = height;
+        self.burn_parent_modulus = if height > 0 {
+            (height - 1) % BURN_BLOCK_MINED_AT_MODULUS
+        } else {
+            BURN_BLOCK_MINED_AT_MODULUS - 1
+        } as u8;
     }
 
     pub fn expected_chained_utxo(sunset_finished: bool) -> u32 {
@@ -138,12 +157,16 @@ impl LeaderBlockCommitOp {
         }
     }
 
+    fn burn_block_mined_at(&self) -> u64 {
+        self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
+    }
+
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3            35               67     71     73    77   79     80
             |------|--|-------------|---------------|------|------|-----|-----|-----|
-             magic  op   block hash     new seed     parent parent key   key   memo
+             magic  op   block hash     new seed     parent parent key   key    burn_block_parent modulus
                                                      block  txoff  block txoff
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
@@ -168,7 +191,12 @@ impl LeaderBlockCommitOp {
         let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
         let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
         let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
-        let memo = data[76..77].to_vec();
+
+        let burn_parent_modulus_and_memo_byte = data[76];
+
+        let burn_parent_modulus = ((burn_parent_modulus_and_memo_byte & 0b111) as u64
+            % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+        let memo = (burn_parent_modulus_and_memo_byte >> 3) & 0x1f;
 
         Some(ParsedData {
             block_header_hash,
@@ -177,30 +205,31 @@ impl LeaderBlockCommitOp {
             parent_vtxindex,
             key_block_ptr,
             key_vtxindex,
+            burn_parent_modulus,
             memo,
         })
     }
 
     pub fn from_tx(
+        burnchain: &Burnchain,
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        pox_sunset_ht: u64,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(
+            burnchain,
             block_header.block_height,
             &block_header.block_hash,
             tx,
-            pox_sunset_ht,
         )
     }
 
     /// parse a LeaderBlockCommitOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
+        burnchain: &Burnchain,
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         tx: &BurnchainTransaction,
-        pox_sunset_ht: u64,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
         let mut outputs = tx.get_recipients();
@@ -265,7 +294,18 @@ impl LeaderBlockCommitOp {
         }
 
         // check if we've reached PoX disable
-        let (commit_outs, sunset_burn, burn_fee) = if block_height >= pox_sunset_ht {
+        let (commit_outs, sunset_burn, burn_fee) = if block_height
+            >= burnchain.pox_constants.sunset_end
+        {
+            // should be only one burn output
+            if !outputs[0].address.is_burn() {
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+            let BurnchainRecipient { address, amount } = outputs.remove(0);
+            (vec![address], 0, amount)
+        // check if we're in a prepare phase
+        } else if burnchain.is_in_prepare_phase(block_height) {
+            // should be only one burn output
             if !outputs[0].address.is_burn() {
                 return Err(op_error::BlockCommitBadOutputs);
             }
@@ -330,7 +370,8 @@ impl LeaderBlockCommitOp {
             parent_vtxindex: data.parent_vtxindex,
             key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            memo: data.memo,
+            memo: vec![data.memo],
+            burn_parent_modulus: data.burn_parent_modulus,
 
             commit_outs,
             sunset_burn,
@@ -361,7 +402,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 
         0      2  3            35               67     71     73    77   79     80
         |------|--|-------------|---------------|------|------|-----|-----|-----|
-         magic  op   block hash     new seed     parent parent key   key   memo
+         magic  op   block hash     new seed     parent parent key   key   burn parent modulus
                                                 block  txoff  block txoff
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -373,11 +414,9 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
-        if self.memo.len() > 0 {
-            write_next(fd, &self.memo[0])?;
-        } else {
-            write_next(fd, &0u8)?;
-        }
+        let memo_burn_parent_modulus =
+            (self.memo.get(0).copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
+        write_next(fd, &memo_burn_parent_modulus)?;
         Ok(())
     }
 
@@ -391,6 +430,13 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(StacksAddress, u16)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MissedBlockCommit {
+    pub txid: Txid,
+    pub input: (Txid, u32),
+    pub intended_sortition: SortitionId,
 }
 
 impl RewardSetInfo {
@@ -442,9 +488,11 @@ impl LeaderBlockCommitOp {
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must have the expected commit or burn outputs:
         //    * if there is a known anchor block for the current reward cycle, and this
-        //       block commit descends from that block
-        //       the commit outputs must = the expected set of commit outputs
-        //    * otherwise, there must be no block commits
+        //       block commit descends from that block, and this block commit is not in the
+        //       prepare phase of the reward cycle, and there are still reward addresses
+        //       left in this reward cycle to pay out to, then
+        //       the commit outputs must = the expected set of commit outputs.
+        //    * otherwise, the commit outputs must be burn outputs.
         /////////////////////////////////////////////////////////////////////////////////////
         if let Some(reward_set_info) = reward_set_info {
             // we do some check-inversion here so that we check the commit_outs _before_
@@ -453,70 +501,84 @@ impl LeaderBlockCommitOp {
             //   we want to make sure that any TX that forces us to perform the check
             //   has either burned BTC or sent BTC to the PoX recipients
 
-            // first, handle a corner case:
-            //    all of the commitment outputs are _burns_
-            //    _and_ the reward set chose two burn addresses as reward addresses.
-            // then, don't need to do a pox descendant check.
-            let recipient_set_all_burns = reward_set_info
-                .recipients
-                .iter()
-                .fold(true, |prior_is_burn, (addr, _)| {
-                    prior_is_burn && addr.is_burn()
-                });
-
-            if recipient_set_all_burns {
-                if !self.all_outputs_burn() {
-                    warn!("Invalid block commit: recipient set should be all burns");
+            // if we're in the prepare phase, then this block-commit _must_ burn.
+            // No PoX descent check needs to be performed -- prepare-phase block commits
+            // stand alone.
+            if burnchain.is_in_prepare_phase(self.block_height) {
+                if let Err(e) = self.check_prepare_commit_burn() {
+                    warn!("Invalid block commit: in block {} which is in the prepare phase, but did not burn to a single output as expected ({:?})", self.block_height, &e);
                     return Err(op_error::BlockCommitBadOutputs);
                 }
             } else {
-                let expect_pox_descendant = if self.all_outputs_burn() {
-                    false
-                } else {
-                    if self.commit_outs.len() != reward_set_info.recipients.len() {
-                        warn!(
-                            "Invalid block commit: expected {} PoX transfers, but commit has {}",
-                            reward_set_info.recipients.len(),
-                            self.commit_outs.len()
-                        );
+                // Not in prepare phase, so this can be either PoB or PoX (a descent check from the
+                // anchor block will be necessary if the block-commit is well-formed).
+                //
+                // first, handle a corner case:
+                //    all of the commitment outputs are _burns_
+                //    _and_ the reward set chose two burn addresses as reward addresses.
+                // then, don't need to do a pox descendant check.
+                let recipient_set_all_burns = reward_set_info
+                    .recipients
+                    .iter()
+                    .fold(true, |prior_is_burn, (addr, _)| {
+                        prior_is_burn && addr.is_burn()
+                    });
+
+                if recipient_set_all_burns {
+                    if !self.all_outputs_burn() {
+                        warn!("Invalid block commit: recipient set should be all burns");
                         return Err(op_error::BlockCommitBadOutputs);
                     }
-
-                    // sort check_recipients and commit_outs so that we can perform an
-                    //  iterative equality check
-                    let mut check_recipients: Vec<_> = reward_set_info
-                        .recipients
-                        .iter()
-                        .map(|(addr, _)| addr.clone())
-                        .collect();
-                    check_recipients.sort();
-                    let mut commit_outs = self.commit_outs.clone();
-                    commit_outs.sort();
-                    for (expected_commit, found_commit) in commit_outs.iter().zip(check_recipients)
-                    {
-                        if expected_commit != &found_commit {
-                            warn!("Invalid block commit: committed output {} does not match expected {}",
-                                  found_commit, expected_commit);
+                } else {
+                    let expect_pox_descendant = if self.all_outputs_burn() {
+                        false
+                    } else {
+                        if self.commit_outs.len() != reward_set_info.recipients.len() {
+                            warn!(
+                                "Invalid block commit: expected {} PoX transfers, but commit has {}",
+                                reward_set_info.recipients.len(),
+                                self.commit_outs.len()
+                            );
                             return Err(op_error::BlockCommitBadOutputs);
                         }
-                    }
-                    true
-                };
 
-                let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
-                    .map_err(|e| {
-                        error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
-                               parent_block_height, &reward_set_info.anchor_block, e);
-                        op_error::BlockCommitAnchorCheck})?;
-                if descended_from_anchor != expect_pox_descendant {
-                    if descended_from_anchor {
-                        warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
-                    } else {
-                        warn!(
-                            "Invalid block commit: not descended from PoX anchor, but used PoX outputs"
-                        );
+                        // sort check_recipients and commit_outs so that we can perform an
+                        //  iterative equality check
+                        let mut check_recipients: Vec<_> = reward_set_info
+                            .recipients
+                            .iter()
+                            .map(|(addr, _)| addr.clone())
+                            .collect();
+                        check_recipients.sort();
+                        let mut commit_outs = self.commit_outs.clone();
+                        commit_outs.sort();
+                        for (expected_commit, found_commit) in
+                            commit_outs.iter().zip(check_recipients)
+                        {
+                            if expected_commit != &found_commit {
+                                warn!("Invalid block commit: committed output {} does not match expected {}",
+                                      found_commit, expected_commit);
+                                return Err(op_error::BlockCommitBadOutputs);
+                            }
+                        }
+                        true
+                    };
+
+                    let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+                        .map_err(|e| {
+                            error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
+                                   parent_block_height, &reward_set_info.anchor_block, e);
+                            op_error::BlockCommitAnchorCheck})?;
+                    if descended_from_anchor != expect_pox_descendant {
+                        if descended_from_anchor {
+                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                        } else {
+                            warn!(
+                                "Invalid block commit: not descended from PoX anchor, but used PoX outputs"
+                            );
+                        }
+                        return Err(op_error::BlockCommitBadOutputs);
                     }
-                    return Err(op_error::BlockCommitBadOutputs);
                 }
             }
         } else {
@@ -529,7 +591,7 @@ impl LeaderBlockCommitOp {
         Ok(())
     }
 
-    fn check_after_pox_sunset(&self) -> Result<(), op_error> {
+    fn check_single_burn_output(&self) -> Result<(), op_error> {
         if self.commit_outs.len() != 1 {
             warn!("Invalid post-sunset block commit, should have 1 commit out");
             return Err(op_error::BlockCommitBadOutputs);
@@ -539,6 +601,14 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitBadOutputs);
         }
         Ok(())
+    }
+
+    fn check_after_pox_sunset(&self) -> Result<(), op_error> {
+        self.check_single_burn_output()
+    }
+
+    fn check_prepare_commit_burn(&self) -> Result<(), op_error> {
+        self.check_single_burn_output()
     }
 
     pub fn check(
@@ -559,6 +629,37 @@ impl LeaderBlockCommitOp {
         if self.burn_fee == 0 {
             warn!("Invalid block commit: no burn amount");
             return Err(op_error::BlockCommitBadInput);
+        }
+
+        let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
+        let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
+        if actual_modulus != intended_modulus {
+            warn!("Invalid block commit: missed target block";
+                  "intended_modulus" => intended_modulus,
+                  "actual_modulus" => actual_modulus,
+                  "block_height" => self.block_height);
+            // This transaction "missed" its target burn block, the transaction
+            //  is not valid, but we should allow this UTXO to "chain" to valid
+            //  UTXOs to allow the miner windowing to work in the face of missed
+            //  blocks.
+            let miss_distance = if actual_modulus > intended_modulus {
+                actual_modulus - intended_modulus
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
+            };
+            if miss_distance > self.block_height {
+                return Err(op_error::BlockCommitBadModulus);
+            }
+            let intended_sortition = tx
+                .get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?;
+            let missed_data = MissedBlockCommit {
+                input: self.input.clone(),
+                txid: self.txid.clone(),
+                intended_sortition,
+            };
+
+            return Err(op_error::MissedBlockCommit(missed_data));
         }
 
         if self.block_height >= burnchain.pox_constants.sunset_end {
@@ -731,11 +832,15 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843021;
+        burnchain.pox_constants.sunset_end = 16843022;
+
         let err = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843022,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843022,
         )
         .unwrap_err();
 
@@ -785,11 +890,15 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843021;
+        burnchain.pox_constants.sunset_end = 16843022;
+
         let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843022,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843022,
         )
         .unwrap();
 
@@ -840,11 +949,15 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap();
 
@@ -886,12 +999,16 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         // burn amount should have been 10, not 9
         match LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap_err()
         {
@@ -955,11 +1072,15 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap();
 
@@ -991,12 +1112,16 @@ mod tests {
             }],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         // not enough PoX outputs
         match LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap_err()
         {
@@ -1036,12 +1161,16 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         // unequal PoX outputs
         match LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap_err()
         {
@@ -1105,12 +1234,16 @@ mod tests {
             ],
         });
 
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
         // 0 total burn
         match LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
             &tx,
-            16843020,
         )
         .unwrap_err()
         {
@@ -1131,8 +1264,8 @@ mod tests {
         let tx_fixtures = vec![
             OpFixture {
                 // valid
-                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
-                opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707180".to_string(),
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa39300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
+                opstr: "69645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa".to_string(),
                 result: Some(LeaderBlockCommitOp {
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
@@ -1141,7 +1274,7 @@ mod tests {
                     parent_vtxindex: 0x5051,
                     key_block_ptr: 0x60616263,
                     key_vtxindex: 0x7071,
-                    memo: vec![0x80],
+                    memo: vec![0x1f],
 
                     commit_outs: vec![
                         StacksAddress { version: 26, bytes: Hash160::empty() },
@@ -1158,9 +1291,10 @@ mod tests {
                         hash_mode: AddressHashMode::SerializeP2PKH
                     },
 
-                    txid: Txid::from_hex("b08d5d1bc81049a3957e9ff9a5882463811735fd5de985e6d894e9b3d5c49501").unwrap(),
+                    txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
                     vtxindex: vtxindex,
                     block_height: block_height,
+                    burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: burn_header_hash,
                 })
             },
@@ -1218,7 +1352,12 @@ mod tests {
             };
             let burnchain_tx =
                 BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
-            let op = LeaderBlockCommitOp::from_tx(&header, &burnchain_tx, block_height + 1);
+
+            let mut burnchain = Burnchain::regtest("nope");
+            burnchain.pox_constants.sunset_start = block_height;
+            burnchain.pox_constants.sunset_end = block_height + 1;
+
+            let op = LeaderBlockCommitOp::from_tx(&burnchain, &header, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
@@ -1281,12 +1420,12 @@ mod tests {
             block_122_hash.clone(),
             block_123_hash.clone(),
             block_124_hash.clone(),
-            block_125_hash.clone(),
-            block_126_hash.clone(),
+            block_125_hash.clone(), // prepare phase
+            block_126_hash.clone(), // prepare phase
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::test_default(),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1395,6 +1534,7 @@ mod tests {
             .unwrap(),
             vtxindex: 444,
             block_height: 125,
+            burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
         };
 
@@ -1496,6 +1636,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
+                        &vec![],
                         None,
                         None,
                         None,
@@ -1559,6 +1700,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 444,
                     block_height: 80,
+                    burn_parent_modulus: (79 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
@@ -1608,6 +1750,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 444,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
@@ -1657,6 +1800,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoParent),
@@ -1706,6 +1850,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoParent),
@@ -1755,6 +1900,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -1804,6 +1950,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitBadInput),
@@ -1853,6 +2000,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -1902,6 +2050,7 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),

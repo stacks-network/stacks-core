@@ -498,6 +498,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &vec![],
+                        &vec![],
                         None,
                         None,
                         None,
