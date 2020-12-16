@@ -129,7 +129,6 @@ pub struct MinerPaymentSchedule {
     pub stx_burns: u128,
     pub burnchain_commit_burn: u64,
     pub burnchain_sortition_burn: u64,
-    pub fill: u64, // fixed-point fraction of how full this block is, scaled up between 0 and 2**64 - 1 (i.e. 0x8000000000000000 == 50% full)
     pub miner: bool, // is this a schedule payment for the block's miner?
     pub stacks_block_height: u64,
     pub vtxindex: u32,
@@ -523,7 +522,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         stx_burns TEXT NOT NULL,            -- encodes u128
         burnchain_commit_burn INT NOT NULL,
         burnchain_sortition_burn INT NOT NULL,
-        fill TEXT NOT NULL,                 -- encodes u64 
         miner INT NOT NULL,
         
         -- internal use
@@ -832,7 +830,7 @@ impl StacksChainState {
                 hash_mode: SinglesigHashMode::P2PKH,
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                 nonce: 0,
-                fee_rate: 0,
+                tx_fee: 0,
                 signature: MessageSignature::empty(),
             },
         ));

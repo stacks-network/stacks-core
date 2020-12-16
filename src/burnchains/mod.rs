@@ -680,6 +680,8 @@ pub mod test {
         pub block_commits: Vec<LeaderBlockCommitOp>,
         pub id: usize,
         pub nonce: u64,
+        pub spent_at_nonce: HashMap<u64, u128>, // how much uSTX this miner paid in a given tx's nonce
+        pub test_with_tx_fees: bool, // set to true to make certain helper methods attach a pre-defined tx fee
     }
 
     pub struct TestMinerFactory {
@@ -705,6 +707,8 @@ pub mod test {
                 block_commits: vec![],
                 id: 0,
                 nonce: 0,
+                spent_at_nonce: HashMap::new(),
+                test_with_tx_fees: true,
             }
         }
 

@@ -1216,7 +1216,7 @@ mod test {
                 );
 
                 tx_contract.chain_id = chainstate.config().chain_id;
-                tx_contract.set_fee_rate(0);
+                tx_contract.set_tx_fee(0);
 
                 let mut signer = StacksTransactionSigner::new(&tx_contract);
                 signer.sign_origin(&privk_origin).unwrap();

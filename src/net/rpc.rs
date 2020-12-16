@@ -2691,7 +2691,7 @@ mod test {
 
         tx_contract.chain_id = 0x80000000;
         tx_contract.auth.set_origin_nonce(1);
-        tx_contract.set_fee_rate(0);
+        tx_contract.set_tx_fee(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
         tx_signer.sign_origin(&privk1).unwrap();
@@ -2707,7 +2707,7 @@ mod test {
 
         tx_cc.chain_id = 0x80000000;
         tx_cc.auth.set_origin_nonce(2);
-        tx_cc.set_fee_rate(123);
+        tx_cc.set_tx_fee(123);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_cc);
         tx_signer.sign_origin(&privk1).unwrap();
@@ -2732,7 +2732,7 @@ mod test {
 
         tx_unconfirmed_contract.chain_id = 0x80000000;
         tx_unconfirmed_contract.auth.set_origin_nonce(3);
-        tx_unconfirmed_contract.set_fee_rate(0);
+        tx_unconfirmed_contract.set_tx_fee(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_unconfirmed_contract);
         tx_signer.sign_origin(&privk1).unwrap();
