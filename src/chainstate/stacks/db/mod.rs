@@ -962,6 +962,7 @@ impl StacksChainState {
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
                 info!("Initializing chain with lockups");
                 let mut lockups_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
+                let mut sorted_keys = vec![];
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
                     let stx_address =
@@ -978,20 +979,21 @@ impl StacksChainState {
                             schedules.into_mut().push(value);
                         }
                         Entry::Vacant(entry) => {
+                            sorted_keys.push(schedule.block_height);
                             let schedules = vec![value];
                             entry.insert(schedules);
                         }
                     };
                 }
+                sorted_keys.sort();
+
                 let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
                     clarity
                         .with_clarity_db(|db| {
-                            let mut ordered_keys: Vec<_> = lockups_per_block.keys().clone().collect();
-                            ordered_keys.sort();
-                            for block_height in ordered_keys.into_iter() {
+                            for block_height in sorted_keys {
                                 let schedule = lockups_per_block.remove(&block_height).unwrap();
-                                let key = Value::UInt(*block_height as u128);
+                                let key = Value::UInt(block_height as u128);
                                 db.insert_entry(
                                     &lockup_contract_id,
                                     "lockups",
