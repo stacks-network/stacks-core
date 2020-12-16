@@ -28,7 +28,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{btree_map::Entry, BTreeMap};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -959,7 +959,7 @@ impl StacksChainState {
 
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
                 info!("Initializing chain with lockups");
-                let mut lockups_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
+                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
                     let stx_address =
@@ -981,6 +981,7 @@ impl StacksChainState {
                         }
                     };
                 }
+
                 let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
                     clarity
