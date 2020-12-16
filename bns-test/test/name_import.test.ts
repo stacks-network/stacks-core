@@ -139,6 +139,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.success).eq(true);
       expect(receipt.result).include('Returned: true');
 
+      // Bob trying to import 'dave.blockstack' should succeed
       receipt = await bns.nameImport(cases[0].namespace, "delta", dave, "4444", {
         sender: bob
       })
@@ -179,6 +180,12 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.success).eq(true);
       expect(receipt.result).include('true');
       await bns.mineBlocks(1);
+
+      receipt = await bns.nameImport(cases[0].namespace, "beta", bob, cases[0].zonefile, {
+        sender: bob
+      })
+      expect(receipt.success).eq(false);
+      expect(receipt.error).include('Aborted: 1014');
 
       // Now that the namespace is ready, Dave should be able to update his name
       receipt = await bns.nameUpdate(
@@ -224,7 +231,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
           sender: charlie
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u28');
+      expect(receipt.result).include('u29');
 
       receipt = await bns.nameRegister(
         cases[0].namespace,
@@ -235,7 +242,6 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
         });
       expect(receipt.error).include('2004');
       expect(receipt.success).eq(false);
-
 
       // Charlie trying to renew 'alpha.blockstack' should fail
       receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, {
