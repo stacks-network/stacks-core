@@ -57,8 +57,8 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -111,6 +111,7 @@ impl BurnchainStateTransition {
         sort_tx: &mut SortitionHandleTx,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
+        missed_commits: &Vec<MissedBlockCommit>,
         sunset_end: u64,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
@@ -161,7 +162,20 @@ impl BurnchainStateTransition {
 
         // assemble the commit windows
         let mut windowed_block_commits = vec![block_commits];
-        let mut windowed_user_burns = vec![user_burns];
+        let mut windowed_missed_commits = vec![];
+
+        // build a map of intended sortition -> missed commit for the missed commits
+        //   discovered in this block
+        let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
+        for missed in missed_commits.iter() {
+            if let Some(commits_at_sortition) =
+                missed_commits_map.get_mut(&missed.intended_sortition)
+            {
+                commits_at_sortition.push(missed);
+            } else {
+                missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
+            }
+        }
 
         for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
             if parent_snapshot.block_height < (blocks_back as u64) {
@@ -179,15 +193,19 @@ impl BurnchainStateTransition {
                 sort_tx.tx(),
                 &sortition_id,
             )?);
-            windowed_user_burns.push(SortitionDB::get_user_burns_by_block(
-                sort_tx.tx(),
-                &sortition_id,
-            )?);
+            let mut missed_commits_at_height =
+                SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
+            if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
+                missed_commits_at_height
+                    .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+            }
+
+            windowed_missed_commits.push(missed_commits_at_height);
         }
 
         // reverse vecs so that windows are in ascending block height order
         windowed_block_commits.reverse();
-        windowed_user_burns.reverse();
+        windowed_missed_commits.reverse();
 
         // figure out if the PoX sunset finished during the window
         let window_end_height = parent_snapshot.block_height + 1;
@@ -206,7 +224,7 @@ impl BurnchainStateTransition {
         // consume the same key will be rejected)
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
             windowed_block_commits,
-            windowed_user_burns,
+            windowed_missed_commits,
             sunset_finished_at,
         );
 
@@ -1470,7 +1488,8 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
+        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use chainstate::burn::distribution::BurnSamplePoint;
@@ -1843,6 +1862,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 444,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -1883,6 +1903,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 445,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -1923,6 +1944,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 446,
             block_height: 124,
+            burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_124_hash_initial.clone(),
         };
 
@@ -2082,10 +2104,6 @@ pub mod tests {
                 BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
             ],
             vec![
-                BlockstackOperationType::UserBurnSupport(user_burn_1.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_1_2.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_2.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn_2_2.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
                 BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
@@ -2222,7 +2240,7 @@ pub mod tests {
             let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
                 let bf = match op {
                     BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
-                    BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
+                    BlockstackOperationType::UserBurnSupport(ref op) => 0,
                     _ => 0,
                 };
                 acc += bf;
@@ -2373,6 +2391,7 @@ pub mod tests {
                 .unwrap(),
                 vtxindex: (i + 2) as u32,
                 block_height: 5,
+                burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             });
             block_commits.push(op);
@@ -2403,6 +2422,7 @@ pub mod tests {
             txid: Txid([0xdd; 32]),
             vtxindex: 1,
             block_height: 5,
+            burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0xff; 32]),
         });
 
@@ -2632,6 +2652,9 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: (2 * i) as u32,
                     block_height: first_block_height + ((i + 1) as u64),
+                    burn_parent_modulus: ((first_block_height + (i as u64))
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: burn_block_hash.clone(),
                 };
 

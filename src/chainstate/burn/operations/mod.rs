@@ -44,6 +44,9 @@ use util::hash::Sha512Trunc256Sum;
 use burnchains::BurnchainBlockHeader;
 
 use burnchains::Error as BurnchainError;
+use chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use chainstate::burn::Opcodes;
 use chainstate::burn::VRFSeed;
 use chainstate::stacks::index::TrieHash;
@@ -69,8 +72,9 @@ pub enum Error {
     BlockCommitNoParent,
     BlockCommitBadInput,
     BlockCommitBadOutputs,
-
     BlockCommitAnchorCheck,
+    BlockCommitBadModulus,
+    MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
     LeaderKeyAlreadyRegistered,
@@ -111,7 +115,15 @@ impl fmt::Display for Error {
             Error::BlockCommitBadOutputs => {
                 write!(f, "Block commit included a bad commitment output")
             }
-
+            Error::BlockCommitBadModulus => {
+                write!(f, "Block commit included a bad burn block height modulus")
+            }
+            Error::MissedBlockCommit(_) => {
+                write!(
+                    f,
+                    "Block commit included in a burn block that was not intended"
+                )
+            }
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }
@@ -212,6 +224,8 @@ pub struct LeaderBlockCommitOp {
     pub burn_fee: u64,
     /// the input transaction, used in mining commitment smoothing
     pub input: (Txid, u32),
+
+    pub burn_parent_modulus: u8,
 
     /// the apparent sender of the transaction. note: this
     ///  is *not* authenticated, and should be used only
@@ -335,7 +349,9 @@ impl BlockstackOperationType {
     pub fn set_block_height(&mut self, height: u64) {
         match self {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
-            BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.block_height = height,
+            BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
+                data.set_burn_height(height)
+            }
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,

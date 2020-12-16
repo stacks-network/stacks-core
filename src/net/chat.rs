@@ -2498,6 +2498,7 @@ mod test {
                     &prev_snapshot,
                     &next_snapshot,
                     &vec![],
+                    &vec![],
                     None,
                     None,
                     None,

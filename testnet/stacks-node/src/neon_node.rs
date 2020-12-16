@@ -13,8 +13,8 @@ use std::{thread, thread::JoinHandle};
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp,
+    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
@@ -237,8 +237,10 @@ fn inner_generate_block_commit_op(
     vrf_seed: VRFSeed,
     commit_outs: Vec<StacksAddress>,
     sunset_burn: u64,
+    current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
+    let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         sunset_burn,
@@ -256,6 +258,7 @@ fn inner_generate_block_commit_op(
         txid: Txid([0u8; 32]),
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash::zero(),
+        burn_parent_modulus,
         commit_outs,
     })
 }
@@ -1537,6 +1540,7 @@ impl InitializedNeonNode {
             VRFSeed::from_proof(&vrf_proof),
             commit_outs,
             sunset_burn,
+            burn_block.block_height,
         );
         let mut op_signer = keychain.generate_op_signer();
         debug!(
