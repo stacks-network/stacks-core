@@ -2102,12 +2102,13 @@ pub mod test {
             burnchain.pox_constants =
                 PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
 
-            let spending_account = TestMinerFactory::new().next_miner(
+            let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
                 1,
                 1,
                 AddressHashMode::SerializeP2PKH,
             );
+            spending_account.test_with_tx_fees = false; // manually set transaction fees
 
             TestPeerConfig {
                 network_id: 0x80000000,
@@ -2238,6 +2239,9 @@ pub mod test {
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
+            // manually set fees
+            miner.test_with_tx_fees = false;
 
             let mut burnchain = get_burnchain(&test_path, None);
             burnchain.first_block_height = config.burnchain.first_block_height;

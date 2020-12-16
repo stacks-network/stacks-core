@@ -2115,7 +2115,7 @@ pub mod test {
                 let mut found = false;
                 for recipient in prev_block_reward {
                     if recipient.address == miner.origin_address().unwrap() {
-                        let mut reward: u128 = recipient.coinbase
+                        let reward: u128 = recipient.coinbase
                             + recipient.tx_fees_anchored
                             + (3 * recipient.tx_fees_streamed / 5);
 
@@ -4967,9 +4967,13 @@ pub mod test {
 
         tx_contract.chain_id = 0x80000000;
         tx_contract.auth.set_origin_nonce(miner.get_nonce());
-        tx_contract.set_tx_fee(123);
 
-        miner.spent_at_nonce.insert(miner.get_nonce(), 123);
+        if miner.test_with_tx_fees {
+            tx_contract.set_tx_fee(123);
+            miner.spent_at_nonce.insert(miner.get_nonce(), 123);
+        } else {
+            tx_contract.set_tx_fee(0);
+        }
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
         miner.sign_as_origin(&mut tx_signer);
@@ -5001,9 +5005,13 @@ pub mod test {
 
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
-        tx_contract_call.set_tx_fee(456);
 
-        miner.spent_at_nonce.insert(miner.get_nonce(), 456);
+        if miner.test_with_tx_fees {
+            tx_contract_call.set_tx_fee(456);
+            miner.spent_at_nonce.insert(miner.get_nonce(), 456);
+        } else {
+            tx_contract_call.set_tx_fee(0);
+        }
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
         miner.sign_as_origin(&mut tx_signer);
@@ -5071,6 +5079,10 @@ pub mod test {
         );
         builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
+        if miner.spent_at_nonce.get(&1).is_none() {
+            miner.spent_at_nonce.insert(1, 11111);
+        }
+
         let tx2 = make_token_transfer(
             miner,
             burnchain_height,
@@ -5080,6 +5092,10 @@ pub mod test {
             &TokenTransferMemo([2u8; 34]),
         );
         builder.force_mine_tx(clarity_tx, &tx2).unwrap();
+
+        if miner.spent_at_nonce.get(&2).is_none() {
+            miner.spent_at_nonce.insert(2, 22222);
+        }
 
         let tx3 = make_token_transfer(
             miner,
@@ -5104,6 +5120,7 @@ pub mod test {
         let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
+
         (stacks_block, vec![])
     }
 
