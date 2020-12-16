@@ -38,6 +38,7 @@ use chainstate::stacks::{StacksAddress, StacksBlockId};
 
 use util::db::{DBConn, FromRow};
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::costs::CostOverflowingMath;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
@@ -367,6 +368,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn initialize(&mut self) {}
 
+    pub fn is_stack_empty(&self) -> bool {
+        self.store.depth() == 0
+    }
+
     pub fn begin(&mut self) {
         self.store.nest();
     }
@@ -463,6 +468,15 @@ impl<'a> ClarityDatabase<'a> {
             .flatten()
     }
 
+    pub fn set_metadata(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        key: &str,
+        data: &str,
+    ) {
+        self.store.insert_metadata(contract_identifier, key, data);
+    }
+
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -491,6 +505,36 @@ impl<'a> ClarityDatabase<'a> {
         self.store
             .get_metadata(contract_identifier, key)
             .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
+    }
+
+    pub fn fetch_metadata_manual<T>(
+        &mut self,
+        at_height: u32,
+        contract_identifier: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store
+            .get_metadata_manual(at_height, contract_identifier, key)
+            .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
+    }
+
+    // load contract analysis stored by an analysis_db instance.
+    //   in unit testing, where the interpreter is invoked without
+    //   an analysis pass, this function will fail to find contract
+    //   analysis data
+    pub fn load_contract_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Option<ContractAnalysis> {
+        self.store
+            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            // treat NoSuchContract error thrown by get_metadata as an Option::None --
+            //    the analysis will propagate that as a CheckError anyways.
+            .ok()?
+            .map(|x| ContractAnalysis::deserialize(&x))
     }
 
     pub fn get_contract_size(

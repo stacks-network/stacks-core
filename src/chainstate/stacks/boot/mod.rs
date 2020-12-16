@@ -18,6 +18,7 @@ use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error;
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksBlockHeader;
+use vm::database::ClarityDatabase;
 
 use address::AddressHashMode;
 use burnchains::bitcoin::address::BitcoinAddress;
@@ -26,9 +27,13 @@ use burnchains::{Address, PoxConstants};
 use chainstate::burn::db::sortdb::SortitionDB;
 use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 
+use vm::costs::{
+    cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
+};
+use vm::representations::ClarityName;
 use vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    Value,
+    TypeSignature, Value,
 };
 
 use chainstate::stacks::index::marf::MarfConnection;
@@ -55,6 +60,7 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 
 lazy_static! {
@@ -64,19 +70,23 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 4] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", BOOT_CODE_COST_VOTING),
         ("bns", &BOOT_CODE_BNS),
-        ("costs", BOOT_CODE_COSTS)
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 4] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", BOOT_CODE_COST_VOTING),
         ("bns", &BOOT_CODE_BNS),
-        ("costs", BOOT_CODE_COSTS)
     ];
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
+    pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =
+        boot_code_id("cost-voting");
 }
 
 pub fn boot_code_addr() -> StacksAddress {

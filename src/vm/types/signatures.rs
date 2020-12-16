@@ -62,7 +62,7 @@ impl AssetIdentifier {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
@@ -1268,6 +1268,16 @@ impl fmt::Display for TupleTypeSignature {
             write!(f, " ({} {})", &**field_name, field_type)?;
         }
         write!(f, ")")
+    }
+}
+
+impl fmt::Debug for TupleTypeSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TupleTypeSignature {{")?;
+        for (field_name, field_type) in self.type_map.iter() {
+            write!(f, " \"{}\": {},", &**field_name, field_type)?;
+        }
+        write!(f, "}}")
     }
 }
 
