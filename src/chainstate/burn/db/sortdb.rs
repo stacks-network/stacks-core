@@ -1093,9 +1093,12 @@ impl<'a> SortitionHandleTx<'a> {
     /// Returns None if:
     ///   * The reward cycle had an anchor block, but it isn't known by this node.
     ///   * The reward cycle did not have anchor block
+    ///   * The block is in the prepare phase of a reward cycle, in which case miners must burn
     ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
     fn pick_recipients(
         &mut self,
+        burnchain: &Burnchain,
+        block_height: u64,
         reward_set_vrf_seed: &SortitionHash,
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
@@ -1103,6 +1106,19 @@ impl<'a> SortitionHandleTx<'a> {
             if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) =
                 next_pox_info.anchor_status
             {
+                if burnchain.is_in_prepare_phase(block_height) {
+                    debug!(
+                        "No recipients for block {}, since in prepare phase",
+                        block_height
+                    );
+                    return Ok(None);
+                }
+
+                test_debug!(
+                    "Pick recipients for anchor block {} -- {} reward recipient(s)",
+                    anchor_block,
+                    reward_set.len()
+                );
                 if reward_set.len() == 0 {
                     return Ok(None);
                 }
@@ -1129,6 +1145,7 @@ impl<'a> SortitionHandleTx<'a> {
                         .collect(),
                 }))
             } else {
+                test_debug!("No anchor block known for this reward cycle");
                 Ok(None)
             }
         } else {
@@ -1138,6 +1155,10 @@ impl<'a> SortitionHandleTx<'a> {
                 // get the reward set size
                 let reward_set_size = self.get_reward_set_size()?;
                 if reward_set_size == 0 {
+                    test_debug!(
+                        "No more reward recipients descending from anchor block {}",
+                        anchor_block
+                    );
                     Ok(None)
                 } else {
                     let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
@@ -1147,6 +1168,7 @@ impl<'a> SortitionHandleTx<'a> {
                         let recipient = self.get_reward_set_entry(ix)?;
                         recipients.push((recipient, ix));
                     }
+                    test_debug!("PoX reward recipients: {:?}", &recipients);
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,
@@ -1154,6 +1176,7 @@ impl<'a> SortitionHandleTx<'a> {
                 }
             } else {
                 // no anchor block selected
+                test_debug!("No anchor block selected for this reward cycle");
                 Ok(None)
             }
         }
@@ -2510,7 +2533,12 @@ impl SortitionDB {
         let reward_set_info = if burn_header.block_height >= burnchain.pox_constants.sunset_end {
             None
         } else {
-            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
+            sortition_db_handle.pick_recipients(
+                burnchain,
+                burn_header.block_height,
+                &reward_set_vrf_hash,
+                next_pox_info.as_ref(),
+            )?
         };
 
         // Get any initial mining bonus which would be due to the winner of this block.
@@ -2547,18 +2575,18 @@ impl SortitionDB {
     #[cfg(test)]
     pub fn test_get_next_block_recipients(
         &mut self,
+        burnchain: &Burnchain,
         next_pox_info: Option<&RewardCycleInfo>,
-        sunset_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
-        self.get_next_block_recipients(&parent_snapshot, next_pox_info, sunset_ht)
+        self.get_next_block_recipients(burnchain, &parent_snapshot, next_pox_info)
     }
 
     pub fn get_next_block_recipients(
         &mut self,
+        burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         next_pox_info: Option<&RewardCycleInfo>,
-        sunset_end_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
@@ -2566,10 +2594,15 @@ impl SortitionDB {
 
         let mut sortition_db_handle =
             SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
-        if parent_snapshot.block_height + 1 >= sunset_end_ht {
+        if parent_snapshot.block_height + 1 >= burnchain.pox_constants.sunset_end {
             Ok(None)
         } else {
-            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
+            sortition_db_handle.pick_recipients(
+                burnchain,
+                parent_snapshot.block_height + 1,
+                &reward_set_vrf_hash,
+                next_pox_info,
+            )
         }
     }
 

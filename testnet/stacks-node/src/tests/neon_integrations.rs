@@ -1270,8 +1270,20 @@ fn pox_integration_test() {
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
-    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15, 239, 250);
-    burnchain_config.pox_constants = pox_constants;
+
+    // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
+    let reward_cycle_len = 15;
+    let prepare_phase_len = 5;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -1382,7 +1394,7 @@ fn pox_integration_test() {
     eprintln!("Sort height: {}", sort_height);
 
     // now let's mine until the next reward cycle starts ...
-    while sort_height < 222 {
+    while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1417,8 +1429,11 @@ fn pox_integration_test() {
 
             let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
             let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+            // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+            // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+            // cycle length of 15 blocks, is a burnchain height of 300)
             assert_eq!(parsed.to_string(),
-                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u270)))",
+                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
                                &spender_addr));
             tested = true;
         }
@@ -1519,7 +1534,7 @@ fn pox_integration_test() {
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
-    while sort_height < 229 {
+    while sort_height < ((15 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1538,7 +1553,7 @@ fn pox_integration_test() {
     // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
-    while sort_height < 239 {
+    while sort_height < ((16 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1575,10 +1590,11 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 36);
 
     // now let's mine into the sunset
-    while sort_height < 249 {
+    while sort_height < ((17 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1593,7 +1609,8 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
-    assert_eq!(tip_info.stacks_tip_height, 46);
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
+    assert_eq!(tip_info.stacks_tip_height, 51);
 
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
@@ -1606,7 +1623,7 @@ fn pox_integration_test() {
     );
 
     // and after sunset
-    while sort_height < 259 {
+    while sort_height < ((18 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -1632,7 +1649,8 @@ fn pox_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
 
-    assert_eq!(tip_info.stacks_tip_height, 56);
+    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
+    assert_eq!(tip_info.stacks_tip_height, 66);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

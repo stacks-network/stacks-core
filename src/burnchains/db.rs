@@ -293,9 +293,9 @@ impl BurnchainDB {
     /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(
         &self,
+        burnchain: &Burnchain,
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
-        sunset_end_ht: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {}",
@@ -307,13 +307,8 @@ impl BurnchainDB {
         let mut pre_stx_ops = HashMap::new();
 
         for tx in block.txs().iter() {
-            let result = Burnchain::classify_transaction(
-                self,
-                block_header,
-                &tx,
-                sunset_end_ht,
-                &pre_stx_ops,
-            );
+            let result =
+                Burnchain::classify_transaction(burnchain, self, block_header, &tx, &pre_stx_ops);
             if let Some(classified_tx) = result {
                 if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
                     pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
@@ -336,13 +331,13 @@ impl BurnchainDB {
 
     pub fn store_new_burnchain_block(
         &mut self,
+        burnchain: &Burnchain,
         block: &BurnchainBlock,
-        sunset_end_ht: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         info!("Storing new burnchain block";
               "burn_header_hash" => %header.block_hash.to_string());
-        let mut blockstack_ops = self.get_blockstack_transactions(block, &header, sunset_end_ht);
+        let mut blockstack_ops = self.get_blockstack_transactions(burnchain, block, &header);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
@@ -380,6 +375,7 @@ mod tests {
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::*;
     use burnchains::bitcoin::*;
+    use burnchains::PoxConstants;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use chainstate::burn::*;
     use chainstate::stacks::*;
@@ -403,6 +399,11 @@ mod tests {
             BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true)
                 .unwrap();
 
+        let mut burnchain = Burnchain::regtest(":memory:");
+        burnchain.pox_constants = PoxConstants::test_default();
+        burnchain.pox_constants.sunset_start = 999;
+        burnchain.pox_constants.sunset_end = 1000;
+
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
         assert_eq!(&first_block_header.block_height, &first_height);
@@ -422,7 +423,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&canonical_block, 1000)
+            .store_new_burnchain_block(&burnchain, &canonical_block)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -460,7 +461,7 @@ mod tests {
         ));
 
         let ops = burnchain_db
-            .store_new_burnchain_block(&non_canonical_block, 1000)
+            .store_new_burnchain_block(&burnchain, &non_canonical_block)
             .unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
@@ -510,6 +511,11 @@ mod tests {
             BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true)
                 .unwrap();
 
+        let mut burnchain = Burnchain::regtest(":memory:");
+        burnchain.pox_constants = PoxConstants::test_default();
+        burnchain.pox_constants.sunset_start = 999;
+        burnchain.pox_constants.sunset_end = 1000;
+
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
         assert_eq!(&first_block_header.block_height, &first_height);
@@ -529,7 +535,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&canonical_block, 1000)
+            .store_new_burnchain_block(&burnchain, &canonical_block)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -680,7 +686,7 @@ mod tests {
         ));
 
         let processed_ops_0 = burnchain_db
-            .store_new_burnchain_block(&block_0, 1000)
+            .store_new_burnchain_block(&burnchain, &block_0)
             .unwrap();
 
         assert_eq!(
@@ -690,7 +696,7 @@ mod tests {
         );
 
         let processed_ops_1 = burnchain_db
-            .store_new_burnchain_block(&block_1, 1000)
+            .store_new_burnchain_block(&burnchain, &block_1)
             .unwrap();
 
         assert_eq!(

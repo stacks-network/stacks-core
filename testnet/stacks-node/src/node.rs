@@ -772,7 +772,15 @@ impl Node {
             ),
         };
 
-        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let commit_outs = if burnchain_tip.block_snapshot.block_height + 1
+            < burnchain.pox_constants.sunset_end
+            && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
+        {
+            RewardSetInfo::into_commit_outs(None, false)
+        } else {
+            vec![StacksAddress::burn_address(false)]
+        };
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             sunset_burn: 0,

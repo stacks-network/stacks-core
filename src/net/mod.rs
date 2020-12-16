@@ -2242,6 +2242,7 @@ pub mod test {
             let mut burnchain = get_burnchain(&test_path, None);
             burnchain.first_block_height = config.burnchain.first_block_height;
             burnchain.first_block_hash = config.burnchain.first_block_hash;
+            burnchain.pox_constants = config.burnchain.pox_constants;
 
             config.burnchain = burnchain.clone();
 
@@ -3061,6 +3062,12 @@ pub mod test {
                         Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
                         None => vec![],
                     };
+                    test_debug!(
+                        "Block commit at height {} has {} recipients: {:?}",
+                        block_commit_op.block_height,
+                        block_commit_op.commit_outs.len(),
+                        &block_commit_op.commit_outs
+                    );
                 }
                 Err(e) => {
                     panic!("Failure fetching recipient set: {:?}", e);
