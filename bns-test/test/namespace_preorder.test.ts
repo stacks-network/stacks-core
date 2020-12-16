@@ -114,7 +114,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
       const tx = bns.createTransaction({
         method: {
           name: "namespace-preorder",
-          args: [`""`, `u${cases[0].value}`]
+          args: [`0x`, `u${cases[0].value}`]
         }
       });
       await tx.sign(cases[0].namespaceOwner);
