@@ -957,6 +957,7 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
+            let mut lockup_events: Vec<StacksTransactionEvent> = vec![];
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
                 info!("Initializing chain with lockups");
                 let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
@@ -1007,13 +1008,31 @@ impl StacksChainState {
                                         value: Value::Tuple(lookup_event)
                                     }
                                 );
-                                allocation_events.push(lookup_event);
+                                lockup_events.push(lookup_event);
                             }
                             Ok(())
                         })
                         .unwrap();
                 });
             }
+            let lockup_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_auth.clone(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                        address: boot_code_address,
+                        contract_name: ContractName::try_from("lockup").unwrap(),
+                        function_name: ClarityName::try_from("genesis").unwrap(),
+                        function_args: vec![],
+                    }
+                ),
+            );
+            let lockup_receipt = StacksTransactionReceipt::from_stx_transfer(
+                lockup_tx,
+                lockup_events,
+                Value::okay_true(),
+                ExecutionCost::zero(),
+            );
+            receipts.push(lockup_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
