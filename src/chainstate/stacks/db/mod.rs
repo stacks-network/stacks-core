@@ -1822,7 +1822,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_chainstate_genesis_consistency() {
+    fn test_chainstate_test_genesis_consistency() {
         // Test root hash for the test chainstate data set
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
@@ -1878,7 +1878,11 @@ pub mod test {
             format!("{}", genesis_block),
             "e336d28e3bccdf8e5e77216e0dea26b60292f4577b05ab2d4414776f29a5e9fc"
         );
+    }
 
+    #[test]
+    #[ignore]
+    fn test_chainstate_genesis_consistency() {
         // Test root hash for the final chainstate data set
         // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
         // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
