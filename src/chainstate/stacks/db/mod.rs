@@ -988,12 +988,26 @@ impl StacksChainState {
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
+                                let value = Value::list_from(schedule).unwrap();
                                 db.insert_entry(
                                     &lockup_contract_id,
                                     "lockups",
-                                    key,
-                                    Value::list_from(schedule).unwrap(),
+                                    key.clone(),
+                                    value.clone(),
                                 )?;
+
+                                // Attach some events
+                                let lookup_event = TupleData::from_data(vec![
+                                    (ClarityName::try_from("block-height").unwrap(), key),
+                                    (ClarityName::try_from("due-schedules").unwrap(), value)
+                                ]).unwrap();
+                                let lookup_event = StacksTransactionEvent::SmartContractEvent(
+                                    SmartContractEventData {
+                                        key: (boot_code_id("lockup"), "print".to_string()),
+                                        value: Value::Tuple(lookup_event)
+                                    }
+                                );
+                                allocation_events.push(lookup_event);
                             }
                             Ok(())
                         })
