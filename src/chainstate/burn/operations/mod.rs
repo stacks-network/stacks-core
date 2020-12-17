@@ -118,12 +118,10 @@ impl fmt::Display for Error {
             Error::BlockCommitBadModulus => {
                 write!(f, "Block commit included a bad burn block height modulus")
             }
-            Error::MissedBlockCommit(_) => {
-                write!(
-                    f,
-                    "Block commit included in a burn block that was not intended"
-                )
-            }
+            Error::MissedBlockCommit(_) => write!(
+                f,
+                "Block commit included in a burn block that was not intended"
+            ),
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }

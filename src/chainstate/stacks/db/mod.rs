@@ -1000,13 +1000,14 @@ impl StacksChainState {
                                 // Attach some events
                                 let lookup_event = TupleData::from_data(vec![
                                     (ClarityName::try_from("block-height").unwrap(), key),
-                                    (ClarityName::try_from("due-schedules").unwrap(), value)
-                                ]).unwrap();
+                                    (ClarityName::try_from("due-schedules").unwrap(), value),
+                                ])
+                                .unwrap();
                                 let lookup_event = StacksTransactionEvent::SmartContractEvent(
                                     SmartContractEventData {
                                         key: (boot_code_id("lockup"), "print".to_string()),
-                                        value: Value::Tuple(lookup_event)
-                                    }
+                                        value: Value::Tuple(lookup_event),
+                                    },
                                 );
                                 lockup_events.push(lookup_event);
                             }
@@ -1019,12 +1020,11 @@ impl StacksChainState {
                 tx_version.clone(),
                 boot_code_auth.clone(),
                 TransactionPayload::ContractCall(TransactionContractCall {
-                        address: boot_code_address,
-                        contract_name: ContractName::try_from("lockup").unwrap(),
-                        function_name: ClarityName::try_from("genesis").unwrap(),
-                        function_args: vec![],
-                    }
-                ),
+                    address: boot_code_address,
+                    contract_name: ContractName::try_from("lockup").unwrap(),
+                    function_name: ClarityName::try_from("genesis").unwrap(),
+                    function_args: vec![],
+                }),
             );
             let lockup_receipt = StacksTransactionReceipt::from_stx_transfer(
                 lockup_tx,
