@@ -1737,6 +1737,7 @@ pub mod test {
     use chainstate::stacks::*;
     use std::fs;
 
+    use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
 
     pub fn instantiate_chainstate(
@@ -1818,5 +1819,122 @@ pub mod test {
                 StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
         }
+    }
+
+    #[test]
+    fn test_chainstate_genesis_consistency() {
+        // Test root hash for the test chainstate data set
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate-test");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_block = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+        assert_eq!(
+            format!("{}", genesis_block),
+            "e336d28e3bccdf8e5e77216e0dea26b60292f4577b05ab2d4414776f29a5e9fc"
+        );
+
+        // Test root hash for the final chainstate data set
+        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            true,
+            0x000000001,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_block = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+        assert_eq!(
+            format!("{}", genesis_block),
+            "e09fbe2beda35c18f323ff6832650ecdd4b36236b7375d301ad594afb2b9e364"
+        );
     }
 }
