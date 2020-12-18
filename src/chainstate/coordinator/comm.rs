@@ -133,13 +133,13 @@ impl CoordinatorReceivers {
     }
 
     /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_lock(&self) -> LockResult<MutexGuard<'_, ()>> {
-        self.kludgy_temporary_clarity_db_lock.lock()
+    pub fn kludgy_clarity_db_lock(&self) -> LockResult<()> {
+        Ok(())
     }
 
     /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_trylock(&self) -> TryLockResult<MutexGuard<'_, ()>> {
-        self.kludgy_temporary_clarity_db_lock.try_lock()
+    pub fn kludgy_clarity_db_trylock(&self) -> TryLockResult<()> {
+        Ok(())
     }
 }
 
