@@ -504,7 +504,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             self.storage
                 .open_block(&T::sentinel())
                 .expect("BUG: should never fail to open the block sentinel");
-            self.storage.commit_tx()
+            self.storage.rollback()
         }
     }
 
@@ -516,7 +516,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
                 self.storage
                     .open_block(&T::sentinel())
                     .expect("BUG: should never fail to open the block sentinel");
-                self.storage.commit_tx();
+                // Dropping unconfirmed state cannot be done with a tx rollback,
+                //   because the unconfirmed state may already have been written
+                //   to the sqlite table before this transaction began
+                self.storage.commit_tx()
             }
         }
     }

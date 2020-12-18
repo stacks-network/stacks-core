@@ -194,7 +194,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     let mut marf_kv = clarity_instance.destroy();
 
-    marf_kv.begin(
+    let mut store = marf_kv.begin(
         &StacksBlockHeader::make_index_block_hash(
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
@@ -202,9 +202,8 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         &StacksBlockId([1 as u8; 32]),
     );
 
-    let mut owned_env = OwnedEnvironment::new_max_limit(
-        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
-    );
+    let mut owned_env =
+        OwnedEnvironment::new_max_limit(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
     owned_env
         .initialize_contract(trait_contract_id.clone(), contract_trait)

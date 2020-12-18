@@ -92,37 +92,38 @@ impl SqliteConnection {
         value: &str,
     ) {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: [&dyn ToSql; 3] = [&bhh, &key, &value.to_string()];
+        let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
 
-        match conn.execute(
+        if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
             &params,
         ) {
-            Ok(_) => {}
-            Err(e) => {
-                error!(
-                    "Failed to insert ({},{},{}): {:?}",
-                    &bhh,
-                    &key,
-                    &value.to_string(),
-                    &e
-                );
-                panic!(SQL_FAIL_MESSAGE);
-            }
+            error!(
+                "Failed to insert ({},{},{}): {:?}",
+                &bhh,
+                &key,
+                &value.to_string(),
+                &e
+            );
+            panic!(SQL_FAIL_MESSAGE);
         }
     }
 
     pub fn commit_metadata_to(conn: &Connection, from: &StacksBlockId, to: &StacksBlockId) {
         let params = [to, from];
-        match conn.execute(
+        if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params,
         ) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Failed to update {} to {}: {:?}", &from, &to, &e);
-                panic!(SQL_FAIL_MESSAGE);
-            }
+            error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+            panic!(SQL_FAIL_MESSAGE);
+        }
+    }
+
+    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) {
+        if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
+            error!("Failed to drop metadata from {}: {:?}", &from, &e);
+            panic!(SQL_FAIL_MESSAGE);
         }
     }
 

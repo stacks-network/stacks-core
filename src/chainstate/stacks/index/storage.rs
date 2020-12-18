@@ -1165,6 +1165,19 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             }
         }
     }
+
+    pub fn rollback(self) {
+        match self.0.db {
+            SqliteConnection::Tx(tx) => {
+                tx.rollback().expect("CORRUPTION: Failed to commit MARF");
+            }
+            SqliteConnection::ConnRef(_) => {
+                unreachable!(
+                    "BUG: Constructed TrieStorageTransaction with a bare sqlite connection ref."
+                );
+            }
+        }
+    }
 }
 
 impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {

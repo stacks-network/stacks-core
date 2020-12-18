@@ -440,7 +440,7 @@ impl ClarityInstance {
             .datastore
             .as_mut()
             .unwrap()
-            .as_clarity_db(header_db, burn_state_db);
+            .as_foo_clarity_db(header_db, burn_state_db);
         let mut env = OwnedEnvironment::new_free(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
@@ -576,7 +576,7 @@ impl<'a> ClarityBlockConnection<'a> {
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
     #[cfg(test)]
-    pub fn commit_block(mut self) -> LimitedCostTracker {
+    pub fn commit_block(self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
         self.datastore.test_commit();
 
@@ -1243,6 +1243,7 @@ mod tests {
             conn.commit_block();
         }
         let mut marf = clarity_instance.destroy();
+        marf.set_chain_tip(&StacksBlockId([1 as u8; 32]));
         assert!(marf.get_contract_hash(&contract_identifier).is_ok());
     }
 
@@ -1412,14 +1413,15 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
+        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0 as u8; 32]));
 
         // should not be in the marf.
         assert_eq!(
-            marf.get_contract_hash(&contract_identifier).unwrap_err(),
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
 
-        let sql = marf.get_side_store();
+        let sql = conn.get_side_store();
         // sqlite only have any metadata entries from the genesis block
         assert_eq!(
             genesis_metadata_entries,

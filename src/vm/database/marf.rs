@@ -51,9 +51,6 @@ use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 pub struct MarfedKV {
     chain_tip: StacksBlockId,
     marf: MARF<StacksBlockId>,
-    // Since the MARF only stores 32 bytes of value,
-    //   we need another storage
-    side_store: SqliteConnection,
 }
 
 pub struct WritableMarfStore<'a> {
@@ -253,11 +250,7 @@ impl MarfedKV {
             None => StacksBlockId::sentinel(),
         };
 
-        Ok(MarfedKV {
-            marf,
-            chain_tip,
-            side_store,
-        })
+        Ok(MarfedKV { marf, chain_tip })
     }
 
     pub fn open_unconfirmed(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
@@ -267,11 +260,7 @@ impl MarfedKV {
             None => StacksBlockId::sentinel(),
         };
 
-        Ok(MarfedKV {
-            marf,
-            chain_tip,
-            side_store,
-        })
+        Ok(MarfedKV { marf, chain_tip })
     }
 
     // used by benchmarks
@@ -292,14 +281,10 @@ impl MarfedKV {
 
         let chain_tip = StacksBlockId::sentinel();
 
-        MarfedKV {
-            marf,
-            chain_tip,
-            side_store,
-        }
+        MarfedKV { marf, chain_tip }
     }
 
-    pub fn as_clarity_db<'a>(
+    pub fn as_foo_clarity_db<'a>(
         &'a mut self,
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
@@ -409,7 +394,7 @@ impl MarfedKV {
 
 impl ClarityBackingStore for MarfedKV {
     fn get_side_store(&mut self) -> &Connection {
-        self.side_store.conn()
+        self.marf.sqlite_conn()
     }
 
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
@@ -696,6 +681,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 
     pub fn rollback_unconfirmed(self) {
+        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip);
         self.marf.drop_unconfirmed();
     }
 
@@ -737,7 +723,7 @@ impl<'a> WritableMarfStore<'a> {
         //    included in the processed chainstate (like a block constructed during mining)
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
-        // self.side_store.rollback(&self.chain_tip);
+        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip);
         let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
             error!(
                 "Failed to commit to mined MARF block {}: {:?}",

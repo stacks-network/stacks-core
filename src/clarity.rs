@@ -523,7 +523,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&db_name);
             in_block(db_name, marf_kv, |mut kv| {
                 {
-                    let mut db = kv.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let mut db = kv.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
@@ -727,7 +727,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let db = marf.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env =
                         OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
                     vm_env
@@ -757,7 +757,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let db = marf.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env =
                         OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
                     vm_env
@@ -807,7 +807,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let db = marf.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env =
                         OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
                     vm_env
@@ -867,7 +867,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     Err(e) => (marf, Err(e)),
                     Ok(analysis) => {
                         let result = {
-                            let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                            let db = marf.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                             let mut vm_env = OwnedEnvironment::new_cost_limited(
                                 db,
                                 LimitedCostTracker::new_free(),
@@ -947,7 +947,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let db = marf.as_foo_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env =
                         OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
                     vm_env.execute_transaction(
