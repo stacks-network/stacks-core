@@ -271,11 +271,12 @@ where
         .to_string();
 
     // need to load the last block
-    let (from, to) = advance_cli_chain_tip(&cli_db_path);
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
-    marf_return.commit_to(&to);
-    result
+    unimplemented!("")
+    //    let (from, to) = advance_cli_chain_tip(&cli_db_path);
+    //    marf_kv.begin(&from, &to);
+    //    let (mut marf_return, result) = f(marf_kv);
+    //    marf_return.commit_to(&to);
+    //    result
 }
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
@@ -299,10 +300,11 @@ where
     let from = get_cli_chain_tip(&cli_db_conn);
     let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
-    marf_return.rollback();
-    result
+    unimplemented!("")
+    //    marf_kv.begin(&from, &to);
+    //    let (mut marf_return, result) = f(marf_kv);
+    //    marf_return.rollback();
+    //    result
 }
 
 fn at_block<F, R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
@@ -314,10 +316,12 @@ where
         .expect(&format!("FATAL: failed to parse inputted blockhash"));
     let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
-    marf_return.rollback();
-    result
+    unimplemented!("")
+
+    //    marf_kv.begin(&from, &to);
+    //    let (mut marf_return, result) = f(marf_kv);
+    //    marf_return.rollback();
+    //    result
 }
 
 struct CLIHeadersDB {

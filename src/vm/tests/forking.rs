@@ -256,56 +256,48 @@ where
     F3: FnOnce(&mut OwnedEnvironment),
 {
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
 
     {
-        marf_kv
+        let mut store = marf_kv.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
+        store
             .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
             .initialize();
+        store.test_commit();
     }
-
-    marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
 
     {
+        let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
-        f(&mut owned_env)
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+        f(&mut owned_env);
+        store.test_commit();
     }
-
-    marf_kv.test_commit();
 
     // Now, we can do our forking.
 
-    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-
     {
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
-        a(&mut owned_env)
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+        a(&mut owned_env);
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-
-    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-
     {
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
-        b(&mut owned_env)
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+        b(&mut owned_env);
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-
-    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-
     {
+        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
-        z(&mut owned_env)
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+        z(&mut owned_env);
+        store.test_commit();
     }
-
-    marf_kv.test_commit();
 }
 
 fn initialize_contract(owned_env: &mut OwnedEnvironment) {

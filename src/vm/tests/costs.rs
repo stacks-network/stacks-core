@@ -327,11 +327,10 @@ fn test_cost_contract_short_circuits() {
         clarity_inst.destroy()
     };
 
-    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-
     let without_interposing_5 = {
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -345,12 +344,14 @@ fn test_cost_contract_short_circuits() {
 
         let (_db, tracker) = owned_env.destruct().unwrap();
 
+        store.test_commit();
         tracker.get_total()
     };
 
     let without_interposing_10 = {
+        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -364,11 +365,13 @@ fn test_cost_contract_short_circuits() {
 
         let (_db, tracker) = owned_env.destruct().unwrap();
 
+        store.test_commit();
         tracker.get_total()
     };
 
     {
-        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
+        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
         db.set_variable(
             &STACKS_BOOT_COST_VOTE_CONTRACT,
@@ -392,14 +395,14 @@ fn test_cost_contract_short_circuits() {
         )
         .unwrap();
         db.commit();
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-
     let with_interposing_5 = {
+        let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
+
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -413,12 +416,14 @@ fn test_cost_contract_short_circuits() {
 
         let (_db, tracker) = owned_env.destruct().unwrap();
 
+        store.test_commit();
         tracker.get_total()
     };
 
     let with_interposing_10 = {
+        let mut store = marf_kv.begin(&StacksBlockId([5 as u8; 32]), &StacksBlockId([6 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -563,8 +568,6 @@ fn test_cost_voting_integration() {
         clarity_inst.destroy()
     };
 
-    marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-
     let bad_cases = vec![
         // non existent "replacement target"
         (
@@ -643,7 +646,9 @@ fn test_cost_voting_integration() {
     let bad_proposals = bad_cases.len();
 
     {
-        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
+
+        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
 
         db.set_variable(
@@ -673,14 +678,13 @@ fn test_cost_voting_integration() {
             .unwrap();
         }
         db.commit();
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-
     let le_cost_without_interception = {
+        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -709,6 +713,7 @@ fn test_cost_voting_integration() {
                 "All cost functions should still point to the boot costs"
             );
         }
+        store.test_commit();
 
         tracker.get_total()
     };
@@ -734,11 +739,10 @@ fn test_cost_voting_integration() {
         ),
     ];
 
-    marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-
     {
-        let mut db = marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
+
+        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
 
         let good_proposals = good_cases.len() as u128;
@@ -769,14 +773,14 @@ fn test_cost_voting_integration() {
             .unwrap();
         }
         db.commit();
+
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
-
     {
+        let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
         );
 
         execute_transaction(
@@ -824,7 +828,6 @@ fn test_cost_voting_integration() {
                 );
             }
         }
+        store.test_commit();
     };
-
-    marf_kv.test_commit();
 }

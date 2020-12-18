@@ -70,21 +70,22 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
     trace!("sqlite_get {}: {:?}", key, &res);
     res
 }
+
 fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
     sqlite_get(conn, key).is_some()
 }
 
 impl SqliteConnection {
-    pub fn put(&mut self, key: &str, value: &str) {
-        sqlite_put(&self.conn, key, value)
+    pub fn put(conn: &Connection, key: &str, value: &str) {
+        sqlite_put(conn, key, value)
     }
 
-    pub fn get(&mut self, key: &str) -> Option<String> {
-        sqlite_get(&self.conn, key)
+    pub fn get(conn: &Connection, key: &str) -> Option<String> {
+        sqlite_get(conn, key)
     }
 
     pub fn insert_metadata(
-        &mut self,
+        conn: &Connection,
         bhh: &StacksBlockId,
         contract_hash: &str,
         key: &str,
@@ -93,7 +94,7 @@ impl SqliteConnection {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value.to_string()];
 
-        match self.conn.execute(
+        match conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
             &params,
         ) {
@@ -111,9 +112,9 @@ impl SqliteConnection {
         }
     }
 
-    pub fn commit_metadata_to(&mut self, from: &StacksBlockId, to: &StacksBlockId) {
+    pub fn commit_metadata_to(conn: &Connection, from: &StacksBlockId, to: &StacksBlockId) {
         let params = [to, from];
-        match self.conn.execute(
+        match conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params,
         ) {
@@ -126,7 +127,7 @@ impl SqliteConnection {
     }
 
     pub fn get_metadata(
-        &mut self,
+        conn: &Connection,
         bhh: &StacksBlockId,
         contract_hash: &str,
         key: &str,
@@ -134,8 +135,7 @@ impl SqliteConnection {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
-        match self
-            .conn
+        match conn
             .query_row(
                 "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
                 &params,
@@ -151,8 +151,8 @@ impl SqliteConnection {
         }
     }
 
-    pub fn has_entry(&mut self, key: &str) -> bool {
-        sqlite_has_entry(&self.conn, key)
+    pub fn has_entry(conn: &Connection, key: &str) -> bool {
+        sqlite_has_entry(conn, key)
     }
 
     /// begin, commit, rollback a save point identified by key
@@ -277,6 +277,25 @@ impl SqliteConnection {
 
         Ok(contract_db)
     }
+
+    pub fn initialize_conn(conn: &Connection) -> Result<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS data_table
+                      (key TEXT PRIMARY KEY, value TEXT)",
+            NO_PARAMS,
+        )
+        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS metadata_table
+                      (key TEXT NOT NULL, blockhash TEXT, value TEXT,
+                       UNIQUE (key, blockhash))",
+            NO_PARAMS,
+        )
+        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
+        Ok(())
+    }
     pub fn memory() -> Result<Self> {
         Self::initialize(":memory:")
     }
@@ -307,6 +326,10 @@ impl SqliteConnection {
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         Ok(SqliteConnection { conn })
+    }
+
+    pub fn conn(&self) -> &Connection {
+        &self.conn
     }
 
     #[cfg(test)]

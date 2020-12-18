@@ -119,16 +119,18 @@ struct TestSimHeadersDB {
 impl ClarityTestSim {
     pub fn new() -> ClarityTestSim {
         let mut marf = MarfedKV::temporary();
-        marf.begin(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId(test_sim_height_to_hash(0)),
-        );
         {
-            marf.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            let mut store = marf.begin(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId(test_sim_height_to_hash(0)),
+            );
+
+            store
+                .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
                 .initialize();
 
             let mut owned_env =
-                OwnedEnvironment::new(marf.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -136,8 +138,8 @@ impl ClarityTestSim {
                     USTX_PER_HOLDER,
                 );
             }
+            store.test_commit();
         }
-        marf.test_commit();
 
         ClarityTestSim { marf, height: 0 }
     }
@@ -146,7 +148,7 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        self.marf.begin(
+        let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.height)),
             &StacksBlockId(test_sim_height_to_hash(self.height + 1)),
         );
@@ -156,11 +158,11 @@ impl ClarityTestSim {
                 height: self.height + 1,
             };
             let mut owned_env =
-                OwnedEnvironment::new(self.marf.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
             f(&mut owned_env)
         };
 
-        self.marf.test_commit();
+        store.test_commit();
         self.height += 1;
 
         r

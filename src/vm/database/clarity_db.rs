@@ -372,14 +372,17 @@ impl<'a> ClarityDatabase<'a> {
         self.store.depth() == 0
     }
 
+    /// Nest the key-value wrapper instance
     pub fn begin(&mut self) {
         self.store.nest();
     }
 
+    /// Commit current key-value wrapper layer
     pub fn commit(&mut self) {
         self.store.commit();
     }
 
+    /// Drop current key-value wrapper layer
     pub fn roll_back(&mut self) {
         self.store.rollback();
     }
