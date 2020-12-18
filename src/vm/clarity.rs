@@ -48,6 +48,8 @@ use chainstate::stacks::boot::{
 use std::error;
 use std::fmt;
 
+use super::database::marf::ReadOnlyMarfStore;
+
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -62,7 +64,7 @@ use std::fmt;
 ///   begining the next connection (enforced by runtime panics).
 ///
 pub struct ClarityInstance {
-    datastore: Option<MarfedKV>,
+    datastore: MarfedKV,
     block_limit: ExecutionCost,
 }
 
@@ -90,8 +92,7 @@ pub struct ClarityTransactionConnection<'a, 'b> {
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
-    datastore: MarfedKV,
-    parent: &'a mut ClarityInstance,
+    datastore: ReadOnlyMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
 }
@@ -235,7 +236,7 @@ impl ClarityBlockConnection<'_> {
 impl ClarityInstance {
     pub fn new(datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
         ClarityInstance {
-            datastore: Some(datastore),
+            datastore,
             block_limit,
         }
     }
@@ -244,15 +245,7 @@ impl ClarityInstance {
     where
         F: FnOnce(&mut MARF<StacksBlockId>) -> R,
     {
-        let datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-        f(datastore.get_marf())
+        f(self.datastore.get_marf())
     }
 
     pub fn begin_block<'a>(
@@ -262,13 +255,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.")
-            .begin(current, next);
+        let mut datastore = self.datastore.begin(current, next);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
@@ -293,13 +280,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.")
-            .begin(current, next);
+        let datastore = self.datastore.begin(current, next);
 
         let cost_track = Some(LimitedCostTracker::new_free());
 
@@ -321,16 +302,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        let writable = datastore.begin(current, next);
+        let writable = self.datastore.begin(current, next);
 
         let cost_track = Some(LimitedCostTracker::new_free());
 
@@ -378,13 +350,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.")
-            .begin_unconfirmed(current);
+        let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
@@ -408,22 +374,12 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        datastore.set_chain_tip(at_block);
+        let datastore = self.datastore.begin_read_only(Some(at_block));
 
         ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
-            parent: self,
         }
     }
 
@@ -435,23 +391,16 @@ impl ClarityInstance {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, Error> {
-        self.datastore.as_mut().unwrap().set_chain_tip(at_block);
-        let clarity_db = self
-            .datastore
-            .as_mut()
-            .unwrap()
-            .as_foo_clarity_db(header_db, burn_state_db);
+        let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
+        let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
         let mut env = OwnedEnvironment::new_free(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
 
-    pub fn destroy(mut self) -> MarfedKV {
-        let datastore = self.datastore.take()
-            .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
-
-        datastore
+    pub fn destroy(self) -> MarfedKV {
+        self.datastore
     }
 }
 
@@ -525,8 +474,9 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db =
-            ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
+        let mut db = self
+            .datastore
+            .as_clarity_db(&self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -537,17 +487,11 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        let mut db = self.datastore.as_analysis_db();
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
         result
-    }
-}
-
-impl<'a> ClarityReadOnlyConnection<'a> {
-    pub fn done(self) {
-        self.parent.datastore.replace(self.datastore);
     }
 }
 
@@ -1242,9 +1186,10 @@ mod tests {
 
             conn.commit_block();
         }
+
         let mut marf = clarity_instance.destroy();
-        marf.set_chain_tip(&StacksBlockId([1 as u8; 32]));
-        assert!(marf.get_contract_hash(&contract_identifier).is_ok());
+        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1 as u8; 32])));
+        assert!(conn.get_contract_hash(&contract_identifier).is_ok());
     }
 
     #[test]
@@ -1279,12 +1224,14 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
+
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         // should not be in the marf.
         assert_eq!(
-            marf.get_contract_hash(&contract_identifier).unwrap_err(),
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
-        let sql = marf.get_side_store();
+        let sql = conn.get_side_store();
         // sqlite only have entries
         assert_eq!(
             0,
@@ -1322,10 +1269,10 @@ mod tests {
             )
             .commit_block();
 
-        let mut marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
 
         let genesis_metadata_entries = marf
-            .get_side_store()
+            .sql_conn()
             .query_row::<u32, _, _>(
                 "SELECT COUNT(value) FROM metadata_table",
                 NO_PARAMS,

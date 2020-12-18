@@ -259,10 +259,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    ///  This function commits the current MARF sqlite transaction
-    ///    without flushing the in-memory Trie. This only used by
-    ///    Clarity MarfedKV and tests.
-    pub fn commit_tx(self) {
+    #[cfg(test)]
+    fn commit_tx(self) {
         self.storage.commit_tx()
     }
 

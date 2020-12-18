@@ -58,8 +58,13 @@ pub struct WritableMarfStore<'a> {
     marf: MarfTransaction<'a, StacksBlockId>,
 }
 
+pub struct ReadOnlyMarfStore<'a> {
+    chain_tip: StacksBlockId,
+    marf: &'a mut MARF<StacksBlockId>,
+}
+
 pub struct MemoryBackingStore {
-    side_store: SqliteConnection,
+    side_store: Connection,
 }
 
 pub struct NullBackingStore {}
@@ -169,10 +174,7 @@ pub trait ClarityBackingStore {
         ))
     }
 
-    fn put_all_metadata(
-        &mut self,
-        mut items: Vec<((QualifiedContractIdentifier, String), String)>,
-    ) {
+    fn put_all_metadata(&mut self, items: Vec<((QualifiedContractIdentifier, String), String)>) {
         for ((contract, key), value) in items.into_iter() {
             self.insert_metadata(&contract, &key, &value);
         }
@@ -201,10 +203,7 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
 }
 
 impl MarfedKV {
-    fn setup_db(
-        path_str: &str,
-        unconfirmed: bool,
-    ) -> Result<(SqliteConnection, MARF<StacksBlockId>)> {
+    fn setup_db(path_str: &str, unconfirmed: bool) -> Result<MARF<StacksBlockId>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -216,14 +215,6 @@ impl MarfedKV {
             .ok_or_else(|| InterpreterError::BadFileName)?
             .to_string();
 
-        path.pop();
-        path.push("data.sqlite");
-        let data_path = path
-            .to_str()
-            .ok_or_else(|| InterpreterError::BadFileName)?
-            .to_string();
-
-        let side_store = SqliteConnection::initialize(&data_path)?;
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path)
                 .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
@@ -240,11 +231,11 @@ impl MarfedKV {
         tx.commit()
             .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
 
-        Ok((side_store, marf))
+        Ok(marf)
     }
 
     pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
-        let (side_store, marf) = MarfedKV::setup_db(path_str, false)?;
+        let marf = MarfedKV::setup_db(path_str, false)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -254,7 +245,7 @@ impl MarfedKV {
     }
 
     pub fn open_unconfirmed(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
-        let (side_store, marf) = MarfedKV::setup_db(path_str, true)?;
+        let marf = MarfedKV::setup_db(path_str, true)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -272,7 +263,7 @@ impl MarfedKV {
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
         path.push(to_hex(&random_bytes));
 
-        let (side_store, marf) = MarfedKV::setup_db(
+        let marf = MarfedKV::setup_db(
             path.to_str()
                 .expect("Inexplicably non-UTF-8 character in filename"),
             false,
@@ -284,16 +275,23 @@ impl MarfedKV {
         MarfedKV { marf, chain_tip }
     }
 
-    pub fn as_foo_clarity_db<'a>(
+    pub fn begin_read_only<'a>(
         &'a mut self,
-        headers_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(self)
+        at_block: Option<&StacksBlockId>,
+    ) -> ReadOnlyMarfStore<'a> {
+        let chain_tip = if let Some(at_block) = at_block {
+            self.marf.open_block(at_block).unwrap_or_else(|_| {
+                error!("Failed to open read only connection at {}", at_block);
+                panic!()
+            });
+            at_block.clone()
+        } else {
+            self.chain_tip.clone()
+        };
+        ReadOnlyMarfStore {
+            chain_tip,
+            marf: &mut self.marf,
+        }
     }
 
     /// begin, commit, rollback a save point identified by key
@@ -371,13 +369,9 @@ impl MarfedKV {
         &mut self.marf
     }
 
-    pub fn put(&mut self, key: &str, value: &str) {
-        let marf_value = MARFValue::from_value(value);
-        SqliteConnection::put(self.get_side_store(), &marf_value.to_hex(), value);
-
-        self.marf
-            .insert(key, marf_value)
-            .expect("ERROR: Unexpected MARF Failure")
+    #[cfg(test)]
+    pub fn sql_conn(&self) -> &Connection {
+        self.marf.sqlite_conn()
     }
 
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
@@ -387,12 +381,26 @@ impl MarfedKV {
     pub fn index_conn<'a, C>(&'a self, context: C) -> IndexDBConn<'a, C, StacksBlockId> {
         IndexDBConn {
             index: &self.marf,
-            context: context,
+            context,
         }
     }
 }
 
-impl ClarityBackingStore for MarfedKV {
+impl<'a> ReadOnlyMarfStore<'a> {
+    pub fn as_clarity_db<'b>(
+        &'b mut self,
+        headers_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityDatabase<'b> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
+    }
+
+    pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     fn get_side_store(&mut self) -> &Connection {
         self.marf.sqlite_conn()
     }
@@ -531,19 +539,9 @@ impl ClarityBackingStore for MarfedKV {
             })
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) {
-        let mut keys = Vec::new();
-        let mut values = Vec::new();
-        for (key, value) in items.into_iter() {
-            trace!("MarfedKV put '{}' = '{}'", &key, &value);
-            let marf_value = MARFValue::from_value(&value);
-            SqliteConnection::put(self.get_side_store(), &marf_value.to_hex(), &value);
-            keys.push(key);
-            values.push(marf_value);
-        }
-        self.marf
-            .insert_batch(&keys, values)
-            .expect("ERROR: Unexpected MARF Failure");
+    fn put_all(&mut self, _items: Vec<(String, String)>) {
+        error!("Attempted to commit changes to read-only MARF");
+        panic!("BUG: attempted commit to read-only MARF");
     }
 }
 
@@ -581,7 +579,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_side_store(&mut self) -> &Connection {
-        self.side_store.conn()
+        &self.side_store
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -696,7 +694,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 
     #[cfg(test)]
-    pub fn test_commit(mut self) {
+    pub fn test_commit(self) {
         let bhh = self.chain_tip.clone();
         self.commit_to(&bhh);
     }
