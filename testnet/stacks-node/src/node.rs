@@ -1,13 +1,10 @@
-use super::{
-    genesis_data::GENESIS_DATA, BurnchainController, BurnchainTip, Config, EventDispatcher,
-    Keychain, Tenure,
-};
-use crate::run_loop::RegisteredKey;
+use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
+use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -87,9 +84,11 @@ pub struct Node {
     nonce: u64,
 }
 
-pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainstateAccountLockup>> {
+pub fn get_account_lockups(
+    use_test_chainstate_data: bool,
+) -> Box<dyn Iterator<Item = ChainstateAccountLockup>> {
     Box::new(
-        GENESIS_DATA
+        stx_genesis::GenesisData::new(use_test_chainstate_data)
             .read_lockups()
             .map(|item| ChainstateAccountLockup {
                 address: item.address,
@@ -99,9 +98,11 @@ pub fn get_account_lockups() -> Box<dyn Iterator<Item = ChainstateAccountLockup>
     )
 }
 
-pub fn get_account_balances() -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
+pub fn get_account_balances(
+    use_test_chainstate_data: bool,
+) -> Box<dyn Iterator<Item = ChainstateAccountBalance>> {
     Box::new(
-        GENESIS_DATA
+        stx_genesis::GenesisData::new(use_test_chainstate_data)
             .read_balances()
             .map(|item| ChainstateAccountBalance {
                 address: item.address,
@@ -181,6 +182,22 @@ fn spawn_peer(
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
+        let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
+            // When running in mocknet mode allow the small test genesis chainstate data to be enabled.
+            // First check env var, then config file, then use default.
+            if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
+                true
+            } else if let Some(use_test_genesis_chainstate) =
+                config.node.use_test_genesis_chainstate
+            {
+                use_test_genesis_chainstate
+            } else {
+                USE_TEST_GENESIS_CHAINSTATE
+            }
+        } else {
+            USE_TEST_GENESIS_CHAINSTATE
+        };
+
         let keychain = Keychain::default(config.node.seed.clone());
 
         let initial_balances = config
@@ -195,8 +212,12 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             post_flight_callback: Some(boot_block_exec),
-            get_bulk_initial_lockups: Some(Box::new(get_account_lockups)),
-            get_bulk_initial_balances: Some(Box::new(get_account_balances)),
+            get_bulk_initial_lockups: Some(Box::new(move || {
+                get_account_lockups(use_test_genesis_data)
+            })),
+            get_bulk_initial_balances: Some(Box::new(move || {
+                get_account_balances(use_test_genesis_data)
+            })),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
