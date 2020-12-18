@@ -184,8 +184,13 @@ impl Node {
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             // When running in mocknet mode allow the small test genesis chainstate data to be enabled.
+            // First check env var, then config file, then use default.
             if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
                 true
+            } else if let Some(use_test_genesis_chainstate) =
+                config.node.use_test_genesis_chainstate
+            {
+                use_test_genesis_chainstate
             } else {
                 USE_TEST_GENESIS_CHAINSTATE
             }
