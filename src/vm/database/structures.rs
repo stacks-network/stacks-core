@@ -22,6 +22,8 @@ use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE};
 
+use super::marf::ContractCommitment;
+
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
 }
@@ -110,6 +112,127 @@ clarity_serializable!(u128);
 clarity_serializable!(u64);
 clarity_serializable!(Contract);
 
+#[derive(Debug, Clone)]
+pub enum ClarityDbEntry {
+    STXBalance(STXBalance),
+    UInt64(u64),
+    Value(Value),
+    UInt128(u128),
+    ContractCommitment(ContractCommitment),
+}
+
+impl ClarityDbEntry {
+    pub fn serialize(&self) -> String {
+        match self {
+            ClarityDbEntry::STXBalance(x) => x.serialize(),
+            ClarityDbEntry::UInt64(x) => x.to_string(),
+            ClarityDbEntry::Value(x) => x.serialize(),
+            ClarityDbEntry::UInt128(x) => x.to_string(),
+            ClarityDbEntry::ContractCommitment(x) => x.serialize(),
+        }
+    }
+}
+
+impl From<STXBalance> for ClarityDbEntry {
+    fn from(o: STXBalance) -> ClarityDbEntry {
+        ClarityDbEntry::STXBalance(o)
+    }
+}
+
+impl From<Value> for ClarityDbEntry {
+    fn from(o: Value) -> ClarityDbEntry {
+        ClarityDbEntry::Value(o)
+    }
+}
+
+impl From<u128> for ClarityDbEntry {
+    fn from(o: u128) -> ClarityDbEntry {
+        ClarityDbEntry::UInt128(o)
+    }
+}
+
+impl From<u64> for ClarityDbEntry {
+    fn from(o: u64) -> ClarityDbEntry {
+        ClarityDbEntry::UInt64(o)
+    }
+}
+
+impl From<ContractCommitment> for ClarityDbEntry {
+    fn from(o: ContractCommitment) -> ClarityDbEntry {
+        ClarityDbEntry::ContractCommitment(o)
+    }
+}
+
+impl From<ClarityDbEntry> for ContractCommitment {
+    fn from(o: ClarityDbEntry) -> ContractCommitment {
+        if let ClarityDbEntry::ContractCommitment(x) = o {
+            x
+        } else {
+            error!(
+                "Unexpected ClarityDbEntry type, expected ContractCommitment, found {:?}",
+                o
+            );
+            panic!();
+        }
+    }
+}
+
+impl From<ClarityDbEntry> for u64 {
+    fn from(o: ClarityDbEntry) -> u64 {
+        if let ClarityDbEntry::UInt64(x) = o {
+            x
+        } else {
+            error!(
+                "Unexpected ClarityDbEntry type, expected u64, found {:?}",
+                o
+            );
+            panic!();
+        }
+    }
+}
+
+impl From<ClarityDbEntry> for u128 {
+    fn from(o: ClarityDbEntry) -> u128 {
+        if let ClarityDbEntry::UInt128(x) = o {
+            x
+        } else {
+            error!(
+                "Unexpected ClarityDbEntry type, expected u128, found {:?}",
+                o
+            );
+            panic!();
+        }
+    }
+}
+
+impl From<ClarityDbEntry> for STXBalance {
+    fn from(o: ClarityDbEntry) -> STXBalance {
+        if let ClarityDbEntry::STXBalance(x) = o {
+            x
+        } else {
+            error!(
+                "Unexpected ClarityDbEntry type, expected STXBalance, found {:?}",
+                o
+            );
+            panic!();
+        }
+    }
+}
+
+impl From<ClarityDbEntry> for Value {
+    fn from(o: ClarityDbEntry) -> Value {
+        if let ClarityDbEntry::Value(x) = o {
+            x
+        } else {
+            error!(
+                "Unexpected ClarityDbEntry type, expected Value, found {:?}",
+                o
+            );
+            panic!();
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct STXBalance {
     pub amount_unlocked: u128,
@@ -194,7 +317,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
     pub fn save(self) -> () {
         let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
-        self.db_ref.put(&key, &self.balance)
+        self.db_ref.put(&key, self.balance)
     }
 
     pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
@@ -215,7 +338,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
                 .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
         self.debit(amount);
-        self.db_ref.put(&recipient_key, &recipient_balance);
+        self.db_ref.put(&recipient_key, recipient_balance);
         self.save();
         Ok(())
     }

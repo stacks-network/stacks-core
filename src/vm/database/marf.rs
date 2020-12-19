@@ -41,6 +41,8 @@ use util::db::IndexDBConn;
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
+use super::structures::ClarityDbEntry;
+
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
 /// The Clarity VM and type checker do not "know" to begin/commit the block they are currently processing:
@@ -74,7 +76,7 @@ pub struct NullBackingStore {}
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>);
+    fn put_all(&mut self, items: Vec<(String, ClarityDbEntry)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
     fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)>;
@@ -100,13 +102,12 @@ pub trait ClarityBackingStore {
 
     /// The contract commitment is the hash of the contract, plus the block height in
     ///   which the contract was initialized.
-    fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> String {
+    fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> ContractCommitment {
         let block_height = self.get_open_chain_tip_height();
-        let cc = ContractCommitment {
+        ContractCommitment {
             hash: contract_hash,
             block_height,
-        };
-        cc.serialize()
+        }
     }
 
     /// This function is used to obtain a committed contract hash, and the block header hash of the block
@@ -181,6 +182,7 @@ pub trait ClarityBackingStore {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ContractCommitment {
     pub hash: Sha512Trunc256Sum,
     pub block_height: u32,
@@ -303,6 +305,8 @@ impl MarfedKV {
     /// this is a "lower-level" rollback than the roll backs performed in
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
+    /// begin a new trie in the underlying MARF index and start a MARF transaction,
+    ///   returning a `WritableMarfStore` which lives the duration of that transaction
     pub fn begin<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -539,7 +543,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             })
     }
 
-    fn put_all(&mut self, _items: Vec<(String, String)>) {
+    fn put_all(&mut self, _items: Vec<(String, ClarityDbEntry)>) {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
@@ -602,9 +606,9 @@ impl ClarityBackingStore for MemoryBackingStore {
         0
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) {
+    fn put_all(&mut self, items: Vec<(String, ClarityDbEntry)>) {
         for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value);
+            SqliteConnection::put(self.get_side_store(), &key, &value.serialize());
         }
     }
 }
@@ -656,7 +660,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut _items: Vec<(String, String)>) {
+    fn put_all(&mut self, mut _items: Vec<(String, ClarityDbEntry)>) {
         panic!("NullBackingStore cannot put")
     }
 }
@@ -875,13 +879,17 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         }
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) {
+    fn put_all(&mut self, items: Vec<(String, ClarityDbEntry)>) {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {
-            trace!("MarfedKV put '{}' = '{}'", &key, &value);
-            let marf_value = MARFValue::from_value(&value);
-            SqliteConnection::put(self.get_side_store(), &marf_value.to_hex(), &value);
+            let serialized_value = value.serialize();
+            let marf_value = MARFValue::from_value(&serialized_value);
+            SqliteConnection::put(
+                self.get_side_store(),
+                &marf_value.to_hex(),
+                &serialized_value,
+            );
             keys.push(key);
             values.push(marf_value);
         }

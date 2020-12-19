@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::{ClarityBackingStore, ClarityDeserializable, MarfedKV};
+use super::{structures::ClarityDbEntry, ClarityBackingStore, ClarityDeserializable, MarfedKV};
 use chainstate::{
     burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof, stacks::StacksBlockId,
 };
@@ -25,27 +25,15 @@ use vm::errors::InterpreterResult as Result;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::Value;
 
-#[cfg(rollback_value_check)]
-type RollbackValueCheck = String;
-#[cfg(not(rollback_value_check))]
-type RollbackValueCheck = ();
-
-#[cfg(not(rollback_value_check))]
-fn rollback_value_check(_value: &String, _check: &RollbackValueCheck) {}
-
-#[cfg(not(rollback_value_check))]
-fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &String) {
-    edits.push((key, ()));
-}
 // this function is used to check the lookup map when committing at the "bottom" of the
 //   wrapper -- i.e., when committing to the underlying store. for the _unchecked_ implementation
 //   this is used to get the edit _value_ out of the lookupmap, for used in the subsequent `put_all`
 //   command.
 #[cfg(not(rollback_value_check))]
-fn rollback_check_pre_bottom_commit<T>(
-    edits: Vec<(T, RollbackValueCheck)>,
-    lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Vec<(T, String)>
+fn rollback_check_pre_bottom_commit<T, A>(
+    edits: Vec<T>,
+    lookup_map: &mut HashMap<T, Vec<A>>,
+) -> Vec<(T, A)>
 where
     T: Eq + Hash + Clone,
 {
@@ -55,8 +43,8 @@ where
 
     let output = edits
         .into_iter()
-        .map(|(key, _)| {
-            let value = rollback_lookup_map(&key, &(), lookup_map);
+        .map(|key| {
+            let value = rollback_lookup_map(&key, lookup_map);
             (key, value)
         })
         .collect();
@@ -65,40 +53,9 @@ where
     output
 }
 
-#[cfg(rollback_value_check)]
-fn rollback_value_check(value: &String, check: &RollbackValueCheck) {
-    assert_eq!(value, check)
-}
-#[cfg(rollback_value_check)]
-fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, value: &String)
-where
-    T: Eq + Hash + Clone,
-{
-    edits.push((key, value.clone()));
-}
-// this function is used to check the lookup map when committing at the "bottom" of the
-//   wrapper -- i.e., when committing to the underlying store.
-#[cfg(rollback_value_check)]
-fn rollback_check_pre_bottom_commit<T>(
-    edits: Vec<(T, RollbackValueCheck)>,
-    lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Vec<(T, String)>
-where
-    T: Eq + Hash + Clone,
-{
-    for (_, edit_history) in lookup_map.iter_mut() {
-        edit_history.reverse();
-    }
-    for (key, value) in edits.iter() {
-        rollback_lookup_map(key, &value, lookup_map);
-    }
-    assert!(lookup_map.len() == 0);
-    edits
-}
-
 pub struct RollbackContext {
-    edits: Vec<(String, RollbackValueCheck)>,
-    metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
+    edits: Vec<String>,
+    metadata_edits: Vec<(QualifiedContractIdentifier, String)>,
 }
 
 pub struct RollbackWrapper<'a> {
@@ -107,7 +64,7 @@ pub struct RollbackWrapper<'a> {
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
-    lookup_map: HashMap<String, Vec<String>>,
+    lookup_map: HashMap<String, Vec<ClarityDbEntry>>,
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
     // stack keeps track of the most recent rollback context, which tells us which
     //   edits were performed by which context. at the moment, each context's edit history
@@ -125,7 +82,7 @@ pub struct RollbackWrapper<'a> {
 //   a real mess of lifetime parameters in the database/context
 //   and eval code.
 pub struct RollbackWrapperPersistedLog {
-    lookup_map: HashMap<String, Vec<String>>,
+    lookup_map: HashMap<String, Vec<ClarityDbEntry>>,
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
     stack: Vec<RollbackContext>,
 }
@@ -157,11 +114,7 @@ impl RollbackWrapperPersistedLog {
     }
 }
 
-fn rollback_lookup_map<T>(
-    key: &T,
-    value: &RollbackValueCheck,
-    lookup_map: &mut HashMap<T, Vec<String>>,
-) -> String
+fn rollback_lookup_map<T, A>(key: &T, lookup_map: &mut HashMap<T, Vec<A>>) -> A
 where
     T: Eq + Hash + Clone,
 {
@@ -171,7 +124,6 @@ where
             .get_mut(key)
             .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
         popped_value = key_edit_history.pop().unwrap();
-        rollback_value_check(&popped_value, value);
         key_edit_history.len() == 0
     };
     if remove_edit_deque {
@@ -215,20 +167,23 @@ impl<'a> RollbackWrapper<'a> {
     //   this clears all edits from the child's edit queue,
     //     and removes any of those edits from the lookup map.
     pub fn rollback(&mut self) {
-        let mut last_item = self
+        let RollbackContext {
+            mut edits,
+            mut metadata_edits,
+        } = self
             .stack
             .pop()
             .expect("ERROR: Clarity VM attempted to commit past the stack.");
 
-        last_item.edits.reverse();
-        last_item.metadata_edits.reverse();
+        edits.reverse();
+        metadata_edits.reverse();
 
-        for (key, value) in last_item.edits.drain(..) {
-            rollback_lookup_map(&key, &value, &mut self.lookup_map);
+        for key in edits.into_iter() {
+            rollback_lookup_map(&key, &mut self.lookup_map);
         }
 
-        for (key, value) in last_item.metadata_edits.drain(..) {
-            rollback_lookup_map(&key, &value, &mut self.metadata_lookup_map);
+        for key in metadata_edits.into_iter() {
+            rollback_lookup_map(&key, &mut self.metadata_lookup_map);
         }
     }
 
@@ -237,7 +192,7 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     pub fn commit(&mut self) {
-        let mut last_item = self
+        let last_item = self
             .stack
             .pop()
             .expect("ERROR: Clarity VM attempted to commit past the stack.");
@@ -259,19 +214,33 @@ impl<'a> RollbackWrapper<'a> {
         } else {
             // bubble up to the next item in the stack
             let next_up = self.stack.last_mut().unwrap();
-            for (key, value) in last_item.edits.drain(..) {
-                next_up.edits.push((key, value));
-            }
-            for (key, value) in last_item.metadata_edits.drain(..) {
-                next_up.metadata_edits.push((key, value));
-            }
+            next_up.edits.extend(last_item.edits.into_iter());
+            next_up
+                .metadata_edits
+                .extend(last_item.metadata_edits.into_iter());
         }
     }
 }
 
 fn inner_put<T>(
+    lookup_map: &mut HashMap<T, Vec<ClarityDbEntry>>,
+    edits: &mut Vec<T>,
+    key: T,
+    value: ClarityDbEntry,
+) where
+    T: Eq + Hash + Clone,
+{
+    if !lookup_map.contains_key(&key) {
+        lookup_map.insert(key.clone(), Vec::new());
+    }
+    let key_edit_deque = lookup_map.get_mut(&key).unwrap();
+    edits.push(key);
+    key_edit_deque.push(value);
+}
+
+fn inner_put_metadata<T>(
     lookup_map: &mut HashMap<T, Vec<String>>,
-    edits: &mut Vec<(T, RollbackValueCheck)>,
+    edits: &mut Vec<T>,
     key: T,
     value: String,
 ) where
@@ -281,12 +250,12 @@ fn inner_put<T>(
         lookup_map.insert(key.clone(), Vec::new());
     }
     let key_edit_deque = lookup_map.get_mut(&key).unwrap();
-    rollback_edits_push(edits, key, &value);
+    edits.push(key);
     key_edit_deque.push(value);
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn put(&mut self, key: &str, value: &str) {
+    pub fn put(&mut self, key: &str, value: ClarityDbEntry) {
         let current = self
             .stack
             .last_mut()
@@ -296,7 +265,7 @@ impl<'a> RollbackWrapper<'a> {
             &mut self.lookup_map,
             &mut current.edits,
             key.to_string(),
-            value.to_string(),
+            value,
         )
     }
 
@@ -327,7 +296,7 @@ impl<'a> RollbackWrapper<'a> {
 
     pub fn get<T>(&mut self, key: &str) -> Option<T>
     where
-        T: ClarityDeserializable<T>,
+        T: From<ClarityDbEntry> + ClarityDeserializable<T>,
     {
         self.stack
             .last()
@@ -337,7 +306,7 @@ impl<'a> RollbackWrapper<'a> {
             self.lookup_map
                 .get(key)
                 .and_then(|x| x.last())
-                .map(|x| T::deserialize(x))
+                .map(|x| T::from(x.clone()))
         } else {
             None
         };
@@ -351,10 +320,11 @@ impl<'a> RollbackWrapper<'a> {
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         let lookup_result = if self.query_pending_data {
-            self.lookup_map
-                .get(key)
-                .and_then(|x| x.last())
-                .map(|x| Value::deserialize(x, expected))
+            self.lookup_map.get(key).and_then(|x| x.last()).map(|x| {
+                let mut value = Value::from(x.clone());
+                value.set_type(expected);
+                value
+            })
         } else {
             None
         };
@@ -381,7 +351,7 @@ impl<'a> RollbackWrapper<'a> {
     ) {
         let key = MarfedKV::make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
-        self.put(&key, &value)
+        self.put(&key, ClarityDbEntry::from(value))
     }
 
     pub fn insert_metadata(
@@ -397,7 +367,7 @@ impl<'a> RollbackWrapper<'a> {
 
         let metadata_key = (contract.clone(), key.to_string());
 
-        inner_put(
+        inner_put_metadata(
             &mut self.metadata_lookup_map,
             &mut current.metadata_edits,
             metadata_key,

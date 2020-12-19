@@ -57,6 +57,8 @@ use core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
 
+use super::structures::ClarityDbEntry;
+
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 #[repr(u8)]
@@ -395,13 +397,13 @@ impl<'a> ClarityDatabase<'a> {
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
-    pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) {
-        self.store.put(&key, &value.serialize());
+    pub fn put<T: Into<ClarityDbEntry>>(&mut self, key: &str, value: T) {
+        self.store.put(&key, value.into());
     }
 
     pub fn get<T>(&mut self, key: &str) -> Option<T>
     where
-        T: ClarityDeserializable<T>,
+        T: ClarityDeserializable<T> + From<ClarityDbEntry>,
     {
         self.store.get::<T>(key)
     }
@@ -700,7 +702,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn set_stx_btc_ops_processed(&mut self, processed: u64) {
-        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed);
+        self.put("vm_pox::stx_btc_ops::processed_blocks", processed);
     }
 }
 
@@ -721,8 +723,7 @@ impl<'a> ClarityDatabase<'a> {
         height: u32,
     ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        let value = format!("{}", &height);
-        self.put(&key, &value);
+        self.put(&key, height as u64);
         Ok(())
     }
 
@@ -746,23 +747,14 @@ impl<'a> ClarityDatabase<'a> {
             ])
             .expect("BUG: valid tuple representation"),
         );
-        let mut value_bytes = vec![];
-        value
-            .serialize_write(&mut value_bytes)
-            .expect("BUG: valid tuple representation did not serialize");
 
-        let value_str = to_hex(&value_bytes);
-        self.put(&key, &value_str);
+        self.put(&key, value);
         Ok(())
     }
 
     pub fn get_microblock_pubkey_hash_height(&mut self, pubkey_hash: &Hash160) -> Option<u32> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        self.get(&key).map(|height_str: String| {
-            height_str
-                .parse::<u32>()
-                .expect("BUG: inserted non-u32 as height of microblock pubkey hash")
-        })
+        self.get(&key).map(|height: u64| height as u32)
     }
 
     /// Returns (who-reported-the-poison-microblock, sequence-of-microblock-fork)
@@ -771,9 +763,7 @@ impl<'a> ClarityDatabase<'a> {
         height: u32,
     ) -> Option<(StandardPrincipalData, u16)> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
-        self.get(&key).map(|reporter_hex_str: String| {
-            let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str)
-                .expect("BUG: failed to decode serialized poison-microblock reporter");
+        self.get(&key).map(|reporter_value: Value| {
             let tuple_data = reporter_value.expect_tuple();
             let reporter_value = tuple_data
                 .get("reporter")
@@ -848,7 +838,7 @@ impl<'a> ClarityDatabase<'a> {
             variable_name,
         );
 
-        self.put(&key, &value);
+        self.put(&key, value);
 
         return Ok(Value::Bool(true));
     }
@@ -998,7 +988,7 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let placed_value = Value::some(value)?;
-        self.put(&key, &placed_value);
+        self.put(&key, placed_value);
 
         return Ok(Value::Bool(true));
     }
@@ -1027,7 +1017,7 @@ impl<'a> ClarityDatabase<'a> {
             return Ok(Value::Bool(false));
         }
 
-        self.put(&key, &(Value::none()));
+        self.put(&key, Value::none());
 
         return Ok(Value::Bool(true));
     }
@@ -1055,7 +1045,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        self.put(&supply_key, &(0 as u128));
+        self.put(&supply_key, 0 as u128);
     }
 
     fn load_ft(
@@ -1120,7 +1110,7 @@ impl<'a> ClarityDatabase<'a> {
             }
         }
 
-        self.put(&key, &new_supply);
+        self.put(&key, new_supply);
         Ok(())
     }
 
@@ -1145,7 +1135,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let new_supply = current_supply - amount;
 
-        self.put(&key, &new_supply);
+        self.put(&key, new_supply);
         Ok(())
     }
 
@@ -1184,7 +1174,7 @@ impl<'a> ClarityDatabase<'a> {
             token_name,
             principal.serialize(),
         );
-        self.put(&key, &balance);
+        self.put(&key, balance);
 
         Ok(())
     }
@@ -1266,7 +1256,7 @@ impl<'a> ClarityDatabase<'a> {
         );
 
         let value = Value::some(Value::Principal(principal.clone()))?;
-        self.put(&key, &value);
+        self.put(&key, value);
 
         Ok(())
     }
@@ -1289,7 +1279,7 @@ impl<'a> ClarityDatabase<'a> {
             asset.serialize(),
         );
 
-        self.put(&key, &(Value::none()));
+        self.put(&key, Value::none());
         Ok(())
     }
 }
@@ -1375,7 +1365,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        self.put(&key, &nonce);
+        self.put(&key, nonce);
     }
 }
 

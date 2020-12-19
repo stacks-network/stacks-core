@@ -700,6 +700,16 @@ impl Value {
         TypeSignature::type_of(self).depth()
     }
 
+    pub fn set_type(&mut self, expected_type: &TypeSignature) {
+        if !expected_type.admits(&self) {
+            error!(
+                "Expected a Clarity value of type {}, but found {}",
+                expected_type, &self
+            );
+            panic!()
+        }
+    }
+
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.

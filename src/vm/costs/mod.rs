@@ -310,7 +310,7 @@ fn store_state_summary(
 
     clarity_db.put(
         "vm-costs::last-processed-at-height",
-        &Value::UInt(block_height as u128),
+        Value::UInt(block_height as u128),
     );
     let serialized_summary =
         serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
@@ -560,7 +560,7 @@ fn load_cost_functions(
         store_state_summary(clarity_db, &state_summary)?;
         clarity_db.put(
             "vm-costs::last_processed_count",
-            &Value::UInt(confirmed_proposals_count),
+            Value::UInt(confirmed_proposals_count),
         );
     }
 
