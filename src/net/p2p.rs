@@ -4276,7 +4276,15 @@ impl PeerNetwork {
         }
 
         if let Err(e) = PeerNetwork::setup_unconfirmed_state(chainstate, sortdb) {
-            warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+            if let net_error::ChainstateError(ref err_msg) = e {
+                if err_msg == "Stacks chainstate error: NoSuchBlockError" {
+                    trace!("Failed to instantiate unconfirmed state: {:?}", &e);
+                } else {
+                    warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+                }
+            } else {
+                warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+            }
         }
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");

@@ -60,9 +60,6 @@ pub struct CoordinatorChannels {
     stacks_blocks_processed: Arc<AtomicU64>,
     /// how many sortitions have been processed by this Coordinator thread since startup?
     sortitions_processed: Arc<AtomicU64>,
-    /// Horrific kludgy clarity DB lock that should be removed once the Clarty DB doesn't
-    /// runtime-panic when two threads write to it.
-    kludgy_temporary_clarity_db_lock: Arc<Mutex<()>>,
 }
 
 /// Notification struct for communicating to
@@ -86,11 +83,6 @@ pub struct CoordinatorReceivers {
     signal_wakeup: Arc<Condvar>,
     pub stacks_blocks_processed: Arc<AtomicU64>,
     pub sortitions_processed: Arc<AtomicU64>,
-
-    /// Temporary lock to prevent multiple threads from writing to the (shared) Clarity DB at
-    /// once.  This can be removed once the Clarity DB doesn't runtime-panic when multiple threads
-    /// try to write to it.
-    kludgy_temporary_clarity_db_lock: Arc<Mutex<()>>,
 }
 
 /// Static struct used to hold all the static methods
@@ -130,16 +122,6 @@ impl CoordinatorReceivers {
             signal_bools = self.signal_wakeup.wait(signal_bools).unwrap();
         }
         signal_bools.receive_signal()
-    }
-
-    /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_lock(&self) -> LockResult<()> {
-        Ok(())
-    }
-
-    /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_trylock(&self) -> TryLockResult<()> {
-        Ok(())
     }
 }
 
@@ -196,16 +178,6 @@ impl CoordinatorChannels {
         }
         return true;
     }
-
-    /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_lock(&self) -> LockResult<MutexGuard<'_, ()>> {
-        self.kludgy_temporary_clarity_db_lock.lock()
-    }
-
-    /// TODO: remove before mainnet
-    pub fn kludgy_clarity_db_trylock(&self) -> TryLockResult<MutexGuard<'_, ()>> {
-        self.kludgy_temporary_clarity_db_lock.try_lock()
-    }
 }
 
 impl CoordinatorCommunication {
@@ -220,7 +192,6 @@ impl CoordinatorCommunication {
 
         let stacks_blocks_processed = Arc::new(AtomicU64::new(0));
         let sortitions_processed = Arc::new(AtomicU64::new(0));
-        let kludgy_clarity_db_lock = Arc::new(Mutex::new(()));
 
         let senders = CoordinatorChannels {
             signal_bools: signal_bools.clone(),
@@ -228,7 +199,6 @@ impl CoordinatorCommunication {
             stacks_blocks_processed: stacks_blocks_processed.clone(),
 
             sortitions_processed: sortitions_processed.clone(),
-            kludgy_temporary_clarity_db_lock: kludgy_clarity_db_lock.clone(),
         };
 
         let rcvrs = CoordinatorReceivers {
@@ -236,7 +206,6 @@ impl CoordinatorCommunication {
             signal_wakeup: signal_wakeup,
             stacks_blocks_processed,
             sortitions_processed,
-            kludgy_temporary_clarity_db_lock: kludgy_clarity_db_lock.clone(),
         };
 
         (rcvrs, senders)
