@@ -498,7 +498,9 @@ impl BlockStreamData {
                     num_written += num_sent;
                     test_debug!(
                         "Confirmed microblock stream for {}: sent {} bytes ({} total)",
-                        &self.microblock_hash, num_sent, num_written
+                        &self.microblock_hash,
+                        num_sent,
+                        num_written
                     );
                 }
                 StacksChainState::stream_microblocks_confirmed(&chainstate, fd, self, count)
@@ -2591,7 +2593,11 @@ impl StacksChainState {
         let num_bytes = StacksChainState::stream_data(fd, stream, &mut blob, count)?;
         test_debug!(
             "Stream microblock rowid={} hash={} offset={} total_bytes={}, num_bytes={}",
-            rowid, &stream.microblock_hash, stream.offset, stream.total_bytes, num_bytes
+            rowid,
+            &stream.microblock_hash,
+            stream.offset,
+            stream.total_bytes,
+            num_bytes
         );
         Ok(num_bytes)
     }
