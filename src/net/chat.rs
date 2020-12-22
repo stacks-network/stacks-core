@@ -1811,6 +1811,13 @@ impl ConversationP2P {
                         break;
                     }
                 }
+                Err(net_error::PermanentlyDrained) => {
+                    trace!(
+                        "{:?}: failed to recv on P2P conversation: PermanentlyDrained",
+                        self
+                    );
+                    return Err(net_error::PermanentlyDrained);
+                }
                 Err(e) => {
                     info!("{:?}: failed to recv on P2P conversation: {:?}", self, &e);
                     return Err(e);

@@ -1456,7 +1456,6 @@ impl StacksChainState {
         }
         let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
         let result = to_do(&mut conn);
-        conn.done();
         Some(result)
     }
 
@@ -1483,7 +1482,6 @@ impl StacksChainState {
                 burn_dbconn,
             );
             let result = to_do(&mut conn);
-            conn.done();
             Some(result)
         } else {
             None

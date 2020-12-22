@@ -128,24 +128,16 @@ fn inner_process_tenure(
 ) -> Result<bool, ChainstateError> {
     let stacks_blocks_processed = coord_comms.get_stacks_blocks_processed();
 
-    match coord_comms.kludgy_clarity_db_lock() {
-        Ok(_) => {
-            let ic = burn_db.index_conn();
+    let ic = burn_db.index_conn();
 
-            // Preprocess the anchored block
-            chain_state.preprocess_anchored_block(
-                &ic,
-                consensus_hash,
-                &anchored_block,
-                &parent_consensus_hash,
-                0,
-            )?;
-        }
-        Err(e) => {
-            error!("FATAL: kludgy clarity DB lock is poisoned! {:?}", &e);
-            panic!();
-        }
-    }
+    // Preprocess the anchored block
+    chain_state.preprocess_anchored_block(
+        &ic,
+        consensus_hash,
+        &anchored_block,
+        &parent_consensus_hash,
+        0,
+    )?;
 
     if !coord_comms.announce_new_stacks_block() {
         return Ok(false);
@@ -266,7 +258,6 @@ fn inner_generate_block_commit_op(
 /// Mine and broadcast a single microblock, unconditionally.
 /// Note that the StacksChainState here **must** be the **same** StacksChainState that gets
 /// maintained by the peer network thread!
-/// NOTE: for now, this must be guarded by the kludgy clarity DB mutex
 fn mine_one_microblock(
     microblock_state: &mut MicroblockMinerState,
     sortdb: &SortitionDB,
@@ -396,32 +387,22 @@ fn try_mine_microblock(
                 if microblock_miner.last_mined + (microblock_miner.frequency as u128)
                     < get_epoch_time_ms()
                 {
-                    // opportunistically try and mine, but only if there's no attachable blocks and if
-                    // we can acquire the temporary kludgy Clarity DB lock.
+                    // opportunistically try and mine, but only if there's no attachable blocks
                     let num_attachable =
                         StacksChainState::count_attachable_staging_blocks(chainstate.db(), 1, 0)?;
                     if num_attachable == 0 {
-                        match coord_comms.kludgy_clarity_db_trylock() {
-                            Ok(_) => {
-                                match mine_one_microblock(
-                                    &mut microblock_miner,
-                                    sortdb,
-                                    chainstate,
-                                    &mem_pool,
-                                ) {
-                                    Ok(microblock) => {
-                                        // will need to relay this
-                                        next_microblock = Some(microblock);
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to mine one microblock: {:?}", &e);
-                                    }
-                                }
+                        match mine_one_microblock(
+                            &mut microblock_miner,
+                            sortdb,
+                            chainstate,
+                            &mem_pool,
+                        ) {
+                            Ok(microblock) => {
+                                // will need to relay this
+                                next_microblock = Some(microblock);
                             }
-                            Err(std::sync::TryLockError::WouldBlock) => {}
                             Err(e) => {
-                                error!("FATAL: kludgy Clarity DB lock poisoned: {:?}", &e);
-                                panic!();
+                                warn!("Failed to mine one microblock: {:?}", &e);
                             }
                         }
                     }
@@ -552,28 +533,19 @@ fn spawn_peer(
                 }
             };
 
-            // guard p2p runner because it alters unconfirmed state trie
-            let network_result = match coord_comms.kludgy_clarity_db_lock() {
-                Ok(_) => {
-                    match this.run(
-                        &sortdb,
-                        &mut chainstate,
-                        &mut mem_pool,
-                        Some(&mut dns_client),
-                        download_backpressure,
-                        poll_ms,
-                        &handler_args,
-                        &mut expected_attachments,
-                    ) {
-                        Ok(res) => res,
-                        Err(e) => {
-                            error!("P2P: Failed to process network dispatch: {:?}", &e);
-                            panic!();
-                        }
-                    }
-                }
+            let network_result = match this.run(
+                &sortdb,
+                &mut chainstate,
+                &mut mem_pool,
+                Some(&mut dns_client),
+                download_backpressure,
+                poll_ms,
+                &handler_args,
+                &mut expected_attachments,
+            ) {
+                Ok(res) => res,
                 Err(e) => {
-                    error!("FATAL: kludgy Clarity DB lock poisoned: {:?}", &e);
+                    error!("P2P: Failed to process network dispatch: {:?}", &e);
                     panic!();
                 }
             };
@@ -683,31 +655,20 @@ fn spawn_miner_relayer(
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     debug!("Relayer: Handle network result");
+                    let net_receipts = relayer
+                        .process_network_result(
+                            &local_peer,
+                            net_result,
+                            &mut sortdb,
+                            &mut chainstate,
+                            &mut mem_pool,
+                            Some(&coord_comms),
+                        )
+                        .expect("BUG: failure processing network results");
 
-                    // guard any mutations to chainstate
-                    match coord_comms.kludgy_clarity_db_lock() {
-                        Ok(_) => {
-                            let net_receipts = relayer
-                                .process_network_result(
-                                    &local_peer,
-                                    net_result,
-                                    &mut sortdb,
-                                    &mut chainstate,
-                                    &mut mem_pool,
-                                    Some(&coord_comms),
-                                )
-                                .expect("BUG: failure processing network results");
-
-                            let mempool_txs_added = net_receipts.mempool_txs_added.len();
-                            if mempool_txs_added > 0 {
-                                event_dispatcher
-                                    .process_new_mempool_txs(net_receipts.mempool_txs_added);
-                            }
-                        }
-                        Err(e) => {
-                            error!("FATAL: kludgy Clarity DB mutex poisoned: {:?}", &e);
-                            panic!();
-                        }
+                    let mempool_txs_added = net_receipts.mempool_txs_added.len();
+                    if mempool_txs_added > 0 {
+                        event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
 
                     // Dispatch retrieved attachments, if any.
@@ -834,47 +795,37 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
-                    match coord_comms.kludgy_clarity_db_lock() {
-                        Ok(_) => {
-                            let burn_header_hash = last_burn_block.burn_header_hash.clone();
-                            debug!(
-                                "Relayer: Run tenure";
-                                "height" => last_burn_block.block_height,
-                                "burn_header_hash" => %burn_header_hash
-                            );
-                            let mut last_mined_blocks_vec = last_mined_blocks
-                                .remove(&burn_header_hash)
-                                .unwrap_or_default();
+                    let burn_header_hash = last_burn_block.burn_header_hash.clone();
+                    debug!(
+                        "Relayer: Run tenure";
+                        "height" => last_burn_block.block_height,
+                        "burn_header_hash" => %burn_header_hash
+                    );
+                    let mut last_mined_blocks_vec = last_mined_blocks
+                        .remove(&burn_header_hash)
+                        .unwrap_or_default();
 
-                            let last_mined_block_opt = InitializedNeonNode::relayer_run_tenure(
-                                &config,
-                                registered_key,
-                                &mut chainstate,
-                                &mut sortdb,
-                                &burnchain,
-                                last_burn_block,
-                                &mut keychain,
-                                &mut mem_pool,
-                                burn_fee_cap,
-                                &mut bitcoin_controller,
-                                &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
-                            );
-                            if let Some((last_mined_block, microblock_privkey)) =
-                                last_mined_block_opt
-                            {
-                                if last_mined_blocks_vec.len() == 0 {
-                                    // (for testing) only bump once per epoch
-                                    bump_processed_counter(&blocks_processed);
-                                }
-                                last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
-                            }
-                            last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
+                    let last_mined_block_opt = InitializedNeonNode::relayer_run_tenure(
+                        &config,
+                        registered_key,
+                        &mut chainstate,
+                        &mut sortdb,
+                        &burnchain,
+                        last_burn_block,
+                        &mut keychain,
+                        &mut mem_pool,
+                        burn_fee_cap,
+                        &mut bitcoin_controller,
+                        &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
+                    );
+                    if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
+                        if last_mined_blocks_vec.len() == 0 {
+                            // (for testing) only bump once per epoch
+                            bump_processed_counter(&blocks_processed);
                         }
-                        Err(e) => {
-                            error!("FATAL: kludgy Clarity DB mutex poisoned: {:?}", &e);
-                            panic!();
-                        }
+                        last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
                     }
+                    last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     // Ensure that we're submitting this one time per block.

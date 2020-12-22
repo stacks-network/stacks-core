@@ -770,6 +770,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "addresses" => get_addresses(args, tx_version),
             "decode-tx" => decode_transaction(args, tx_version),
             "decode-block" => decode_block(args, tx_version),
+            "decode-microblock" => decode_microblock(args, tx_version),
             _ => Err(CliError::Usage),
         }
     } else {
