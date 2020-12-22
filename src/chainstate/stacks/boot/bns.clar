@@ -42,10 +42,10 @@
 (define-constant ERR_PRINCIPAL_ALREADY_ASSOCIATED 3001)
 (define-constant ERR_INSUFFICIENT_FUNDS 4001)
 
-(define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u10)
-(define-constant NAMESPACE_LAUNCHABILITY_TTL u10)
-(define-constant NAME_PREORDER_CLAIMABILITY_TTL u10)
-(define-constant NAME_GRACE_PERIOD_DURATION u5)
+(define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u144)
+(define-constant NAMESPACE_LAUNCHABILITY_TTL u52595)
+(define-constant NAME_PREORDER_CLAIMABILITY_TTL u144)
+(define-constant NAME_GRACE_PERIOD_DURATION u5000)
 
 (define-data-var attachment-index uint u0)
 
@@ -623,7 +623,7 @@
         (get imported-at (get name-props data))
         none
         (if (is-none zonefile-hash)
-          0x00
+          0x
           (unwrap-panic zonefile-hash))
         "name-transfer")
     (ok true)))
@@ -644,7 +644,7 @@
         (get registered-at (get name-props data))
         (get imported-at (get name-props data))
         (some block-height)
-        0x00
+        0x
         "name-revoke")
     (ok true)))
 
@@ -866,4 +866,11 @@
       (is-none (get revoked-at name-props))
       (err ERR_NAME_REVOKED))
     ;; Get the zonefile
-    (ok { zonefile-hash: (get zonefile-hash name-props), owner: owner })))
+    (let (
+      (lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props))))
+      (ok { 
+        zonefile-hash: (get zonefile-hash name-props), 
+        owner: owner,
+        lease-started-at: lease-started-at,
+        lease-ending-at: (if (is-eq (get lifetime namespace-props) u0) none (some (+ lease-started-at (get lifetime namespace-props))))
+      }))))
