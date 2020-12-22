@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::{burn::db::sortdb::SortitionDB};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -29,7 +29,7 @@ use stacks::net::{
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainstateAccountBalance, ChainstateAccountLockup},
+    chainstate::stacks::db::{ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSNamespace, ChainstateBNSName},
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -107,6 +107,43 @@ pub fn get_account_balances(
             .map(|item| ChainstateAccountBalance {
                 address: item.address,
                 amount: item.amount,
+            }),
+    )
+}
+
+pub fn get_namespaces(
+    use_test_chainstate_data: bool,
+) -> Box<dyn Iterator<Item = ChainstateBNSNamespace>> {
+    Box::new(
+        stx_genesis::GenesisData::new(use_test_chainstate_data)
+            .read_namespaces()
+            .map(|item| ChainstateBNSNamespace {
+                namespace_id: item.namespace_id,
+                importer: item.importer,
+                revealed_at: item.reveal_block as u64,
+                launched_at: item.ready_block as u64,
+                buckets: item.buckets,
+                base: item.base as u64,
+                coeff: item.coeff as u64,
+                nonalpha_discount: item.nonalpha_discount as u64,
+                no_vowel_discount: item.no_vowel_discount as u64,
+                lifetime: item.lifetime as u64,
+            }),
+    )
+}
+
+pub fn get_names(
+    use_test_chainstate_data: bool,
+) -> Box<dyn Iterator<Item = ChainstateBNSName>> {
+    Box::new(
+        stx_genesis::GenesisData::new(use_test_chainstate_data)
+            .read_names()
+            .map(|item| ChainstateBNSName {
+                fully_qualified_name: item.fully_qualified_name,
+                owner: item.owner,
+                registered_at: item.registered_at as u64,
+                expired_at: item.expire_block as u64,
+                zonefile_hash: item.zonefile_hash,
             }),
     )
 }
@@ -218,6 +255,13 @@ impl Node {
             get_bulk_initial_balances: Some(Box::new(move || {
                 get_account_balances(use_test_genesis_data)
             })),
+            get_bulk_initial_namespaces: Some(Box::new(move || {
+                get_namespaces(use_test_genesis_data)
+            })),
+            get_bulk_initial_names: Some(Box::new(move || {
+                get_names(use_test_genesis_data)
+            })),
+
         };
 
         let chain_state_result = StacksChainState::open_and_exec(

@@ -1,7 +1,7 @@
 use crate::{
     genesis_data::USE_TEST_GENESIS_CHAINSTATE,
     neon_node,
-    node::{get_account_balances, get_account_lockups},
+    node::{get_account_balances, get_account_lockups, get_namespaces, get_names},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
@@ -206,6 +206,13 @@ impl RunLoop {
             get_bulk_initial_balances: Some(Box::new(|| {
                 get_account_balances(USE_TEST_GENESIS_CHAINSTATE)
             })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                get_namespaces(USE_TEST_GENESIS_CHAINSTATE)
+            })),
+            get_bulk_initial_names: Some(Box::new(|| {
+                get_names(USE_TEST_GENESIS_CHAINSTATE)
+            })),
+
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
