@@ -1,5 +1,4 @@
 use crate::{
-    neon_node,
     node::{get_account_balances, get_account_lockups},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,

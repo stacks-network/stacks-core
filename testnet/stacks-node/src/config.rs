@@ -18,7 +18,7 @@ pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
-pub const MAINNET_PEER_VERSION: u32 = 0xfacade01;
+pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
 const MINIMUM_DUST_FEE: u64 = 5500;
 
@@ -485,37 +485,15 @@ impl Config {
 
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    chain_id: match burnchain.chain_id {
-                        Some(chain_id) => {
-                            let chain_id = hex_bytes(&chain_id).expect("Unable to read chain id");
-                            u32::from_be_bytes([chain_id[0], chain_id[1], chain_id[2], chain_id[3]])
-                        }
-                        None => {
-                            if &burnchain_mode == "mainnet" {
-                                MAINNET_CHAIN_ID
-                            } else {
-                                TESTNET_CHAIN_ID
-                            }
-                        }
+                    chain_id: if &burnchain_mode == "mainnet" {
+                        MAINNET_CHAIN_ID
+                    } else {
+                        TESTNET_CHAIN_ID
                     },
-                    peer_version: match burnchain.peer_version {
-                        Some(peer_version) => {
-                            let peer_version =
-                                hex_bytes(&peer_version).expect("Unable to read chain id");
-                            u32::from_be_bytes([
-                                peer_version[0],
-                                peer_version[1],
-                                peer_version[2],
-                                peer_version[3],
-                            ])
-                        }
-                        None => {
-                            if &burnchain_mode == "mainnet" {
-                                MAINNET_PEER_VERSION
-                            } else {
-                                TESTNET_PEER_VERSION
-                            }
-                        }
+                    peer_version: if &burnchain_mode == "mainnet" {
+                        MAINNET_PEER_VERSION
+                    } else {
+                        TESTNET_PEER_VERSION
                     },
                     mode: burnchain_mode.clone(),
                     burn_fee_cap: burnchain
@@ -970,8 +948,6 @@ pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
-    pub chain_id: Option<String>,
-    pub peer_version: Option<String>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
