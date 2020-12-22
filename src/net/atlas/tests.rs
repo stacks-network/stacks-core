@@ -14,7 +14,9 @@ use net::{
 use util::hash::Hash160;
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
-
+use chainstate::stacks::
+    boot::
+        boot_code_id;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::thread;
@@ -681,6 +683,36 @@ fn test_downloader_context_attachment_requests() {
     let request = attachments_requests.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(request.get_url(), &peer_url_1);
+}
+
+#[test]
+fn test_keep_uninstantiated_attachments() {
+    let bns_contract_id = boot_code_id("bns");
+    let pox_contract_id = boot_code_id("pox");
+
+    let mut contracts = HashSet::new();
+    contracts.insert(bns_contract_id.clone());
+
+    let atlas_config = AtlasConfig {
+        contracts,
+        attachments_max_size: 16,
+        max_uninstantiated_attachments: 10,
+        uninstantiated_attachments_expire_after: 10,
+    };
+
+    let atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(&pox_contract_id, &new_attachment_from("facade02")),
+        false);
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(&bns_contract_id, &new_attachment_from("facade02")),
+        true);
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(&bns_contract_id, &new_attachment_from("facadefacadefacade02")),
+        false);
 }
 
 #[test]
