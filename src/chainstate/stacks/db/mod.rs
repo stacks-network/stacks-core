@@ -72,6 +72,7 @@ use chainstate::burn::db::sortdb::*;
 use chainstate::stacks::boot::*;
 
 use net::Error as net_error;
+use net::atlas::BNS_CHARS_REGEX;
 
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
@@ -1039,6 +1040,9 @@ impl StacksChainState {
                             let initial_namespaces = get_namespaces();
                             for entry in initial_namespaces {
                                 let namespace = {
+                                    if !BNS_CHARS_REGEX.is_match(&entry.namespace_id) {
+                                        panic!("Invalid namespace characters");
+                                    }
                                     let buffer = entry.namespace_id.as_bytes();
                                     Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
                                 };
@@ -1066,6 +1070,7 @@ impl StacksChainState {
                                         .split(";")
                                         .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
                                         .collect();
+                                    assert_eq!(buckets.len(), 16);
 
                                     TupleData::from_data(vec![
                                         ("buckets".into(), Value::list_from(buckets).unwrap()),
@@ -1110,14 +1115,23 @@ impl StacksChainState {
                             for entry in initial_names {
                                 let components: Vec<_> =
                                     entry.fully_qualified_name.split(".").collect();
-
+                                assert_eq!(components.len(), 2);
+                                
                                 let namespace = {
-                                    let buffer = components[1].as_bytes();
+                                    let namespace_str = components[1];
+                                    if !BNS_CHARS_REGEX.is_match(&namespace_str) {
+                                        panic!("Invalid namespace characters");
+                                    }
+                                    let buffer = namespace_str.as_bytes();
                                     Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
                                 };
-
+                                
                                 let name = {
-                                    let buffer = components[0].as_bytes();
+                                    let name_str = components[0].to_string();
+                                    if !BNS_CHARS_REGEX.is_match(&name_str) {
+                                        panic!("Invalid name characters");
+                                    }
+                                    let buffer = name_str.as_bytes();
                                     Value::buff_from(buffer.to_vec()).expect("Invalid name")
                                 };
 

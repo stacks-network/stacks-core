@@ -16,18 +16,12 @@ use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
+use regex::Regex;
 
-pub const BNS_NAMESPACE_MIN_LEN: usize = 1;
-pub const BNS_NAMESPACE_MAX_LEN: usize = 20;
-pub const BNS_NAME_MIN_LEN: usize = 1;
-pub const BNS_NAME_MAX_LEN: usize = 32;
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 
 lazy_static! {
-    pub static ref BNS_NAME_REGEX: String = format!(
-        r#"([a-z0-9]|[-_]){{{},{}}}\.([a-z0-9]|[-_]){{{},{}}}(\.([a-z0-9]|[-_]){{{},{}}})?"#,
-        BNS_NAMESPACE_MIN_LEN, BNS_NAMESPACE_MAX_LEN, BNS_NAME_MIN_LEN, BNS_NAME_MAX_LEN, 1, 128
-    );
+    pub static ref BNS_CHARS_REGEX: Regex = Regex::new("(^[a-z0-9]|[-_])$").unwrap();
 }
 
 #[derive(Debug, Clone)]

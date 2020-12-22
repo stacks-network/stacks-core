@@ -35,7 +35,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
     StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
 };
-use net::atlas::{Attachment, BNS_NAME_REGEX};
+use net::atlas::{Attachment};
 use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
