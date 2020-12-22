@@ -1034,141 +1034,147 @@ impl StacksChainState {
             if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
                 info!("Initializing chain with namespaces");
                 clarity_tx.connection().as_transaction(|clarity| {
-                    clarity.with_clarity_db(|db| {
+                    clarity
+                        .with_clarity_db(|db| {
+                            let initial_namespaces = get_namespaces();
+                            for entry in initial_namespaces {
+                                let namespace = {
+                                    let buffer = entry.namespace_id.as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                                };
 
-                        let initial_namespaces = get_namespaces();
-                        for entry in initial_namespaces {
-                            
-                            let namespace = {
-                                let buffer = entry.namespace_id.as_bytes();
-                                Value::buff_from(buffer.to_vec())
-                                    .expect("Invalid namespace")
-                            };
+                                let importer = {
+                                    let address = StacksChainState::parse_genesis_address(
+                                        &entry.importer,
+                                        mainnet,
+                                    );
+                                    Value::Principal(address)
+                                };
 
-                            let importer = {
-                                let address = StacksChainState::parse_genesis_address(&entry.importer, mainnet);
-                                Value::Principal(address)
-                            };
+                                let revealed_at = Value::UInt(entry.revealed_at.into());
+                                let launched_at = Value::UInt(entry.launched_at.into());
+                                let lifetime = Value::UInt(entry.lifetime.into());
+                                let price_function = {
+                                    let base = Value::UInt(entry.base.into());
+                                    let coeff = Value::UInt(entry.coeff.into());
+                                    let nonalpha_discount =
+                                        Value::UInt(entry.nonalpha_discount.into());
+                                    let no_vowel_discount =
+                                        Value::UInt(entry.no_vowel_discount.into());
+                                    let buckets: Vec<_> = entry
+                                        .buckets
+                                        .split(";")
+                                        .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
+                                        .collect();
 
-                            let revealed_at = Value::UInt(entry.revealed_at.into());
-                            let launched_at = Value::UInt(entry.launched_at.into());
-                            let lifetime = Value::UInt(entry.lifetime.into());
-                            let price_function = {
-                                let base = Value::UInt(entry.base.into());
-                                let coeff = Value::UInt(entry.coeff.into());    
-                                let nonalpha_discount = Value::UInt(entry.nonalpha_discount.into());
-                                let no_vowel_discount = Value::UInt(entry.no_vowel_discount.into());
-                                let buckets: Vec<_> = entry.buckets
-                                    .split(";")
-                                    .map(|e| 
-                                        Value::UInt(e.parse::<u64>().unwrap().into()))
-                                    .collect();
-                                
-                                TupleData::from_data(vec![
-                                    ("buckets".into(), Value::list_from(buckets).unwrap()),
-                                    ("base".into(), base),
-                                    ("coeff".into(), coeff),
-                                    ("nonalpha-discount".into(), nonalpha_discount),
-                                    ("no-vowel-discount".into(), no_vowel_discount),
-                                ]).unwrap()
-                            };
+                                    TupleData::from_data(vec![
+                                        ("buckets".into(), Value::list_from(buckets).unwrap()),
+                                        ("base".into(), base),
+                                        ("coeff".into(), coeff),
+                                        ("nonalpha-discount".into(), nonalpha_discount),
+                                        ("no-vowel-discount".into(), no_vowel_discount),
+                                    ])
+                                    .unwrap()
+                                };
 
-                            let namespace_props = Value::Tuple(
-                                TupleData::from_data(vec![
-                                    ("revealed-at".into(), revealed_at),
-                                    ("launched-at".into(), Value::some(launched_at).unwrap()),
-                                    ("lifetime".into(), lifetime),
-                                    ("namespace-import".into(), importer),
-                                    ("price-function".into(), Value::Tuple(price_function)),
-                                ])
-                                .unwrap(),
-                            );
+                                let namespace_props = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        ("revealed-at".into(), revealed_at),
+                                        ("launched-at".into(), Value::some(launched_at).unwrap()),
+                                        ("lifetime".into(), lifetime),
+                                        ("namespace-import".into(), importer),
+                                        ("price-function".into(), Value::Tuple(price_function)),
+                                    ])
+                                    .unwrap(),
+                                );
 
-                            db.insert_entry(
-                                &bns_contract_id,
-                                "namespaces",
-                                namespace,
-                                namespace_props,
-                            )?;
-                        }
-                        Ok(())
-                    }).unwrap();
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "namespaces",
+                                    namespace,
+                                    namespace_props,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
                 });
             }
 
             if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
                 info!("Initializing chain with names");
                 clarity_tx.connection().as_transaction(|clarity| {
-                    clarity.with_clarity_db(|db| {
-                        let initial_names = get_names();
-                        for entry in initial_names {
-                            let components: Vec<_> = entry.fully_qualified_name
-                                .split(".")
-                                .collect();
+                    clarity
+                        .with_clarity_db(|db| {
+                            let initial_names = get_names();
+                            for entry in initial_names {
+                                let components: Vec<_> =
+                                    entry.fully_qualified_name.split(".").collect();
 
-                            let namespace = {
-                                let buffer = components[1].as_bytes();
-                                Value::buff_from(buffer.to_vec())
-                                    .expect("Invalid namespace")
-                            };
+                                let namespace = {
+                                    let buffer = components[1].as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                                };
 
-                            let name = {
-                                let buffer = components[0].as_bytes();
-                                Value::buff_from(buffer.to_vec())
-                                    .expect("Invalid name")
-                            };
+                                let name = {
+                                    let buffer = components[0].as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid name")
+                                };
 
-                            let fqn = Value::Tuple(TupleData::from_data(vec![
-                                ("namespace".into(), namespace),
-                                ("name".into(), name),
-                            ]).unwrap());
+                                let fqn = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        ("namespace".into(), namespace),
+                                        ("name".into(), name),
+                                    ])
+                                    .unwrap(),
+                                );
 
-                            let owner_address = StacksChainState::parse_genesis_address(&entry.owner, mainnet);
+                                let owner_address =
+                                    StacksChainState::parse_genesis_address(&entry.owner, mainnet);
 
-                            let zonefile_hash = {
-                                if entry.zonefile_hash.len() == 0 {
-                                    Value::buff_from(vec![]).unwrap()
-                                } else {
-                                    let buffer = Hash160::from_hex(&entry.zonefile_hash)
-                                        .expect("Invalid zonefile_hash");
-                                    Value::buff_from(buffer.to_bytes().to_vec()).unwrap()
-                                }
-                            };
+                                let zonefile_hash = {
+                                    if entry.zonefile_hash.len() == 0 {
+                                        Value::buff_from(vec![]).unwrap()
+                                    } else {
+                                        let buffer = Hash160::from_hex(&entry.zonefile_hash)
+                                            .expect("Invalid zonefile_hash");
+                                        Value::buff_from(buffer.to_bytes().to_vec()).unwrap()
+                                    }
+                                };
 
-                            db.set_nft_owner(
-                                &bns_contract_id,
-                                "names",
-                                &fqn,
-                                &owner_address,
-                            )?;
+                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
 
-                            let registered_at = Value::UInt(entry.registered_at.into());
-                            let name_props = Value::Tuple(
-                                TupleData::from_data(vec![
-                                    ("registered-at".into(), Value::some(registered_at).unwrap()),
-                                    ("imported-at".into(), Value::none()),
-                                    ("revoked-at".into(), Value::none()),
-                                    ("zonefile-hash".into(), zonefile_hash),
-                                ])
-                                .unwrap(),
-                            );
+                                let registered_at = Value::UInt(entry.registered_at.into());
+                                let name_props = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        (
+                                            "registered-at".into(),
+                                            Value::some(registered_at).unwrap(),
+                                        ),
+                                        ("imported-at".into(), Value::none()),
+                                        ("revoked-at".into(), Value::none()),
+                                        ("zonefile-hash".into(), zonefile_hash),
+                                    ])
+                                    .unwrap(),
+                                );
 
-                            db.insert_entry(
-                                &bns_contract_id,
-                                "name-properties",
-                                fqn.clone(),
-                                name_props,
-                            )?;
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "name-properties",
+                                    fqn.clone(),
+                                    name_props,
+                                )?;
 
-                            db.insert_entry(
-                                &bns_contract_id,
-                                "owner-name",
-                                Value::Principal(owner_address),
-                                fqn,
-                            )?;
-                        }
-                        Ok(())
-                    }).unwrap();
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "owner-name",
+                                    Value::Principal(owner_address),
+                                    fqn,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
                 });
             }
 

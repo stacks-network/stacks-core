@@ -144,9 +144,7 @@ impl AttachmentsDownloader {
             }
 
             // Do we already have a matching validated attachment
-            if let Ok(Some(_entry)) =
-                atlasdb.find_attachment(&attachment_instance.content_hash)
-            {
+            if let Ok(Some(_entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
                 atlasdb
                     .insert_uninstanciated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;

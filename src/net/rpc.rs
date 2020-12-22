@@ -1498,14 +1498,17 @@ impl ConversationHttp {
         match (attachment, accepted_tx) {
             (Some(ref attachment), Some(ref tx)) => {
                 if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
-                    if atlasdb.should_keep_attachment(&contract_call.to_clarity_contract_id(), &attachment) {
+                    if atlasdb.should_keep_attachment(
+                        &contract_call.to_clarity_contract_id(),
+                        &attachment,
+                    ) {
                         atlasdb
                             .insert_uninstanciated_attachment(attachment)
                             .map_err(|e| net_error::DBError(e))?;
                     }
                 }
             }
-            _ => {},
+            _ => {}
         }
 
         response.send(http, fd).and_then(|_| Ok(accepted))

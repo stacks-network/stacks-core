@@ -26,7 +26,7 @@ use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::StacksBlockId;
 use net::StacksMessageCodec;
 
-use super::{Attachment, AttachmentInstance, AtlasConfig};
+use super::{AtlasConfig, Attachment, AttachmentInstance};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
@@ -115,21 +115,32 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn should_keep_attachment(&self, contract_id: &QualifiedContractIdentifier, attachment: &Attachment) -> bool {
+    pub fn should_keep_attachment(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+        attachment: &Attachment,
+    ) -> bool {
         if self.atlas_config.contracts.contains(contract_id) {
-            info!("Atlas: will discard posted attachment - {} not in supported contracts", contract_id);       
-            return false
+            info!(
+                "Atlas: will discard posted attachment - {} not in supported contracts",
+                contract_id
+            );
+            return false;
         }
         if attachment.content.len() as u32 > self.atlas_config.attachments_max_size {
             info!("Atlas: will discard posted attachment - attachment too large");
-            return false
+            return false;
         }
         true
     }
 
     // Open the burn database at the given path.  Open read-only or read/write.
     // If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(atlas_config: AtlasConfig, path: &String, readwrite: bool) -> Result<AtlasDB, db_error> {
+    pub fn connect(
+        atlas_config: AtlasConfig,
+        path: &String,
+        readwrite: bool,
+    ) -> Result<AtlasDB, db_error> {
         let mut create_flag = false;
         let open_flags = if fs::metadata(path).is_err() {
             // need to create
@@ -246,11 +257,15 @@ impl AtlasDB {
         Ok(res)
     }
 
-    pub fn insert_uninstanciated_attachment(&mut self, attachment: &Attachment) -> Result<(), db_error> {
+    pub fn insert_uninstanciated_attachment(
+        &mut self,
+        attachment: &Attachment,
+    ) -> Result<(), db_error> {
         // Insert the new attachment
         let uninstantiated_attachments = self.count_uninstantiated_attachments()?;
         if uninstantiated_attachments >= self.atlas_config.max_uninstanciated_attachments {
-            let to_delete = 1 + uninstantiated_attachments - self.atlas_config.max_uninstanciated_attachments;
+            let to_delete =
+                1 + uninstantiated_attachments - self.atlas_config.max_uninstanciated_attachments;
             self.evict_k_oldest_uninstantiated_attachments(to_delete)?;
         }
 

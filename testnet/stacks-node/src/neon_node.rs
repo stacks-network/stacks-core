@@ -29,7 +29,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    atlas::{AtlasDB, AttachmentInstance, AtlasConfig},
+    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
     db::{LocalPeer, PeerDB},
     dns::DNSResolver,
     p2p::PeerNetwork,

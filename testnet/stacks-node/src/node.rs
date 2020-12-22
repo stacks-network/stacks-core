@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::{burn::db::sortdb::SortitionDB};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -24,12 +24,18 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    atlas::{AtlasDB, AtlasConfig}, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
-    PeerAddress,
+    atlas::{AtlasConfig, AtlasDB},
+    db::PeerDB,
+    p2p::PeerNetwork,
+    rpc::RPCHandlerArgs,
+    Error as NetError, PeerAddress,
 };
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
-    chainstate::stacks::db::{ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSNamespace, ChainstateBNSName},
+    chainstate::stacks::db::{
+        ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
+        ChainstateBNSNamespace,
+    },
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -132,9 +138,7 @@ pub fn get_namespaces(
     )
 }
 
-pub fn get_names(
-    use_test_chainstate_data: bool,
-) -> Box<dyn Iterator<Item = ChainstateBNSName>> {
+pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = ChainstateBNSName>> {
     Box::new(
         stx_genesis::GenesisData::new(use_test_chainstate_data)
             .read_names()
@@ -258,10 +262,7 @@ impl Node {
             get_bulk_initial_namespaces: Some(Box::new(move || {
                 get_namespaces(use_test_genesis_data)
             })),
-            get_bulk_initial_names: Some(Box::new(move || {
-                get_names(use_test_genesis_data)
-            })),
-
+            get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
@@ -444,7 +445,8 @@ impl Node {
             tx.commit().unwrap();
         }
         let atlas_config = AtlasConfig::default();
-        let atlasdb = AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
+        let atlasdb =
+            AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,

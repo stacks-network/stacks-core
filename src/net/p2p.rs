@@ -4290,10 +4290,10 @@ mod test {
     use super::*;
     use burnchains::burnchain::*;
     use burnchains::*;
+    use net::atlas::*;
     use net::codec::*;
     use net::db::*;
     use net::*;
-    use net::atlas::*;
     use std::thread;
     use std::time;
     use util::log;
@@ -4382,7 +4382,7 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
-        let atlas_config =  AtlasConfig::default();
+        let atlas_config = AtlasConfig::default();
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
