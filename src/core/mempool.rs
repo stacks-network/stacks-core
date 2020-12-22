@@ -907,7 +907,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
         do_admission_checks: bool,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<StacksTransaction, MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
             tx.txid(),
@@ -979,7 +979,7 @@ impl MemPoolDB {
             sponsor_nonce,
         )?;
 
-        Ok(())
+        Ok(tx)
     }
 
     /// One-shot submit
@@ -989,9 +989,9 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<StacksTransaction, MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(
+        let tx = MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
             consensus_hash,
@@ -1000,7 +1000,7 @@ impl MemPoolDB {
             true,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
-        Ok(())
+        Ok(tx)
     }
 
     /// Directly submit to the mempool, and don't do any admissions checks.
@@ -1010,12 +1010,12 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<StacksTransaction, MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::tx_submit(
+        let tx = MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
             consensus_hash,
@@ -1024,7 +1024,7 @@ impl MemPoolDB {
             false,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
-        Ok(())
+        Ok(tx)
     }
 
     /// Do we have a transaction?

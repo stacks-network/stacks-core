@@ -24,7 +24,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    atlas::AtlasDB, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
+    atlas::{AtlasDB, AtlasConfig}, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
     PeerAddress,
 };
 use stacks::{
@@ -399,7 +399,8 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(&self.config.get_peer_db_path(), true).unwrap();
+        let atlas_config = AtlasConfig::default();
+        let atlasdb = AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,

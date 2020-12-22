@@ -673,7 +673,7 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match atlasdb.find_instantiated_attachment(&content_hash) {
+        match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
                 let response = HttpResponseType::GetAttachment(response_metadata, content);
@@ -1476,31 +1476,38 @@ impl ConversationHttp {
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted) = if mempool.has_tx(&txid) {
+        let (response, accepted_tx) = if mempool.has_tx(&txid) {
             (
                 HttpResponseType::TransactionID(response_metadata, txid),
-                false,
+                None,
             )
         } else {
             match mempool.submit(chainstate, &consensus_hash, &block_hash, tx) {
-                Ok(_) => (
+                Ok(tx) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
-                    true,
+                    Some(tx),
                 ),
                 Err(e) => (
                     HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                    false,
+                    None,
                 ),
             }
         };
+        let accepted = accepted_tx.is_some();
 
-        if let Some(attachment) = attachment {
-            if accepted {
-                atlasdb
-                    .insert_new_attachment(&attachment)
-                    .map_err(|e| net_error::DBError(e))?;
+        match (attachment, accepted_tx) {
+            (Some(ref attachment), Some(ref tx)) => {
+                if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
+                    if atlasdb.should_keep_attachment(&contract_call.to_clarity_contract_id(), &attachment) {
+                        atlasdb
+                            .insert_uninstanciated_attachment(attachment)
+                            .map_err(|e| net_error::DBError(e))?;
+                    }
+                }
             }
+            _ => {},
         }
+
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 

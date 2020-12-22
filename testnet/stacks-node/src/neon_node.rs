@@ -29,7 +29,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    atlas::{AtlasDB, AttachmentInstance},
+    atlas::{AtlasDB, AttachmentInstance, AtlasConfig},
     db::{LocalPeer, PeerDB},
     dns::DNSResolver,
     p2p::PeerNetwork,
@@ -93,6 +93,7 @@ pub struct InitializedNeonNode {
     active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
     is_miner: bool,
+    pub atlas_config: AtlasConfig,
 }
 
 pub struct NeonGenesisNode {
@@ -929,6 +930,7 @@ impl InitializedNeonNode {
         sync_comms: PoxSyncWatchdogComms,
         burnchain: Burnchain,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+        atlas_config: AtlasConfig,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1008,7 +1010,7 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(&config.get_atlas_db_path(), true).unwrap();
+        let atlasdb = AtlasDB::connect(atlas_config, &config.get_atlas_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -1076,7 +1078,7 @@ impl InitializedNeonNode {
         let is_miner = miner;
 
         let active_keys = vec![];
-
+        let atlas_config = AtlasConfig::default();
         InitializedNeonNode {
             relay_channel: relay_send,
             last_burn_block,
@@ -1084,6 +1086,7 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             active_keys,
+            atlas_config,
         }
     }
 
@@ -1694,6 +1697,7 @@ impl NeonGenesisNode {
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+        atlas_config: AtlasConfig,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1710,6 +1714,7 @@ impl NeonGenesisNode {
             sync_comms,
             self.burnchain,
             attachments_rx,
+            atlas_config,
         )
     }
 
@@ -1720,6 +1725,7 @@ impl NeonGenesisNode {
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+        atlas_config: AtlasConfig,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1736,6 +1742,7 @@ impl NeonGenesisNode {
             sync_comms,
             self.burnchain,
             attachments_rx,
+            atlas_config,
         )
     }
 }

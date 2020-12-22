@@ -251,6 +251,7 @@ impl<'a, T: BlockEventDispatcher>
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
+        atlas_config: AtlasConfig,
     ) where
         T: BlockEventDispatcher,
     {
@@ -281,7 +282,7 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
-            atlas_config: AtlasConfig::default(),
+            atlas_config,
         };
 
         loop {

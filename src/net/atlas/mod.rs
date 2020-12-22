@@ -30,9 +30,12 @@ lazy_static! {
     );
 }
 
+#[derive(Debug, Clone)]
 pub struct AtlasConfig {
     pub contracts: HashSet<QualifiedContractIdentifier>,
     pub attachments_max_size: u32,
+    pub max_uninstanciated_attachments: u32,
+    pub uninstanciated_attachments_expire_after: u32,
 }
 
 impl AtlasConfig {
@@ -42,6 +45,8 @@ impl AtlasConfig {
         AtlasConfig {
             contracts,
             attachments_max_size: 1_048_576,
+            max_uninstanciated_attachments: 10_000,
+            uninstanciated_attachments_expire_after: 3_600,
         }
     }
 }
