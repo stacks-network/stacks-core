@@ -1476,39 +1476,35 @@ impl ConversationHttp {
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted_tx) = if mempool.has_tx(&txid) {
+        let (response, accepted) = if mempool.has_tx(&txid) {
             (
                 HttpResponseType::TransactionID(response_metadata, txid),
-                None,
+                false,
             )
         } else {
-            match mempool.submit(chainstate, &consensus_hash, &block_hash, tx) {
-                Ok(tx) => (
+            match mempool.submit(chainstate, &consensus_hash, &block_hash, &tx) {
+                Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
-                    Some(tx),
+                    true,
                 ),
                 Err(e) => (
                     HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                    None,
+                    false,
                 ),
             }
         };
-        let accepted = accepted_tx.is_some();
 
-        match (attachment, accepted_tx) {
-            (Some(ref attachment), Some(ref tx)) => {
-                if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
-                    if atlasdb.should_keep_attachment(
-                        &contract_call.to_clarity_contract_id(),
-                        &attachment,
-                    ) {
-                        atlasdb
-                            .insert_uninstantiated_attachment(attachment)
-                            .map_err(|e| net_error::DBError(e))?;
-                    }
+        if let Some(ref attachment) = attachment {
+            if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
+                if atlasdb.should_keep_attachment(
+                    &contract_call.to_clarity_contract_id(),
+                    &attachment,
+                ) {
+                    atlasdb
+                        .insert_uninstantiated_attachment(attachment)
+                        .map_err(|e| net_error::DBError(e))?;
                 }
             }
-            _ => {}
         }
 
         response.send(http, fd).and_then(|_| Ok(accepted))

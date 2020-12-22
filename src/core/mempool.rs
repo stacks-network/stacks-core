@@ -905,9 +905,9 @@ impl MemPoolDB {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        tx: StacksTransaction,
+        tx: &StacksTransaction,
         do_admission_checks: bool,
-    ) -> Result<StacksTransaction, MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
             tx.txid(),
@@ -960,7 +960,7 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx.admitter.will_admit_tx(chainstate, &tx, len)?;
+            mempool_tx.admitter.will_admit_tx(chainstate, tx, len)?;
         }
 
         MemPoolDB::try_add_tx(
@@ -979,7 +979,7 @@ impl MemPoolDB {
             sponsor_nonce,
         )?;
 
-        Ok(tx)
+        Ok(())
     }
 
     /// One-shot submit
@@ -988,10 +988,10 @@ impl MemPoolDB {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        tx: StacksTransaction,
-    ) -> Result<StacksTransaction, MemPoolRejection> {
+        tx: &StacksTransaction,
+    ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        let tx = MemPoolDB::tx_submit(
+        MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
             consensus_hash,
@@ -1000,7 +1000,7 @@ impl MemPoolDB {
             true,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
-        Ok(tx)
+        Ok(())
     }
 
     /// Directly submit to the mempool, and don't do any admissions checks.
@@ -1010,21 +1010,21 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
-    ) -> Result<StacksTransaction, MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        let tx = MemPoolDB::tx_submit(
+        MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
             consensus_hash,
             block_hash,
-            tx,
+            &tx,
             false,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
-        Ok(tx)
+        Ok(())
     }
 
     /// Do we have a transaction?
