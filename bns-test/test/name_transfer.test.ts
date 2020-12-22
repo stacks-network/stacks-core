@@ -280,7 +280,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
       "charlie", {
         sender: cases[0].nameOwner
       });
-    expect(receipt.result).include('0x');
+    expect(receipt.result).include('(zonefile-hash 0x)');
     expect(receipt.success).eq(true);
 
     // Bob should not be able to update 'charlie.blockstack'
@@ -321,7 +321,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
       "bob", {
         sender: cases[0].nameOwner
       });
-    expect(receipt.result).include('0x');
+    expect(receipt.result).include('(zonefile-hash 0x))');
     expect(receipt.success).eq(true);
 
     // Bob should be able to update its zonefile
