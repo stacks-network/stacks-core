@@ -1496,10 +1496,9 @@ impl ConversationHttp {
 
         if let Some(ref attachment) = attachment {
             if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
-                if atlasdb.should_keep_attachment(
-                    &contract_call.to_clarity_contract_id(),
-                    &attachment,
-                ) {
+                if atlasdb
+                    .should_keep_attachment(&contract_call.to_clarity_contract_id(), &attachment)
+                {
                     atlasdb
                         .insert_uninstantiated_attachment(attachment)
                         .map_err(|e| net_error::DBError(e))?;

@@ -4,6 +4,7 @@ use super::download::{
 };
 use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 use net::connection::ConnectionOptions;
@@ -11,16 +12,13 @@ use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
-use util::hash::Hash160;
-use vm::representations::UrlString;
-use vm::types::QualifiedContractIdentifier;
-use chainstate::stacks::
-    boot::
-        boot_code_id;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::thread;
 use std::time;
+use util::hash::Hash160;
+use vm::representations::UrlString;
+use vm::types::QualifiedContractIdentifier;
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {
@@ -704,15 +702,21 @@ fn test_keep_uninstantiated_attachments() {
 
     assert_eq!(
         atlas_db.should_keep_attachment(&pox_contract_id, &new_attachment_from("facade02")),
-        false);
+        false
+    );
 
     assert_eq!(
         atlas_db.should_keep_attachment(&bns_contract_id, &new_attachment_from("facade02")),
-        true);
+        true
+    );
 
     assert_eq!(
-        atlas_db.should_keep_attachment(&bns_contract_id, &new_attachment_from("facadefacadefacade02")),
-        false);
+        atlas_db.should_keep_attachment(
+            &bns_contract_id,
+            &new_attachment_from("facadefacadefacade02")
+        ),
+        false
+    );
 }
 
 #[test]

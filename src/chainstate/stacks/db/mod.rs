@@ -71,8 +71,8 @@ use chainstate::burn::db::sortdb::*;
 
 use chainstate::stacks::boot::*;
 
-use net::Error as net_error;
 use net::atlas::BNS_CHARS_REGEX;
+use net::Error as net_error;
 
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
@@ -1116,7 +1116,7 @@ impl StacksChainState {
                                 let components: Vec<_> =
                                     entry.fully_qualified_name.split(".").collect();
                                 assert_eq!(components.len(), 2);
-                                
+
                                 let namespace = {
                                     let namespace_str = components[1];
                                     if !BNS_CHARS_REGEX.is_match(&namespace_str) {
@@ -1125,7 +1125,7 @@ impl StacksChainState {
                                     let buffer = namespace_str.as_bytes();
                                     Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
                                 };
-                                
+
                                 let name = {
                                     let name_str = components[0].to_string();
                                     if !BNS_CHARS_REGEX.is_match(&name_str) {
