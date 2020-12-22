@@ -463,13 +463,18 @@ impl BlockStreamData {
                 while self.num_mblocks_ptr < self.num_mblocks_buf.len() {
                     // stream length prefix
                     test_debug!(
-                        "Try to send length prefix {:?} (ptr={})",
+                        "Confirmed microblock stream for {}: try to send length prefix {:?} (ptr={})",
+                        &self.microblock_hash,
                         &self.num_mblocks_buf[self.num_mblocks_ptr..],
                         self.num_mblocks_ptr
                     );
                     let num_sent = match fd.write(&self.num_mblocks_buf[self.num_mblocks_ptr..]) {
                         Ok(0) => {
                             // done (disconnected)
+                            test_debug!(
+                                "Confirmed microblock stream for {}: wrote 0 bytes",
+                                &self.microblock_hash
+                            );
                             return Ok(num_written);
                         }
                         Ok(n) => {
@@ -491,6 +496,12 @@ impl BlockStreamData {
                         }
                     };
                     num_written += num_sent;
+                    test_debug!(
+                        "Confirmed microblock stream for {}: sent {} bytes ({} total)",
+                        &self.microblock_hash,
+                        num_sent,
+                        num_written
+                    );
                 }
                 StacksChainState::stream_microblocks_confirmed(&chainstate, fd, self, count)
                     .and_then(|bytes_sent| Ok(bytes_sent + num_written))
@@ -2579,7 +2590,16 @@ impl StacksChainState {
                 }
             })?;
 
-        StacksChainState::stream_data(fd, stream, &mut blob, count)
+        let num_bytes = StacksChainState::stream_data(fd, stream, &mut blob, count)?;
+        test_debug!(
+            "Stream microblock rowid={} hash={} offset={} total_bytes={}, num_bytes={}",
+            rowid,
+            &stream.microblock_hash,
+            stream.offset,
+            stream.total_bytes,
+            num_bytes
+        );
+        Ok(num_bytes)
     }
 
     /// Stream multiple microblocks from staging, moving in reverse order from the stream tail to the stream head.
@@ -2605,6 +2625,10 @@ impl StacksChainState {
                     Some(x) => x,
                     None => {
                         // out of mblocks
+                        debug!(
+                            "Out of microblocks to stream after confirmed microblock {}",
+                            &stream.microblock_hash
+                        );
                         break;
                     }
                 };
@@ -2617,6 +2641,10 @@ impl StacksChainState {
                     Some(rid) => rid,
                     None => {
                         // out of mblocks
+                        debug!(
+                            "No rowid found for confirmed stream microblock {}",
+                            &mblock_info.parent_hash
+                        );
                         break;
                     }
                 };
@@ -2629,12 +2657,21 @@ impl StacksChainState {
                     .checked_sub(nw)
                     .expect("BUG: wrote more data than called for");
             }
+            debug!(
+                "Streaming microblock={}: to_write={}, nw={}",
+                &stream.microblock_hash, to_write, nw
+            );
         }
+        debug!(
+            "Streamed confirmed microblocks: {} - {} = {}",
+            count,
+            to_write,
+            count - to_write
+        );
         Ok(count - to_write)
     }
 
     /// Stream block data from the chunk store.
-    /// Also works for a microblock stream.
     fn stream_data_from_chunk_store<W: Write>(
         blocks_path: &String,
         fd: &mut W,
@@ -2665,8 +2702,7 @@ impl StacksChainState {
         StacksChainState::stream_data(fd, stream, &mut file_fd, count)
     }
 
-    /// Stream block data from the chain state.  Pull from either staging or the chunk store,
-    /// wherever it happens to be located.
+    /// Stream block data from the chain state.
     /// Returns the number of bytes written, and updates `stream` to point to the next point to
     /// read.  Writes the bytes streamed to `fd`.
     pub fn stream_block<W: Write>(
@@ -5291,6 +5327,7 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
 
+    use rand::thread_rng;
     use rand::Rng;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
@@ -5358,6 +5395,99 @@ pub mod test {
         block
     }
 
+    pub fn make_16k_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
+        let privk = StacksPrivateKey::from_hex(
+            "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let mut tx_coinbase = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        );
+        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+
+        tx_signer.sign_origin(&privk).unwrap();
+
+        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+        // 16k + 8 contract
+        let contract_16k = {
+            let mut parts = vec![];
+            parts.push("(begin ".to_string());
+            for i in 0..1024 {
+                parts.push("(print \"abcdef\")".to_string()); // 16 bytes
+            }
+            parts.push(")".to_string());
+            parts.join("")
+        };
+
+        let mut tx_big_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &format!("hello-world-{}", &thread_rng().gen::<u32>()),
+                &contract_16k.to_string(),
+            )
+            .unwrap(),
+        );
+
+        tx_big_contract.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx_big_contract);
+        tx_signer.sign_origin(&privk).unwrap();
+
+        let tx_big_contract_signed = tx_signer.get_tx().unwrap();
+
+        let txs = vec![tx_coinbase_signed, tx_big_contract_signed];
+
+        let work_score = StacksWorkScore {
+            burn: 123,
+            work: 456,
+        };
+
+        let parent_header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: proof.clone(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20]),
+        };
+
+        let parent_microblock_header = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: BlockHeaderHash([0x0au8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x0bu8; 32]),
+            signature: MessageSignature([0x0cu8; 65]),
+        };
+
+        let mblock_pubkey_hash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key));
+        let mut block = StacksBlock::from_parent(
+            &parent_header,
+            &parent_microblock_header,
+            txs.clone(),
+            &work_score,
+            &proof,
+            &TrieHash([2u8; 32]),
+            &mblock_pubkey_hash,
+        );
+        block.header.version = 0x24;
+        block
+    }
+
     pub fn make_sample_microblock_stream_fork(
         privk: &StacksPrivateKey,
         base: &BlockHeaderHash,
@@ -5371,20 +5501,34 @@ pub mod test {
             let random_bytes = rng.gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
             let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-            let tx_smart_contract = StacksTransaction::new(
+
+            // 16k + 8 contract
+            let contract_16k = {
+                let mut parts = vec![];
+                parts.push("(begin ".to_string());
+                for i in 0..1024 {
+                    parts.push("(print \"abcdef\")".to_string()); // 16 bytes
+                }
+                parts.push(")".to_string());
+                parts.join("")
+            };
+
+            let mut tx_big_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
                 TransactionPayload::new_smart_contract(
-                    &format!("hello-microblock-{}", &random_bytes_str),
-                    &format!("(begin (+ 1 2))"),
+                    &format!("hello-world-{}", &thread_rng().gen::<u32>()),
+                    &contract_16k.to_string(),
                 )
                 .unwrap(),
             );
-            let mut tx_signer = StacksTransactionSigner::new(&tx_smart_contract);
+
+            tx_big_contract.anchor_mode = TransactionAnchorMode::OffChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&tx_big_contract);
             tx_signer.sign_origin(&privk).unwrap();
 
-            let tx_signed = tx_signer.get_tx().unwrap();
-            all_txs.push(tx_signed);
+            let tx_big_contract_signed = tx_signer.get_tx().unwrap();
+            all_txs.push(tx_big_contract_signed);
         }
 
         // make microblocks with 3 transactions each (or fewer)
@@ -8090,7 +8234,7 @@ pub mod test {
         )
         .unwrap();
 
-        let block = make_empty_coinbase_block(&privk);
+        let block = make_16k_block(&privk);
 
         let consensus_hash = ConsensusHash([2u8; 20]);
         let parent_consensus_hash = ConsensusHash([1u8; 20]);

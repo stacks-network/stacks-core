@@ -88,6 +88,21 @@ pub trait MarfConnection<T: MarfTrieId> {
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
 
+    fn get_with_proof(
+        &mut self,
+        block_hash: &T,
+        key: &str,
+    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
+        self.with_conn(|conn| {
+            let marf_value = match MARF::get_by_key(conn, block_hash, key)? {
+                None => return Ok(None),
+                Some(x) => x,
+            };
+            let proof = TrieMerkleProof::from_raw_entry(conn, key, &marf_value, block_hash)?;
+            Ok(Some((marf_value, proof)))
+        })
+    }
+
     fn get_block_at_height(&mut self, height: u32, tip: &T) -> Result<Option<T>, Error> {
         self.with_conn(|c| MARF::get_block_at_height(c, height, tip))
     }
@@ -104,6 +119,46 @@ pub trait MarfConnection<T: MarfTrieId> {
     /// Get the root trie hash at a particular block
     fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
         self.with_conn(|c| c.get_root_hash_at(block_hash))
+    }
+
+    /// Check if a block can open successfully, i.e.,
+    ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
+    ///   as the current block
+    /// The MARF _must_ be open to a valid block for this check to be evaluated.
+    fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
+        self.with_conn(|conn| {
+            let cur_block_hash = conn.get_cur_block();
+            if cur_block_hash == *bhh {
+                // a block is in its own fork
+                return Ok(());
+            }
+
+            let bhh_height =
+                MARF::get_block_height(conn, bhh, &cur_block_hash)?.ok_or_else(|| {
+                    Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.clone().to_bytes())
+                })?;
+
+            let actual_block_at_height = MARF::get_block_at_height(conn, bhh_height, &cur_block_hash)?
+                .ok_or_else(|| Error::CorruptionError(format!(
+                    "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
+
+            if bhh != &actual_block_at_height {
+                test_debug!("non-matching forks: {} != {}", bhh, &actual_block_at_height);
+                return Err(Error::NonMatchingForks(
+                    bhh.clone().to_bytes(),
+                    cur_block_hash.to_bytes(),
+                ));
+            }
+
+            // test open
+            let result = conn.open_block(bhh);
+
+            // restore
+            conn.open_block(&cur_block_hash)
+                .map_err(|e| Error::RestoreMarfBlockError(Box::new(e)))?;
+
+            result
+        })
     }
 }
 
@@ -150,10 +205,62 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    ///  This function commits the current MARF sqlite transaction
-    ///    without flushing the in-memory Trie. This only used by
-    ///    Clarity MarfedKV and tests.
-    pub fn commit_tx(self) {
+    /// Finish writing the next trie in the MARF, but change the hash of the current Trie's
+    /// block hash to something other than what we opened it as.  This persists all changes.
+    pub fn commit_to(mut self, real_bhh: &T) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.storage.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        if let Some(_tip) = self.open_chain_tip.take() {
+            self.storage.flush_to(real_bhh)?;
+            self.storage.commit_tx();
+        }
+        Ok(())
+    }
+
+    /// Finish writing the next trie in the MARF -- this is used by miners
+    ///   to commit the mined block, but write it to the mined_block table,
+    ///   rather than out to the marf_data table (this prevents the
+    ///   miner's block from getting stepped on after the sortition).
+    pub fn commit_mined(mut self, bhh: &T) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.storage.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        if let Some(_tip) = self.open_chain_tip.take() {
+            self.storage.flush_mined(bhh)?;
+            self.storage.commit_tx();
+        }
+        Ok(())
+    }
+
+    pub fn get_open_chain_tip(&self) -> Option<&T> {
+        self.open_chain_tip.as_ref().map(|tip| &tip.block_hash)
+    }
+
+    pub fn get_open_chain_tip_height(&self) -> Option<u32> {
+        self.open_chain_tip.as_ref().map(|tip| tip.height)
+    }
+
+    pub fn get_block_height_of(
+        &mut self,
+        bhh: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_height());
+        } else {
+            MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
+        }
+    }
+
+    #[cfg(test)]
+    fn commit_tx(self) {
         self.storage.commit_tx()
     }
 
@@ -395,7 +502,23 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             self.storage
                 .open_block(&T::sentinel())
                 .expect("BUG: should never fail to open the block sentinel");
-            self.storage.commit_tx()
+            self.storage.rollback()
+        }
+    }
+
+    /// Drop the current trie from the MARF, and roll back all unconfirmed state
+    pub fn drop_unconfirmed(mut self) {
+        if !self.storage.readonly() && self.storage.unconfirmed() {
+            if let Some(tip) = self.open_chain_tip.take() {
+                self.storage.drop_unconfirmed_trie(&tip.block_hash);
+                self.storage
+                    .open_block(&T::sentinel())
+                    .expect("BUG: should never fail to open the block sentinel");
+                // Dropping unconfirmed state cannot be done with a tx rollback,
+                //   because the unconfirmed state may already have been written
+                //   to the sqlite table before this transaction began
+                self.storage.commit_tx()
+            }
         }
     }
 }
@@ -1275,45 +1398,6 @@ impl<T: MarfTrieId> MARF<T> {
     /// Get open chain tip
     pub fn get_open_chain_tip_height(&self) -> Option<u32> {
         self.open_chain_tip.as_ref().map(|x| x.height)
-    }
-
-    /// Check if a block can open successfully, i.e.,
-    ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
-    ///   as the current block
-    /// The MARF _must_ be open to a valid block for this check to be evaluated.
-    pub fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
-        let mut conn = self.storage.connection();
-        let cur_block_hash = conn.get_cur_block();
-        if cur_block_hash == *bhh {
-            // a block is in its own fork
-            return Ok(());
-        }
-
-        let bhh_height =
-            MARF::get_block_height(&mut conn, bhh, &cur_block_hash)?.ok_or_else(|| {
-                Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.clone().to_bytes())
-            })?;
-
-        let actual_block_at_height = MARF::get_block_at_height(&mut conn, bhh_height, &cur_block_hash)?
-            .ok_or_else(|| Error::CorruptionError(format!(
-                "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
-
-        if bhh != &actual_block_at_height {
-            test_debug!("non-matching forks: {} != {}", bhh, &actual_block_at_height);
-            return Err(Error::NonMatchingForks(
-                bhh.clone().to_bytes(),
-                cur_block_hash.to_bytes(),
-            ));
-        }
-
-        // test open
-        let result = conn.open_block(bhh);
-
-        // restore
-        conn.open_block(&cur_block_hash)
-            .map_err(|e| Error::RestoreMarfBlockError(Box::new(e)))?;
-
-        result
     }
 
     /// Access internal storage

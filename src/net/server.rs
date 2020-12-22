@@ -473,7 +473,7 @@ impl HttpPeer {
                                     Ok(_) => {}
                                     Err(e) => {
                                         debug!(
-                                            "Failed to flush HTP 400 to socket {:?}: {:?}",
+                                            "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                             &client_sock, &e
                                         );
                                         convo_dead = true;
@@ -528,7 +528,7 @@ impl HttpPeer {
         if !convo_dead {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
-            match convo.send(client_sock, chainstate) {
+            match HttpPeer::saturate_http_socket(client_sock, convo, chainstate) {
                 Ok(_) => {}
                 Err(e) => {
                     debug!(

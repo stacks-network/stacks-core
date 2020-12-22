@@ -20,6 +20,7 @@ use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
 use std::fmt;
+use util::db::Error as DatabaseError;
 pub use vm::analysis::errors::CheckErrors;
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::ast::errors::ParseError;
@@ -61,6 +62,7 @@ pub enum InterpreterError {
     FailureConstructingListWithType,
     InsufficientBalance,
     CostContractLoadFailure,
+    DBError(IncomparableError<DatabaseError>),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
