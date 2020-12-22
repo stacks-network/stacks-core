@@ -120,7 +120,7 @@ impl AtlasDB {
         contract_id: &QualifiedContractIdentifier,
         attachment: &Attachment,
     ) -> bool {
-        if self.atlas_config.contracts.contains(contract_id) {
+        if !self.atlas_config.contracts.contains(contract_id) {
             info!(
                 "Atlas: will discard posted attachment - {} not in supported contracts",
                 contract_id
@@ -257,15 +257,15 @@ impl AtlasDB {
         Ok(res)
     }
 
-    pub fn insert_uninstanciated_attachment(
+    pub fn insert_uninstantiated_attachment(
         &mut self,
         attachment: &Attachment,
     ) -> Result<(), db_error> {
         // Insert the new attachment
         let uninstantiated_attachments = self.count_uninstantiated_attachments()?;
-        if uninstantiated_attachments >= self.atlas_config.max_uninstanciated_attachments {
+        if uninstantiated_attachments >= self.atlas_config.max_uninstantiated_attachments {
             let to_delete =
-                1 + uninstantiated_attachments - self.atlas_config.max_uninstanciated_attachments;
+                1 + uninstantiated_attachments - self.atlas_config.max_uninstantiated_attachments;
             self.evict_k_oldest_uninstantiated_attachments(to_delete)?;
         }
 
@@ -297,7 +297,7 @@ impl AtlasDB {
 
     pub fn evict_expired_uninstantiated_attachments(&mut self) -> Result<(), db_error> {
         let now = util::get_epoch_time_secs() as i64;
-        let cut_off = now - self.atlas_config.uninstanciated_attachments_expire_after as i64;
+        let cut_off = now - self.atlas_config.uninstantiated_attachments_expire_after as i64;
         let tx = self.tx_begin()?;
         let res = tx.execute(
             "DELETE FROM attachments WHERE was_instantiated = 0 AND created_at < ?",
@@ -339,7 +339,7 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn find_uninstanciated_attachment(
+    pub fn find_uninstantiated_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
@@ -374,7 +374,7 @@ impl AtlasDB {
         Ok(row)
     }
 
-    pub fn insert_uninstanciated_attachment_instance(
+    pub fn insert_uninstantiated_attachment_instance(
         &mut self,
         attachment: &AttachmentInstance,
         is_available: bool,

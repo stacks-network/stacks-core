@@ -1503,7 +1503,7 @@ impl ConversationHttp {
                         &attachment,
                     ) {
                         atlasdb
-                            .insert_uninstanciated_attachment(attachment)
+                            .insert_uninstantiated_attachment(attachment)
                             .map_err(|e| net_error::DBError(e))?;
                     }
                 }
