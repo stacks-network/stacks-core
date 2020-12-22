@@ -21,7 +21,7 @@ use std::hash::{Hash, Hasher};
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 
 lazy_static! {
-    pub static ref BNS_CHARS_REGEX: Regex = Regex::new("(^[a-z0-9]|[-_])$").unwrap();
+    pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
 }
 
 #[derive(Debug, Clone)]
