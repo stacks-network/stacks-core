@@ -1865,15 +1865,18 @@ pub mod test {
         .unwrap()
         .0;
 
-        let genesis_block = chainstate.clarity_state.with_marf(|marf| {
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
             let index_block_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             );
             marf.get_root_hash_at(&index_block_hash).unwrap()
         });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
         assert_eq!(
-            format!("{}", genesis_block),
+            format!("{}", genesis_root_hash),
             "e336d28e3bccdf8e5e77216e0dea26b60292f4577b05ab2d4414776f29a5e9fc"
         );
     }
@@ -1926,15 +1929,18 @@ pub mod test {
         .unwrap()
         .0;
 
-        let genesis_block = chainstate.clarity_state.with_marf(|marf| {
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
             let index_block_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             );
             marf.get_root_hash_at(&index_block_hash).unwrap()
         });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
         assert_eq!(
-            format!("{}", genesis_block),
+            format!("{}", genesis_root_hash),
             "e09fbe2beda35c18f323ff6832650ecdd4b36236b7375d301ad594afb2b9e364"
         );
     }
