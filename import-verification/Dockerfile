@@ -1,18 +1,15 @@
 FROM rust:buster
 
-### Install Stacks 2.0
-RUN git clone --depth 1 --branch v24.2.1.0-xenon https://github.com/blockstack/stacks-blockchain.git /stacks2.0
-WORKDIR /stacks2.0/testnet/stacks-node
-RUN cargo fetch
-RUN cargo build --release
-RUN cp /stacks2.0/target/release/stacks-node /bin/stacks-node
-RUN stacks-node version
-
 ### Install Node.js
 RUN apt-get update
 RUN curl -sL https://deb.nodesource.com/setup_15.x | bash -
 RUN apt-get install -y nodejs
 RUN node --version
+
+### Checkout Stacks 2.0 src
+RUN git clone --depth 1 --branch v24.2.1.0-xenon https://github.com/blockstack/stacks-blockchain.git /stacks2.0
+WORKDIR /stacks2.0/testnet/stacks-node
+RUN cargo fetch
 
 ### Install Stacks 1.0
 RUN git clone --depth 1 --branch v1-migration https://github.com/blockstack/stacks-blockchain.git /stacks1.0
@@ -40,21 +37,21 @@ RUN cat fast_sync_snapshot.log | grep "consensus hash" | tail -1 | sed "s/.*at b
 RUN cat fast_sync_snapshot.log | grep "consensus hash" | tail -1 | sed "s/.*at block \(.*\) with consensus hash \(.*\).*/\2/" > consensus_hash
 RUN echo "Block $(cat export_block) hash $(cat consensus_hash)"
 
-RUN rm -rf /stacks1.0-chain
-
-# RUN blockstack-core export_migration_json /stacks1.0-snapshot $(cat export_block) $(cat consensus_hash) --working-dir /stacks1.0-export
+# Generate a chainstate export from the snapshot
 RUN blockstack-core export_migration_json /stacks1.0-snapshot $(cat export_block) $(cat consensus_hash) /stacks1.0-export --working-dir /stacks1.0-chain
-RUN ls -al /stacks1.0-export
+
+# Copy exported data into Stacks 2.0 src
 RUN cp /stacks1.0-export/chainstate.txt /stacks2.0/stx-genesis/chainstate.txt
 RUN cp /stacks1.0-export/chainstate.txt.sha256 /stacks2.0/stx-genesis/chainstate.txt.sha256
 
+# Build Stacks 2.0 with exported data
 WORKDIR /stacks2.0/testnet/stacks-node
 RUN cargo build --release
 RUN cp /stacks2.0/target/release/stacks-node /bin/stacks-node
-
-WORKDIR /test
+RUN stacks-node version
 
 # Dump 1000 high activity / balance addresses
+WORKDIR /test
 RUN echo "select address, (cast(credit_value as integer) - cast(debit_value as integer)) as amount from ( \
             select * \
             from accounts \
