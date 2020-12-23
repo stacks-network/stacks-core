@@ -914,7 +914,6 @@ impl StacksChainState {
             }
 
             clarity_tx.connection().as_transaction(|clarity| {
-
                 if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
                     info!("Initializing chain with balances");
                     let mut balances_count = 0;
