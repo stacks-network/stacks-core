@@ -18,10 +18,13 @@ async function main() {
             console.log(`Skipping check for placeholder: ${addr}`);
         }
         i++;
-        // TODO: only checking 50 right now because Stacks 2.0 account queries are very slow.
+        // Uncomment to limit the amount of address tested during dev.
+        // The Stacks 2.0 account queries are very slow, several minutes per 100 account queries.
+        /*
         if (i > 50) {
             break;
         }
+        */
     }
 
     console.log('Starting Stacks 1.0 node...');
