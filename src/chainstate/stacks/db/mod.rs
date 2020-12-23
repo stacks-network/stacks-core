@@ -941,10 +941,12 @@ impl StacksChainState {
                 allocation_events.push(mint_event);
             }
 
-            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                info!("Initializing chain with balances");
-                let mut balances_count = 0;
-                clarity_tx.connection().as_transaction(|clarity| {
+            clarity_tx.connection().as_transaction(|clarity| {
+                
+                // Balances
+                if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                    info!("Initializing chain with balances");
+                    let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
@@ -967,53 +969,35 @@ impl StacksChainState {
                         allocation_events.push(mint_event);
                     }
                     info!("Committing {} balances to genesis tx", balances_count);
-                });
-            }
-
-            let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
-                boot_code_auth.clone(),
-                TransactionPayload::TokenTransfer(
-                    PrincipalData::Standard(boot_code_address.into()),
-                    0,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            );
-            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
-                allocations_tx,
-                allocation_events,
-                Value::okay_true(),
-                ExecutionCost::zero(),
-            );
-            receipts.push(allocations_receipt);
-
-            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with lockups");
-                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
-                let initial_lockups = get_schedules();
-                for schedule in initial_lockups {
-                    let stx_address =
-                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
-                    let value = Value::Tuple(
-                        TupleData::from_data(vec![
-                            ("recipient".into(), Value::Principal(stx_address)),
-                            ("amount".into(), Value::UInt(schedule.amount.into())),
-                        ])
-                        .unwrap(),
-                    );
-                    match lockups_per_block.entry(schedule.block_height) {
-                        Entry::Occupied(schedules) => {
-                            schedules.into_mut().push(value);
-                        }
-                        Entry::Vacant(entry) => {
-                            let schedules = vec![value];
-                            entry.insert(schedules);
-                        }
-                    };
                 }
 
-                let lockup_contract_id = boot_code_id("lockup");
-                clarity_tx.connection().as_transaction(|clarity| {
+                // Lockups
+                if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                    info!("Initializing chain with lockups");
+                    let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+                    let initial_lockups = get_schedules();
+                    for schedule in initial_lockups {
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                        let value = Value::Tuple(
+                            TupleData::from_data(vec![
+                                ("recipient".into(), Value::Principal(stx_address)),
+                                ("amount".into(), Value::UInt(schedule.amount.into())),
+                            ])
+                            .unwrap(),
+                        );
+                        match lockups_per_block.entry(schedule.block_height) {
+                            Entry::Occupied(schedules) => {
+                                schedules.into_mut().push(value);
+                            }
+                            Entry::Vacant(entry) => {
+                                let schedules = vec![value];
+                                entry.insert(schedules);
+                            }
+                        };
+                    }
+    
+                    let lockup_contract_id = boot_code_id("lockup");
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
@@ -1028,13 +1012,13 @@ impl StacksChainState {
                             Ok(())
                         })
                         .unwrap();
-                });
-            }
+                }
 
-            let bns_contract_id = boot_code_id("bns");
-            if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
-                info!("Initializing chain with namespaces");
-                clarity_tx.connection().as_transaction(|clarity| {
+
+                // BNS Namespace
+                let bns_contract_id = boot_code_id("bns");
+                if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
+                    info!("Initializing chain with namespaces");
                     clarity
                         .with_clarity_db(|db| {
                             let initial_namespaces = get_namespaces();
@@ -1103,12 +1087,11 @@ impl StacksChainState {
                             Ok(())
                         })
                         .unwrap();
-                });
-            }
-
-            if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
-                info!("Initializing chain with names");
-                clarity_tx.connection().as_transaction(|clarity| {
+                }
+    
+                // BNS Names
+                if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
+                    info!("Initializing chain with names");
                     clarity
                         .with_clarity_db(|db| {
                             let initial_names = get_names();
@@ -1189,8 +1172,25 @@ impl StacksChainState {
                             Ok(())
                         })
                         .unwrap();
-                });
-            }
+                }
+            });
+
+            let allocations_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_auth.clone(),
+                TransactionPayload::TokenTransfer(
+                    PrincipalData::Standard(boot_code_address.into()),
+                    0,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            );
+            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
+                allocations_tx,
+                allocation_events,
+                Value::okay_true(),
+                ExecutionCost::zero(),
+            );
+            receipts.push(allocations_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
