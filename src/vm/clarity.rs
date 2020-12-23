@@ -22,7 +22,7 @@ use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
 use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, MarfedKV, RollbackWrapper,
+    marf::WritableMarfStore, BurnStateDB, ClarityDatabase, HeadersDB, MarfedKV, RollbackWrapper,
     RollbackWrapperPersistedLog, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
@@ -48,6 +48,8 @@ use chainstate::stacks::boot::{
 use std::error;
 use std::fmt;
 
+use super::database::marf::ReadOnlyMarfStore;
+
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -62,7 +64,7 @@ use std::fmt;
 ///   begining the next connection (enforced by runtime panics).
 ///
 pub struct ClarityInstance {
-    datastore: Option<MarfedKV>,
+    datastore: MarfedKV,
     block_limit: ExecutionCost,
 }
 
@@ -70,8 +72,7 @@ pub struct ClarityInstance {
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a> {
-    datastore: MarfedKV,
-    parent: &'a mut ClarityInstance,
+    datastore: WritableMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
@@ -82,17 +83,16 @@ pub struct ClarityBlockConnection<'a> {
 ///
 ///   commit the transaction to the block with .commit()
 ///   rollback the transaction by dropping this struct.
-pub struct ClarityTransactionConnection<'a> {
+pub struct ClarityTransactionConnection<'a, 'b> {
     log: Option<RollbackWrapperPersistedLog>,
-    store: &'a mut MarfedKV,
+    store: &'a mut WritableMarfStore<'b>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
-    datastore: MarfedKV,
-    parent: &'a mut ClarityInstance,
+    datastore: ReadOnlyMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
 }
@@ -236,7 +236,7 @@ impl ClarityBlockConnection<'_> {
 impl ClarityInstance {
     pub fn new(datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
         ClarityInstance {
-            datastore: Some(datastore),
+            datastore,
             block_limit,
         }
     }
@@ -245,15 +245,7 @@ impl ClarityInstance {
     where
         F: FnOnce(&mut MARF<StacksBlockId>) -> R,
     {
-        let datastore = self
-            .datastore
-            .as_mut()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-        f(datastore.get_marf())
+        f(self.datastore.get_marf())
     }
 
     pub fn begin_block<'a>(
@@ -263,16 +255,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        datastore.begin(current, next);
+        let mut datastore = self.datastore.begin(current, next);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
@@ -286,7 +269,6 @@ impl ClarityInstance {
             datastore,
             header_db,
             burn_state_db,
-            parent: self,
             cost_track,
         }
     }
@@ -298,16 +280,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        datastore.begin(current, next);
+        let datastore = self.datastore.begin(current, next);
 
         let cost_track = Some(LimitedCostTracker::new_free());
 
@@ -315,7 +288,6 @@ impl ClarityInstance {
             datastore,
             header_db,
             burn_state_db,
-            parent: self,
             cost_track,
         }
     }
@@ -330,24 +302,14 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        datastore.begin(current, next);
+        let writable = self.datastore.begin(current, next);
 
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore,
+            datastore: writable,
             header_db,
             burn_state_db,
-            parent: self,
             cost_track,
         };
 
@@ -388,12 +350,7 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let mut datastore = self.datastore.take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_unconfirmed while prior block neither committed nor rolled back.");
-
-        datastore.begin_unconfirmed(current);
+        let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
@@ -407,7 +364,6 @@ impl ClarityInstance {
             datastore,
             header_db,
             burn_state_db,
-            parent: self,
             cost_track,
         }
     }
@@ -418,22 +374,12 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
-        let mut datastore = self
-            .datastore
-            .take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect(
-                "FAIL: use of begin_block while prior block neither committed nor rolled back.",
-            );
-
-        datastore.set_chain_tip(at_block);
+        let datastore = self.datastore.begin_read_only(Some(at_block));
 
         ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
-            parent: self,
         }
     }
 
@@ -445,23 +391,16 @@ impl ClarityInstance {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, Error> {
-        self.datastore.as_mut().unwrap().set_chain_tip(at_block);
-        let clarity_db = self
-            .datastore
-            .as_mut()
-            .unwrap()
-            .as_clarity_db(header_db, burn_state_db);
+        let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
+        let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
         let mut env = OwnedEnvironment::new_free(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
 
-    pub fn destroy(mut self) -> MarfedKV {
-        let datastore = self.datastore.take()
-            .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
-
-        datastore
+    pub fn destroy(self) -> MarfedKV {
+        self.datastore
     }
 }
 
@@ -535,8 +474,9 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db =
-            ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
+        let mut db = self
+            .datastore
+            .as_clarity_db(&self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -547,7 +487,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        let mut db = self.datastore.as_analysis_db();
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -555,46 +495,34 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     }
 }
 
-impl<'a> ClarityReadOnlyConnection<'a> {
-    pub fn done(self) {
-        self.parent.datastore.replace(self.datastore);
-    }
-}
-
 impl<'a> ClarityBlockConnection<'a> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
-    pub fn rollback_block(mut self) {
+    pub fn rollback_block(self) {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback Clarity datastore");
-        self.datastore.rollback();
-
-        self.parent.datastore.replace(self.datastore);
+        self.datastore.rollback_block();
     }
 
     /// Rolls back all unconfirmed state in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
-    pub fn rollback_unconfirmed(mut self) {
+    pub fn rollback_unconfirmed(self) {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback unconfirmed Clarity datastore");
         self.datastore.rollback_unconfirmed();
-
-        self.parent.datastore.replace(self.datastore);
     }
 
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
     #[cfg(test)]
-    pub fn commit_block(mut self) -> LimitedCostTracker {
+    pub fn commit_block(self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
         self.datastore.test_commit();
-
-        self.parent.datastore.replace(self.datastore);
 
         self.cost_track.unwrap()
     }
@@ -605,11 +533,9 @@ impl<'a> ClarityBlockConnection<'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the
     /// time of opening).
-    pub fn commit_to_block(mut self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
+    pub fn commit_to_block(self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
-
-        self.parent.datastore.replace(self.datastore);
 
         self.cost_track.unwrap()
     }
@@ -620,11 +546,9 @@ impl<'a> ClarityBlockConnection<'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(mut self, bhh: &StacksBlockId) -> LimitedCostTracker {
+    pub fn commit_mined_block(self, bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit mined Clarity datastore to {}", bhh);
         self.datastore.commit_mined_block(bhh);
-
-        self.parent.datastore.replace(self.datastore);
 
         self.cost_track.unwrap()
     }
@@ -634,16 +558,14 @@ impl<'a> ClarityBlockConnection<'a> {
     /// (2) committing side-storage
     /// Unconfirmed data has globally-unique block hashes that are cryptographically derived from a
     /// confirmed block hash, so they're exceedingly unlikely to conflict with existing blocks.
-    pub fn commit_unconfirmed(mut self) -> LimitedCostTracker {
+    pub fn commit_unconfirmed(self) -> LimitedCostTracker {
         debug!("Save unconfirmed Clarity datastore");
         self.datastore.commit_unconfirmed();
-
-        self.parent.datastore.replace(self.datastore);
 
         self.cost_track.unwrap()
     }
 
-    pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b> {
+    pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
         let header_db = &self.header_db;
@@ -673,14 +595,9 @@ impl<'a> ClarityBlockConnection<'a> {
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.datastore.get_root_hash()
     }
-
-    /// Get the inner MARF
-    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
-        self.datastore.get_marf()
-    }
 }
 
-impl ClarityConnection for ClarityTransactionConnection<'_> {
+impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -713,7 +630,7 @@ impl ClarityConnection for ClarityTransactionConnection<'_> {
     }
 }
 
-impl<'a> Drop for ClarityTransactionConnection<'a> {
+impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     fn drop(&mut self) {
         self.cost_track
             .as_mut()
@@ -722,7 +639,7 @@ impl<'a> Drop for ClarityTransactionConnection<'a> {
     }
 }
 
-impl<'a> ClarityTransactionConnection<'a> {
+impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     fn inner_with_analysis_db<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
@@ -1269,8 +1186,10 @@ mod tests {
 
             conn.commit_block();
         }
+
         let mut marf = clarity_instance.destroy();
-        assert!(marf.get_contract_hash(&contract_identifier).is_ok());
+        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1 as u8; 32])));
+        assert!(conn.get_contract_hash(&contract_identifier).is_ok());
     }
 
     #[test]
@@ -1305,18 +1224,19 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
+
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         // should not be in the marf.
         assert_eq!(
-            marf.get_contract_hash(&contract_identifier).unwrap_err(),
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
-        let sql = marf.get_side_store();
+        let sql = conn.get_side_store();
         // sqlite only have entries
         assert_eq!(
             0,
-            sql.mut_conn()
-                .query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
-                    .get(0))
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
+                .get(0))
                 .unwrap()
         );
     }
@@ -1349,11 +1269,10 @@ mod tests {
             )
             .commit_block();
 
-        let mut marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
 
         let genesis_metadata_entries = marf
-            .get_side_store()
-            .mut_conn()
+            .sql_conn()
             .query_row::<u32, _, _>(
                 "SELECT COUNT(value) FROM metadata_table",
                 NO_PARAMS,
@@ -1441,24 +1360,24 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
+        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0 as u8; 32]));
 
         // should not be in the marf.
         assert_eq!(
-            marf.get_contract_hash(&contract_identifier).unwrap_err(),
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
 
-        let sql = marf.get_side_store();
+        let sql = conn.get_side_store();
         // sqlite only have any metadata entries from the genesis block
         assert_eq!(
             genesis_metadata_entries,
-            sql.mut_conn()
-                .query_row::<u32, _, _>(
-                    "SELECT COUNT(value) FROM metadata_table",
-                    NO_PARAMS,
-                    |row| row.get(0)
-                )
-                .unwrap()
+            sql.query_row::<u32, _, _>(
+                "SELECT COUNT(value) FROM metadata_table",
+                NO_PARAMS,
+                |row| row.get(0)
+            )
+            .unwrap()
         );
     }
 

@@ -60,6 +60,8 @@ use chainstate::stacks::StacksAddress;
 
 use serde::Serialize;
 
+use crate::vm::database::marf::WritableMarfStore;
+
 #[cfg(test)]
 macro_rules! panic_test {
     () => {
@@ -257,7 +259,7 @@ fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
 //   repeating a lot of block initialization for the simulation commands.
 fn in_block<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
-    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+    F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
@@ -272,8 +274,8 @@ where
 
     // need to load the last block
     let (from, to) = advance_cli_chain_tip(&cli_db_path);
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
+    let marf_tx = marf_kv.begin(&from, &to);
+    let (marf_return, result) = f(marf_tx);
     marf_return.commit_to(&to);
     result
 }
@@ -282,7 +284,7 @@ where
 // chain tip itself.
 fn at_chaintip<F, R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
 where
-    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+    F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
@@ -299,24 +301,24 @@ where
     let from = get_cli_chain_tip(&cli_db_conn);
     let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
-    marf_return.rollback();
+    let marf_tx = marf_kv.begin(&from, &to);
+    let (marf_return, result) = f(marf_tx);
+    marf_return.rollback_block();
     result
 }
 
 fn at_block<F, R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
-    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+    F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
     let from = StacksBlockId::from_hex(blockhash)
         .expect(&format!("FATAL: failed to parse inputted blockhash"));
     let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
-    marf_kv.begin(&from, &to);
-    let (mut marf_return, result) = f(marf_kv);
-    marf_return.rollback();
+    let marf_tx = marf_kv.begin(&from, &to);
+    let (marf_return, result) = f(marf_tx);
+    marf_return.rollback_block();
     result
 }
 
@@ -582,7 +584,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     );
                     let result = at_chaintip(&args[2], marf_kv, |mut marf| {
                         let result = {
-                            let mut db = AnalysisDatabase::new(&mut marf);
+                            let mut db = marf.as_analysis_db();
                             run_analysis(&contract_id, &mut ast, &mut db, false)
                         };
                         (marf, result)
