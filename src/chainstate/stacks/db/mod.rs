@@ -942,7 +942,6 @@ impl StacksChainState {
             }
 
             clarity_tx.connection().as_transaction(|clarity| {
-                
                 // Balances
                 if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
                     info!("Initializing chain with balances");
@@ -996,7 +995,7 @@ impl StacksChainState {
                             }
                         };
                     }
-    
+
                     let lockup_contract_id = boot_code_id("lockup");
                     clarity
                         .with_clarity_db(|db| {
@@ -1013,7 +1012,6 @@ impl StacksChainState {
                         })
                         .unwrap();
                 }
-
 
                 // BNS Namespace
                 let bns_contract_id = boot_code_id("bns");
@@ -1088,7 +1086,7 @@ impl StacksChainState {
                         })
                         .unwrap();
                 }
-    
+
                 // BNS Names
                 if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
                     info!("Initializing chain with names");
