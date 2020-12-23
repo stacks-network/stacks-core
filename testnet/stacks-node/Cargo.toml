@@ -26,10 +26,16 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 warp = "0.2"
 tokio = "0.2.21"
 reqwest = { version = "0.10", features = ["blocking", "json", "rustls"] }
+dhat = "0.2.1"
 
 [[bin]]
 name = "stacks-node"
 path = "src/main.rs"
+
+
+[[bench]]
+name = "genesis"
+harness = false
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]

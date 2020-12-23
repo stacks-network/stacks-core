@@ -105,6 +105,8 @@ pub fn stx_transfer_consolidated(
     to: &PrincipalData,
     amount: u128,
 ) -> Result<Value> {
+    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+
     if amount <= 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
     }
@@ -149,8 +151,6 @@ pub fn special_stx_transfer(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;

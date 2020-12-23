@@ -39,7 +39,6 @@ use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
-#[cfg(test)]
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, STACKS_BOOT_COST_CONTRACT,
     STACKS_BOOT_COST_VOTE_CONTRACT,
@@ -293,8 +292,7 @@ impl ClarityInstance {
     }
 
     /// begin a genesis block with the default cost contract
-    ///  used in testing.
-    #[cfg(test)]
+    ///  used in testing + benchmarks
     pub fn begin_test_genesis_block<'a>(
         &'a mut self,
         current: &StacksBlockId,

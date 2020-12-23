@@ -2,17 +2,69 @@ extern crate blockstack_lib;
 extern crate serde_json;
 
 use blockstack_lib::{
-    chainstate::burn::BlockHeaderHash,
-    chainstate::stacks::index::storage::TrieFileStorage,
+    burnchains::BurnchainHeaderHash,
+    chainstate::{
+        self,
+        burn::BlockHeaderHash,
+        stacks::{index::MarfTrieId, StacksBlockId},
+    },
     vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
     vm::database::{MarfedKV, NULL_HEADER_DB},
-    vm::types::QualifiedContractIdentifier,
+    vm::{
+        clarity::ClarityConnection,
+        database::{HeadersDB, NULL_BURN_STATE_DB},
+        types::{QualifiedContractIdentifier, StandardPrincipalData},
+    },
 };
+use chainstate::{burn::VRFSeed, stacks::StacksAddress};
 
 use std::env;
 use std::fmt::Write;
 use std::process;
+
+struct TestHeadersDB;
+
+impl HeadersDB for TestHeadersDB {
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
+        Some(BlockHeaderHash(id_bhh.0.clone()))
+    }
+
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
+        Some(BurnchainHeaderHash(id_bhh.0.clone()))
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+        Some(VRFSeed([0; 32]))
+    }
+
+    fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        Some(1)
+    }
+
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if id_bhh == &StacksBlockId::sentinel() {
+            Some(0)
+        } else {
+            let height = id_bhh.0[0];
+            Some(height as u32)
+        }
+    }
+
+    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        None
+    }
+
+    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128 {
+        u128::max_value()
+    }
+}
 
 fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
@@ -21,13 +73,18 @@ fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCos
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     let blocks = [
-        TrieFileStorage::block_sentinel(),
-        BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-        BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap(),
+        StacksBlockId::sentinel(),
+        StacksBlockId([1; 32]),
+        StacksBlockId([2; 32]),
     ];
 
     {
-        let mut conn = clarity_instance.begin_block(&blocks[0], &blocks[1], &NULL_HEADER_DB);
+        let mut conn = clarity_instance.begin_block(
+            &blocks[0],
+            &blocks[1],
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
 
         let mut contract = "(define-constant list-0 (list 0))".to_string();
 
@@ -57,31 +114,39 @@ fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCos
         }
         write!(contract, " (ok 1)))\n").unwrap();
 
-        let (ct_ast, _ct_analysis) = conn
-            .analyze_smart_contract(&contract_identifier, &contract)
+        conn.as_transaction(|tx| {
+            let (ct_ast, _ct_analysis) = tx
+                .analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap();
+            tx.initialize_smart_contract(
+                // initialize the ok contract without errs, but still abort.
+                &contract_identifier,
+                &ct_ast,
+                &contract,
+                |_, _| false,
+            )
             .unwrap();
-        conn.initialize_smart_contract(
-            // initialize the ok contract without errs, but still abort.
-            &contract_identifier,
-            &ct_ast,
-            &contract,
-            |_, _| false,
-        )
-        .unwrap();
-
+        });
         conn.commit_to_block(&blocks[1]);
     }
 
     {
-        let mut conn = clarity_instance.begin_block(&blocks[1], &blocks[2], &NULL_HEADER_DB);
-        conn.run_contract_call(
-            &contract_identifier.clone().into(),
-            &contract_identifier,
-            "do-it",
-            &[],
-            |_, _| false,
-        )
-        .unwrap();
+        let mut conn = clarity_instance.begin_block(
+            &blocks[1],
+            &blocks[2],
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+        conn.as_transaction(|tx| {
+            tx.run_contract_call(
+                &contract_identifier.clone().into(),
+                &contract_identifier,
+                "do-it",
+                &[],
+                |_, _| false,
+            )
+            .unwrap()
+        });
         conn.commit_to_block(&blocks[2]).get_total()
     }
 }
@@ -128,6 +193,73 @@ fn runtime_hash_test(scaling: u32) -> ExecutionCost {
     test_via_tx(scaling, inner_loop, other_decl)
 }
 
+fn transfer_test(scaling: u32) -> ExecutionCost {
+    let marf = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+
+    let blocks = [
+        StacksBlockId::sentinel(),
+        StacksBlockId([1; 32]),
+        StacksBlockId([2; 32]),
+    ];
+
+    let principals = [
+        StandardPrincipalData(0, [0; 20]).into(),
+        StandardPrincipalData(0, [1; 20]).into(),
+    ];
+
+    {
+        let mut conn = clarity_instance.begin_test_genesis_block(
+            &blocks[0],
+            &blocks[1],
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+        conn.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&principals[0]);
+                stx_account_0.credit(1_000_000);
+                stx_account_0.save();
+                Ok(())
+            })
+            .unwrap()
+        });
+        conn.commit_to_block(&blocks[1]);
+    }
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &blocks[1],
+            &blocks[2],
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+        let start_balance = conn.with_clarity_db_readonly_owned(|mut db| {
+            let bal = db.get_account_stx_balance(&principals[0]);
+            (bal, db)
+        });
+        assert_eq!(start_balance.amount_unlocked, 1_000_000);
+
+        for _i in 0..scaling {
+            conn.as_transaction(|tx| {
+                tx.run_stx_transfer(&principals[0], &principals[1], 10)
+                    .unwrap()
+            });
+        }
+
+        let end_balance = conn.with_clarity_db_readonly_owned(|mut db| {
+            let bal = db.get_account_stx_balance(&principals[0]);
+            (bal, db)
+        });
+        assert_eq!(
+            end_balance.amount_unlocked,
+            1_000_000 - (10 * scaling as u128)
+        );
+
+        conn.commit_to_block(&blocks[2]).get_total()
+    }
+}
+
 fn main() {
     let argv: Vec<_> = env::args().collect();
 
@@ -139,6 +271,7 @@ fn main() {
     let scalar = argv[2].parse().expect("Invalid scalar");
 
     let result = match argv[1].as_str() {
+        "transfer" => transfer_test(scalar),
         "runtime" => runtime_hash_test(scalar),
         "read-length" => read_length_test(scalar),
         "read-count" => read_count_test(scalar),
