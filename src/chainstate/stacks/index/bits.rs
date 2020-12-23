@@ -228,8 +228,8 @@ pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
-        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hash_bytes, map),
-        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node48(ref data) => get_node_hash(data.as_ref(), child_hash_bytes, map),
+        TrieNodeType::Node256(ref data) => get_node_hash(data.as_ref(), child_hash_bytes, map),
         TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hash_bytes, map),
     }
 }
@@ -333,11 +333,11 @@ pub fn read_nodetype_at_head<F: Read>(
         }
         TrieNodeID::Node48 => {
             let node = TrieNode48::from_bytes(f)?;
-            TrieNodeType::Node48(node)
+            TrieNodeType::Node48(Box::new(node))
         }
         TrieNodeID::Node256 => {
             let node = TrieNode256::from_bytes(f)?;
-            TrieNodeType::Node256(node)
+            TrieNodeType::Node256(Box::new(node))
         }
         TrieNodeID::Leaf => {
             let node = TrieLeaf::from_bytes(f)?;

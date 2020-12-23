@@ -441,8 +441,12 @@ impl Trie {
             TrieNodeType::Leaf(_) => panic!("Cannot insert into a leaf"),
             TrieNodeType::Node256(_) => panic!("Somehow could not insert into a Node256"),
             TrieNodeType::Node4(ref data) => TrieNodeType::Node16(TrieNode16::from_node4(data)),
-            TrieNodeType::Node16(ref data) => TrieNodeType::Node48(TrieNode48::from_node16(data)),
-            TrieNodeType::Node48(ref data) => TrieNodeType::Node256(TrieNode256::from_node48(data)),
+            TrieNodeType::Node16(ref data) => {
+                TrieNodeType::Node48(Box::new(TrieNode48::from_node16(data)))
+            }
+            TrieNodeType::Node48(ref data) => {
+                TrieNodeType::Node256(Box::new(TrieNode256::from_node48(data.as_ref())))
+            }
         };
 
         let node_ptr = cursor.ptr();
