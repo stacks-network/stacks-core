@@ -22,35 +22,23 @@ RUN pip install pyparsing
 WORKDIR /stacks1.0
 RUN python ./setup.py build
 RUN python ./setup.py install
-# RUN python ./bin/blockstack-core version
 RUN blockstack-core version
 
 ### Sync Stacks 1.0 chain
 RUN blockstack-core fast_sync --working-dir /stacks1.0-chain
-# use sqlite cli to set get_v2_upgrade_threshold_block
+
+# Use sqlite cli to mark the chain as exported/frozen so Stacks 1.0 does not process new transactions
 RUN apt-get install -y sqlite3
 RUN sqlite3 /stacks1.0-chain/blockstack-server.db 'UPDATE v2_upgrade_signal SET threshold_block_id = 1 WHERE id = 1'
 RUN sqlite3 /stacks1.0-chain/blockstack-server.db 'UPDATE v2_upgrade_signal SET import_block_id = 1 WHERE id = 1'
+
+# Perform fast sync snapshot
 RUN blockstack-core fast_sync_snapshot 0 /stacks1.0-snapshot --working-dir /stacks1.0-chain > fast_sync_snapshot.log
-# Fast-sync-snapshot completed at block 662399 with consensus hash bf81462f58d511cb2ab9d9752d745af8
 
-# RUN blockstack-core start --working-dir /stacks1.0-export
-
+# Extract the snapshotted block height and consensus hash
 RUN cat fast_sync_snapshot.log | grep "consensus hash" | tail -1 | sed "s/.*at block \(.*\) with consensus hash \(.*\).*/\1/" > export_block
 RUN cat fast_sync_snapshot.log | grep "consensus hash" | tail -1 | sed "s/.*at block \(.*\) with consensus hash \(.*\).*/\2/" > consensus_hash
-
 RUN echo "Block $(cat export_block) hash $(cat consensus_hash)"
-
-# RUN cat fast_sync_snapshot.log | grep "consensus hash" | tail -1 | sed -e 's/.*block \([^"]*\)with.*/\1/' > export_block
-# RUN curl -s https://core.blockstack.org/v1/blockchains/bitcoin/consensus/$(cat export_block) | jq '.consensus_hash' -r > consensus_hash
-
-# RUN sed 's/.*block//; s/with.*//'
-# RUN sed -e 's/.*block\(.*\)with.*/\1/'
-# RUN sed -e 's/.*block\([^"]*\)with.*/\1/'
-
-# RUN curl https://core.blockstack.org/v1/blockchains/bitcoin/consensus/662399
-# RUN curl https://core.blockstack.org/v1/blockchains/bitcoin/consensus-block/bf81462f58d511cb2ab9d9752d745af8
-# RUN curl http://localhost:6270/v1/info
 
 RUN rm -rf /stacks1.0-chain
 
@@ -64,9 +52,22 @@ WORKDIR /stacks2.0/testnet/stacks-node
 RUN cargo build --release
 RUN cp /stacks2.0/target/release/stacks-node /bin/stacks-node
 
-# RUN blockstack-core start --working-dir /stacks1.0-chain && sleep 10 && curl --max-time 2 --retry 200 http://localhost:6270/v1/info
-
 WORKDIR /test
+
+# Dump 1000 high activity / balance addresses
+RUN echo "select address, (cast(credit_value as integer) - cast(debit_value as integer)) as amount from ( \
+            select * \
+            from accounts \
+            where type = \"STACKS\" \
+            group by address \
+            having block_id = max(block_id) and vtxindex = max(vtxindex) \
+            order by block_id DESC, vtxindex DESC \
+            ) amounts \
+        order by amount DESC, address \
+        limit 1000" | sqlite3 /stacks1.0-chain/blockstack-server.db > check_addrs.txt
+RUN cat check_addrs.txt
+
+# Run the js test script
 COPY test ./
 RUN npm i
 RUN npm test
