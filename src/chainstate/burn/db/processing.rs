@@ -121,7 +121,7 @@ impl<'a> SortitionHandleTx<'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -303,11 +303,7 @@ impl<'a> SortitionHandleTx<'a> {
         });
 
         // block-wide check: no duplicate keys registered
-        let ret_filtered = Burnchain::filter_block_VRF_dups(blockstack_txs);
-        assert!(Burnchain::ops_are_sorted(&ret_filtered));
-
-        // block-wide check: at most one block-commit can consume a VRF key
-        let block_ops = Burnchain::filter_block_commits_with_same_VRF_key(ret_filtered);
+        let block_ops = Burnchain::filter_block_VRF_dups(blockstack_txs);
         assert!(Burnchain::ops_are_sorted(&block_ops));
 
         // process them
