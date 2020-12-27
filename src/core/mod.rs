@@ -37,6 +37,8 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
+// sliding burnchain window over which a miner's past block-commit payouts will be used to weight
+// its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
 /// The number of blocks which will share the block bonus
