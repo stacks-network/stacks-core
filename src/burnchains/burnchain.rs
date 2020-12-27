@@ -204,15 +204,6 @@ impl BurnchainStateTransition {
 
                 windowed_missed_commits.push(missed_commits_at_height);
             }
-
-            assert_eq!(
-                windowed_block_commits.len(),
-                MINING_COMMITMENT_WINDOW as usize
-            );
-            assert_eq!(
-                windowed_missed_commits.len(),
-                (MINING_COMMITMENT_WINDOW - 1) as usize
-            );
         } else {
             debug!(
                 "Block {} is in a prepare phase, so no windowing will take place",
