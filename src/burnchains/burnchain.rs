@@ -206,12 +206,12 @@ impl BurnchainStateTransition {
             }
 
             assert_eq!(
-                windowed_block_commits.len() as u32,
-                MINING_COMMITMENT_WINDOW
+                windowed_block_commits.len(),
+                MINING_COMMITMENT_WINDOW as usize
             );
             assert_eq!(
-                windowed_missed_commits.len() as u32,
-                MINING_COMMITMENT_WINDOW - 1
+                windowed_missed_commits.len(),
+                (MINING_COMMITMENT_WINDOW - 1) as usize
             );
         } else {
             debug!(
