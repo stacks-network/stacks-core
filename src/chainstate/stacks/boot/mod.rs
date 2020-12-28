@@ -1670,7 +1670,8 @@ pub mod test {
                         }
                     }
 
-                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    let block_builder = StacksBlockBuilder::make_block_builder(
+                        false,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,

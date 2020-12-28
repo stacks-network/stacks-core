@@ -809,7 +809,7 @@ impl Node {
         {
             RewardSetInfo::into_commit_outs(None, self.config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(false)]
+            vec![StacksAddress::burn_address(self.config.is_mainnet())]
         };
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;

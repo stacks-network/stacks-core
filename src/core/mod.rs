@@ -51,6 +51,7 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 
+// TODO: TO BE SET BY STACKS_V1_MINER_THRESHOLD
 pub const BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT: u64 = 661389;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP: u32 = 1607986994;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =

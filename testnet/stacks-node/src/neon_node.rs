@@ -1511,7 +1511,7 @@ impl InitializedNeonNode {
         {
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(false)]
+            vec![StacksAddress::burn_address(config.is_mainnet())]
         };
 
         // let's commit
