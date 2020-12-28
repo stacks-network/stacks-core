@@ -318,7 +318,7 @@ X := the total type size of the function signature
 
 ## let
 
-Let bindings require the static analysis sytem to iterate over
+Let bindings require the static analysis system to iterate over
 each let binding and ensure that they are syntactically correct.
 
 This imposes a runtime cost:
