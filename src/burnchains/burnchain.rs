@@ -165,7 +165,10 @@ impl BurnchainStateTransition {
         let mut windowed_block_commits = vec![block_commits];
         let mut windowed_missed_commits = vec![];
 
-        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1) {
+        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
+            && parent_snapshot.block_height + 1 <= burnchain.pox_constants.sunset_end
+        {
+            // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
             //   discovered in this block.
             let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
@@ -205,8 +208,9 @@ impl BurnchainStateTransition {
                 windowed_missed_commits.push(missed_commits_at_height);
             }
         } else {
+            // PoX reward-phase is not active
             debug!(
-                "Block {} is in a prepare phase, so no windowing will take place",
+                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
                 parent_snapshot.block_height + 1
             );
 
