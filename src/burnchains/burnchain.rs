@@ -527,6 +527,7 @@ impl Burnchain {
         )
         .unwrap();
         ret.first_block_height = first_block_height;
+        ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
         ret
     }

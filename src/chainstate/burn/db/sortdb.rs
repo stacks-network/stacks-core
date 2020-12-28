@@ -3251,7 +3251,7 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(root_hash)
     }
 
-    fn get_initial_mining_bonus_remaining(
+    pub fn get_initial_mining_bonus_remaining(
         &mut self,
         chain_tip: &SortitionId,
     ) -> Result<u128, db_error> {
@@ -3260,7 +3260,7 @@ impl<'a> SortitionHandleTx<'a> {
             .unwrap_or(Ok(0))
     }
 
-    fn get_initial_mining_bonus_per_block(
+    pub fn get_initial_mining_bonus_per_block(
         &mut self,
         chain_tip: &SortitionId,
     ) -> Result<Option<u128>, db_error> {
@@ -3916,7 +3916,7 @@ impl ChainstateDB for SortitionDB {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     use util::db::Error as db_error;
@@ -3963,7 +3963,7 @@ mod tests {
         tx.commit().unwrap();
     }
 
-    fn test_append_snapshot(
+    pub fn test_append_snapshot(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,
