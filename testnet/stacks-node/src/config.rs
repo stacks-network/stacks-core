@@ -291,29 +291,10 @@ impl ConfigFile {
             ..NodeConfigFile::default()
         };
 
-        let balances = vec![
-            InitialBalanceFile {
-                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
-                amount: 10000000000000000,
-            },
-        ];
-
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            ustx_balance: Some(balances),
+            ustx_balance: None,
             ..ConfigFile::default()
         }
     }
