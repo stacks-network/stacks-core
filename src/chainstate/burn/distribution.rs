@@ -210,11 +210,6 @@ impl BurnSamplePoint {
                 // would expect that its consumed UTXO occurs after a _single_ burn output,
                 // instead of `OUTPUTS_PER_COMMIT` PoX (or PoB) outputs.
                 let expect_burnt = burn_blocks[(rel_block_height - 1) as usize];
-                trace!(
-                    "block at rel_block_height {} consumes a burner's input: {}",
-                    rel_block_height - 1,
-                    expect_burnt
-                );
                 let expected_index = LeaderBlockCommitOp::expected_chained_utxo(expect_burnt);
                 Some(expected_index)
             } else {
@@ -234,9 +229,9 @@ impl BurnSamplePoint {
                         && !referenced_commit.is_first_block()
                         && Some(referenced_commit.spent_output()) != expected_index_opt
                     {
-                        trace!("Referenced block-commit {} at rel_block_height {} spent index {}; expected {:?}",
+                        test_debug!("Referenced block-commit {} at rel_block_height {} spent index {}; expected {:?}",
                                     &referenced_commit.txid, rel_block_height, referenced_commit.spent_output(), expected_index_opt.as_ref());
-                        trace!("Referenced block-commit: {:?}", &referenced_commit);
+                        test_debug!("Referenced block-commit: {:?}", &referenced_commit);
                         continue;
                     }
                 } else if let Some(missed_commit) = cur_missed_map.get(&end.op.spent_txid()) {
@@ -246,15 +241,15 @@ impl BurnSamplePoint {
                     if expected_index_opt.is_some()
                         && Some(missed_commit.spent_output()) != expected_index_opt
                     {
-                        trace!("Missed block-commit {} at rel_block_height {} spent index {}; expected {:?}",
+                        test_debug!("Missed block-commit {} at rel_block_height {} spent index {}; expected {:?}",
                                     &missed_commit.txid, rel_block_height, missed_commit.spent_output(), expected_index_opt.as_ref());
-                        trace!("Missed block-commit: {:?}", &missed_commit);
+                        test_debug!("Missed block-commit: {:?}", &missed_commit);
                         continue;
                     }
                 } else {
                     // this last linked block-commit doesn't reference a known block-commit --
                     // neither a missed nor or accepted block-commit
-                    trace!(
+                    test_debug!(
                         "No chained UTXO to a valid or missing commit from {}: ({},{})",
                         end.op.txid(),
                         end.op.spent_txid(),
@@ -533,7 +528,7 @@ mod tests {
         LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash(block_header_hash),
             new_seed: VRFSeed([0; 32]),
-            parent_block_ptr: 0,
+            parent_block_ptr: (block_id - 1) as u32,
             parent_vtxindex: 0,
             key_block_ptr: vrf_ident,
             key_vtxindex: 0,
@@ -613,6 +608,7 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
+        // block-commits are currently malformed -- the post-sunset commits spend the wrong UTXO.
         assert_eq!(result[0].burns, 1);
         assert_eq!(result[1].burns, 1);
 
