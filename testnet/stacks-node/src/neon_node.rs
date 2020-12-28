@@ -349,7 +349,7 @@ fn try_mine_microblock(
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
     mem_pool: &MemPoolDB,
-    coord_comms: &CoordinatorChannels,
+    _coord_comms: &CoordinatorChannels,
     miner_tip_arc: Arc<Mutex<Option<(ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey)>>>,
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let mut next_microblock = None;

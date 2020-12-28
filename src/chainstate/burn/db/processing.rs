@@ -192,9 +192,10 @@ impl<'a> SortitionHandleTx<'a> {
         // was this snapshot the first with mining?
         //  compute the initial block rewards.
         let initialize_bonus = if snapshot.sortition && parent_snapshot.total_burn == 0 {
-            let blocks_without_winners = snapshot.block_height - self.context.first_block_height;
+            let blocks_without_winners =
+                snapshot.block_height - burnchain.initial_reward_start_block;
             let mut total_reward = 0;
-            for burn_block_height in self.context.first_block_height..snapshot.block_height {
+            for burn_block_height in burnchain.initial_reward_start_block..snapshot.block_height {
                 total_reward += StacksChainState::get_coinbase_reward(
                     burn_block_height,
                     self.context.first_block_height,
