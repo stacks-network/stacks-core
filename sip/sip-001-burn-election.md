@@ -911,8 +911,8 @@ with the following data:
 ```
             0      2  3            35               67     71     73    77   79     80
             |------|--|-------------|---------------|------|------|-----|-----|-----|
-             magic  op   block hash     new seed     parent parent key   key   memo
-                                                     block  txoff  block txoff
+             magic  op   block hash     new seed     parent parent key   key   burn parent
+                                                     block  txoff  block txoff   modulus
 ```
 
 Where `op = [` and:
@@ -923,7 +923,11 @@ Where `op = [` and:
 * `parent_txoff` is the vtxindex for this block's parent's block commit.
 * `key_block` is the burn block height of the miner's VRF key registration
 * `key_txoff` is the vtxindex for this miner's VRF key registration
-* `memo` is a short field for including a miner memo
+* `burn_parent_modulus` is the burn block height at which this leader block commit
+  was created modulo `BURN_COMMITMENT_WINDOW` (=6). That is, if the block commit is
+  included in the intended burn block then this value should be equal to:
+  `(commit_burn_height - 1) % 6`. This field is used to link burn commitments from
+  the same miner together even if a commitment was included in a late burn block.
 
 The second output is the burn commitment. It must send funds to the canonical burn address.
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,7 @@ use std::iter::FromIterator;
 
 use chainstate::stacks::events::StacksTransactionEvent;
 
-use vm::costs::{cost_functions, runtime_cost, SimpleCostSpecification};
+use vm::costs::{cost_functions, runtime_cost};
 
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::ContractContext;

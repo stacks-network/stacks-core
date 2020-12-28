@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -463,13 +463,18 @@ impl BlockStreamData {
                 while self.num_mblocks_ptr < self.num_mblocks_buf.len() {
                     // stream length prefix
                     test_debug!(
-                        "Try to send length prefix {:?} (ptr={})",
+                        "Confirmed microblock stream for {}: try to send length prefix {:?} (ptr={})",
+                        &self.microblock_hash,
                         &self.num_mblocks_buf[self.num_mblocks_ptr..],
                         self.num_mblocks_ptr
                     );
                     let num_sent = match fd.write(&self.num_mblocks_buf[self.num_mblocks_ptr..]) {
                         Ok(0) => {
                             // done (disconnected)
+                            test_debug!(
+                                "Confirmed microblock stream for {}: wrote 0 bytes",
+                                &self.microblock_hash
+                            );
                             return Ok(num_written);
                         }
                         Ok(n) => {
@@ -491,6 +496,12 @@ impl BlockStreamData {
                         }
                     };
                     num_written += num_sent;
+                    test_debug!(
+                        "Confirmed microblock stream for {}: sent {} bytes ({} total)",
+                        &self.microblock_hash,
+                        num_sent,
+                        num_written
+                    );
                 }
                 StacksChainState::stream_microblocks_confirmed(&chainstate, fd, self, count)
                     .and_then(|bytes_sent| Ok(bytes_sent + num_written))
@@ -2579,7 +2590,16 @@ impl StacksChainState {
                 }
             })?;
 
-        StacksChainState::stream_data(fd, stream, &mut blob, count)
+        let num_bytes = StacksChainState::stream_data(fd, stream, &mut blob, count)?;
+        test_debug!(
+            "Stream microblock rowid={} hash={} offset={} total_bytes={}, num_bytes={}",
+            rowid,
+            &stream.microblock_hash,
+            stream.offset,
+            stream.total_bytes,
+            num_bytes
+        );
+        Ok(num_bytes)
     }
 
     /// Stream multiple microblocks from staging, moving in reverse order from the stream tail to the stream head.
@@ -2605,6 +2625,10 @@ impl StacksChainState {
                     Some(x) => x,
                     None => {
                         // out of mblocks
+                        debug!(
+                            "Out of microblocks to stream after confirmed microblock {}",
+                            &stream.microblock_hash
+                        );
                         break;
                     }
                 };
@@ -2617,6 +2641,10 @@ impl StacksChainState {
                     Some(rid) => rid,
                     None => {
                         // out of mblocks
+                        debug!(
+                            "No rowid found for confirmed stream microblock {}",
+                            &mblock_info.parent_hash
+                        );
                         break;
                     }
                 };
@@ -2629,12 +2657,21 @@ impl StacksChainState {
                     .checked_sub(nw)
                     .expect("BUG: wrote more data than called for");
             }
+            debug!(
+                "Streaming microblock={}: to_write={}, nw={}",
+                &stream.microblock_hash, to_write, nw
+            );
         }
+        debug!(
+            "Streamed confirmed microblocks: {} - {} = {}",
+            count,
+            to_write,
+            count - to_write
+        );
         Ok(count - to_write)
     }
 
     /// Stream block data from the chunk store.
-    /// Also works for a microblock stream.
     fn stream_data_from_chunk_store<W: Write>(
         blocks_path: &String,
         fd: &mut W,
@@ -2665,8 +2702,7 @@ impl StacksChainState {
         StacksChainState::stream_data(fd, stream, &mut file_fd, count)
     }
 
-    /// Stream block data from the chain state.  Pull from either staging or the chunk store,
-    /// wherever it happens to be located.
+    /// Stream block data from the chain state.
     /// Returns the number of bytes written, and updates `stream` to point to the next point to
     /// read.  Writes the bytes streamed to `fd`.
     pub fn stream_block<W: Write>(
@@ -3350,9 +3386,6 @@ impl StacksChainState {
     /// Create the block reward.
     /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
     ///    accumulated rewards from missed sortitions or initial mining rewards.
-    // TODO: calculate how full the block was.
-    // TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
-    // rate, times the fraction of the block's total utilization.
     fn make_scheduled_miner_reward(
         mainnet: bool,
         parent_block_hash: &BlockHeaderHash,
@@ -3360,12 +3393,11 @@ impl StacksChainState {
         block: &StacksBlock,
         block_consensus_hash: &ConsensusHash,
         block_height: u64,
-        tx_fees: u128,
+        anchored_fees: u128,
         streamed_fees: u128,
         stx_burns: u128,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        fill: u64,
         coinbase_reward_ustx: u128,
     ) -> Result<MinerPaymentSchedule, Error> {
         let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock(
@@ -3385,12 +3417,11 @@ impl StacksChainState {
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
             coinbase: coinbase_reward_ustx,
-            tx_fees_anchored: tx_fees,
+            tx_fees_anchored: anchored_fees,
             tx_fees_streamed: streamed_fees,
             stx_burns: stx_burns,
             burnchain_commit_burn: burnchain_commit_burn,
             burnchain_sortition_burn: burnchain_sortition_burn,
-            fill: fill,
             miner: true,
             stacks_block_height: block_height,
             vtxindex: 0,
@@ -3924,6 +3955,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
         miner_share: &MinerReward,
         users_share: &Vec<MinerReward>,
+        parent_share: &MinerReward,
     ) -> Result<u128, Error> {
         let mut coinbase_reward = miner_share.coinbase;
         StacksChainState::process_matured_miner_reward(clarity_tx, miner_share)?;
@@ -3931,6 +3963,10 @@ impl StacksChainState {
             coinbase_reward += reward.coinbase;
             StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
         }
+
+        // give the parent its confirmed share of the streamed microblocks
+        assert_eq!(parent_share.total(), parent_share.tx_fees_streamed_produced);
+        StacksChainState::process_matured_miner_reward(clarity_tx, parent_share)?;
         Ok(coinbase_reward)
     }
 
@@ -3981,6 +4017,44 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
+    /// Given the list of matured miners, find the miner reward schedule that produced the parent
+    /// of the block whose coinbase just matured.
+    pub fn get_parent_matured_miner(
+        stacks_tx: &mut StacksDBTx,
+        mainnet: bool,
+        latest_matured_miners: &Vec<MinerPaymentSchedule>,
+    ) -> Result<MinerPaymentSchedule, Error> {
+        let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
+            StacksChainState::get_scheduled_block_rewards_at_block(
+                stacks_tx,
+                &StacksBlockHeader::make_index_block_hash(
+                    &miner.parent_consensus_hash,
+                    &miner.parent_block_hash,
+                ),
+            )?
+            .pop()
+            .unwrap_or_else(|| {
+                if miner.parent_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH
+                    && miner.parent_block_hash == FIRST_STACKS_BLOCK_HASH
+                {
+                    MinerPaymentSchedule::genesis(mainnet)
+                } else {
+                    panic!(
+                        "CORRUPTION: parent {}/{} of {}/{} not found in DB",
+                        &miner.parent_consensus_hash,
+                        &miner.parent_block_hash,
+                        &miner.consensus_hash,
+                        &miner.block_hash
+                    );
+                }
+            })
+        } else {
+            MinerPaymentSchedule::genesis(mainnet)
+        };
+
+        Ok(parent_miner)
+    }
+
     /// Process the next pre-processed staging block.
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
@@ -4019,6 +4093,12 @@ impl StacksChainState {
         let latest_matured_miners = StacksChainState::get_scheduled_block_rewards(
             chainstate_tx.deref_mut(),
             &parent_chain_tip,
+        )?;
+
+        let matured_miner_parent = StacksChainState::get_parent_matured_miner(
+            chainstate_tx.deref_mut(),
+            mainnet,
+            &latest_matured_miners,
         )?;
 
         let (
@@ -4117,6 +4197,7 @@ impl StacksChainState {
                 &mut clarity_tx,
                 parent_chain_tip,
                 latest_matured_miners,
+                matured_miner_parent,
             ) {
                 Ok(miner_rewards_opt) => miner_rewards_opt,
                 Err(e) => {
@@ -4235,27 +4316,30 @@ impl StacksChainState {
             let block_cost = clarity_tx.cost_so_far();
 
             // grant matured miner rewards
-            let new_liquid_miner_ustx = if let Some((ref miner_reward, ref user_rewards, _)) =
-                matured_miner_rewards_opt.as_ref()
-            {
-                // grant in order by miner, then users
-                StacksChainState::process_matured_miner_rewards(
-                    &mut clarity_tx,
-                    miner_reward,
-                    user_rewards,
-                )?
-            } else {
-                0
-            };
+            let new_liquid_miner_ustx =
+                if let Some((ref miner_reward, ref user_rewards, ref parent_miner_reward, _)) =
+                    matured_miner_rewards_opt.as_ref()
+                {
+                    // grant in order by miner, then users
+                    StacksChainState::process_matured_miner_rewards(
+                        &mut clarity_tx,
+                        miner_reward,
+                        user_rewards,
+                        parent_miner_reward,
+                    )?
+                } else {
+                    0
+                };
 
             // obtain reward info for receipt
             let (matured_rewards, matured_rewards_info) =
-                if let Some((miner_reward, mut user_rewards, reward_ptr)) =
+                if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
                 {
                     let mut ret = vec![];
                     ret.push(miner_reward);
                     ret.append(&mut user_rewards);
+                    ret.push(parent_reward);
                     (ret, Some(reward_ptr))
                 } else {
                     (vec![], None)
@@ -4347,12 +4431,11 @@ impl StacksChainState {
                 &block,
                 chain_tip_consensus_hash,
                 next_block_height,
-                block_fees, // TODO: calculate (STX/compute unit) * (compute used)
+                block_fees,
                 microblock_fees,
                 total_burnt,
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
-                0xffffffffffffffff,
                 total_coinbase,
             ) // TODO: calculate total compute budget and scale up
             .expect("FATAL: parsed and processed a block without a coinbase");
@@ -5048,7 +5131,7 @@ impl StacksChainState {
             .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
 
         // 3: it must pay a tx fee
-        let fee = tx.get_fee_rate();
+        let fee = tx.get_tx_fee();
 
         if fee < MINIMUM_TX_FEE || fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
             return Err(MemPoolRejection::FeeTooLow(
@@ -5244,6 +5327,7 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
 
+    use rand::thread_rng;
     use rand::Rng;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
@@ -5311,6 +5395,99 @@ pub mod test {
         block
     }
 
+    pub fn make_16k_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
+        let privk = StacksPrivateKey::from_hex(
+            "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let mut tx_coinbase = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        );
+        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+
+        tx_signer.sign_origin(&privk).unwrap();
+
+        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+        // 16k + 8 contract
+        let contract_16k = {
+            let mut parts = vec![];
+            parts.push("(begin ".to_string());
+            for i in 0..1024 {
+                parts.push("(print \"abcdef\")".to_string()); // 16 bytes
+            }
+            parts.push(")".to_string());
+            parts.join("")
+        };
+
+        let mut tx_big_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &format!("hello-world-{}", &thread_rng().gen::<u32>()),
+                &contract_16k.to_string(),
+            )
+            .unwrap(),
+        );
+
+        tx_big_contract.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx_big_contract);
+        tx_signer.sign_origin(&privk).unwrap();
+
+        let tx_big_contract_signed = tx_signer.get_tx().unwrap();
+
+        let txs = vec![tx_coinbase_signed, tx_big_contract_signed];
+
+        let work_score = StacksWorkScore {
+            burn: 123,
+            work: 456,
+        };
+
+        let parent_header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: proof.clone(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20]),
+        };
+
+        let parent_microblock_header = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: BlockHeaderHash([0x0au8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x0bu8; 32]),
+            signature: MessageSignature([0x0cu8; 65]),
+        };
+
+        let mblock_pubkey_hash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key));
+        let mut block = StacksBlock::from_parent(
+            &parent_header,
+            &parent_microblock_header,
+            txs.clone(),
+            &work_score,
+            &proof,
+            &TrieHash([2u8; 32]),
+            &mblock_pubkey_hash,
+        );
+        block.header.version = 0x24;
+        block
+    }
+
     pub fn make_sample_microblock_stream_fork(
         privk: &StacksPrivateKey,
         base: &BlockHeaderHash,
@@ -5324,20 +5501,34 @@ pub mod test {
             let random_bytes = rng.gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
             let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-            let tx_smart_contract = StacksTransaction::new(
+
+            // 16k + 8 contract
+            let contract_16k = {
+                let mut parts = vec![];
+                parts.push("(begin ".to_string());
+                for i in 0..1024 {
+                    parts.push("(print \"abcdef\")".to_string()); // 16 bytes
+                }
+                parts.push(")".to_string());
+                parts.join("")
+            };
+
+            let mut tx_big_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
                 TransactionPayload::new_smart_contract(
-                    &format!("hello-microblock-{}", &random_bytes_str),
-                    &format!("(begin (+ 1 2))"),
+                    &format!("hello-world-{}", &thread_rng().gen::<u32>()),
+                    &contract_16k.to_string(),
                 )
                 .unwrap(),
             );
-            let mut tx_signer = StacksTransactionSigner::new(&tx_smart_contract);
+
+            tx_big_contract.anchor_mode = TransactionAnchorMode::OffChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&tx_big_contract);
             tx_signer.sign_origin(&privk).unwrap();
 
-            let tx_signed = tx_signer.get_tx().unwrap();
-            all_txs.push(tx_signed);
+            let tx_big_contract_signed = tx_signer.get_tx().unwrap();
+            all_txs.push(tx_big_contract_signed);
         }
 
         // make microblocks with 3 transactions each (or fewer)
@@ -8043,7 +8234,7 @@ pub mod test {
         )
         .unwrap();
 
-        let block = make_empty_coinbase_block(&privk);
+        let block = make_16k_block(&privk);
 
         let consensus_hash = ConsensusHash([2u8; 20]);
         let parent_consensus_hash = ConsensusHash([1u8; 20]);

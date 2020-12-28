@@ -99,7 +99,7 @@ export class BNSClient extends Client {
     const tx = this.createTransaction({
       method: {
         name: "namespace-reveal",
-        args: [`"${namespace}"`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(salt)}`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`]
       }
     });
     await tx.sign(params.sender);
@@ -109,18 +109,18 @@ export class BNSClient extends Client {
 
   // (name-import (namespace (buff 20))
   //              (name (buff 16))
-  //              (zonefile-content (buff 40960)))
+  //              (zonefile-hash (buff 20)))
   async nameImport(namespace: string,
     name: string,
     beneficiary: string,
-    zonefileContent: string,
+    zonefileHash: string,
     params: {
       sender: string
     }): Promise<Receipt> {
     const tx = this.createTransaction({
       method: {
         name: "name-import",
-        args: [`"${namespace}"`, `"${name}"`, `'${beneficiary}`, `"${zonefileContent}"`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`, `'${beneficiary}`, `0x${this.toHexString(zonefileHash)}`]
       }
     });
     await tx.sign(params.sender);
@@ -135,7 +135,7 @@ export class BNSClient extends Client {
     const tx = this.createTransaction({
       method: {
         name: "namespace-ready",
-        args: [`"${namespace}"`]
+        args: [`0x${this.toHexString(namespace)}`]
       }
     });
     await tx.sign(params.sender);
@@ -170,18 +170,18 @@ export class BNSClient extends Client {
   // (name-register (namespace (buff 20))
   //                (name (buff 16))
   //                (salt (buff 20))
-  //                (zonefile-content (buff 40960)))
+  //                (zonefile-hash (buff 20)))
   async nameRegister(namespace: string,
     name: string,
     salt: string,
-    zonefileContent: string,
+    zonefileHash: string,
     params: {
       sender: string
     }): Promise<Receipt> {
     const tx = this.createTransaction({
       method: {
         name: "name-register",
-        args: [`"${namespace}"`, `"${name}"`, `"${salt}"`, `"${zonefileContent}"`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`, `0x${this.toHexString(salt)}`, `0x${this.toHexString(zonefileHash)}`]
       }
     });
     await tx.sign(params.sender);
@@ -191,17 +191,17 @@ export class BNSClient extends Client {
 
   // (name-update (namespace (buff 20))
   //              (name (buff 16))
-  //              (zonefile-content (buff 40960)))
+  //              (zonefile-hash (buff 20)))
   async nameUpdate(namespace: string,
     name: string,
-    zonefileContent: string,
+    zonefileHash: string,
     params: {
       sender: string
     }): Promise<Receipt> {
     const tx = this.createTransaction({
       method: {
         name: "name-update",
-        args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`, `0x${this.toHexString(zonefileHash)}`]
       }
     });
     await tx.sign(params.sender);
@@ -212,16 +212,16 @@ export class BNSClient extends Client {
   // (name-transfer (namespace (buff 20))
   //                (name (buff 16))
   //                (new-owner principal)
-  //                (zonefile-content (optional (buff 40960))))
+  //                (zonefile-hash (optional (buff 20))))
   async nameTransfer(namespace: string,
     name: string,
     newOwner: string,
-    zonefileContent: string | null,
+    zonefileHash: string | null,
     params: {
       sender: string
     }): Promise<Receipt> {
-    const args = [`"${namespace}"`, `"${name}"`, `'${newOwner}`];
-    args.push(zonefileContent === null ? "none" : `(some\ "${zonefileContent}")`);
+    const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`, `'${newOwner}`];
+    args.push(zonefileHash === null ? "none" : `(some\ 0x${this.toHexString(zonefileHash)})`);
 
     const tx = this.createTransaction({
       method: {
@@ -244,7 +244,7 @@ export class BNSClient extends Client {
     const tx = this.createTransaction({
       method: {
         name: "name-revoke",
-        args: [`"${namespace}"`, `"${name}"`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`]
       }
     });
     await tx.sign(params.sender);
@@ -256,18 +256,18 @@ export class BNSClient extends Client {
   //               (name (buff 16))
   //               (stx-to-burn uint)
   //               (new-owner (optional principal))
-  //               (zonefile-content (optional (buff 40960))))
+  //               (zonefile-hash (optional (buff 20))))
   async nameRenewal(namespace: string,
     name: string,
     STX: number,
     newOwner: null | string,
-    zonefileContent: null | string,
+    zonefileHash: null | string,
     params: {
       sender: string
     }): Promise<Receipt> {
-    const args = [`"${namespace}"`, `"${name}"`, `u${STX}`];
+    const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`, `u${STX}`];
     args.push(newOwner === null ? "none" : `(some\ '${newOwner})`);
-    args.push(zonefileContent === null ? "none" : `(some\ "${zonefileContent}")`);
+    args.push(zonefileHash === null ? "none" : `(some\ 0x${this.toHexString(zonefileHash)})`);
 
     const tx = this.createTransaction({
       method: {
@@ -290,7 +290,7 @@ export class BNSClient extends Client {
     const tx = this.createTransaction({
       method: {
         name: "name-resolve",
-        args: [`"${namespace}"`, `"${name}"`]
+        args: [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`]
       }
     });
     await tx.sign(params.sender);
@@ -302,11 +302,41 @@ export class BNSClient extends Client {
   //                         (name (buff 16))
   async canNameBeRegistered(namespace: string,
     name: string): Promise<Receipt> {
-    const args = [`"${namespace}"`, `"${name}"`];
+    const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`];
     const query = this.createQuery({
       atChaintip: false,
       method: {
         name: "can-name-be-registered",
+        args: args
+      }
+    });
+    const res = await this.submitQuery(query);
+    return res;
+  }
+
+  // (get-name-price (namespace (buff 20))
+  //                      (name (buff 16))
+  async getNamePrice(namespace: string,
+    name: string): Promise<Receipt> {
+    const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`];
+    const query = this.createQuery({
+      atChaintip: false,
+      method: {
+        name: "get-name-price",
+        args: args
+      }
+    });
+    const res = await this.submitQuery(query);
+    return res;
+  }
+
+  // (get-namespace-price (namespace (buff 20))
+  async getNamespacePrice(namespace: string): Promise<Receipt> {
+    const args = [`0x${this.toHexString(namespace)}`];
+    const query = this.createQuery({
+      atChaintip: false,
+      method: {
+        name: "get-namespace-price",
         args: args
       }
     });
@@ -319,11 +349,15 @@ export class BNSClient extends Client {
       const query = this.createQuery({
         atChaintip: false,
         method: {
-          name: "compute-namespace-price?",
+          name: "get-namespace-price",
           args: ['0x0000']
         }
       });
       const res = await this.submitQuery(query);
     }
+  }
+
+  toHexString(input: String): String {
+    return Buffer.from(input).toString('hex');
   }
 }

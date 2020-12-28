@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -638,7 +638,7 @@ impl CostTracker for Environment<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64,
+        input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         self.global_context
             .cost_track
@@ -672,7 +672,7 @@ impl CostTracker for GlobalContext<'_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
-        input: u64,
+        input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
         self.cost_track.compute_cost(cost_function, input)
     }

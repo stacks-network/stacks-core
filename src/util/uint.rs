@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -49,6 +49,7 @@ pub trait BitArray {
 macro_rules! construct_uint {
     ($name:ident, $n_words:expr) => {
         /// Little-endian large integer type
+        #[derive(Serialize, Deserialize)]
         #[repr(C)]
         pub struct $name(pub [u64; $n_words]);
         impl_array_newtype!($name, u64, $n_words);

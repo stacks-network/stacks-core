@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -339,7 +339,7 @@ impl PoxConstants {
         sunset_end: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
-
+        assert!(prepare_length < reward_cycle_length);
         assert!(sunset_start <= sunset_end);
 
         PoxConstants {
@@ -355,11 +355,12 @@ impl PoxConstants {
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
+        // 20 reward slots; 10 prepare-phase slots
         PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
     }
 
     pub fn reward_slots(&self) -> u32 {
-        self.reward_cycle_length * (OUTPUTS_PER_COMMIT as u32)
+        (self.reward_cycle_length - self.prepare_length) * (OUTPUTS_PER_COMMIT as u32)
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
@@ -376,7 +377,7 @@ impl PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH,
             POX_PREPARE_WINDOW_LENGTH,
-            192,
+            80,
             25,
             5,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
@@ -386,7 +387,7 @@ impl PoxConstants {
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            120,
+            150, // 120 reward slots; 30 prepare-phase slots
             30,
             20,
             3333333333333333,
@@ -676,6 +677,8 @@ pub mod test {
         pub block_commits: Vec<LeaderBlockCommitOp>,
         pub id: usize,
         pub nonce: u64,
+        pub spent_at_nonce: HashMap<u64, u128>, // how much uSTX this miner paid in a given tx's nonce
+        pub test_with_tx_fees: bool, // set to true to make certain helper methods attach a pre-defined tx fee
     }
 
     pub struct TestMinerFactory {
@@ -701,6 +704,8 @@ pub mod test {
                 block_commits: vec![],
                 id: 0,
                 nonce: 0,
+                spent_at_nonce: HashMap::new(),
+                test_with_tx_fees: true,
             }
         }
 
@@ -1016,7 +1021,7 @@ pub mod test {
                 }
             };
 
-            txop.block_height = self.block_height;
+            txop.set_burn_height(self.block_height);
             txop.vtxindex = self.txs.len() as u32;
             txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
                 txop.block_height,

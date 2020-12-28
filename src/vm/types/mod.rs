@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -67,7 +67,7 @@ pub struct ListData {
     pub type_signature: ListTypeData,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -824,6 +824,15 @@ impl Value {
         ))))
     }
 
+    pub fn expect_ascii(self) -> String {
+        if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
+            String::from_utf8(data).unwrap()
+        } else {
+            error!("Value '{:?}' is not an ASCII string", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_u128(self) -> u128 {
         if let Value::UInt(inner) = self {
             inner
@@ -1119,6 +1128,13 @@ impl fmt::Display for StandardPrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let c32_str = self.to_address();
         write!(f, "{}", c32_str)
+    }
+}
+
+impl fmt::Debug for StandardPrincipalData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let c32_str = self.to_address();
+        write!(f, "StandardPrincipalData({})", c32_str)
     }
 }
 

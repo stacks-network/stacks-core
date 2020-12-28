@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -224,6 +224,8 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             liquid_ustx,
         );
 
+        test_debug!("PoX reward cycle threshold: {}, participation: {}, liquid_ustx: {}, num registered addrs: {}", threshold, participation, liquid_ustx, registered_addrs.len());
+
         if !burnchain
             .pox_constants
             .enough_participation(participation, liquid_ustx)
@@ -287,19 +289,8 @@ impl<'a, T: BlockEventDispatcher>
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    match comms.kludgy_clarity_db_lock() {
-                        Ok(_) => {
-                            if let Err(e) = inst.handle_new_stacks_block() {
-                                warn!("Error processing new stacks block: {:?}", e);
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}",
-                                &e
-                            );
-                            panic!();
-                        }
+                    if let Err(e) = inst.handle_new_stacks_block() {
+                        warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
@@ -378,11 +369,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         provider,
     )?;
     sort_db
-        .get_next_block_recipients(
-            sortition_tip,
-            reward_cycle_info.as_ref(),
-            burnchain.pox_constants.sunset_end,
-        )
+        .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
         .map_err(|e| Error::from(e))
 }
 
@@ -407,7 +394,11 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle. block_height={}", burn_height);
+        info!("Beginning reward cycle";
+              "burn_height" => burn_height,
+              "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
+              "prepare_phase_length" => burnchain.pox_constants.prepare_length);
+
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
             ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)

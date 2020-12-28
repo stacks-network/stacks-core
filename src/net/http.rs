@@ -4950,7 +4950,7 @@ mod test {
         );
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_tx_fee(0);
         tx_stx_transfer
     }
 

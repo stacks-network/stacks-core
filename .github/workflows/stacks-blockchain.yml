@@ -35,12 +35,22 @@ jobs:
           status: STARTING
           color: warning
 
-  # Run tests
-  test:
+  # Run full genesis test
+  full-genesis:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Run bitcoin tests
+      - name: Single full genesis integration test
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+
+  # Run sampled genesis tests
+  sampled-genesis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: All integration tests with sampled genesis
         env:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
@@ -156,7 +166,6 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     needs:
-      - test
       - dist
       - build-publish
       - build-publish-stretch
@@ -208,7 +217,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - notify-start
-      - test
       - dist
       - build-publish
       - build-publish-stretch

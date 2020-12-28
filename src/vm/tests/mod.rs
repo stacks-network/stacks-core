@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -64,32 +64,33 @@ where
     F: FnOnce(&mut OwnedEnvironment) -> (),
 {
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(
-        &StacksBlockId::sentinel(),
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-    );
 
     {
-        marf_kv
+        let mut store = marf_kv.begin(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+        );
+
+        store
             .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
             .initialize();
+        store.test_commit();
     }
 
-    marf_kv.test_commit();
-    marf_kv.begin(
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-        &StacksBlockId([1 as u8; 32]),
-    );
-
     {
+        let mut store = marf_kv.begin(
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &StacksBlockId([1 as u8; 32]),
+        );
+
         let mut owned_env =
-            OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         // start an initial transaction.
         if !top_level {
             owned_env.begin();
@@ -103,8 +104,8 @@ pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
 }
 
-pub fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
-    vec.drain(..)
+pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
+    vec.into_iter()
         .map(|value| SymbolicExpression::atom_value(value))
         .collect()
 }

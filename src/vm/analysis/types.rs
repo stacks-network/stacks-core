@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -50,6 +50,7 @@ pub struct ContractAnalysis {
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
+    pub is_cost_contract_eligible: bool,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
@@ -80,6 +81,7 @@ impl ContractAnalysis {
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
+            is_cost_contract_eligible: false,
         }
     }
 

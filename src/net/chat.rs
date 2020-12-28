@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1811,6 +1811,13 @@ impl ConversationP2P {
                         break;
                     }
                 }
+                Err(net_error::PermanentlyDrained) => {
+                    trace!(
+                        "{:?}: failed to recv on P2P conversation: PermanentlyDrained",
+                        self
+                    );
+                    return Err(net_error::PermanentlyDrained);
+                }
                 Err(e) => {
                     info!("{:?}: failed to recv on P2P conversation: {:?}", self, &e);
                     return Err(e);
@@ -2497,6 +2504,7 @@ mod test {
                 .append_chain_tip_snapshot(
                     &prev_snapshot,
                     &next_snapshot,
+                    &vec![],
                     &vec![],
                     None,
                     None,

@@ -239,7 +239,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("Xe".into()),
+            magic_bytes: Some("X2".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -447,6 +447,7 @@ impl Config {
                     pox_sync_sample_secs: node
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
+                    use_test_genesis_chainstate: node.use_test_genesis_chainstate,
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -964,6 +965,7 @@ pub struct NodeConfig {
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
+    pub use_test_genesis_chainstate: Option<bool>,
 }
 
 impl NodeConfig {
@@ -1002,6 +1004,7 @@ impl NodeConfig {
             wait_time_for_microblocks: 5000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
+            use_test_genesis_chainstate: None,
         }
     }
 
@@ -1146,6 +1149,7 @@ pub struct NodeConfigFile {
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
+    pub use_test_genesis_chainstate: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default)]

@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -430,6 +430,35 @@ impl<'a> RollbackWrapper<'a> {
         match lookup_result {
             Some(x) => Ok(Some(x)),
             None => self.store.get_metadata(contract, key),
+        }
+    }
+
+    // Throws a NoSuchContract error if contract doesn't exist,
+    //   returns None if there is no such metadata field.
+    pub fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        self.stack
+            .last()
+            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+
+        // This is THEORETICALLY a spurious clone, but it's hard to turn something like
+        //  (&A, &B) into &(A, B).
+        let metadata_key = (contract.clone(), key.to_string());
+        let lookup_result = if self.query_pending_data {
+            self.metadata_lookup_map
+                .get(&metadata_key)
+                .and_then(|x| x.last().cloned())
+        } else {
+            None
+        };
+
+        match lookup_result {
+            Some(x) => Ok(Some(x)),
+            None => self.store.get_metadata_manual(at_height, contract, key),
         }
     }
 

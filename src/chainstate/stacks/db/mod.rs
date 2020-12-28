@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -28,7 +28,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{btree_map::Entry, BTreeMap};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -129,7 +129,6 @@ pub struct MinerPaymentSchedule {
     pub stx_burns: u128,
     pub burnchain_commit_burn: u64,
     pub burnchain_sortition_burn: u64,
-    pub fill: u64, // fixed-point fraction of how full this block is, scaled up between 0 and 2**64 - 1 (i.e. 0x8000000000000000 == 50% full)
     pub miner: bool, // is this a schedule payment for the block's miner?
     pub stacks_block_height: u64,
     pub vtxindex: u32,
@@ -523,7 +522,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         stx_burns TEXT NOT NULL,            -- encodes u128
         burnchain_commit_burn INT NOT NULL,
         burnchain_sortition_burn INT NOT NULL,
-        fill TEXT NOT NULL,                 -- encodes u64 
         miner INT NOT NULL,
         
         -- internal use
@@ -832,7 +830,7 @@ impl StacksChainState {
                 hash_mode: SinglesigHashMode::P2PKH,
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                 nonce: 0,
-                fee_rate: 0,
+                tx_fee: 0,
                 signature: MessageSignature::empty(),
             },
         ));
@@ -961,7 +959,7 @@ impl StacksChainState {
 
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
                 info!("Initializing chain with lockups");
-                let mut lockups_per_block: HashMap<u64, Vec<Value>> = HashMap::new();
+                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
                     let stx_address =
@@ -983,6 +981,7 @@ impl StacksChainState {
                         }
                     };
                 }
+
                 let lockup_contract_id = boot_code_id("lockup");
                 clarity_tx.connection().as_transaction(|clarity| {
                     clarity
@@ -1424,7 +1423,6 @@ impl StacksChainState {
         }
         let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
         let result = to_do(&mut conn);
-        conn.done();
         Some(result)
     }
 
@@ -1451,7 +1449,6 @@ impl StacksChainState {
                 burn_dbconn,
             );
             let result = to_do(&mut conn);
-            conn.done();
             Some(result)
         } else {
             None

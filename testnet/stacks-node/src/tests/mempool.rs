@@ -40,7 +40,7 @@ const BAD_TRAIT_CONTRACT: &'static str = "(define-public (foo-bar) (ok u1))";
 pub fn make_bad_stacks_transfer(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     recipient: &PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
@@ -51,7 +51,7 @@ pub fn make_bad_stacks_transfer(
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(fee_rate);
+    spending_condition.set_tx_fee(tx_fee);
     let auth = TransactionAuth::Standard(spending_condition);
 
     let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);

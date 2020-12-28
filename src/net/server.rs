@@ -473,7 +473,7 @@ impl HttpPeer {
                                     Ok(_) => {}
                                     Err(e) => {
                                         debug!(
-                                            "Failed to flush HTP 400 to socket {:?}: {:?}",
+                                            "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                             &client_sock, &e
                                         );
                                         convo_dead = true;
@@ -528,7 +528,7 @@ impl HttpPeer {
         if !convo_dead {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
-            match convo.send(client_sock, chainstate) {
+            match HttpPeer::saturate_http_socket(client_sock, convo, chainstate) {
                 Ok(_) => {}
                 Err(e) => {
                     debug!(
@@ -1216,7 +1216,7 @@ mod test {
                 );
 
                 tx_contract.chain_id = chainstate.config().chain_id;
-                tx_contract.set_fee_rate(0);
+                tx_contract.set_tx_fee(0);
 
                 let mut signer = StacksTransactionSigner::new(&tx_contract);
                 signer.sign_origin(&privk_origin).unwrap();

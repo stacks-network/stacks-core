@@ -12,4 +12,4 @@ RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
 RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
 
 ENV BITCOIND_TEST 1
-RUN cd testnet/stacks-node && cargo test --release --features prod-genesis-chainstate -- --test-threads 1 --ignored
+RUN cd testnet/stacks-node && cargo test -- --test-threads 1 --ignored

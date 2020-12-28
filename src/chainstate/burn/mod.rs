@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -497,6 +497,7 @@ mod tests {
                     .append_chain_tip_snapshot(
                         &prev_snapshot,
                         &snapshot_row,
+                        &vec![],
                         &vec![],
                         None,
                         None,

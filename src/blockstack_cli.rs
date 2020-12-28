@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -276,13 +276,13 @@ fn make_standard_single_sig_tx(
     payload: TransactionPayload,
     publicKey: &StacksPublicKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
 ) -> StacksTransaction {
     let mut spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(publicKey.clone())
             .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(fee_rate);
+    spending_condition.set_tx_fee(tx_fee);
     let auth = TransactionAuth::Standard(spending_condition);
     let mut tx = StacksTransaction::new(version, auth, payload);
     tx.chain_id = chain_id;
@@ -360,7 +360,7 @@ fn handle_contract_publish(
     }
     let anchor_mode = parse_anchor_mode(&mut args, PUBLISH_USAGE)?;
     let sk_publisher = &args[0];
-    let fee_rate = args[1].parse()?;
+    let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
     let contract_name = &args[3];
     let contract_file = &args[4];
@@ -382,7 +382,7 @@ fn handle_contract_publish(
         payload.into(),
         &StacksPublicKey::from_private(&sk_publisher),
         nonce,
-        fee_rate,
+        tx_fee,
     );
     unsigned_tx.anchor_mode = anchor_mode;
 
@@ -417,7 +417,7 @@ fn handle_contract_call(
     }
     let anchor_mode = parse_anchor_mode(&mut args, CALL_USAGE)?;
     let sk_origin = &args[0];
-    let fee_rate = args[1].parse()?;
+    let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
     let contract_address = &args[3];
     let contract_name = &args[4];
@@ -468,7 +468,7 @@ fn handle_contract_call(
         payload.into(),
         &StacksPublicKey::from_private(&sk_origin),
         nonce,
-        fee_rate,
+        tx_fee,
     );
     unsigned_tx.anchor_mode = anchor_mode;
 
@@ -506,7 +506,7 @@ fn handle_token_transfer(
 
     let anchor_mode = parse_anchor_mode(&mut args, TOKEN_TRANSFER_USAGE)?;
     let sk_origin = StacksPrivateKey::from_hex(&args[0])?;
-    let fee_rate = args[1].parse()?;
+    let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
     let recipient_address =
         PrincipalData::parse(&args[3]).map_err(|_e| "Failed to parse recipient")?;
@@ -530,7 +530,7 @@ fn handle_token_transfer(
         payload,
         &StacksPublicKey::from_private(&sk_origin),
         nonce,
-        fee_rate,
+        tx_fee,
     );
     unsigned_tx.anchor_mode = anchor_mode;
 
@@ -770,6 +770,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "addresses" => get_addresses(args, tx_version),
             "decode-tx" => decode_transaction(args, tx_version),
             "decode-block" => decode_block(args, tx_version),
+            "decode-microblock" => decode_microblock(args, tx_version),
             _ => Err(CliError::Usage),
         }
     } else {

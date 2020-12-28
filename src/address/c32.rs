@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -80,6 +80,11 @@ fn c32_normalize(input_str: &str) -> String {
 }
 
 fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
+    // must be ASCII
+    if !input_str.is_ascii() {
+        return Err(Error::InvalidCrockford32);
+    }
+
     let mut result = vec![];
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
@@ -173,6 +178,11 @@ fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
 }
 
 fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error> {
+    // must be ASCII
+    if !check_data_unsanitized.is_ascii() {
+        return Err(Error::InvalidCrockford32);
+    }
+
     if check_data_unsanitized.len() < 2 {
         return Err(Error::InvalidCrockford32);
     }
@@ -384,6 +394,16 @@ mod test {
             let (decoded_version, decoded_bytes) = c32_address_decode(addr).unwrap();
             assert_eq!(decoded_version, expected_version);
             assert_eq!(decoded_bytes, expected_bytes);
+        }
+    }
+
+    #[test]
+    fn test_ascii_only() {
+        match c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE") {
+            Err(Error::InvalidCrockford32) => {}
+            _ => {
+                assert!(false);
+            }
         }
     }
 }

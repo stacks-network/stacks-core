@@ -68,13 +68,13 @@ pub fn serialize_sign_standard_single_sig_tx(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
 ) -> Vec<u8> {
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,
         nonce,
-        fee_rate,
+        tx_fee,
         TransactionAnchorMode::OnChainOnly,
     )
 }
@@ -83,14 +83,14 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     anchor_mode: TransactionAnchorMode,
 ) -> Vec<u8> {
     let mut spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(fee_rate);
+    spending_condition.set_tx_fee(tx_fee);
     let auth = TransactionAuth::Standard(spending_condition);
     let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
     unsigned_tx.anchor_mode = anchor_mode;
@@ -112,7 +112,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
 pub fn make_contract_publish(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
@@ -121,13 +121,13 @@ pub fn make_contract_publish(
 
     let payload = TransactionSmartContract { name, code_body };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
 pub fn make_contract_publish_microblock_only(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
@@ -140,7 +140,7 @@ pub fn make_contract_publish_microblock_only(
         payload.into(),
         sender,
         nonce,
-        fee_rate,
+        tx_fee,
         TransactionAnchorMode::OffChainOnly,
     )
 }
@@ -186,19 +186,19 @@ pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
 pub fn make_stacks_transfer(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     recipient: &PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
 pub fn make_stacks_transfer_mblock_only(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     recipient: &PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
@@ -208,7 +208,7 @@ pub fn make_stacks_transfer_mblock_only(
         payload.into(),
         sender,
         nonce,
-        fee_rate,
+        tx_fee,
         TransactionAnchorMode::OffChainOnly,
     )
 }
@@ -216,23 +216,23 @@ pub fn make_stacks_transfer_mblock_only(
 pub fn make_poison(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     header_1: StacksMicroblockHeader,
     header_2: StacksMicroblockHeader,
 ) -> Vec<u8> {
     let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
-pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
+pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
 pub fn make_contract_call(
     sender: &StacksPrivateKey,
     nonce: u64,
-    fee_rate: u64,
+    tx_fee: u64,
     contract_addr: &StacksAddress,
     contract_name: &str,
     function_name: &str,
@@ -248,7 +248,7 @@ pub fn make_contract_call(
         function_args: function_args.iter().map(|x| x.clone()).collect(),
     };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
 fn make_microblock(

@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,7 @@ use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
 use std::fmt;
+use util::db::Error as DatabaseError;
 pub use vm::analysis::errors::CheckErrors;
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::ast::errors::ParseError;
@@ -61,6 +62,7 @@ pub enum InterpreterError {
     FailureConstructingListWithType,
     InsufficientBalance,
     CostContractLoadFailure,
+    DBError(IncomparableError<DatabaseError>),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

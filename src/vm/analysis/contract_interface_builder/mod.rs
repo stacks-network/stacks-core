@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -38,6 +38,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         type_map: _,
         cost_track: _,
         contract_interface: _,
+        is_cost_contract_eligible: _,
     } = contract_analysis;
 
     contract_interface

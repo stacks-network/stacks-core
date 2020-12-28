@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -121,11 +121,25 @@ fn make_json_logger() -> Logger {
     panic!("Tried to construct JSON logger, but stacks-blockchain built without slog_json feature enabled.")
 }
 
+#[cfg(not(test))]
 fn make_logger() -> Logger {
     if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
         let plain = slog_term::PlainSyncDecorator::new(std::io::stderr());
+        let drain = TermFormat::new(plain);
+
+        let logger = Logger::root(drain.fuse(), o!());
+        logger
+    }
+}
+
+#[cfg(test)]
+fn make_logger() -> Logger {
+    if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
+        make_json_logger()
+    } else {
+        let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
         let drain = TermFormat::new(plain);
 
         let logger = Logger::root(drain.fuse(), o!());
