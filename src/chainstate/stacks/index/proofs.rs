@@ -477,7 +477,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
                 TrieMerkleProofType::Node48((
                     prev_chr,
-                    ProofTrieNode::try_from_trie_node(data, storage)?,
+                    ProofTrieNode::try_from_trie_node(data.as_ref(), storage)?,
                     hash_slice,
                 ))
             }
@@ -489,7 +489,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     // ancestor hashes to be filled in later
                     (
                         prev_chr,
-                        ProofTrieNode::try_from_trie_node(data, storage)?,
+                        ProofTrieNode::try_from_trie_node(data.as_ref(), storage)?,
                         hash_slice,
                     ),
                 )
@@ -648,7 +648,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
                 let root_hash = if let TrieNodeType::Node256(ref node256) = root_node {
                     let child_hashes = Trie::get_children_hashes(storage, &root_node)?;
-                    let root_hash = get_node_hash(node256, &child_hashes, storage);
+                    let root_hash = get_node_hash(node256.as_ref(), &child_hashes, storage);
                     root_hash
                 } else {
                     return Err(Error::CorruptionError(format!(

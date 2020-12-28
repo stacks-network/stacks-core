@@ -584,7 +584,7 @@ mod test {
         let root_hash = TrieHash::from_data(&[0u8; 32]); // don't care about this in this test
         s.write_node(root_ptr, &root, root_hash.clone()).unwrap();
 
-        let mut parent = TrieNodeType::Node256(root);
+        let mut parent = TrieNodeType::Node256(Box::new(root));
         let mut parent_ptr = root_ptr;
 
         let mut nodes = vec![];
@@ -601,8 +601,10 @@ mod test {
             let node = match TrieNodeID::from_u8(node_id).unwrap() {
                 TrieNodeID::Node4 => TrieNodeType::Node4(TrieNode4::new(path_segment)),
                 TrieNodeID::Node16 => TrieNodeType::Node16(TrieNode16::new(path_segment)),
-                TrieNodeID::Node48 => TrieNodeType::Node48(TrieNode48::new(path_segment)),
-                TrieNodeID::Node256 => TrieNodeType::Node256(TrieNode256::new(path_segment)),
+                TrieNodeID::Node48 => TrieNodeType::Node48(Box::new(TrieNode48::new(path_segment))),
+                TrieNodeID::Node256 => {
+                    TrieNodeType::Node256(Box::new(TrieNode256::new(path_segment)))
+                }
                 _ => panic!("invalid node ID"),
             };
 
