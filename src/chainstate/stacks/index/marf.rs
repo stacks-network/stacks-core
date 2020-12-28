@@ -691,7 +691,7 @@ impl<T: MarfTrieId> MARF<T> {
             let node = TrieNode256::new(&vec![]);
             let hash = get_node_hash(&node, &vec![], storage.deref_mut());
             let root_ptr = storage.root_ptr();
-            storage.write_nodetype(root_ptr, &TrieNodeType::Node256(node), hash)?;
+            storage.write_nodetype(root_ptr, &TrieNodeType::Node256(Box::new(node)), hash)?;
             Ok(())
         } else {
             // existing storage
@@ -920,7 +920,7 @@ impl<T: MarfTrieId> MARF<T> {
         let node = TrieNode256::new(&vec![]);
         let hash = get_node_hash(&node, &vec![], storage.deref_mut());
         let root_ptr = storage.root_ptr();
-        let node_type = TrieNodeType::Node256(node);
+        let node_type = TrieNodeType::Node256(Box::new(node));
         storage.write_nodetype(root_ptr, &node_type, hash)
     }
 
