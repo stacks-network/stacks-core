@@ -20,7 +20,7 @@ use stacks::vm::database::ClarityDeserializable;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, node::TESTNET_CHAIN_ID,
+    config::EventObserverConfig, config::InitialBalance, config::TESTNET_CHAIN_ID, neon,
     operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
     ConfigFile, Keychain,
 };
@@ -1696,9 +1696,11 @@ fn atlas_integration_test() {
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
     );
-    conf_follower_node
-        .node
-        .set_bootstrap_node(Some(bootstrap_node_url));
+    conf_follower_node.node.set_bootstrap_node(
+        Some(bootstrap_node_url),
+        conf_follower_node.burnchain.chain_id,
+        conf_follower_node.burnchain.peer_version,
+    );
     conf_follower_node.node.miner = false;
     conf_follower_node
         .initial_balances
@@ -2147,7 +2149,7 @@ fn atlas_integration_test() {
     // Poll GET v2/attachments/<attachment-hash>
     for i in 1..10 {
         let mut attachments_did_sync = false;
-        let mut timeout = 30;
+        let mut timeout = 60;
         while attachments_did_sync != true {
             let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
             let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -2169,7 +2171,7 @@ fn atlas_integration_test() {
             } else {
                 timeout -= 1;
                 if timeout == 0 {
-                    panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
                 }
                 eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                 thread::sleep(Duration::from_millis(1000));
