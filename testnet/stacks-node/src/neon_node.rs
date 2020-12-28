@@ -58,8 +58,6 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
 struct AssembledAnchorBlock {
@@ -87,6 +85,7 @@ enum RelayerDirective {
 }
 
 pub struct InitializedNeonNode {
+    config: Config,
     relay_channel: SyncSender<RelayerDirective>,
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
@@ -149,16 +148,26 @@ fn inner_process_tenure(
     Ok(true)
 }
 
-fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
+fn inner_generate_coinbase_tx(
+    keychain: &mut Keychain,
+    nonce: u64,
+    is_mainnet: bool,
+    chain_id: u32,
+) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
+    let version = if is_mainnet {
+        TransactionVersion::Mainnet
+    } else {
+        TransactionVersion::Testnet
+    };
     let mut tx = StacksTransaction::new(
-        TransactionVersion::Testnet,
+        version,
         tx_auth,
         TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
     );
-    tx.chain_id = TESTNET_CHAIN_ID;
+    tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&tx);
     keychain.sign_as_origin(&mut tx_signer);
@@ -170,12 +179,19 @@ fn inner_generate_poison_microblock_tx(
     keychain: &mut Keychain,
     nonce: u64,
     poison_payload: TransactionPayload,
+    is_mainnet: bool,
+    chain_id: u32,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
 
-    let mut tx = StacksTransaction::new(TransactionVersion::Testnet, tx_auth, poison_payload);
-    tx.chain_id = TESTNET_CHAIN_ID;
+    let version = if is_mainnet {
+        TransactionVersion::Mainnet
+    } else {
+        TransactionVersion::Testnet
+    };
+    let mut tx = StacksTransaction::new(version, tx_auth, poison_payload);
+    tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&tx);
     keychain.sign_as_origin(&mut tx_signer);
@@ -202,6 +218,7 @@ fn inner_generate_leader_key_register_op(
 }
 
 fn rotate_vrf_and_register(
+    is_mainnet: bool,
     keychain: &mut Keychain,
     burn_block: &BlockSnapshot,
     btc_controller: &mut BitcoinRegtestController,
@@ -209,7 +226,7 @@ fn rotate_vrf_and_register(
     let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
     let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
     let op = inner_generate_leader_key_register_op(
-        keychain.get_address(),
+        keychain.get_address(is_mainnet),
         vrf_pk,
         burnchain_tip_consensus_hash,
     );
@@ -422,6 +439,7 @@ fn try_mine_microblock(
 }
 
 fn spawn_peer(
+    is_mainnet: bool,
     mut this: PeerNetwork,
     p2p_sock: &SocketAddr,
     rpc_sock: &SocketAddr,
@@ -443,15 +461,19 @@ fn spawn_peer(
     let sortdb = SortitionDB::open(&burn_db_path, false).map_err(NetError::DBError)?;
 
     let (mut chainstate, _) = StacksChainState::open_with_block_limit(
-        false,
-        TESTNET_CHAIN_ID,
+        is_mainnet,
+        config.burnchain.chain_id,
         &stacks_chainstate_path,
         block_limit,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
-    let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
-        .map_err(NetError::DBError)?;
+    let mut mem_pool = MemPoolDB::open(
+        is_mainnet,
+        config.burnchain.chain_id,
+        &stacks_chainstate_path,
+    )
+    .map_err(NetError::DBError)?;
 
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
@@ -608,6 +630,8 @@ fn spawn_peer(
 }
 
 fn spawn_miner_relayer(
+    is_mainnet: bool,
+    chain_id: u32,
     mut relayer: Relayer,
     local_peer: LocalPeer,
     config: Config,
@@ -630,14 +654,14 @@ fn spawn_miner_relayer(
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
     let (mut chainstate, _) = StacksChainState::open_with_block_limit(
-        false,
-        TESTNET_CHAIN_ID,
+        is_mainnet,
+        chain_id,
         &stacks_chainstate_path,
         config.block_limit.clone(),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
-    let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+    let mut mem_pool = MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
     let mut last_mined_blocks: HashMap<
@@ -834,6 +858,7 @@ fn spawn_miner_relayer(
                         continue;
                     }
                     did_register_key = rotate_vrf_and_register(
+                        is_mainnet,
                         &mut keychain,
                         last_burn_block,
                         &mut bitcoin_controller,
@@ -932,7 +957,7 @@ impl InitializedNeonNode {
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_path(),
             true,
-            TESTNET_CHAIN_ID,
+            config.burnchain.chain_id,
             burnchain.network_id,
             Some(node_privkey),
             config.connection_options.private_key_lifetime.clone(),
@@ -971,7 +996,7 @@ impl InitializedNeonNode {
             peerdb,
             atlasdb,
             local_peer.clone(),
-            TESTNET_PEER_VERSION,
+            config.burnchain.peer_version,
             burnchain.clone(),
             view,
             config.connection_options.clone(),
@@ -990,6 +1015,8 @@ impl InitializedNeonNode {
         let miner_tip_arc = Arc::new(Mutex::new(None));
 
         spawn_miner_relayer(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
             relayer,
             local_peer,
             config.clone(),
@@ -1006,6 +1033,7 @@ impl InitializedNeonNode {
         .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(
+            config.is_mainnet(),
             p2p_net,
             &p2p_sock,
             &rpc_sock,
@@ -1029,6 +1057,7 @@ impl InitializedNeonNode {
         let active_keys = vec![];
 
         InitializedNeonNode {
+            config: config.clone(),
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
@@ -1362,7 +1391,12 @@ impl InitializedNeonNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
-        let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
+        let coinbase_tx = inner_generate_coinbase_tx(
+            keychain,
+            coinbase_nonce,
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+        );
 
         // find the longest microblock tail we can build off of
         let microblock_info_opt =
@@ -1404,6 +1438,8 @@ impl InitializedNeonNode {
                     keychain,
                     coinbase_nonce + 1,
                     poison_payload,
+                    config.is_mainnet(),
+                    config.burnchain.chain_id,
                 );
 
                 // submit the poison payload, privately, so we'll mine it when building the
@@ -1473,7 +1509,7 @@ impl InitializedNeonNode {
         let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end
             && !burnchain.is_in_prepare_phase(burn_block.block_height + 1)
         {
-            RewardSetInfo::into_commit_outs(recipients, false)
+            RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
             vec![StacksAddress::burn_address(false)]
         };
@@ -1542,12 +1578,14 @@ impl InitializedNeonNode {
 
         update_active_miners_count_gauge(block_commits.len() as i64);
 
+        let (_, network) = self.config.burnchain.get_bitcoin_network();
+
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.apparent_sender.to_testnet_address(),
+                    op.apparent_sender.to_address(network),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
@@ -1556,7 +1594,7 @@ impl InitializedNeonNode {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.apparent_sender.to_testnet_address(),
+                        op.apparent_sender.to_address(network),
                         &op.block_header_hash
                     );
                 }
@@ -1567,6 +1605,11 @@ impl InitializedNeonNode {
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
 
+        let node_address = Keychain::address_from_burnchain_signer(
+            &self.burnchain_signer,
+            self.config.is_mainnet(),
+        );
+
         for op in key_registers.into_iter() {
             if self.is_miner {
                 info!(
@@ -1574,7 +1617,7 @@ impl InitializedNeonNode {
                     block_height, op.address
                 );
             }
-            if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
+            if op.address == node_address {
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined
@@ -1614,8 +1657,8 @@ impl NeonGenesisNode {
 
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
-            false,
-            TESTNET_CHAIN_ID,
+            config.is_mainnet(),
+            config.burnchain.chain_id,
             &config.get_chainstate_path(),
             Some(&mut boot_data),
             config.block_limit.clone(),

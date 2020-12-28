@@ -86,7 +86,7 @@ use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
 use std::collections::HashMap;
 
-use core::{FIRST_BURNCHAIN_BLOCK_HASH, FIRST_STACKS_BLOCK_HASH, INITIAL_MINING_BONUS_WINDOW};
+use core::{FIRST_STACKS_BLOCK_HASH, INITIAL_MINING_BONUS_WINDOW};
 
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
@@ -2341,7 +2341,7 @@ impl<'a> SortitionDBConn<'a> {
             let ancestor_hash =
                 SortitionDB::get_ancestor_snapshot(&self, height as u64, &chain_tip.sortition_id)?
                     .map(|sn| sn.burn_header_hash)
-                    .unwrap_or(FIRST_BURNCHAIN_BLOCK_HASH.clone());
+                    .unwrap_or(burnchain.first_block_hash.clone());
             last_burn_block_hashes.insert(height, ancestor_hash);
         }
 
