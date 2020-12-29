@@ -395,8 +395,8 @@ impl LeaderBlockCommitOp {
             })
     }
 
-    pub fn spent_txid(&self) -> Txid {
-        self.input.0.clone()
+    pub fn spent_txid(&self) -> &Txid {
+        &self.input.0
     }
 
     pub fn spent_output(&self) -> u32 {
@@ -452,8 +452,8 @@ pub struct MissedBlockCommit {
 }
 
 impl MissedBlockCommit {
-    pub fn spent_txid(&self) -> Txid {
-        self.input.0.clone()
+    pub fn spent_txid(&self) -> &Txid {
+        &self.input.0
     }
 
     pub fn spent_output(&self) -> u32 {

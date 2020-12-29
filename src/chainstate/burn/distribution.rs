@@ -201,74 +201,40 @@ impl BurnSamplePoint {
                 .map(|missed| (missed.txid.clone(), missed))
                 .collect();
 
-            let expected_index_opt = if rel_block_height > 0 {
-                // NOTE: expect_burnt refers to whether or not this block at `rel_block_height`
-                // consumes a UTXO from a PoB-only input (e.g. a prepare-phase commit or a post-sunset
-                // commit), or from a potentially-PoX input.  To determine this, we look at
-                // whether or not the _previous_ block-commit from rel_block_height is a
-                // PoB-only block-commit.  If it is, then the block-commit at `rel_block_height`
-                // would expect that its consumed UTXO occurs after a _single_ burn output,
-                // instead of `OUTPUTS_PER_COMMIT` PoX (or PoB) outputs.
-                let expect_burnt = burn_blocks[(rel_block_height - 1) as usize];
-                let expected_index = LeaderBlockCommitOp::expected_chained_utxo(expect_burnt);
-                Some(expected_index)
-            } else {
-                None
-            };
+            // find the UTXO index that each last linked_commit must have spent in order to be
+            // chained to the block-commit (or missed-commit) at this relative block height
+            let commit_is_burn = burn_blocks[rel_block_height as usize];
+            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(commit_is_burn);
 
             for linked_commit in commits_with_priors.iter_mut() {
                 let end = linked_commit.iter().rev().find_map(|o| o.as_ref()).unwrap(); // guaranteed to be at least 1 non-none entry
 
-                if let Some(referenced_commit) = cur_commits_map.get(&end.op.spent_txid()) {
-                    // if the last linked block-commit consumes the UTXO of a prior block-commit, then that
-                    // prior block-commit must have used the correct output in order to be considered, based
-                    // on whether or not the prior block-commit was PoB-only.
-                    // The only exception is if this is the first-ever block-commit in this chain
-                    // fork, in which case we don't care what it spent.
-                    if expected_index_opt.is_some()
-                        && !referenced_commit.is_first_block()
-                        && Some(referenced_commit.spent_output()) != expected_index_opt
-                    {
-                        test_debug!("Referenced block-commit {} at rel_block_height {} spent index {}; expected {:?}",
-                                    &referenced_commit.txid, rel_block_height, referenced_commit.spent_output(), expected_index_opt.as_ref());
-                        test_debug!("Referenced block-commit: {:?}", &referenced_commit);
-                        continue;
-                    }
-                } else if let Some(missed_commit) = cur_missed_map.get(&end.op.spent_txid()) {
-                    // if the last linked block-commit references the UTXO of a missed block-commit, then that
-                    // missed block-commit must have consumed the correct output for its _intended_
-                    // block height in order to be considered.
-                    if expected_index_opt.is_some()
-                        && Some(missed_commit.spent_output()) != expected_index_opt
-                    {
-                        test_debug!("Missed block-commit {} at rel_block_height {} spent index {}; expected {:?}",
-                                    &missed_commit.txid, rel_block_height, missed_commit.spent_output(), expected_index_opt.as_ref());
-                        test_debug!("Missed block-commit: {:?}", &missed_commit);
-                        continue;
-                    }
-                } else {
-                    // this last linked block-commit doesn't reference a known block-commit --
-                    // neither a missed nor or accepted block-commit
-                    test_debug!(
-                        "No chained UTXO to a valid or missing commit from {}: ({},{})",
-                        end.op.txid(),
-                        end.op.spent_txid(),
-                        end.op.spent_output()
-                    );
+                // if end spent a UTXO at this height, then it must match the expected index
+                if end.op.spent_output() != expected_index {
+                    test_debug!("Block-commit {} did not spent a UTXO at rel_block_height {}, because it spent output {},{} (expected {})",
+                                end.op.txid(), rel_block_height, end.op.spent_output(), end.op.spent_txid(), expected_index);
                     continue;
                 }
 
-                // if we get here, then extract the consumed op
-                let referenced_op =
-                    if let Some(referenced_commit) = cur_commits_map.remove(&end.op.spent_txid()) {
-                        // found a chained utxo
-                        Some(LinkedCommitIdentifier::Valid(referenced_commit))
-                    } else if let Some(missed_op) = cur_missed_map.remove(&end.op.spent_txid()) {
-                        // found a missed commit
-                        Some(LinkedCommitIdentifier::Missed(missed_op))
-                    } else {
-                        unreachable!();
-                    };
+                // find out which block-commit we chained to
+                let referenced_op = if let Some(referenced_commit) =
+                    cur_commits_map.remove(end.op.spent_txid())
+                {
+                    // found a chained utxo
+                    Some(LinkedCommitIdentifier::Valid(referenced_commit))
+                } else if let Some(missed_op) = cur_missed_map.remove(end.op.spent_txid()) {
+                    // found a missed commit
+                    Some(LinkedCommitIdentifier::Missed(missed_op))
+                } else {
+                    test_debug!(
+                            "No chained UTXO to a valid or missing commit at relative block height {} from {}: ({},{})",
+                            rel_block_height,
+                            end.op.txid(),
+                            end.op.spent_txid(),
+                            end.op.spent_output()
+                        );
+                    continue;
+                };
 
                 // if we found a referenced op, connect it
                 if let Some(referenced_op) = referenced_op {
