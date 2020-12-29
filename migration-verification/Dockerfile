@@ -64,9 +64,10 @@ RUN echo "select address, (cast(credit_value as integer) - cast(debit_value as i
         limit 1000" | sqlite3 /stacks1.0-chain/blockstack-server.db > check_addrs.txt
 RUN cat check_addrs.txt
 
+# Dump ~1000 randomly sampled vesting schedules
 RUN echo "\
         SELECT address, vesting_value, block_id FROM account_vesting \
-        WHERE address IN (SELECT address FROM account_vesting ORDER BY RANDOM() LIMIT 20) \
+        WHERE address IN (SELECT address FROM account_vesting ORDER BY RANDOM() LIMIT 35) \
         ORDER BY address, block_id \
     " | sqlite3 /stacks1.0-chain/blockstack-server.db > check_lockups.txt
 RUN cat check_lockups.txt
