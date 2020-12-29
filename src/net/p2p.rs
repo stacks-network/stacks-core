@@ -4366,6 +4366,7 @@ mod test {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
+            initial_reward_start_block: 50,
             first_block_height: 50,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),

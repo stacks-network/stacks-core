@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
 use std::fmt;
 use std::io;
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
+use std::{cmp, error};
 
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -288,33 +288,59 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(())
     }
 
-    /// Walk through the buffered TrieNodes and dump them to f.
-    fn dump_traverse<F: Write + Seek>(
-        &mut self,
+    /// write the trie data to f, using node_data_order to
+    ///   iterate over node_data
+    pub fn write_trie_indirect<F: Write + Seek>(
         f: &mut F,
-        root: &TrieNodeType,
-        hash: &TrieHash,
-    ) -> Result<u64, Error> {
-        let mut frontier: VecDeque<(TrieNodeType, TrieHash)> = VecDeque::new();
+        node_data_order: &[u32],
+        node_data: &[(TrieNodeType, TrieHash)],
+        offsets: &[u32],
+        parent_hash: &T,
+    ) -> Result<(), Error> {
+        assert_eq!(node_data_order.len(), offsets.len());
+
+        // write parent block ptr
+        fseek(f, 0)?;
+        f.write_all(parent_hash.as_bytes())
+            .map_err(|e| Error::IOError(e))?;
+        // write zero-identifier (TODO: this is a convenience hack for now, we should remove the
+        //    identifier from the trie data blob)
+        fseek(f, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
+        f.write_all(&0u32.to_le_bytes())
+            .map_err(|e| Error::IOError(e))?;
+
+        for (ix, indirect) in node_data_order.iter().enumerate() {
+            // dump the node to storage
+            write_nodetype_bytes(
+                f,
+                &node_data[*indirect as usize].0,
+                node_data[*indirect as usize].1,
+            )?;
+
+            // next node
+            fseek(f, offsets[ix] as u64)?;
+        }
+
+        Ok(())
+    }
+
+    /// Walk through the buffered TrieNodes and dump them to f.
+    fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
+        let mut frontier: VecDeque<u32> = VecDeque::new();
 
         let mut node_data = vec![];
         let mut offsets = vec![];
 
-        frontier.push_back((root.clone(), hash.clone()));
+        let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
+        frontier.push_back(start);
 
         // first 32 bytes is reserved for the parent block hash
         //    next 4 bytes is the local block identifier
         let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
 
         // step 1: write out each node in breadth-first order to get their ptr offsets
-        while frontier.len() > 0 {
-            let (node, node_hash) = match frontier.pop_front() {
-                Some((n, h)) => (n, h),
-                None => {
-                    break;
-                }
-            };
-
+        while let Some(pointer) = frontier.pop_front() {
+            let (node, _node_hash) = self.get_nodetype(pointer)?;
             // calculate size
             let num_written = get_node_byte_len(&node);
             ptr += num_written as u64;
@@ -325,13 +351,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 let num_children = ptrs.len();
                 for i in 0..num_children {
                     if ptrs[i].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[i].id) {
-                        let (child, child_hash) = self.read_nodetype(&ptrs[i])?;
-                        frontier.push_back((child, child_hash));
+                        frontier.push_back(ptrs[i].ptr());
                     }
                 }
             }
 
-            node_data.push((node, node_hash));
+            node_data.push(pointer);
             offsets.push(ptr as u32);
         }
 
@@ -340,7 +365,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // step 2: update ptrs in all nodes
         let mut i = 0;
         for j in 0..node_data.len() {
-            let next_node = &mut node_data[j].0;
+            let next_node = &mut self.data[node_data[j] as usize].0;
             if !next_node.is_leaf() {
                 let mut ptrs = next_node.ptrs_mut();
                 let num_children = ptrs.len();
@@ -354,17 +379,21 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
 
         // step 3: write out each node (now that they have the write ptrs)
-        TrieRAM::write_trie(f, node_data.as_slice(), offsets.as_slice(), &self.parent)?;
+        TrieRAM::write_trie_indirect(
+            f,
+            &node_data,
+            self.data.as_slice(),
+            offsets.as_slice(),
+            &self.parent,
+        )?;
 
         Ok(ptr)
     }
 
     /// Dump ourself to f
-    pub fn dump<F: Write + Seek>(&mut self, f: &mut F, bhh: &T) -> Result<u64, Error> {
+    pub fn dump<F: Write + Seek>(self, f: &mut F, bhh: &T) -> Result<u64, Error> {
         if self.block_header == *bhh {
-            let (root, hash) =
-                self.read_nodetype(&TriePtr::new(TrieNodeID::Node256 as u8, 0, 0))?;
-            self.dump_traverse(f, &root, &hash)
+            self.dump_consume(f)
         } else {
             error!("Failed to dump {:?}: not the current block", bhh);
             Err(Error::NotFoundError)
@@ -477,6 +506,18 @@ impl<T: MarfTrieId> TrieRAM<T> {
         })?;
 
         Ok(node_trie_hash.clone())
+    }
+
+    pub fn get_nodetype(&self, ptr: u32) -> Result<&(TrieNodeType, TrieHash), Error> {
+        self.data.get(ptr as usize).ok_or_else(|| {
+            error!(
+                "TrieRAM read_nodetype({:?}): Failed to read node: {} >= {}",
+                &self.block_header,
+                ptr,
+                self.data.len()
+            );
+            Error::NotFoundError
+        })
     }
 
     pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
@@ -931,22 +972,22 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
         }
-        if let Some((ref bhh, ref mut trie_ram)) = self.data.last_extended.take() {
+        if let Some((bhh, trie_ram)) = self.data.last_extended.take() {
             trace!("Buffering block flush started.");
             let mut buffer = Cursor::new(Vec::new());
-            trie_ram.dump(&mut buffer, bhh)?;
+            trie_ram.dump(&mut buffer, &bhh)?;
             // consume the cursor, get the buffer
             let buffer = buffer.into_inner();
             trace!("Buffering block flush finished.");
 
-            debug!("Flush: {} to {}", bhh, flush_options);
+            debug!("Flush: {} to {}", &bhh, flush_options);
 
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
                     if self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    trie_sql::write_trie_blob(&self.db, bhh, &buffer)?
+                    trie_sql::write_trie_blob(&self.db, &bhh, &buffer)?
                 }
                 FlushOptions::NewHeader(real_bhh) => {
                     // If we opened a block with a given hash, but want to store it as a block with a *different*
@@ -958,7 +999,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    if real_bhh != bhh {
+                    if real_bhh != &bhh {
                         // note: this was moved from the block_retarget function
                         //  to avoid stepping on the borrow checker.
                         debug!("Retarget block {} to {}", bhh, real_bhh);
@@ -977,11 +1018,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if !self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    trie_sql::write_trie_blob_to_unconfirmed(&self.db, bhh, &buffer)?
+                    trie_sql::write_trie_blob_to_unconfirmed(&self.db, &bhh, &buffer)?
                 }
             };
 
-            trie_sql::drop_lock(&self.db, bhh)?;
+            trie_sql::drop_lock(&self.db, &bhh)?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
         }

@@ -206,7 +206,7 @@ start_stacks_miner_node() {
 
    log "[$$]  Waiting for BTC to get confirmed..."
    TIMEOUT=2
-   for i in $(seq 1 10); do
+   for i in $(seq 1 20); do
        CONFIRMATIONS="$(curl -sf "$FAUCET_URL"/bitcoin/confirmations/"$TXID")"
        local RC=$?
        if [ $RC -ne 0 ]; then 

@@ -3368,7 +3368,10 @@ impl StacksChainState {
 
         """
         */
-        let effective_ht = burn_block_height - first_burn_block_height;
+        // this is saturating subtraction for the initial reward calculation
+        //   where we are computing the coinbase reward for blocks that occur *before*
+        //   the `first_burn_block_height`
+        let effective_ht = burn_block_height.saturating_sub(first_burn_block_height);
         let blocks_per_year = 52596;
         let stx_reward = if effective_ht < blocks_per_year * 4 {
             1000

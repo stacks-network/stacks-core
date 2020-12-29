@@ -355,20 +355,16 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_testnet_address(&self) -> String {
+    pub fn to_address(&self, network_type: BitcoinNetworkType) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
             }
             _ => BitcoinAddressType::ScriptHash,
         };
-        BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Testnet,
-            addr_type,
-            &self.to_address_bits(),
-        )
-        .unwrap()
-        .to_string()
+        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
+            .unwrap()
+            .to_string()
     }
 
     pub fn to_address_bits(&self) -> Vec<u8> {
@@ -468,6 +464,7 @@ impl Burnchain {
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
+            initial_reward_start_block: params.initial_reward_start_block,
             first_block_hash: params.first_block_hash,
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
@@ -570,6 +567,7 @@ impl Burnchain {
         )
         .unwrap();
         ret.first_block_height = first_block_height;
+        ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
         ret
     }
@@ -1515,7 +1513,8 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: BurnchainHeaderHash::zero(),
         };
@@ -2346,7 +2345,8 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
         };
 
         let mut leader_private_keys = vec![];

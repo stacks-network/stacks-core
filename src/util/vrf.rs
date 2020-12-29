@@ -207,7 +207,7 @@ impl VRFPublicKey {
         }
     }
 
-    pub fn from_hex(h: &String) -> Option<VRFPublicKey> {
+    pub fn from_hex(h: &str) -> Option<VRFPublicKey> {
         match hex_bytes(h) {
             Ok(b) => VRF::check_public_key(&b),
             Err(_) => None,

@@ -39,9 +39,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
 
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-
 #[derive(Debug, Clone)]
 pub struct ChainTip {
     pub metadata: StacksHeaderInfo,
@@ -112,6 +109,8 @@ pub fn get_account_balances(
 }
 
 fn spawn_peer(
+    is_mainnet: bool,
+    chain_id: u32,
     mut this: PeerNetwork,
     p2p_sock: &SocketAddr,
     rpc_sock: &SocketAddr,
@@ -140,7 +139,7 @@ fn spawn_peer(
                 }
             };
             let (mut chainstate, _) =
-                match StacksChainState::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Error while connecting chainstate db in peer loop: {}", e);
@@ -149,15 +148,15 @@ fn spawn_peer(
                     }
                 };
 
-            let mut mem_pool =
-                match MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting to mempool db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let mut mem_pool = match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
+            {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
             let mut attachments = HashSet::new();
             let net_result = this
                 .run(
@@ -221,8 +220,8 @@ impl Node {
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
-            false,
-            TESTNET_CHAIN_ID,
+            config.is_mainnet(),
+            config.burnchain.chain_id,
             &config.get_chainstate_path(),
             Some(&mut boot_data),
             config.block_limit.clone(),
@@ -275,11 +274,14 @@ impl Node {
         let chainstate_path = config.get_chainstate_path();
         let sortdb_path = config.get_burn_db_file_path();
 
-        let (chain_state, _) =
-            match StacksChainState::open(false, TESTNET_CHAIN_ID, &chainstate_path) {
-                Ok(x) => x,
-                Err(_e) => panic!(),
-            };
+        let (chain_state, _) = match StacksChainState::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &chainstate_path,
+        ) {
+            Ok(x) => x,
+            Err(_e) => panic!(),
+        };
 
         let mut node = Node {
             active_registered_key: None,
@@ -372,7 +374,7 @@ impl Node {
         let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
-            TESTNET_CHAIN_ID,
+            self.config.burnchain.chain_id,
             burnchain.network_id,
             Some(node_privkey),
             self.config.connection_options.private_key_lifetime.clone(),
@@ -413,12 +415,14 @@ impl Node {
             peerdb,
             atlasdb,
             local_peer,
-            TESTNET_PEER_VERSION,
+            self.config.burnchain.peer_version,
             burnchain,
             view,
             self.config.connection_options.clone(),
         );
         let _join_handle = spawn_peer(
+            self.config.is_mainnet(),
+            self.config.burnchain.chain_id,
             p2p_net,
             &p2p_sock,
             &rpc_sock,
@@ -457,11 +461,12 @@ impl Node {
         let mut last_sortitioned_block = None;
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
+        let is_mainnet = self.config.is_mainnet();
 
         for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    if op.address == self.keychain.get_address() {
+                    if op.address == self.keychain.get_address(is_mainnet) {
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
@@ -565,12 +570,16 @@ impl Node {
             },
         };
 
-        let mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &self.chain_state.root_path)
-            .expect("FATAL: failed to open mempool");
+        let mem_pool = MemPoolDB::open(
+            self.config.is_mainnet(),
+            self.config.burnchain.chain_id,
+            &self.chain_state.root_path,
+        )
+        .expect("FATAL: failed to open mempool");
 
         // Construct the coinbase transaction - 1st txn that should be handled and included in
         // the upcoming tenure.
-        let coinbase_tx = self.generate_coinbase_tx();
+        let coinbase_tx = self.generate_coinbase_tx(self.config.is_mainnet());
 
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
 
@@ -746,7 +755,7 @@ impl Node {
 
     /// Returns the Stacks address of the node
     pub fn get_address(&self) -> StacksAddress {
-        self.keychain.get_address()
+        self.keychain.get_address(self.config.is_mainnet())
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -758,7 +767,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            address: self.keychain.get_address(),
+            address: self.keychain.get_address(self.config.is_mainnet()),
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -798,9 +807,9 @@ impl Node {
             < burnchain.pox_constants.sunset_end
             && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
         {
-            RewardSetInfo::into_commit_outs(None, false)
+            RewardSetInfo::into_commit_outs(None, self.config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(false)]
+            vec![StacksAddress::burn_address(self.config.is_mainnet())]
         };
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
@@ -827,16 +836,21 @@ impl Node {
     }
 
     // Constructs a coinbase transaction
-    fn generate_coinbase_tx(&mut self) -> StacksTransaction {
+    fn generate_coinbase_tx(&mut self, is_mainnet: bool) -> StacksTransaction {
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
         tx_auth.set_origin_nonce(self.nonce);
 
+        let version = if is_mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
         let mut tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
+            version,
             tx_auth,
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
         );
-        tx.chain_id = TESTNET_CHAIN_ID;
+        tx.chain_id = self.config.burnchain.chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
