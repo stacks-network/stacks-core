@@ -228,35 +228,17 @@ impl BurnchainStateTransition {
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
         let mut burn_blocks = vec![false; windowed_block_commits.len()];
 
-        // set burn_blocks flags to accomodate PoX sunset
-        if sunset_end <= window_start_height {
-            // all burns
-            for b in burn_blocks.iter_mut() {
-                *b = true;
-            }
-        } else if sunset_end > window_end_height {
-            // no burns
-            for b in burn_blocks.iter_mut() {
-                *b = false;
-            }
-        } else {
-            // some overlap with sunset
-            for (i, b) in burn_blocks.iter_mut().enumerate() {
-                if sunset_end <= window_start_height + (i as u64) {
-                    // must burn here
-                    *b = true;
-                } else {
-                    // may not burn here
-                    *b = false;
-                }
-            }
-        };
-
-        // set burn_blocks flags to accomodate prepare phases
+        // set burn_blocks flags to accomodate prepare phases and PoX sunset
         for (i, b) in burn_blocks.iter_mut().enumerate() {
-            if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
+            if sunset_end <= window_start_height + (i as u64) {
+                // past PoX sunset, so must burn
+                *b = true;
+            } else if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
                 // must burn
                 *b = true;
+            } else {
+                // must not burn
+                *b = false;
             }
         }
 
