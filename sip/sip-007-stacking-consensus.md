@@ -260,11 +260,11 @@ reward period. If broadcast on the Bitcoin chain, they may be
 broadcast during the prepare phase, but must be included before
 the prepare phase finishes.
 
-These signed messages are valid for at most 12000 Bitcoin blocks (12
-reward cycles, or ~3 month). If the signed message specifies a lockup
-period `x` less than 12000 blocks, then the signed message is only valid for
-Stacking participation for `floor(x / 1000)` reward cycles (the minimum 
-participation length is one cycle: 1000 blocks).
+These signed messages are valid for at most 12 reward cycles (25200 Bitcoin
+blocks or ~7 months). If the signed message specifies a lockup period `x` less
+than 25200 blocks, then the signed message is only valid for Stacking
+participation for `floor(x / 2100)` reward cycles (the minimum participation
+length is one cycle: 2100 blocks).
 
 
 # Anchor Blocks and Reward Consensus
@@ -272,7 +272,7 @@ participation length is one cycle: 1000 blocks).
 In the **prepare** phase of the Stacking algorithm, miners and network
 participants determine the anchor block and the reward set. The
 prepare phase is a window `w` of Bitcoin blocks *before* the reward
-cycle begins (e.g., the window may be 240 Bitcoin blocks).
+cycle begins (e.g., the window may be 100 Bitcoin blocks).
 
 At a high-level, nodes determine whether any block was confirmed by
 `F*w` blocks during the phase, where `F` is a large fraction (e.g.,
