@@ -2046,20 +2046,22 @@ pub mod test {
                         coeff: item.coeff as u64,
                         nonalpha_discount: item.nonalpha_discount as u64,
                         no_vowel_discount: item.no_vowel_discount as u64,
-                        lifetime: item.lifetime as u64,                
+                        lifetime: item.lifetime as u64,
                     }
                 }))
             })),
             get_bulk_initial_names: Some(Box::new(|| {
-                Box::new(GenesisData::new(true).read_names().map(|item| {
-                    ChainstateBNSName {
-                        fully_qualified_name: item.fully_qualified_name,
-                        owner: item.owner,
-                        registered_at: item.registered_at as u64,
-                        expired_at: item.expire_block as u64,
-                        zonefile_hash: item.zonefile_hash,                
-                    }
-                }))
+                Box::new(
+                    GenesisData::new(true)
+                        .read_names()
+                        .map(|item| ChainstateBNSName {
+                            fully_qualified_name: item.fully_qualified_name,
+                            owner: item.owner,
+                            registered_at: item.registered_at as u64,
+                            expired_at: item.expire_block as u64,
+                            zonefile_hash: item.zonefile_hash,
+                        }),
+                )
             })),
         };
 
@@ -2138,21 +2140,23 @@ pub mod test {
                         coeff: item.coeff as u64,
                         nonalpha_discount: item.nonalpha_discount as u64,
                         no_vowel_discount: item.no_vowel_discount as u64,
-                        lifetime: item.lifetime as u64,                
+                        lifetime: item.lifetime as u64,
                     }
                 }))
             })),
             get_bulk_initial_names: Some(Box::new(|| {
-                Box::new(GenesisData::new(true).read_names().map(|item| {
-                    ChainstateBNSName {
-                        fully_qualified_name: item.fully_qualified_name,
-                        owner: item.owner,
-                        registered_at: item.registered_at as u64,
-                        expired_at: item.expire_block as u64,
-                        zonefile_hash: item.zonefile_hash,                
-                    }
-                }))
-            }))
+                Box::new(
+                    GenesisData::new(true)
+                        .read_names()
+                        .map(|item| ChainstateBNSName {
+                            fully_qualified_name: item.fully_qualified_name,
+                            owner: item.owner,
+                            registered_at: item.registered_at as u64,
+                            expired_at: item.expire_block as u64,
+                            zonefile_hash: item.zonefile_hash,
+                        }),
+                )
+            })),
         };
 
         let path = chainstate_path("genesis-consistency-chainstate");
