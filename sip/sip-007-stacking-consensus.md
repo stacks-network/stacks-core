@@ -260,11 +260,11 @@ reward period. If broadcast on the Bitcoin chain, they may be
 broadcast during the prepare phase, but must be included before
 the prepare phase finishes.
 
-These signed messages are valid for at most 12 reward cycles (24000 Bitcoin
+These signed messages are valid for at most 12 reward cycles (25200 Bitcoin
 blocks or ~7 months). If the signed message specifies a lockup period `x` less
-than 24000 blocks, then the signed message is only valid for Stacking
-participation for `floor(x / 2000)` reward cycles (the minimum participation
-length is one cycle: 2000 blocks).
+than 25200 blocks, then the signed message is only valid for Stacking
+participation for `floor(x / 2100)` reward cycles (the minimum participation
+length is one cycle: 2100 blocks).
 
 
 # Anchor Blocks and Reward Consensus
