@@ -28,7 +28,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::{BTreeMap, HashMap, btree_map::Entry, hash_map};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -982,13 +982,14 @@ impl StacksChainState {
                 if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
                     info!("Initializing chain with lockups");
                     let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+                    let mut lockups_per_address: HashMap<PrincipalData, Vec<Value>> = HashMap::new();
                     let initial_lockups = get_schedules();
                     for schedule in initial_lockups {
                         let stx_address =
                             StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                         let value = Value::Tuple(
                             TupleData::from_data(vec![
-                                ("recipient".into(), Value::Principal(stx_address)),
+                                ("recipient".into(), Value::Principal(stx_address.clone())),
                                 ("amount".into(), Value::UInt(schedule.amount.into())),
                             ])
                             .unwrap(),
@@ -1002,9 +1003,43 @@ impl StacksChainState {
                                 entry.insert(schedules);
                             }
                         };
+                        let addr_value = Value::Tuple(
+                            TupleData::from_data(vec![
+                                ("height".into(), Value::UInt(schedule.block_height.into())),
+                                ("amount".into(), Value::UInt(schedule.amount.into())),
+                            ])
+                            .unwrap(),
+                        );
+                        match lockups_per_address.entry(stx_address) {
+                            hash_map::Entry::Occupied(schedules) => {
+                                schedules.into_mut().push(addr_value);
+                            }
+                            hash_map::Entry::Vacant(entry) => {
+                                let schedules = vec![addr_value];
+                                entry.insert(schedules);
+                            }
+                        }
                     }
 
                     let lockup_contract_id = boot_code_id("lockup");
+                    for (principal, schedule) in lockups_per_address.into_iter() {
+                        let key = Value::Principal(principal);
+                        let value = Value::list_from(schedule).unwrap();
+                        // Attach some events
+                        let lookup_event = TupleData::from_data(vec![
+                            (ClarityName::try_from("address").unwrap(), key),
+                            (ClarityName::try_from("schedules").unwrap(), value),
+                        ])
+                        .unwrap();
+                        let lookup_event = StacksTransactionEvent::SmartContractEvent(
+                            SmartContractEventData {
+                                key: (boot_code_id("lockup"), "print".to_string()),
+                                value: Value::Tuple(lookup_event),
+                            },
+                        );
+                        lockup_events.push(lookup_event);
+                    }
+
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
@@ -1013,23 +1048,9 @@ impl StacksChainState {
                                 db.insert_entry(
                                     &lockup_contract_id,
                                     "lockups",
-                                    key.clone(),
-                                    value.clone(),
+                                    key,
+                                    value,
                                 )?;
-
-                                // Attach some events
-                                let lookup_event = TupleData::from_data(vec![
-                                    (ClarityName::try_from("block-height").unwrap(), key),
-                                    (ClarityName::try_from("due-schedules").unwrap(), value),
-                                ])
-                                .unwrap();
-                                let lookup_event = StacksTransactionEvent::SmartContractEvent(
-                                    SmartContractEventData {
-                                        key: (boot_code_id("lockup"), "print".to_string()),
-                                        value: Value::Tuple(lookup_event),
-                                    },
-                                );
-                                lockup_events.push(lookup_event);
                             }
                             Ok(())
                         })
