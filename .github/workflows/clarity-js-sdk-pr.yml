@@ -38,7 +38,7 @@ jobs:
         uses: peter-evans/create-pull-request@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
-          commit-message: Update clarity-native-bin tag
+          commit-message: 'chore: update clarity-native-bin tag'
           committer: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
           author: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
           branch: ${{ env.UPDATE_BRANCH }}

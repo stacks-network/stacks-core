@@ -22,7 +22,7 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
-use super::node::TESTNET_CHAIN_ID;
+use super::config::TESTNET_CHAIN_ID;
 use super::Config;
 use crate::helium::RunLoop;
 use rand::RngCore;

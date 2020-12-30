@@ -290,19 +290,8 @@ impl<'a, T: BlockEventDispatcher>
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    match comms.kludgy_clarity_db_lock() {
-                        Ok(_) => {
-                            if let Err(e) = inst.handle_new_stacks_block() {
-                                warn!("Error processing new stacks block: {:?}", e);
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "FATAL: kludgy temporary Clarity DB lock is poisoned: {:?}",
-                                &e
-                            );
-                            panic!();
-                        }
+                    if let Err(e) = inst.handle_new_stacks_block() {
+                        warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {

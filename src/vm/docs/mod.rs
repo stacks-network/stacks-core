@@ -1819,7 +1819,7 @@ mod test {
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
         //  we never commit it so that we can reuse the initialization
-        marf.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
+        let mut store = marf.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
 
         // execute the program, iterating at each ";; Returns" comment
         // there are maybe more rust-y ways of doing this, but this is the simplest.
@@ -1837,7 +1837,7 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
+        let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
@@ -1869,7 +1869,7 @@ mod test {
             })
             .unwrap();
 
-        marf.rollback();
+        store.rollback_block();
     }
 
     #[test]
@@ -1883,12 +1883,12 @@ mod test {
     fn test_examples() {
         let apis = make_all_api_reference();
         let mut marf = MarfedKV::temporary();
-        marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
-
         // first, load the samples for contract-call
         // and give the doc environment's contract some STX
         {
-            let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
+            let mut store = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
+
+            let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
             let docs_principal_id = PrincipalData::Contract(docs_test_id);
@@ -1912,9 +1912,8 @@ mod test {
                 &std::fs::read_to_string("sample-contracts/tokens.clar").unwrap(),
             )
             .unwrap();
+            store.test_commit();
         }
-
-        marf.test_commit();
 
         for func_api in apis.functions.iter() {
             let example = &func_api.example;
