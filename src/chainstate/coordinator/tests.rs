@@ -1170,7 +1170,7 @@ fn test_simple_setup() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(
             &pox_id.to_string(),
-            "10000000000",
+            "110000000000",
             "PoX ID should reflect the initial 'known' reward cycle at genesis"
         );
     }
@@ -1198,10 +1198,11 @@ fn test_simple_setup() {
             pox_id_string.push('1');
         }
 
+        println!("=> {}", pox_id_string);
         assert_eq!(
             pox_id_at_tip.to_string(),
             // right-pad pox_id_string to 11 characters
-            format!("{:0<11}", pox_id_string)
+            format!("1{:0<11}", pox_id_string)
         );
     }
 }
@@ -2733,7 +2734,7 @@ fn test_sortition_with_sunset() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111111111",
+                   "111111111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -3168,13 +3169,13 @@ fn test_pox_no_anchor_selected() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "111");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "101");
+        assert_eq!(&pox_id.to_string(), "1101");
     }
 
     for (sort_id, block) in stacks_blocks.iter() {
@@ -3190,7 +3191,7 @@ fn test_pox_no_anchor_selected() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "111");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3366,13 +3367,13 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1111");
+        assert_eq!(&pox_id.to_string(), "11111");
     }
 
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1000");
+        assert_eq!(&pox_id.to_string(), "11000");
     }
 
     // now, we reveal to the blinded coordinator, but out of order.
@@ -3395,7 +3396,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1110");
+        assert_eq!(&pox_id.to_string(), "11110");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3426,7 +3427,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1110");
+        assert_eq!(&pox_id.to_string(), "11110");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3487,7 +3488,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1111");
+        assert_eq!(&pox_id.to_string(), "11111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
