@@ -103,7 +103,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
         sender: cases[0].namespaceOwner
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('Returned: u12');
+      expect(receipt.result).include('Returned: u146');
 
       receipt = await bns.namespaceReveal(
         cases[0].namespace,
@@ -222,7 +222,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.success).eq(true);
 
 
-      // Charlie trying to register 'alpha.blockstack' should fail
+      // Charlie trying to register 'alpha.blockstack' should succeed
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "alpha",
@@ -231,7 +231,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
           sender: charlie
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u29');
+      expect(receipt.result).include('u163');
 
       receipt = await bns.nameRegister(
         cases[0].namespace,
@@ -280,7 +280,7 @@ describe("BNS Test Suite - NAME_IMPORT", () => {
       expect(receipt.success).eq(false);
 
       // Resolving an imported name should fail after expiration
-      await bns.mineBlocks(100);
+      await bns.mineBlocks(5100);
 
       receipt = await bns.getNameZonefile(
         cases[0].namespace,

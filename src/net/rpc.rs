@@ -673,7 +673,7 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match atlasdb.find_instantiated_attachment(&content_hash) {
+        match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
                 let response = HttpResponseType::GetAttachment(response_metadata, content);
@@ -1482,7 +1482,7 @@ impl ConversationHttp {
                 false,
             )
         } else {
-            match mempool.submit(chainstate, &consensus_hash, &block_hash, tx) {
+            match mempool.submit(chainstate, &consensus_hash, &block_hash, &tx) {
                 Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
                     true,
@@ -1494,13 +1494,18 @@ impl ConversationHttp {
             }
         };
 
-        if let Some(attachment) = attachment {
-            if accepted {
-                atlasdb
-                    .insert_new_attachment(&attachment)
-                    .map_err(|e| net_error::DBError(e))?;
+        if let Some(ref attachment) = attachment {
+            if let TransactionPayload::ContractCall(ref contract_call) = tx.payload {
+                if atlasdb
+                    .should_keep_attachment(&contract_call.to_clarity_contract_id(), &attachment)
+                {
+                    atlasdb
+                        .insert_uninstantiated_attachment(attachment)
+                        .map_err(|e| net_error::DBError(e))?;
+                }
             }
         }
+
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 

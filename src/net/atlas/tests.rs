@@ -2,8 +2,9 @@ use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
     BatchedRequestsResult, ReliabilityReport,
 };
-use super::{Attachment, AttachmentInstance};
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 use net::connection::ConnectionOptions;
@@ -11,12 +12,13 @@ use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
+use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::convert::TryFrom;
+use std::thread;
+use std::time;
 use util::hash::Hash160;
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
-
-use std::collections::{BinaryHeap, HashMap};
-use std::convert::TryFrom;
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {
@@ -682,9 +684,250 @@ fn test_downloader_context_attachment_requests() {
 }
 
 #[test]
-fn test_downloader_dns_state_machine() {}
+fn test_keep_uninstantiated_attachments() {
+    let bns_contract_id = boot_code_id("bns");
+    let pox_contract_id = boot_code_id("pox");
+
+    let mut contracts = HashSet::new();
+    contracts.insert(bns_contract_id.clone());
+
+    let atlas_config = AtlasConfig {
+        contracts,
+        attachments_max_size: 16,
+        max_uninstantiated_attachments: 10,
+        uninstantiated_attachments_expire_after: 10,
+    };
+
+    let atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(&pox_contract_id, &new_attachment_from("facade02")),
+        false
+    );
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(&bns_contract_id, &new_attachment_from("facade02")),
+        true
+    );
+
+    assert_eq!(
+        atlas_db.should_keep_attachment(
+            &bns_contract_id,
+            &new_attachment_from("facadefacadefacade02")
+        ),
+        false
+    );
+}
 
 #[test]
-fn test_downloader_batched_requests_state_machine() {}
+fn test_evict_k_oldest_uninstantiated_attachments() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 10,
+        uninstantiated_attachments_expire_after: 0,
+    };
 
-// todo(ludo): write tests around the fact that one hash can exist multiple inside the same fork as well.
+    let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade00"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 1);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade01"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 2);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade02"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 3);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade02"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 3);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade03"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 4);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade04"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 5);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade05"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 6);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade06"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 7);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade07"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 8);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade08"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 9);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade09"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade10"))
+        .unwrap();
+    // We reached `max_uninstantiated_attachments`. Eviction should start kicking in
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+    // The latest attachment inserted should be available
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade10").hash())
+            .unwrap()
+            .is_some(),
+        true
+    );
+    // The first attachment inserted should be gone
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade00").hash())
+            .unwrap()
+            .is_none(),
+        true
+    );
+    // The second attachment inserted should be available
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade01").hash())
+            .unwrap()
+            .is_some(),
+        true
+    );
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade11"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade12"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade13"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade14"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade15"))
+        .unwrap();
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+    // The 5th attachment inserted should be gone
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade05").hash())
+            .unwrap()
+            .is_none(),
+        true
+    );
+    // The 6th attachment inserted should be available
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade06").hash())
+            .unwrap()
+            .is_some(),
+        true
+    );
+    // The latest attachment inserted should be available
+    assert_eq!(
+        atlas_db
+            .find_uninstantiated_attachment(&new_attachment_from("facade15").hash())
+            .unwrap()
+            .is_some(),
+        true
+    );
+}
+
+#[test]
+fn test_evict_expired_uninstantiated_attachments() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 100,
+        uninstantiated_attachments_expire_after: 10,
+    };
+
+    let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade00"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade01"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade02"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade03"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade04"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade05"))
+        .unwrap();
+    thread::sleep(time::Duration::from_secs(11));
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade06"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade07"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade08"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade09"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade10"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade11"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade12"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade13"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade14"))
+        .unwrap();
+    atlas_db
+        .insert_uninstantiated_attachment(&new_attachment_from("facade15"))
+        .unwrap();
+    // Count before eviction should be 16
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 16);
+    atlas_db.evict_expired_uninstantiated_attachments().unwrap();
+    // Count after eviction should be 10
+    assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
+}

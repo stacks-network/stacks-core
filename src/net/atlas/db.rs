@@ -26,7 +26,7 @@ use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::StacksBlockId;
 use net::StacksMessageCodec;
 
-use super::{Attachment, AttachmentInstance};
+use super::{AtlasConfig, Attachment, AttachmentInstance};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
@@ -35,8 +35,11 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     CREATE TABLE attachments(
         hash TEXT UNIQUE PRIMARY KEY,
         content BLOB NOT NULL,
-        was_instantiated INTEGER NOT NULL
-    );"#,
+        was_instantiated INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX index_was_instanciated ON attachments(was_instantiated);
+    "#,
     r#"
     CREATE TABLE attachment_instances(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +92,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
 
 #[derive(Debug)]
 pub struct AtlasDB {
+    pub atlas_config: AtlasConfig,
     pub conn: Connection,
     pub readwrite: bool,
 }
@@ -113,9 +117,32 @@ impl AtlasDB {
         Ok(())
     }
 
+    pub fn should_keep_attachment(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+        attachment: &Attachment,
+    ) -> bool {
+        if !self.atlas_config.contracts.contains(contract_id) {
+            info!(
+                "Atlas: will discard posted attachment - {} not in supported contracts",
+                contract_id
+            );
+            return false;
+        }
+        if attachment.content.len() as u32 > self.atlas_config.attachments_max_size {
+            info!("Atlas: will discard posted attachment - attachment too large");
+            return false;
+        }
+        true
+    }
+
     // Open the burn database at the given path.  Open read-only or read/write.
     // If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(path: &String, readwrite: bool) -> Result<AtlasDB, db_error> {
+    pub fn connect(
+        atlas_config: AtlasConfig,
+        path: &String,
+        readwrite: bool,
+    ) -> Result<AtlasDB, db_error> {
         let mut create_flag = false;
         let open_flags = if fs::metadata(path).is_err() {
             // need to create
@@ -137,8 +164,9 @@ impl AtlasDB {
             Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
 
         let mut db = AtlasDB {
-            conn: conn,
-            readwrite: readwrite,
+            atlas_config,
+            conn,
+            readwrite,
         };
         if create_flag {
             db.instantiate()?;
@@ -148,11 +176,11 @@ impl AtlasDB {
 
     // Open an atlas database in memory (used for testing)
     #[cfg(test)]
-    pub fn connect_memory() -> Result<AtlasDB, db_error> {
+    pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
         let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
-
         let mut db = AtlasDB {
-            conn: conn,
+            atlas_config,
+            conn,
             readwrite: true,
         };
 
@@ -231,13 +259,26 @@ impl AtlasDB {
         Ok(res)
     }
 
-    pub fn insert_new_attachment(&mut self, attachment: &Attachment) -> Result<(), db_error> {
+    pub fn insert_uninstantiated_attachment(
+        &mut self,
+        attachment: &Attachment,
+    ) -> Result<(), db_error> {
+        // Insert the new attachment
+        let uninstantiated_attachments = self.count_uninstantiated_attachments()?;
+        if uninstantiated_attachments >= self.atlas_config.max_uninstantiated_attachments {
+            let to_delete =
+                1 + uninstantiated_attachments - self.atlas_config.max_uninstantiated_attachments;
+            self.evict_k_oldest_uninstantiated_attachments(to_delete)?;
+        }
+
         let tx = self.tx_begin()?;
+        let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated) VALUES (?, ?, 0)",
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 0, ?)",
             &[
                 &attachment.hash() as &dyn ToSql,
                 &attachment.content as &dyn ToSql,
+                &now as &dyn ToSql,
             ],
         );
         res.map_err(db_error::SqliteError)?;
@@ -245,16 +286,49 @@ impl AtlasDB {
         Ok(())
     }
 
+    pub fn evict_k_oldest_uninstantiated_attachments(&mut self, k: u32) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        let res = tx.execute(
+            "DELETE FROM attachments WHERE hash IN (SELECT hash FROM attachments WHERE was_instantiated = 0 ORDER BY created_at ASC LIMIT ?)",
+            &[&k as &dyn ToSql],
+        );
+        res.map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    pub fn evict_expired_uninstantiated_attachments(&mut self) -> Result<(), db_error> {
+        let now = util::get_epoch_time_secs() as i64;
+        let cut_off = now - self.atlas_config.uninstantiated_attachments_expire_after as i64;
+        let tx = self.tx_begin()?;
+        let res = tx.execute(
+            "DELETE FROM attachments WHERE was_instantiated = 0 AND created_at < ?",
+            &[&cut_off as &dyn ToSql],
+        );
+        res.map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
+        let qry = "SELECT COUNT(rowid) FROM attachments
+                   WHERE was_instantiated = 0";
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        Ok(count)
+    }
+
     pub fn insert_instantiated_attachment(
         &mut self,
         attachment: &Attachment,
     ) -> Result<(), db_error> {
+        let now = util::get_epoch_time_secs() as i64;
         let tx = self.tx_begin()?;
         tx.execute(
-            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated) VALUES (?, ?, 1)",
+            "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
             &[
                 &attachment.hash() as &dyn ToSql,
                 &attachment.content as &dyn ToSql,
+                &now as &dyn ToSql,
             ],
         )
         .map_err(db_error::SqliteError)?;
@@ -267,7 +341,7 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn find_new_attachment(
+    pub fn find_uninstantiated_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
@@ -290,19 +364,19 @@ impl AtlasDB {
         Ok(rows)
     }
 
-    pub fn find_instantiated_attachment(
+    pub fn find_attachment(
         &mut self,
         content_hash: &Hash160,
     ) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 1"
+        let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 0"
             .to_string();
         let args = [&hex_content_hash as &dyn ToSql];
         let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
         Ok(row)
     }
 
-    pub fn insert_new_attachment_instance(
+    pub fn insert_uninstantiated_attachment_instance(
         &mut self,
         attachment: &AttachmentInstance,
         is_available: bool,

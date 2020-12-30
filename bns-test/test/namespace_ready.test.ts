@@ -99,7 +99,7 @@ describe("BNS Test Suite - NAMESPACE_READY", () => {
       sender: cases[0].namespaceOwner
     });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u12');
+    expect(receipt.result).include('u146');
 
     receipt = await bns.namespaceReveal(
       cases[0].namespace,
@@ -132,7 +132,7 @@ describe("BNS Test Suite - NAMESPACE_READY", () => {
       sender: cases[1].namespaceOwner
     });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u16');
+    expect(receipt.result).include('u150');
 
     receipt = await bns.namespaceReveal(
       cases[1].namespace,
@@ -147,7 +147,7 @@ describe("BNS Test Suite - NAMESPACE_READY", () => {
 
     // Launching the namespace
     // should fail if launchability TTL expired
-    await mineBlocks(bns, 11);
+    await mineBlocks(bns, 52595);
     receipt = await bns.namespaceReady(cases[1].namespace, {
       sender: cases[1].namespaceOwner
     });

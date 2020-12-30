@@ -2046,7 +2046,7 @@ fn atlas_integration_test() {
         }
 
         // (define-public (name-import (namespace (buff 20))
-        //                             (name (buff 32))
+        //                             (name (buff 48))
         //                             (zonefile-hash (buff 20)))
         let zonefile_hex = "facade00";
         let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
