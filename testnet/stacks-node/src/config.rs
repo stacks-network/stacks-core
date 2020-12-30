@@ -999,7 +999,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            microblock_frequency: 5000,
+            microblock_frequency: 7500,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 5000,
             prometheus_bind: None,

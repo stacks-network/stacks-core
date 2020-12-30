@@ -103,6 +103,17 @@ impl TransactionContractCall {
     }
 }
 
+impl fmt::Display for TransactionContractCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let formatted_args = self.function_args.iter()
+            .map(|v| format!("{}", v))
+            .collect::<Vec<String>>()
+            .join(", ");
+        write!(f, "{}.{}::{}({})", self.address, self.contract_name, self.function_name, formatted_args)
+    }
+}
+
+
 impl StacksMessageCodec for TransactionSmartContract {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.name)?;

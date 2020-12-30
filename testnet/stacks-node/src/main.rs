@@ -77,6 +77,13 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
+    let server_version = stacks::version_string(
+        option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
+        option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0"),
+    );
+
+    info!("{}", server_version);
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -109,7 +116,7 @@ fn main() {
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
-            println!("==> {}", config_path);
+            info!("Loading config at path {}", config_path);
             ConfigFile::from_path(&config_path)
         }
         "version" => {

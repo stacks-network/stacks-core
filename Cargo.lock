@@ -245,6 +245,7 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "chrono",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",

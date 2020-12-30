@@ -1842,6 +1842,12 @@ impl<'a> SortitionHandleConn<'a> {
             }
         }
 
+        if result.is_none() {
+            warn!("Proof of Tranfer: none of the candidates passed the threshold, miners will be competing through Proof of Burn");
+        } else {
+            warn!("Proof of Tranfer: {:?} selected", result);
+        }
+
         Ok(result)
     }
 }

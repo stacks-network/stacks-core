@@ -46,6 +46,7 @@ extern crate slog;
 #[cfg(feature = "slog_json")]
 extern crate slog_json;
 extern crate slog_term;
+extern crate chrono;
 
 #[macro_use]
 extern crate serde_derive;

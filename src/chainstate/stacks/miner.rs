@@ -911,7 +911,7 @@ impl StacksBlockBuilder {
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         debug!(
-            "\n\nMiner epoch begin";
+            "Miner epoch begin";
             "miner" => %self.miner_id,
             "chain_tip" => %format!("{}/{}", self.chain_tip.consensus_hash,
                                     self.header.parent_block)

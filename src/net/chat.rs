@@ -1290,7 +1290,7 @@ impl ConversationP2P {
         if base_snapshot.block_height > burnchain.first_block_height + 1
             && !burnchain.is_reward_cycle_start(base_snapshot.block_height)
         {
-            debug!(
+            warn!(
                 "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
                 _local_peer, base_snapshot.consensus_hash, base_snapshot.block_height
             );

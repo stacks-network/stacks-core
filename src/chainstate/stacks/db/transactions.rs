@@ -856,8 +856,8 @@ impl StacksChainState {
 
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
-                        info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
-                        info!("Contract-call to {}.{:?} args {:?} cost {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &total_cost);
+                        info!("Contract-call: {} returned {}", contract_call, &return_value);
+                        info!("Contract-call: {} cost {:?}", contract_call, &total_cost);
                         Ok((return_value, asset_map, events))
                     },
                     Err(e) => {

@@ -891,8 +891,8 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            info!(
-                "Initializing chain with {} config balances",
+            warn!(
+                "Seeding {} balances coming from the config",
                 boot_data.initial_balances.len()
             );
             for (address, amount) in boot_data.initial_balances.iter() {
@@ -912,7 +912,7 @@ impl StacksChainState {
             }
 
             if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                info!("Initializing chain with balances");
+                info!("Importing accounts from Stacks 1.0");
                 let mut balances_count = 0;
                 clarity_tx.connection().as_transaction(|clarity| {
                     let initial_balances = get_balances();
@@ -936,7 +936,7 @@ impl StacksChainState {
                         );
                         allocation_events.push(mint_event);
                     }
-                    info!("Committing {} balances to genesis tx", balances_count);
+                    info!("Seeding {} balances coming from chain dump", balances_count);
                 });
             }
 
@@ -958,7 +958,7 @@ impl StacksChainState {
             receipts.push(allocations_receipt);
 
             if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with lockups");
+                info!("Importing lockups from Stacks 1.0");
                 let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
@@ -1005,6 +1005,7 @@ impl StacksChainState {
                 callback(&mut clarity_tx);
             }
 
+            info!("Committing Genesis transaction. This could take a while");
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 

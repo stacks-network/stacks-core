@@ -1,6 +1,5 @@
 use crate::{
     genesis_data::USE_TEST_GENESIS_CHAINSTATE,
-    neon_node,
     node::{get_account_balances, get_account_lockups},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
@@ -122,24 +121,25 @@ impl RunLoop {
 
             let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
-                error!("Miner node: UTXOs not found. Switching to Follower node. Restart node when you get some UTXOs.");
+                error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
                 false
             } else {
-                info!("Miner node: starting up, UTXOs found.");
+                info!("UTXOs found - will run as a Miner node");
                 true
             }
         } else {
-            info!("Follower node: starting up");
+            info!("Will run as a Follower node");
             false
         };
 
         let burnchain_config = burnchain.get_burnchain();
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
 
+        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
         match burnchain.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
             Err(e) => {
-                warn!("Burnchain controller stopped: {}", e);
+                error!("Burnchain controller stopped: {}", e);
                 return;
             }
         };
@@ -272,7 +272,7 @@ impl RunLoop {
         let _ = burnchain.sortdb_mut();
 
         // Start the runloop
-        info!("Begin run loop");
+        trace!("Begin run loop");
         self.bump_blocks_processed();
 
         let prometheus_bind = self.config.node.prometheus_bind.clone();

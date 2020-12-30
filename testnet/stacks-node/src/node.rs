@@ -435,8 +435,8 @@ impl Node {
         )
         .unwrap();
 
-        info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
-        info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
+        info!("Start HTTP server on: {}", &self.config.node.rpc_bind);
+        info!("Start P2P server on: {}", &self.config.node.p2p_bind);
     }
 
     pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {

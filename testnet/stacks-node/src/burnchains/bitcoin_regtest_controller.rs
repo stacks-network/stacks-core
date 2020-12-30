@@ -309,7 +309,6 @@ impl BitcoinRegtestController {
                     let burnchain_height = burnchain_indexer
                         .get_highest_header_height()
                         .map_err(BurnchainControllerError::IndexerError)?;
-
                     break (snapshot, burnchain_height, state_transition);
                 }
                 Err(e) => {
@@ -564,7 +563,7 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_key_register op - {}",
+            "Miner node: submitting leader_key_register op - {}, waiting for its inclusion in the next Bitcoin block",
             public_key.to_hex()
         );
 
@@ -780,7 +779,7 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting leader_block_commit op for {} - {}",
+            "Miner node: submitting leader_block_commit op for {} - {}, waiting for its inclusion in the next Bitcoin block",
             &payload.block_header_hash,
             public_key.to_hex()
         );

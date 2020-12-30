@@ -280,7 +280,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &MemPoolDB,
-) -> Result<StacksMicroblock, NetError> {
+) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (at seq {})",
         &microblock_state.parent_consensus_hash,
@@ -304,13 +304,13 @@ fn mine_one_microblock(
                         &e
                     );
                     error!("{}", msg);
-                    return Err(NetError::ChainstateError(msg));
+                    return Err(e);
                 }
             };
 
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
 
-        info!("Minted microblock with {} transactions", mblock.txs.len());
+        info!("Mined microblock with {} transactions", mblock.txs.len());
 
         Ok(mblock)
     };
@@ -329,15 +329,7 @@ fn mine_one_microblock(
             &microblock_state.parent_consensus_hash,
             &microblock_state.parent_block_hash,
             &mined_microblock,
-        )
-        .map_err(|e| {
-            error!(
-                "Error while pre-processing microblock {}: {}",
-                mined_microblock.header.block_hash(),
-                e
-            );
-            NetError::ChainstateError(format!("{:?}", &e))
-        })?;
+        )?;
 
     microblock_state.quantity += 1;
     return Ok(mined_microblock);
@@ -349,7 +341,7 @@ fn try_mine_microblock(
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
     mem_pool: &MemPoolDB,
-    coord_comms: &CoordinatorChannels,
+    _coord_comms: &CoordinatorChannels,
     miner_tip_arc: Arc<Mutex<Option<(ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey)>>>,
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let mut next_microblock = None;
@@ -417,6 +409,9 @@ fn try_mine_microblock(
                             Ok(microblock) => {
                                 // will need to relay this
                                 next_microblock = Some(microblock);
+                            }
+                            Err(ChainstateError::NoTransactionsToMine) => {
+                                info!("Will keep polling mempool for transactions to include in a microblock");
                             }
                             Err(e) => {
                                 warn!("Failed to mine one microblock: {:?}", &e);
@@ -922,10 +917,11 @@ impl InitializedNeonNode {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let mut initial_neighbors = vec![];
         if let Some(ref bootstrap_node) = &config.node.bootstrap_node {
+            info!("Will bootstrap from peer {}", bootstrap_node);
             initial_neighbors.push(bootstrap_node.clone());
+        } else {
+            warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
-
-        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
         let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
             "Failed to parse socket: {}",
@@ -969,7 +965,10 @@ impl InitializedNeonNode {
         )
         .unwrap();
 
-        println!("DENY NEIGHBORS {:?}", &config.node.deny_nodes);
+        if !config.node.deny_nodes.is_empty() {
+            warn!("Will ignore nodes {:?}", &config.node.deny_nodes);
+        }
+
         {
             let mut tx = peerdb.tx_begin().unwrap();
             for denied in config.node.deny_nodes.iter() {
@@ -1047,8 +1046,8 @@ impl InitializedNeonNode {
         )
         .expect("Failed to initialize mine/relay thread");
 
-        info!("Bound HTTP server on: {}", &config.node.rpc_bind);
-        info!("Bound P2P server on: {}", &config.node.p2p_bind);
+        info!("Start HTTP server on: {}", &config.node.rpc_bind);
+        info!("Start P2P server on: {}", &config.node.p2p_bind);
 
         let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
 
@@ -1084,7 +1083,7 @@ impl InitializedNeonNode {
                     .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                     .is_ok()
             } else {
-                warn!("Skipped tenure because no active VRF key. Trying to register one.");
+                debug!("Skipped tenure because no active VRF key. Trying to register one.");
                 self.relay_channel
                     .send(RelayerDirective::RegisterKey(burnchain_tip))
                     .is_ok()
@@ -1237,7 +1236,7 @@ impl InitializedNeonNode {
                 coinbase_nonce,
             )
         } else {
-            warn!("No Stacks chain tip known, attempting to mine a genesis block");
+            debug!("No Stacks chain tip known, will return a genesis block");
             let (network, _) = config.burnchain.get_bitcoin_network();
             let burnchain_params =
                 BurnchainParameters::from_params(&config.burnchain.chain, &network)
@@ -1475,14 +1474,15 @@ impl InitializedNeonNode {
                 return None;
             }
         };
-
+        let block_height = anchored_block.header.total_work.work;
         info!(
-            "{} block assembled: {}, with {} txs, attempt {}",
+            "Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
             if parent_block_total_burn == 0 {
                 "Genesis"
             } else {
                 "Stacks"
             },
+            block_height,
             anchored_block.block_hash(),
             anchored_block.txs.len(),
             attempt

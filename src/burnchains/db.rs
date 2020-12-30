@@ -335,7 +335,7 @@ impl BurnchainDB {
         block: &BurnchainBlock,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        info!("Storing new burnchain block";
+        debug!("Storing new burnchain block";
               "burn_header_hash" => %header.block_hash.to_string());
         let mut blockstack_ops = self.get_blockstack_transactions(burnchain, block, &header);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
