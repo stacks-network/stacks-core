@@ -144,6 +144,7 @@ fn main() {
         }
     } else if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "xenon"
+        || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
         let mut run_loop = neon::RunLoop::new(conf);

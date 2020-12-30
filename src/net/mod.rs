@@ -1014,14 +1014,15 @@ pub struct RPCPeerInfoData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
-    pub first_burnchain_block_height: u128,
-    pub min_amount_ustx: u128,
-    pub prepare_cycle_length: u128,
-    pub rejection_fraction: u128,
-    pub reward_cycle_id: u128,
-    pub reward_cycle_length: u128,
-    pub rejection_votes_left_required: u128,
-    pub total_liquid_supply_ustx: u128,
+    pub first_burnchain_block_height: u64,
+    pub min_amount_ustx: u64,
+    pub prepare_cycle_length: u64,
+    pub rejection_fraction: u64,
+    pub reward_cycle_id: u64,
+    pub reward_cycle_length: u64,
+    pub rejection_votes_left_required: u64,
+    pub total_liquid_supply_ustx: u64,
+    pub next_reward_cycle_in: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]

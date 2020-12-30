@@ -408,7 +408,7 @@ impl Burnchain {
             ),
             ("bitcoin", "regtest") => (
                 BurnchainParameters::bitcoin_regtest(),
-                PoxConstants::testnet_default(),
+                PoxConstants::regtest_default(),
             ),
             (_, _) => {
                 return Err(burnchain_error::UnsupportedBurnchain);
@@ -428,6 +428,10 @@ impl Burnchain {
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
         })
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        self.network_id == NETWORK_ID_MAINNET
     }
 
     /// the expected sunset burn is:
@@ -464,12 +468,12 @@ impl Burnchain {
             .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
-    pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
-        if block_height <= (self.first_block_height + 1) {
-            // not a reward cycle start if we're the first block after genesis.
+    pub fn is_reward_cycle_start(&self, burn_height: u64, num_sortitions: u64) -> bool {
+        if num_sortitions == 0 {
+            // not a reward cycle start if we're the first stacks block.
             false
         } else {
-            let effective_height = block_height - self.first_block_height;
+            let effective_height = burn_height - self.first_block_height;
             // first block of the new reward cycle
             (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
         }

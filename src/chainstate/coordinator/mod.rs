@@ -361,6 +361,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 ) -> Result<Option<RewardSetInfo>, Error> {
     let reward_cycle_info = get_reward_cycle_info(
         sortition_tip.block_height + 1,
+        sortition_tip.num_sortitions,
         &sortition_tip.burn_header_hash,
         &sortition_tip.sortition_id,
         burnchain,
@@ -380,6 +381,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 ///           * Was PoX anchor block known?
 pub fn get_reward_cycle_info<U: RewardSetProvider>(
     burn_height: u64,
+    num_sortitions: u64,
     parent_bhh: &BurnchainHeaderHash,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
@@ -387,7 +389,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
-    if burnchain.is_reward_cycle_start(burn_height) {
+    if burnchain.is_reward_cycle_start(burn_height, num_sortitions) {
         if burn_height >= burnchain.pox_constants.sunset_end {
             return Ok(Some(RewardCycleInfo {
                 anchor_status: PoxAnchorBlockStatus::NotSelected,
@@ -401,7 +403,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
-            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
+            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants, burnchain.first_block_height)
         }?;
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
@@ -580,14 +582,25 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         &mut self,
         burn_header: &BurnchainBlockHeader,
     ) -> Result<Option<RewardCycleInfo>, Error> {
-        let sortition_tip = self
+        let sortition_tip_id = self
             .canonical_sortition_tip
             .as_ref()
             .expect("FATAL: Processing anchor block, but no known sortition tip");
+
+        let res = SortitionDB::get_block_snapshot(
+            self.sortition_db.conn(),
+            sortition_tip_id,
+        )?;
+        let sortition_tip = match res {
+            Some(tip) => tip,
+            None => return Ok(None)
+        };
+
         get_reward_cycle_info(
             burn_header.block_height,
+            sortition_tip.num_sortitions,
             &burn_header.parent_block_hash,
-            sortition_tip,
+            sortition_tip_id,
             &self.burnchain,
             &mut self.chain_state_db,
             &self.sortition_db,

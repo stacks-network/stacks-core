@@ -387,14 +387,26 @@ impl PoxConstants {
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            150, // 120 reward slots; 30 prepare-phase slots
-            30,
-            20,
+            50, // 120 reward slots; 30 prepare-phase slots
+            10,
+            6,
             3333333333333333,
-            5,
+            1,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         ) // total liquid supply is 40000000000000000 µSTX
+    }
+
+    pub fn regtest_default() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            1,
+            1,
+            3333333333333333,
+            1,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+        ) 
     }
 }
 

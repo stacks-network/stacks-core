@@ -1748,6 +1748,7 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
+        first_block_height: u64,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
@@ -1755,30 +1756,22 @@ impl<'a> SortitionHandleConn<'a> {
                     warn!("Missing parent"; "burn_header_hash" => %prepare_end_bhh);
                     BurnchainError::MissingParentBlock
                 })?;
-        let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
+        let block_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
         // if this block is the _end_ of a prepare phase,
-        if !(my_height % pox_consts.reward_cycle_length == 0) {
-            test_debug!(
-                "My height = {}, reward cycle length == {}",
-                my_height,
+        let effective_height = block_height - first_block_height as u32;
+        let position_in_cycle = effective_height % pox_consts.reward_cycle_length;
+        if !(position_in_cycle == 0) {
+            debug!(
+                "effective_height = {}, reward cycle length == {}",
+                effective_height,
                 pox_consts.reward_cycle_length
             );
             return Err(CoordinatorError::NotPrepareEndBlock);
         }
 
-        let prepare_end = my_height;
-        // if this block isn't greater than prepare_length, then this shouldn't be the end of a prepare block
-        if prepare_end < pox_consts.prepare_length {
-            test_debug!(
-                "prepare_end = {}, pox_consts.prepare_length = {}",
-                prepare_end,
-                pox_consts.prepare_length
-            );
-            return Err(CoordinatorError::NotPrepareEndBlock);
-        }
-
+        let prepare_end = block_height;
         let prepare_begin = prepare_end - pox_consts.prepare_length;
 
         let mut candidate_anchors = HashMap::new();

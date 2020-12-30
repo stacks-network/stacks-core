@@ -1499,9 +1499,10 @@ impl PeerNetwork {
             return Ok(None);
         }
 
+        let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
         assert!(
             target_block_reward_cycle == 0
-                || self.burnchain.is_reward_cycle_start(target_block_height)
+                || self.burnchain.is_reward_cycle_start(target_block_height, ancestor_sn.num_sortitions)
         );
 
         let num_blocks = match self.get_convo(nk) {
@@ -1525,7 +1526,6 @@ impl PeerNetwork {
         };
 
         assert!(num_blocks <= self.burnchain.pox_constants.reward_cycle_length as u64);
-        let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
 
         debug!(
             "{:?}: Send GetBlocksInv to {:?} for {} blocks at sortition block {} ({})",
