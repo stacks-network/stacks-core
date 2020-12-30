@@ -514,7 +514,7 @@ const APPEND_API: SpecialAPI = SpecialAPI {
     signature: "(append (list 1 2 3 4) 5)",
     description: "The `append` function takes a list and another value with the same entry type,
 and outputs a list of the same type with max_len += 1.",
-    example: "(append (list 1 2 3 4) 5) ;; Returns (1 2 3 4 5)"
+    example: "(append (list 1 2 3 4) 5) ;; Returns (1 2 3 4 5)",
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
