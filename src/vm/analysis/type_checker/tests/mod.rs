@@ -868,8 +868,9 @@ fn test_buff() {
         "(if true \"blockstack\" \"block\")",
         "(if true \"block\" \"blockstack\")",
         "(len \"blockstack\")",
+        "(len 0x)",
     ];
-    let expected = ["(string-ascii 10)", "(string-ascii 10)", "uint"];
+    let expected = ["(string-ascii 10)", "(string-ascii 10)", "uint", "uint"];
     let bad = [
         "(fold and (list true false) 2)",
         "(fold hash160 (list 1 2 3 4) 2)",

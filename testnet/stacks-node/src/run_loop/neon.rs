@@ -1,7 +1,7 @@
 use crate::{
     genesis_data::USE_TEST_GENESIS_CHAINSTATE,
     neon_node,
-    node::{get_account_balances, get_account_lockups},
+    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
@@ -15,6 +15,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::net::atlas::AtlasConfig;
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
@@ -208,6 +209,10 @@ impl RunLoop {
             get_bulk_initial_balances: Some(Box::new(|| {
                 get_account_balances(USE_TEST_GENESIS_CHAINSTATE)
             })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                get_namespaces(USE_TEST_GENESIS_CHAINSTATE)
+            })),
+            get_bulk_initial_names: Some(Box::new(|| get_names(USE_TEST_GENESIS_CHAINSTATE))),
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
@@ -220,6 +225,9 @@ impl RunLoop {
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
 
+        let atlas_config = AtlasConfig::default();
+        let moved_atlas_config = atlas_config.clone();
+
         thread::spawn(move || {
             ChainsCoordinator::run(
                 chain_state_db,
@@ -227,6 +235,7 @@ impl RunLoop {
                 attachments_tx,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
+                moved_atlas_config,
             );
         });
 
@@ -257,6 +266,7 @@ impl RunLoop {
                 coordinator_senders,
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
+                atlas_config,
             )
         } else {
             node.into_initialized_node(
@@ -265,6 +275,7 @@ impl RunLoop {
                 coordinator_senders,
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
+                atlas_config,
             )
         };
 

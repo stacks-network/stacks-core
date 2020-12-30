@@ -6220,7 +6220,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                stx_transfer,
+                                &stx_transfer,
                             )
                             .unwrap();
                     }
@@ -6358,7 +6358,7 @@ pub mod test {
                                     chainstate,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
-                                    stx_transfer,
+                                    &stx_transfer,
                                 )
                                 .unwrap();
                         }
@@ -6380,7 +6380,7 @@ pub mod test {
                                     chainstate,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
-                                    stx_transfer,
+                                    &stx_transfer,
                                 )
                                 .unwrap();
                         }
@@ -6562,7 +6562,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                stx_transfer,
+                                &stx_transfer,
                             )
                             .unwrap();
 
@@ -6580,7 +6580,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                contract_tx,
+                                &contract_tx,
                             )
                             .unwrap();
 
@@ -6597,7 +6597,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                stx_transfer,
+                                &stx_transfer,
                             )
                             .unwrap();
 
@@ -6747,7 +6747,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                contract_tx,
+                                &contract_tx,
                             )
                             .unwrap();
                     }
@@ -6905,7 +6905,7 @@ pub mod test {
                                 chainstate,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
-                                contract_tx,
+                                &contract_tx,
                             )
                             .unwrap();
                     }

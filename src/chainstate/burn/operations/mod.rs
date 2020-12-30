@@ -78,7 +78,6 @@ pub enum Error {
 
     // all the things that can go wrong with leader key register
     LeaderKeyAlreadyRegistered,
-    LeaderKeyBadConsensusHash,
 
     // all the things that can go wrong with user burn supports
     UserBurnSupportBadConsensusHash,
@@ -125,10 +124,6 @@ impl fmt::Display for Error {
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }
-            Error::LeaderKeyBadConsensusHash => {
-                write!(f, "Leader key has an invalid consensus hash")
-            }
-
             Error::UserBurnSupportBadConsensusHash => {
                 write!(f, "User burn support has an invalid consensus hash")
             }

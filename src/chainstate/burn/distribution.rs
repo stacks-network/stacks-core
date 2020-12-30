@@ -52,19 +52,19 @@ pub struct BurnSamplePoint {
     pub user_burns: Vec<UserBurnSupportOp>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum LinkedCommitIdentifier {
     Missed(MissedBlockCommit),
     Valid(LeaderBlockCommitOp),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct LinkedCommitmentScore {
     rel_block_height: u8,
     op: LinkedCommitIdentifier,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct UserBurnIdentifier {
     rel_block_height: u8,
     key_vtxindex: u16,
@@ -91,6 +91,13 @@ impl LinkedCommitIdentifier {
         match self {
             LinkedCommitIdentifier::Missed(_) => 1,
             LinkedCommitIdentifier::Valid(ref op) => op.burn_fee,
+        }
+    }
+
+    fn txid(&self) -> &Txid {
+        match self {
+            LinkedCommitIdentifier::Missed(ref op) => &op.txid,
+            LinkedCommitIdentifier::Valid(ref op) => &op.txid,
         }
     }
 }
@@ -123,13 +130,17 @@ impl BurnSamplePoint {
     /// block commits and user support burns.
     ///
     /// All operations need to be supplied in an ordered Vec of Vecs containing
-    ///   the ops at each block height in MINING_COMMITMENT_WINDOW
+    ///   the ops at each block height in a mining commit window.  Normally, this window
+    ///   is the constant `MINING_COMMITMENT_WINDOW`, except during prepare-phases and post-PoX
+    ///   sunset.  In either of these two cases, the window is only one block.  The code does not
+    ///   consider which window is active; it merely deduces it by inspecting the length of the
+    ///   given `block_commits` argument.
     ///
     /// If a burn refers to more than one commitment, its burn amount is *split* between those
     ///   commitments
     ///
-    ///  Burns are evaluated over MINING_COMMITMENT_WINDOW, where the effective burn for
-    ///   a commitment is := min(last_burn_amount, median over MINING_COMMITMENT_WINDOW)
+    ///  Burns are evaluated over the mining commitment window, where the effective burn for
+    ///   a commitment is := min(last_burn_amount, median over the window)
     ///
     /// Returns the distribution, which consumes the given lists of operations.
     ///
@@ -142,18 +153,22 @@ impl BurnSamplePoint {
     ///     relative block heights start at 0 and increment towards the present. There
     ///     will be no such commits for the current sortition, so this vec will have
     ///     `missed_commits.len() = block_commits.len() - 1`
-    /// * `sunset_finished_at`: if set, this indicates that the PoX sunset finished before or
-    ///     during the mining window. This value is the first index in the block_commits
-    ///     for which PoX is fully disabled (i.e., the block commit has a single burn output).
+    /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
+    ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
+    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
+    ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
+    ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
+    ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     pub fn make_min_median_distribution(
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
         mut missed_commits: Vec<Vec<MissedBlockCommit>>,
-        sunset_finished_at: Option<u8>,
+        burn_blocks: Vec<bool>,
     ) -> Vec<BurnSamplePoint> {
         // sanity check
-        assert!(MINING_COMMITMENT_WINDOW > 0);
         let window_size = block_commits.len() as u8;
+        assert!(window_size > 0);
         BurnSamplePoint::sanity_check_window(&block_commits, &missed_commits);
+        assert_eq!(burn_blocks.len(), block_commits.len());
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
@@ -186,29 +201,41 @@ impl BurnSamplePoint {
                 .map(|missed| (missed.txid.clone(), missed))
                 .collect();
 
-            let sunset_finished = if let Some(sunset_finished_at) = sunset_finished_at {
-                sunset_finished_at <= rel_block_height
-            } else {
-                false
-            };
-            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(sunset_finished);
+            // find the UTXO index that each last linked_commit must have spent in order to be
+            // chained to the block-commit (or missed-commit) at this relative block height
+            let commit_is_burn = burn_blocks[rel_block_height as usize];
+            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(commit_is_burn);
+
             for linked_commit in commits_with_priors.iter_mut() {
                 let end = linked_commit.iter().rev().find_map(|o| o.as_ref()).unwrap(); // guaranteed to be at least 1 non-none entry
 
-                // check that the commit is using the right output index
+                // if end spent a UTXO at this height, then it must match the expected index
                 if end.op.spent_output() != expected_index {
+                    test_debug!("Block-commit {} did not spent a UTXO at rel_block_height {}, because it spent output {},{} (expected {})",
+                                end.op.txid(), rel_block_height, end.op.spent_output(), end.op.spent_txid(), expected_index);
                     continue;
                 }
-                let referenced_op =
-                    if let Some(referenced_commit) = cur_commits_map.remove(&end.op.spent_txid()) {
-                        // found a chained utxo
-                        Some(LinkedCommitIdentifier::Valid(referenced_commit))
-                    } else if let Some(missed_op) = cur_missed_map.remove(&end.op.spent_txid()) {
-                        // found a missed commit
-                        Some(LinkedCommitIdentifier::Missed(missed_op))
-                    } else {
-                        None
-                    };
+
+                // find out which block-commit we chained to
+                let referenced_op = if let Some(referenced_commit) =
+                    cur_commits_map.remove(end.op.spent_txid())
+                {
+                    // found a chained utxo
+                    Some(LinkedCommitIdentifier::Valid(referenced_commit))
+                } else if let Some(missed_op) = cur_missed_map.remove(end.op.spent_txid()) {
+                    // found a missed commit
+                    Some(LinkedCommitIdentifier::Missed(missed_op))
+                } else {
+                    test_debug!(
+                            "No chained UTXO to a valid or missing commit at relative block height {} from {}: ({},{})",
+                            rel_block_height,
+                            end.op.txid(),
+                            end.op.spent_txid(),
+                            end.op.spent_output()
+                        );
+                    continue;
+                };
+
                 // if we found a referenced op, connect it
                 if let Some(referenced_op) = referenced_op {
                     linked_commit[(window_size - 1 - rel_block_height) as usize] =
@@ -285,7 +312,7 @@ impl BurnSamplePoint {
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
-        Self::make_min_median_distribution(vec![all_block_candidates], vec![], None)
+        Self::make_min_median_distribution(vec![all_block_candidates], vec![], vec![true])
     }
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
@@ -467,7 +494,7 @@ mod tests {
         LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash(block_header_hash),
             new_seed: VRFSeed([0; 32]),
-            parent_block_ptr: 0,
+            parent_block_ptr: (block_id - 1) as u32,
             parent_vtxindex: 0,
             key_block_ptr: vrf_ident,
             key_vtxindex: 0,
@@ -540,13 +567,14 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
-            Some(3),
+            vec![false, false, false, true, true, true],
         );
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
+        // block-commits are currently malformed -- the post-sunset commits spend the wrong UTXO.
         assert_eq!(result[0].burns, 1);
         assert_eq!(result[1].burns, 1);
 
@@ -575,7 +603,7 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
-            Some(3),
+            vec![false, false, false, true, true, true],
         );
 
         assert_eq!(result.len(), 2, "Should be two miners");
@@ -646,7 +674,7 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
-            None,
+            vec![false, false, false, false, false, false],
         );
 
         assert_eq!(result.len(), 2, "Should be two miners");
@@ -710,7 +738,7 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
-            None,
+            vec![false, false, false, false, false, false],
         );
 
         assert_eq!(result.len(), 2, "Should be two miners");
@@ -769,7 +797,7 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
             missed_commits.clone(),
-            None,
+            vec![false, false, false, false, false, false],
         );
 
         assert_eq!(result.len(), 2, "Should be two miners");
