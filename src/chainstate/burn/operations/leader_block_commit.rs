@@ -542,7 +542,8 @@ impl LeaderBlockCommitOp {
                         if check_recipients.len() == 1 {
                             // If the number of recipients in the set was even, we need to pad
                             // with a burn address
-                            check_recipients.push(StacksAddress::burn_address(burnchain.is_mainnet()))
+                            check_recipients
+                                .push(StacksAddress::burn_address(burnchain.is_mainnet()))
                         }
 
                         if self.commit_outs.len() != check_recipients.len() {

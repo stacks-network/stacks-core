@@ -403,7 +403,11 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
-            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants, burnchain.first_block_height)
+            ic.get_chosen_pox_anchor(
+                &parent_bhh,
+                &burnchain.pox_constants,
+                burnchain.first_block_height,
+            )
         }?;
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
@@ -587,13 +591,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             .as_ref()
             .expect("FATAL: Processing anchor block, but no known sortition tip");
 
-        let res = SortitionDB::get_block_snapshot(
-            self.sortition_db.conn(),
-            sortition_tip_id,
-        )?;
+        let res = SortitionDB::get_block_snapshot(self.sortition_db.conn(), sortition_tip_id)?;
         let sortition_tip = match res {
             Some(tip) => tip,
-            None => return Ok(None)
+            None => return Ok(None),
         };
 
         get_reward_cycle_info(

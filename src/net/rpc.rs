@@ -306,7 +306,8 @@ impl RPCPoxInfoData {
 
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
-        let next_reward_cycle_in = reward_cycle_length - ((burnchain_tip.block_height - first_burnchain_block_height) % reward_cycle_length);
+        let next_reward_cycle_in = reward_cycle_length
+            - ((burnchain_tip.block_height - first_burnchain_block_height) % reward_cycle_length);
 
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox").to_string(),

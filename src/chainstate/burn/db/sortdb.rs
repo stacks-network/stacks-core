@@ -1765,8 +1765,7 @@ impl<'a> SortitionHandleConn<'a> {
         if !(position_in_cycle == 0) {
             debug!(
                 "effective_height = {}, reward cycle length == {}",
-                effective_height,
-                pox_consts.reward_cycle_length
+                effective_height, pox_consts.reward_cycle_length
             );
             return Err(CoordinatorError::NotPrepareEndBlock);
         }
@@ -1774,8 +1773,7 @@ impl<'a> SortitionHandleConn<'a> {
         if !(effective_height == 0) {
             debug!(
                 "effective_height = {}, reward cycle length == {}",
-                effective_height,
-                pox_consts.reward_cycle_length
+                effective_height, pox_consts.reward_cycle_length
             );
             return Err(CoordinatorError::NotPrepareEndBlock);
         }
