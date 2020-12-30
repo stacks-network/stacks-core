@@ -73,7 +73,7 @@ async function main() {
     const stacksNode2Exit = waitProcessExit(stacksNode2Proc);
 
     // Wait until the Stacks 2.0 RPC server is responsive.
-    console.log('Waiting for Stacks 1.0 RPC init...');
+    console.log('Waiting for Stacks 2.0 RPC init...');
     await waitHttpGetSuccess('http://localhost:20443/v2/info');
     console.log('Stacks 2.0 RPC online');
 
