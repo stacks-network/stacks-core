@@ -403,10 +403,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
         let reward_cycle_info = {
             let ic = sort_db.index_handle(sortition_tip);
-            ic.get_chosen_pox_anchor(
-                &parent_bhh,
-                &burnchain.pox_constants,
-            )
+            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
         }?;
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
