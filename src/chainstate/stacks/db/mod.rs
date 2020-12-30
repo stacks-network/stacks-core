@@ -911,10 +911,10 @@ impl StacksChainState {
                 allocation_events.push(mint_event);
             }
 
-            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                info!("Initializing chain with balances");
-                let mut balances_count = 0;
-                clarity_tx.connection().as_transaction(|clarity| {
+            clarity_tx.connection().as_transaction(|clarity| {
+                if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                    info!("Initializing chain with balances");
+                    let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
@@ -937,8 +937,50 @@ impl StacksChainState {
                         allocation_events.push(mint_event);
                     }
                     info!("Committing {} balances to genesis tx", balances_count);
-                });
-            }
+                }
+
+                if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                    info!("Initializing chain with lockups");
+                    let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+                    let initial_lockups = get_schedules();
+                    for schedule in initial_lockups {
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                        let value = Value::Tuple(
+                            TupleData::from_data(vec![
+                                ("recipient".into(), Value::Principal(stx_address)),
+                                ("amount".into(), Value::UInt(schedule.amount.into())),
+                            ])
+                            .unwrap(),
+                        );
+                        match lockups_per_block.entry(schedule.block_height) {
+                            Entry::Occupied(schedules) => {
+                                schedules.into_mut().push(value);
+                            }
+                            Entry::Vacant(entry) => {
+                                let schedules = vec![value];
+                                entry.insert(schedules);
+                            }
+                        };
+                    }
+
+                    let lockup_contract_id = boot_code_id("lockup");
+                    clarity
+                        .with_clarity_db(|db| {
+                            for (block_height, schedule) in lockups_per_block.into_iter() {
+                                let key = Value::UInt(block_height.into());
+                                db.insert_entry(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    Value::list_from(schedule).unwrap(),
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+            });
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
@@ -956,50 +998,6 @@ impl StacksChainState {
                 ExecutionCost::zero(),
             );
             receipts.push(allocations_receipt);
-
-            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with lockups");
-                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
-                let initial_lockups = get_schedules();
-                for schedule in initial_lockups {
-                    let stx_address =
-                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
-                    let value = Value::Tuple(
-                        TupleData::from_data(vec![
-                            ("recipient".into(), Value::Principal(stx_address)),
-                            ("amount".into(), Value::UInt(schedule.amount.into())),
-                        ])
-                        .unwrap(),
-                    );
-                    match lockups_per_block.entry(schedule.block_height) {
-                        Entry::Occupied(schedules) => {
-                            schedules.into_mut().push(value);
-                        }
-                        Entry::Vacant(entry) => {
-                            let schedules = vec![value];
-                            entry.insert(schedules);
-                        }
-                    };
-                }
-
-                let lockup_contract_id = boot_code_id("lockup");
-                clarity_tx.connection().as_transaction(|clarity| {
-                    clarity
-                        .with_clarity_db(|db| {
-                            for (block_height, schedule) in lockups_per_block.into_iter() {
-                                let key = Value::UInt(block_height.into());
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "lockups",
-                                    key,
-                                    Value::list_from(schedule).unwrap(),
-                                )?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
-                });
-            }
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
@@ -1733,6 +1731,7 @@ pub mod test {
     use chainstate::stacks::*;
     use std::fs;
 
+    use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
 
     pub fn instantiate_chainstate(
@@ -1814,5 +1813,131 @@ pub mod test {
                 StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
         }
+    }
+
+    #[test]
+    fn test_chainstate_test_genesis_consistency() {
+        // Test root hash for the test chainstate data set
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate-test");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
+        assert_eq!(
+            format!("{}", genesis_root_hash),
+            "e336d28e3bccdf8e5e77216e0dea26b60292f4577b05ab2d4414776f29a5e9fc"
+        );
+    }
+
+    #[test]
+    fn test_chainstate_genesis_consistency() {
+        // Test root hash for the final chainstate data set
+        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            true,
+            0x000000001,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
+        assert_eq!(
+            format!("{}", genesis_root_hash),
+            "e09fbe2beda35c18f323ff6832650ecdd4b36236b7375d301ad594afb2b9e364"
+        );
     }
 }
