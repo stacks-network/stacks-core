@@ -7,7 +7,8 @@ RUN apt-get install -y nodejs
 RUN node --version
 
 ### Checkout Stacks 2.0 src
-RUN git clone --depth 1 --branch v24.2.1.0-xenon https://github.com/blockstack/stacks-blockchain.git /stacks2.0
+ARG STACKS_V2_BRANCH
+RUN git clone --depth 1 --branch $STACKS_V2_BRANCH https://github.com/blockstack/stacks-blockchain.git /stacks2.0
 WORKDIR /stacks2.0/testnet/stacks-node
 RUN cargo fetch
 
