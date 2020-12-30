@@ -4140,7 +4140,7 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, tx) {
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
             info!("Reject transaction {}: {:?}", txid, &e;
                   "txid" => %txid
             );
@@ -4298,6 +4298,7 @@ mod test {
     use super::*;
     use burnchains::burnchain::*;
     use burnchains::*;
+    use net::atlas::*;
     use net::codec::*;
     use net::db::*;
     use net::*;
@@ -4390,8 +4391,8 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
-
-        let atlasdb = AtlasDB::connect_memory().unwrap();
+        let atlas_config = AtlasConfig::default();
+        let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(

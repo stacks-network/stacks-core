@@ -713,6 +713,10 @@ fn test_buff_len() {
     let test1 = "(len \"blockstack\")";
     let expected = Value::UInt(10);
     assert_eq!(expected, execute(test1).unwrap().unwrap());
+
+    let test2 = "(len 0x)";
+    let expected = Value::UInt(0);
+    assert_eq!(expected, execute(test2).unwrap().unwrap());
 }
 
 #[test]

@@ -142,7 +142,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u16');
+    expect(receipt.result).include('u150');
     block_height += 1;
 
     receipt = await bns.nameRegister(
@@ -164,7 +164,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
         sender: charlie
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u18');
+    expect(receipt.result).include('u152');
     block_height += 1;
 
     receipt = await bns.nameRegister(
@@ -280,7 +280,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
       "charlie", {
         sender: cases[0].nameOwner
       });
-    expect(receipt.result).include('0x00');
+    expect(receipt.result).include('(zonefile-hash 0x)');
     expect(receipt.success).eq(true);
 
     // Bob should not be able to update 'charlie.blockstack'
@@ -321,7 +321,7 @@ describe("BNS Test Suite - NAME_TRANSFER", () => {
       "bob", {
         sender: cases[0].nameOwner
       });
-    expect(receipt.result).include('0x00');
+    expect(receipt.result).include('(zonefile-hash 0x))');
     expect(receipt.success).eq(true);
 
     // Bob should be able to update its zonefile
