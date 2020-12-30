@@ -189,7 +189,7 @@ describe("BNS Test Suite - RACES", () => {
 
     // After a NAMESPACE_LAUNCHABILITY_TTL+ blocks, the namespace should expire
     // As a consequence, the imported names should stop resolving
-    await bns.mineBlocks(40);
+    await bns.mineBlocks(52595);
     receipt = await bns.getNameZonefile(
       cases[0].namespace,
       "alpha", {

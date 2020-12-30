@@ -86,7 +86,7 @@ use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
 use std::collections::HashMap;
 
-use core::{FIRST_BURNCHAIN_BLOCK_HASH, FIRST_STACKS_BLOCK_HASH, INITIAL_MINING_BONUS_WINDOW};
+use core::FIRST_STACKS_BLOCK_HASH;
 
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
@@ -1755,31 +1755,30 @@ impl<'a> SortitionHandleConn<'a> {
                     warn!("Missing parent"; "burn_header_hash" => %prepare_end_bhh);
                     BurnchainError::MissingParentBlock
                 })?;
-        let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
+        let block_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
         // if this block is the _end_ of a prepare phase,
-        if !(my_height % pox_consts.reward_cycle_length == 0) {
-            test_debug!(
-                "My height = {}, reward cycle length == {}",
-                my_height,
-                pox_consts.reward_cycle_length
+        let effective_height = block_height - self.context.first_block_height as u32;
+        let position_in_cycle = effective_height % pox_consts.reward_cycle_length;
+        if position_in_cycle != 0 {
+            debug!(
+                "effective_height = {}, reward cycle length == {}",
+                effective_height, pox_consts.reward_cycle_length
             );
             return Err(CoordinatorError::NotPrepareEndBlock);
         }
 
-        let prepare_end = my_height;
-        // if this block isn't greater than prepare_length, then this shouldn't be the end of a prepare block
-        if prepare_end < pox_consts.prepare_length {
-            test_debug!(
-                "prepare_end = {}, pox_consts.prepare_length = {}",
-                prepare_end,
-                pox_consts.prepare_length
+        if effective_height == 0 {
+            debug!(
+                "effective_height = {}, reward cycle length == {}",
+                effective_height, pox_consts.reward_cycle_length
             );
-            return Err(CoordinatorError::NotPrepareEndBlock);
+            return Ok(None);
         }
 
-        let prepare_begin = prepare_end - pox_consts.prepare_length;
+        let prepare_end = block_height;
+        let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
         let mut candidate_anchors = HashMap::new();
         let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();
@@ -2341,7 +2340,7 @@ impl<'a> SortitionDBConn<'a> {
             let ancestor_hash =
                 SortitionDB::get_ancestor_snapshot(&self, height as u64, &chain_tip.sortition_id)?
                     .map(|sn| sn.burn_header_hash)
-                    .unwrap_or(FIRST_BURNCHAIN_BLOCK_HASH.clone());
+                    .unwrap_or(burnchain.first_block_hash.clone());
             last_burn_block_hashes.insert(height, ancestor_hash);
         }
 
@@ -3251,7 +3250,7 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(root_hash)
     }
 
-    fn get_initial_mining_bonus_remaining(
+    pub fn get_initial_mining_bonus_remaining(
         &mut self,
         chain_tip: &SortitionId,
     ) -> Result<u128, db_error> {
@@ -3260,7 +3259,7 @@ impl<'a> SortitionHandleTx<'a> {
             .unwrap_or(Ok(0))
     }
 
-    fn get_initial_mining_bonus_per_block(
+    pub fn get_initial_mining_bonus_per_block(
         &mut self,
         chain_tip: &SortitionId,
     ) -> Result<Option<u128>, db_error> {
@@ -3916,7 +3915,7 @@ impl ChainstateDB for SortitionDB {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     use util::db::Error as db_error;
@@ -3963,7 +3962,7 @@ mod tests {
         tx.commit().unwrap();
     }
 
-    fn test_append_snapshot(
+    pub fn test_append_snapshot(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,

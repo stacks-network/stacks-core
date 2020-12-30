@@ -446,7 +446,7 @@ fn make_genesis_block_with_recipients(
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
-    let mut builder = StacksBlockBuilder::make_block_builder(
+    let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         &parent_stacks_header,
         proof.clone(),
         0,
@@ -462,11 +462,15 @@ fn make_genesis_block_with_recipients(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients
+        let mut commit_outs = recipients
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect()
+            .collect::<Vec<StacksAddress>>();
+        if commit_outs.len() == 1 {
+            commit_outs.push(StacksAddress::burn_address(false))
+        }
+        commit_outs
     } else {
         vec![]
     };
@@ -504,7 +508,9 @@ fn make_genesis_block_with_recipients(
 fn make_stacks_block(
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
+    burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
+    parent_height: u64,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
@@ -513,7 +519,9 @@ fn make_stacks_block(
     make_stacks_block_with_recipients(
         sort_db,
         state,
+        burnchain,
         parent_block,
+        parent_height,
         miner,
         my_burn,
         vrf_key,
@@ -528,7 +536,9 @@ fn make_stacks_block(
 fn make_stacks_block_with_recipients(
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
+    burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
+    parent_height: u64,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
@@ -538,7 +548,9 @@ fn make_stacks_block_with_recipients(
     make_stacks_block_with_recipients_and_sunset_burn(
         sort_db,
         state,
+        burnchain,
         parent_block,
+        parent_height,
         miner,
         my_burn,
         vrf_key,
@@ -555,7 +567,9 @@ fn make_stacks_block_with_recipients(
 fn make_stacks_block_with_recipients_and_sunset_burn(
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
+    burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
+    parent_height: u64,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
@@ -567,7 +581,9 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
     make_stacks_block_with_input(
         sort_db,
         state,
+        burnchain,
         parent_block,
+        parent_height,
         miner,
         my_burn,
         vrf_key,
@@ -585,7 +601,9 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
 fn make_stacks_block_with_input(
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
+    burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
+    parent_height: u64,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
@@ -640,7 +658,7 @@ fn make_stacks_block_with_input(
 
     let iconn = sort_db.index_conn();
 
-    let mut builder = StacksBlockBuilder::make_block_builder(
+    let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         &parent_stacks_header,
         proof.clone(),
         total_burn,
@@ -654,12 +672,18 @@ fn make_stacks_block_with_input(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients
+        let mut commit_outs = recipients
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect()
-    } else if post_sunset_burn {
+            .collect::<Vec<StacksAddress>>();
+        if commit_outs.len() == 1 {
+            // Padding with burn address if required
+            commit_outs.push(StacksAddress::burn_address(false))
+        }
+        commit_outs
+    } else if post_sunset_burn || burnchain.is_in_prepare_phase(parent_height + 1) {
+        test_debug!("block-commit in {} will burn", parent_height + 1);
         vec![StacksAddress::burn_address(false)]
     } else {
         vec![]
@@ -741,7 +765,7 @@ fn missed_block_commits() {
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
-    let mut last_txid: Option<Txid> = None;
+    let mut last_input: Option<(Txid, u32)> = None;
     let b = get_burnchain(path, None);
 
     for ix in 0..vrf_keys.len() {
@@ -771,12 +795,15 @@ fn missed_block_commits() {
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
 
+        let b = get_burnchain(path, pox_consts.clone());
         let mut ops = vec![];
-        if ix % 6 == 4 {
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 4 {
             let (mut bad_op, _) = make_stacks_block_with_input(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height - 2,
                 miner,
                 10000,
                 vrf_key,
@@ -784,9 +811,17 @@ fn missed_block_commits() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                (last_txid.as_ref().unwrap().clone(), 3),
+                last_input.as_ref().unwrap().clone(),
             );
-            last_txid = Some(bad_op.txid());
+            // NOTE: intended for block block_height - 2
+            last_input = Some((
+                bad_op.txid(),
+                if b.is_in_prepare_phase(next_mock_header.block_height - 2 + 1) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
             bad_op.set_block_height(next_mock_header.block_height);
             if let BlockstackOperationType::LeaderBlockCommit(ref mut op) = bad_op {
                 op.burn_parent_modulus =
@@ -795,6 +830,11 @@ fn missed_block_commits() {
             } else {
                 panic!("Should be leader block commit");
             }
+            test_debug!(
+                "bad_op meant for block {}: {:?}",
+                burnchain_tip.block_height - 2 + 1,
+                &bad_op
+            );
             ops.push(bad_op);
         }
 
@@ -813,7 +853,9 @@ fn missed_block_commits() {
             make_stacks_block_with_input(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
@@ -821,7 +863,7 @@ fn missed_block_commits() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                (last_txid.as_ref().unwrap().clone(), 3),
+                last_input.as_ref().unwrap().clone(),
             )
         };
 
@@ -832,7 +874,7 @@ fn missed_block_commits() {
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
 
-        if ix % 6 == 3 {
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
             // produce an empty block!
             produce_burn_block(
                 &mut burnchain,
@@ -842,7 +884,14 @@ fn missed_block_commits() {
             );
         } else {
             // produce a block with one good op,
-            last_txid = Some(expected_winner.clone());
+            last_input = Some((
+                expected_winner,
+                if b.is_in_prepare_phase(next_mock_header.block_height) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
             produce_burn_block_do_not_set_height(
                 &mut burnchain,
                 &burnchain_tip.block_hash,
@@ -853,12 +902,10 @@ fn missed_block_commits() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, pox_consts.clone());
-
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let burn_distribution = get_burn_distribution(sort_db.conn(), &tip.sortition_id);
         eprintln!("{}", ix);
-        if ix % 6 == 3 {
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
             assert!(
                 !tip.sortition,
                 "Sortition should not have occurred because the only block commit was invalid"
@@ -867,8 +914,8 @@ fn missed_block_commits() {
             stacks_blocks.push(stacks_blocks[ix - 1].clone());
         } else {
             // how many commit do we expect to see counted in the current window?
-            let expected_window_commits = if ix >= 6 {
-                5
+            let expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
+                (MINING_COMMITMENT_WINDOW - 1) as usize
             } else {
                 if ix >= 3 {
                     ix
@@ -877,7 +924,7 @@ fn missed_block_commits() {
                 }
             };
             // there were 2 burn blocks before we started mining
-            let expected_window_size = cmp::min(6, ix + 3);
+            let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
 
             let min_burn = 1;
             let median_burn = if expected_window_commits > expected_window_size / 2 {
@@ -889,14 +936,29 @@ fn missed_block_commits() {
             } else {
                 1
             };
-            let last_burn = if ix % 6 == 3 { 0 } else { 10000 };
+            let last_burn = if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+                0
+            } else {
+                10000
+            };
 
-            assert_eq!(
-                burn_distribution[0].burns,
-                cmp::min(last_burn, median_burn),
-                "Burn distribution should match at ix = {}",
-                ix
-            );
+            if b.is_in_prepare_phase(next_mock_header.block_height) {
+                // in prepare phase -- no smoothing takes place
+                assert_eq!(
+                    burn_distribution[0].burns, last_burn,
+                    "Burn distribution should not do windowing at ix = {} block_height = {}",
+                    ix, next_mock_header.block_height
+                )
+            } else {
+                // in reward phase -- apply min median
+                assert_eq!(
+                    burn_distribution[0].burns,
+                    cmp::min(last_burn, median_burn),
+                    "Burn distribution should match at ix = {} block_height = {}",
+                    ix,
+                    next_mock_header.block_height
+                );
+            }
 
             assert_eq!(&tip.winning_block_txid, &expected_winner);
 
@@ -915,8 +977,8 @@ fn missed_block_commits() {
 
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(path);
-    // 1 block of every 6 is missed
-    let missed_blocks = vrf_keys.len() / 6;
+    // 1 block of every $MINING_COMMITMENT_WINDOW is missed
+    let missed_blocks = vrf_keys.len() / (MINING_COMMITMENT_WINDOW as usize);
     let expected_height = vrf_keys.len() - missed_blocks;
     assert_eq!(
         chainstate
@@ -939,7 +1001,7 @@ fn missed_block_commits() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -997,6 +1059,10 @@ fn test_simple_setup() {
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, None);
         let mut chainstate = get_chainstate(path);
+        let b = get_burnchain(path, None);
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+
         let (op, block) = if ix == 0 {
             make_genesis_block(
                 &sort_db,
@@ -1011,15 +1077,16 @@ fn test_simple_setup() {
             make_stacks_block(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
                 ix as u32,
             )
         };
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+
         produce_burn_block(
             &mut burnchain,
             &burnchain_tip.block_hash,
@@ -1030,7 +1097,6 @@ fn test_simple_setup() {
         coord.handle_new_burnchain_block().unwrap();
         coord_blind.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             // the "blinded" sortition db and the one that's processed all the blocks
@@ -1095,7 +1161,7 @@ fn test_simple_setup() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 
@@ -1104,7 +1170,7 @@ fn test_simple_setup() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(
             &pox_id.to_string(),
-            "10000000000",
+            "110000000000",
             "PoX ID should reflect the initial 'known' reward cycle at genesis"
         );
     }
@@ -1132,10 +1198,11 @@ fn test_simple_setup() {
             pox_id_string.push('1');
         }
 
+        println!("=> {}", pox_id_string);
         assert_eq!(
             pox_id_at_tip.to_string(),
             // right-pad pox_id_string to 11 characters
-            format!("{:0<11}", pox_id_string)
+            format!("1{:0<11}", pox_id_string)
         );
     }
 }
@@ -1250,6 +1317,7 @@ fn test_sortition_with_reward_set() {
             }
         }
 
+        let b = get_burnchain(path, None);
         let (good_op, mut block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
@@ -1265,7 +1333,9 @@ fn test_sortition_with_reward_set() {
             make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
@@ -1285,7 +1355,9 @@ fn test_sortition_with_reward_set() {
                 let (all_burn_op, all_burn_block) = make_stacks_block_with_recipients(
                     &sort_db,
                     &mut chainstate,
+                    &b,
                     &parent,
+                    burnchain_tip.block_height,
                     miner_burner,
                     10000,
                     vrf_burner,
@@ -1310,19 +1382,21 @@ fn test_sortition_with_reward_set() {
                     .map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16))
                     .collect()
             };
-            let bad_block_recipipients = Some(RewardSetInfo {
+            let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner_wrong_out,
                 10000,
                 vrf_burner,
                 (ix + WRONG_OUTS_OFFSET) as u32,
-                bad_block_recipipients.as_ref(),
+                bad_block_recipients.as_ref(),
             );
             ops.push(bad_outs_op);
         }
@@ -1337,7 +1411,6 @@ fn test_sortition_with_reward_set() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
@@ -1386,7 +1459,7 @@ fn test_sortition_with_reward_set() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1501,6 +1574,7 @@ fn test_sortition_with_burner_reward_set() {
             }
         }
 
+        let b = get_burnchain(path, None);
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
@@ -1516,7 +1590,9 @@ fn test_sortition_with_burner_reward_set() {
             make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
@@ -1538,19 +1614,21 @@ fn test_sortition_with_burner_reward_set() {
                     .map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16))
                     .collect()
             };
-            let bad_block_recipipients = Some(RewardSetInfo {
+            let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner_wrong_out,
                 10000,
                 vrf_burner,
                 (ix + WRONG_OUTS_OFFSET) as u32,
-                bad_block_recipipients.as_ref(),
+                bad_block_recipients.as_ref(),
             );
             ops.push(bad_outs_op);
         }
@@ -1565,7 +1643,6 @@ fn test_sortition_with_burner_reward_set() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
@@ -1613,7 +1690,7 @@ fn test_sortition_with_burner_reward_set() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1718,6 +1795,8 @@ fn test_pox_btc_ops() {
             }
         }
 
+        let b = get_burnchain(path, None);
+
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
@@ -1733,7 +1812,9 @@ fn test_pox_btc_ops() {
             make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 1000,
                 vrf_key,
@@ -1813,7 +1894,6 @@ fn test_pox_btc_ops() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, pox_consts.clone());
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
@@ -1870,7 +1950,7 @@ fn test_pox_btc_ops() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1971,6 +2051,7 @@ fn test_stx_transfer_btc_ops() {
             }
         }
 
+        let b = get_burnchain(path, pox_consts.clone());
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
@@ -1986,7 +2067,9 @@ fn test_stx_transfer_btc_ops() {
             make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 1000,
                 vrf_key,
@@ -2107,7 +2190,6 @@ fn test_stx_transfer_btc_ops() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, pox_consts.clone());
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
@@ -2164,7 +2246,7 @@ fn test_stx_transfer_btc_ops() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -2278,6 +2360,7 @@ fn test_initial_coinbase_reward_distributions() {
                 stacks_blocks[ix / 2 - 1].1.header.block_hash()
             };
 
+            let b = get_burnchain(path, pox_consts.clone());
             let (good_op, block) = if ix == 0 {
                 make_genesis_block_with_recipients(
                     &sort_db,
@@ -2293,7 +2376,9 @@ fn test_initial_coinbase_reward_distributions() {
                 make_stacks_block_with_recipients(
                     &sort_db,
                     &mut chainstate,
+                    &b,
                     &parent,
+                    burnchain_tip.block_height,
                     miner,
                     1000,
                     vrf_key,
@@ -2531,6 +2616,7 @@ fn test_sortition_with_sunset() {
 
         let sunset_burn = burnchain_conf.expected_sunset_burn(next_mock_header.block_height, 10000);
         let rest_commit = 10000 - sunset_burn;
+        let b = get_burnchain(path, pox_consts.clone());
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
@@ -2547,7 +2633,9 @@ fn test_sortition_with_sunset() {
             make_stacks_block_with_recipients_and_sunset_burn(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 rest_commit,
                 vrf_key,
@@ -2566,7 +2654,9 @@ fn test_sortition_with_sunset() {
             let (bad_outs_op, _) = make_stacks_block_with_recipients_and_sunset_burn(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_wrong_out,
@@ -2588,7 +2678,6 @@ fn test_sortition_with_sunset() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, pox_consts.clone());
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
@@ -2645,7 +2734,7 @@ fn test_sortition_with_sunset() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111111111",
+                   "111111111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -2717,6 +2806,10 @@ fn test_pox_processable_block_in_different_pox_forks() {
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, None);
         let mut chainstate = get_chainstate(path);
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+        let b = get_burnchain(path, None);
+
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
@@ -2737,15 +2830,15 @@ fn test_pox_processable_block_in_different_pox_forks() {
             make_stacks_block(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
                 ix as u32,
             )
         };
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        let burnchain_blinded = get_burnchain_db(path_blinded, None);
         produce_burn_block(
             &mut burnchain,
             &burnchain_tip.block_hash,
@@ -2756,7 +2849,6 @@ fn test_pox_processable_block_in_different_pox_forks() {
         coord.handle_new_burnchain_block().unwrap();
         coord_blind.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             eprintln!(
@@ -2956,6 +3048,10 @@ fn test_pox_no_anchor_selected() {
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, None);
         let mut chainstate = get_chainstate(path);
+        let b = get_burnchain(path, None);
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
@@ -2978,15 +3074,16 @@ fn test_pox_no_anchor_selected() {
             make_stacks_block(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
                 ix as u32,
             )
         };
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+
         produce_burn_block(
             &mut burnchain,
             &burnchain_tip.block_hash,
@@ -3072,13 +3169,13 @@ fn test_pox_no_anchor_selected() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "111");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "101");
+        assert_eq!(&pox_id.to_string(), "1101");
     }
 
     for (sort_id, block) in stacks_blocks.iter() {
@@ -3094,7 +3191,7 @@ fn test_pox_no_anchor_selected() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "111");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3157,6 +3254,10 @@ fn test_pox_fork_out_of_order() {
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, None);
         let mut chainstate = get_chainstate(path);
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let burnchain_blinded = get_burnchain_db(path_blinded, None);
+        let b = get_burnchain(path, None);
+
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
@@ -3181,15 +3282,15 @@ fn test_pox_fork_out_of_order() {
             make_stacks_block(
                 &sort_db,
                 &mut chainstate,
+                &b,
                 &parent,
+                burnchain_tip.block_height,
                 miner,
                 10000,
                 vrf_key,
                 ix as u32,
             )
         };
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        let burnchain_blinded = get_burnchain_db(path_blinded, None);
         produce_burn_block(
             &mut burnchain,
             &burnchain_tip.block_hash,
@@ -3200,7 +3301,6 @@ fn test_pox_fork_out_of_order() {
         coord.handle_new_burnchain_block().unwrap();
         coord_blind.handle_new_burnchain_block().unwrap();
 
-        let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             eprintln!(
@@ -3267,13 +3367,13 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1111");
+        assert_eq!(&pox_id.to_string(), "11111");
     }
 
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1000");
+        assert_eq!(&pox_id.to_string(), "11000");
     }
 
     // now, we reveal to the blinded coordinator, but out of order.
@@ -3296,7 +3396,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1110");
+        assert_eq!(&pox_id.to_string(), "11110");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3327,7 +3427,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1110");
+        assert_eq!(&pox_id.to_string(), "11110");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -3388,7 +3488,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1111");
+        assert_eq!(&pox_id.to_string(), "11111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");

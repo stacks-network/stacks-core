@@ -275,7 +275,7 @@ describe("BNS Test Suite - NAME_RENEWAL", () => {
 
     // When Bob is renewing 'bob.blockstack' at block #56 (expired)
     // should fail renewing
-    await mineBlocks(bns, 16);
+    await mineBlocks(bns, 16 + 5000);
 
     receipt = await bns.getNameZonefile(
       cases[0].namespace,
@@ -307,7 +307,7 @@ describe("BNS Test Suite - NAME_RENEWAL", () => {
         sender: dave
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u56');
+    expect(receipt.result).include('u5190');
     block_height += 1;
 
     receipt = await bns.nameRegister(

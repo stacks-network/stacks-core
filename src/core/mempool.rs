@@ -905,7 +905,7 @@ impl MemPoolDB {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        tx: StacksTransaction,
+        tx: &StacksTransaction,
         do_admission_checks: bool,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
@@ -960,7 +960,7 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx.admitter.will_admit_tx(chainstate, &tx, len)?;
+            mempool_tx.admitter.will_admit_tx(chainstate, tx, len)?;
         }
 
         MemPoolDB::try_add_tx(
@@ -988,7 +988,7 @@ impl MemPoolDB {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        tx: StacksTransaction,
+        tx: &StacksTransaction,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
         MemPoolDB::tx_submit(
@@ -1020,7 +1020,7 @@ impl MemPoolDB {
             chainstate,
             consensus_hash,
             block_hash,
-            tx,
+            &tx,
             false,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;

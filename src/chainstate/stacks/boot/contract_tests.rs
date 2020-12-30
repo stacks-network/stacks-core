@@ -34,8 +34,9 @@ use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 
 use address::AddressHashMode;
 use core::{
-    FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    POX_REWARD_CYCLE_LENGTH,
 };
 use vm::types::Value::Response;
 
@@ -110,6 +111,7 @@ impl From<&StacksPrivateKey> for Value {
 struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
+    fork: u64,
 }
 
 struct TestSimHeadersDB {
@@ -122,7 +124,7 @@ impl ClarityTestSim {
         {
             let mut store = marf.begin(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId(test_sim_height_to_hash(0)),
+                &StacksBlockId(test_sim_height_to_hash(0, 0)),
             );
 
             store
@@ -141,7 +143,11 @@ impl ClarityTestSim {
             store.test_commit();
         }
 
-        ClarityTestSim { marf, height: 0 }
+        ClarityTestSim {
+            marf,
+            height: 0,
+            fork: 0,
+        }
     }
 
     pub fn execute_next_block<F, R>(&mut self, f: F) -> R
@@ -149,8 +155,8 @@ impl ClarityTestSim {
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
         let mut store = self.marf.begin(
-            &StacksBlockId(test_sim_height_to_hash(self.height)),
-            &StacksBlockId(test_sim_height_to_hash(self.height + 1)),
+            &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
         );
 
         let r = {
@@ -167,11 +173,37 @@ impl ClarityTestSim {
 
         r
     }
+
+    pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
+    where
+        F: FnOnce(&mut OwnedEnvironment) -> R,
+    {
+        let mut store = self.marf.begin(
+            &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
+        );
+
+        let r = {
+            let headers_db = TestSimHeadersDB {
+                height: parent_height + 1,
+            };
+            let mut owned_env =
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+            f(&mut owned_env)
+        };
+
+        store.test_commit();
+        self.height = parent_height + 1;
+        self.fork += 1;
+
+        r
+    }
 }
 
-fn test_sim_height_to_hash(burn_height: u64) -> [u8; 32] {
+fn test_sim_height_to_hash(burn_height: u64, fork: u64) -> [u8; 32] {
     let mut out = [0; 32];
     out[0..8].copy_from_slice(&burn_height.to_le_bytes());
+    out[8..16].copy_from_slice(&fork.to_le_bytes());
     out
 }
 
@@ -191,7 +223,7 @@ impl HeadersDB for TestSimHeadersDB {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_HASH)
+            Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
         } else {
             self.get_burn_block_height_for_block(id_bhh)?;
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
@@ -216,18 +248,18 @@ impl HeadersDB for TestSimHeadersDB {
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_TIMESTAMP)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
             let burn_block_height = self.get_burn_block_height_for_block(id_bhh)? as u64;
             Some(
-                FIRST_BURNCHAIN_BLOCK_TIMESTAMP + burn_block_height
-                    - FIRST_BURNCHAIN_BLOCK_HEIGHT as u64,
+                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64 + burn_block_height
+                    - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64,
             )
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(FIRST_BURNCHAIN_BLOCK_HEIGHT)
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
             let input_height = test_sim_hash_to_height(&id_bhh.0)?;
             if input_height > self.height {
@@ -235,7 +267,7 @@ impl HeadersDB for TestSimHeadersDB {
                 None
             } else {
                 Some(
-                    (FIRST_BURNCHAIN_BLOCK_HEIGHT as u64 + input_height)
+                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32 + input_height as u32)
                         .try_into()
                         .unwrap(),
                 )
@@ -1171,6 +1203,8 @@ fn test_vote_fail() {
         );
     });
 
+    let fork_start = sim.height;
+
     for _ in 0..1000 {
         sim.execute_next_block(|env| {
             env.execute_transaction(
@@ -1217,6 +1251,30 @@ fn test_vote_fail() {
             Value::Response(ResponseData {
                 committed: false,
                 data: Value::Int(14).into()
+            })
+        );
+    });
+
+    // let's fork, and overcome the veto
+    sim.execute_block_as_fork(fork_start, |_| {});
+    for _ in 0..1100 {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        // Assert confirmation passes because there are no vetos
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                COST_VOTING_CONTRACT.clone(),
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(0)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into(),
             })
         );
     });

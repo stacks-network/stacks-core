@@ -71,6 +71,7 @@ use chainstate::burn::db::sortdb::*;
 
 use chainstate::stacks::boot::*;
 
+use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 
 use vm::analysis::analysis_db::AnalysisDatabase;
@@ -630,6 +631,29 @@ pub struct ChainstateAccountLockup {
     pub block_height: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChainstateBNSNamespace {
+    pub namespace_id: String,
+    pub importer: String,
+    pub revealed_at: u64,
+    pub launched_at: u64,
+    pub buckets: String,
+    pub base: u64,
+    pub coeff: u64,
+    pub nonalpha_discount: u64,
+    pub no_vowel_discount: u64,
+    pub lifetime: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChainstateBNSName {
+    pub fully_qualified_name: String,
+    pub owner: String,
+    pub registered_at: u64,
+    pub expired_at: u64,
+    pub zonefile_hash: String,
+}
+
 impl ChainstateAccountLockup {
     pub fn new(address: StacksAddress, amount: u64, block_height: u64) -> ChainstateAccountLockup {
         ChainstateAccountLockup {
@@ -650,6 +674,10 @@ pub struct ChainStateBootData {
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountBalance>>>>,
+    pub get_bulk_initial_namespaces:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSNamespace>>>>,
+    pub get_bulk_initial_names:
+        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSName>>>>,
 }
 
 impl ChainStateBootData {
@@ -666,6 +694,8 @@ impl ChainStateBootData {
             post_flight_callback,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
+            get_bulk_initial_namespaces: None,
+            get_bulk_initial_names: None,
         }
     }
 }
@@ -891,6 +921,7 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
+
             info!(
                 "Initializing chain with {} config balances",
                 boot_data.initial_balances.len()
@@ -911,10 +942,11 @@ impl StacksChainState {
                 allocation_events.push(mint_event);
             }
 
-            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                info!("Initializing chain with balances");
-                let mut balances_count = 0;
-                clarity_tx.connection().as_transaction(|clarity| {
+            clarity_tx.connection().as_transaction(|clarity| {
+                // Balances
+                if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                    info!("Initializing chain with balances");
+                    let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
                         balances_count = balances_count + 1;
@@ -937,8 +969,206 @@ impl StacksChainState {
                         allocation_events.push(mint_event);
                     }
                     info!("Committing {} balances to genesis tx", balances_count);
-                });
-            }
+                }
+
+                // Lockups
+                if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                    info!("Initializing chain with lockups");
+                    let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+                    let initial_lockups = get_schedules();
+                    for schedule in initial_lockups {
+                        let stx_address =
+                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                        let value = Value::Tuple(
+                            TupleData::from_data(vec![
+                                ("recipient".into(), Value::Principal(stx_address)),
+                                ("amount".into(), Value::UInt(schedule.amount.into())),
+                            ])
+                            .unwrap(),
+                        );
+                        match lockups_per_block.entry(schedule.block_height) {
+                            Entry::Occupied(schedules) => {
+                                schedules.into_mut().push(value);
+                            }
+                            Entry::Vacant(entry) => {
+                                let schedules = vec![value];
+                                entry.insert(schedules);
+                            }
+                        };
+                    }
+
+                    let lockup_contract_id = boot_code_id("lockup");
+                    clarity
+                        .with_clarity_db(|db| {
+                            for (block_height, schedule) in lockups_per_block.into_iter() {
+                                let key = Value::UInt(block_height.into());
+                                let value = Value::list_from(schedule).unwrap();
+                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+
+                // BNS Namespace
+                let bns_contract_id = boot_code_id("bns");
+                if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
+                    info!("Initializing chain with namespaces");
+                    clarity
+                        .with_clarity_db(|db| {
+                            let initial_namespaces = get_namespaces();
+                            for entry in initial_namespaces {
+                                let namespace = {
+                                    if !BNS_CHARS_REGEX.is_match(&entry.namespace_id) {
+                                        panic!("Invalid namespace characters");
+                                    }
+                                    let buffer = entry.namespace_id.as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                                };
+
+                                let importer = {
+                                    let address = StacksChainState::parse_genesis_address(
+                                        &entry.importer,
+                                        mainnet,
+                                    );
+                                    Value::Principal(address)
+                                };
+
+                                let revealed_at = Value::UInt(entry.revealed_at.into());
+                                let launched_at = Value::UInt(entry.launched_at.into());
+                                let lifetime = Value::UInt(entry.lifetime.into());
+                                let price_function = {
+                                    let base = Value::UInt(entry.base.into());
+                                    let coeff = Value::UInt(entry.coeff.into());
+                                    let nonalpha_discount =
+                                        Value::UInt(entry.nonalpha_discount.into());
+                                    let no_vowel_discount =
+                                        Value::UInt(entry.no_vowel_discount.into());
+                                    let buckets: Vec<_> = entry
+                                        .buckets
+                                        .split(";")
+                                        .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
+                                        .collect();
+                                    assert_eq!(buckets.len(), 16);
+
+                                    TupleData::from_data(vec![
+                                        ("buckets".into(), Value::list_from(buckets).unwrap()),
+                                        ("base".into(), base),
+                                        ("coeff".into(), coeff),
+                                        ("nonalpha-discount".into(), nonalpha_discount),
+                                        ("no-vowel-discount".into(), no_vowel_discount),
+                                    ])
+                                    .unwrap()
+                                };
+
+                                let namespace_props = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        ("revealed-at".into(), revealed_at),
+                                        ("launched-at".into(), Value::some(launched_at).unwrap()),
+                                        ("lifetime".into(), lifetime),
+                                        ("namespace-import".into(), importer),
+                                        ("price-function".into(), Value::Tuple(price_function)),
+                                    ])
+                                    .unwrap(),
+                                );
+
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "namespaces",
+                                    namespace,
+                                    namespace_props,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+
+                // BNS Names
+                if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
+                    info!("Initializing chain with names");
+                    clarity
+                        .with_clarity_db(|db| {
+                            let initial_names = get_names();
+                            for entry in initial_names {
+                                let components: Vec<_> =
+                                    entry.fully_qualified_name.split(".").collect();
+                                assert_eq!(components.len(), 2);
+
+                                let namespace = {
+                                    let namespace_str = components[1];
+                                    if !BNS_CHARS_REGEX.is_match(&namespace_str) {
+                                        panic!("Invalid namespace characters");
+                                    }
+                                    let buffer = namespace_str.as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                                };
+
+                                let name = {
+                                    let name_str = components[0].to_string();
+                                    if !BNS_CHARS_REGEX.is_match(&name_str) {
+                                        panic!("Invalid name characters");
+                                    }
+                                    let buffer = name_str.as_bytes();
+                                    Value::buff_from(buffer.to_vec()).expect("Invalid name")
+                                };
+
+                                let fqn = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        ("namespace".into(), namespace),
+                                        ("name".into(), name),
+                                    ])
+                                    .unwrap(),
+                                );
+
+                                let owner_address =
+                                    StacksChainState::parse_genesis_address(&entry.owner, mainnet);
+
+                                let zonefile_hash = {
+                                    if entry.zonefile_hash.len() == 0 {
+                                        Value::buff_from(vec![]).unwrap()
+                                    } else {
+                                        let buffer = Hash160::from_hex(&entry.zonefile_hash)
+                                            .expect("Invalid zonefile_hash");
+                                        Value::buff_from(buffer.to_bytes().to_vec()).unwrap()
+                                    }
+                                };
+
+                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+
+                                let registered_at = Value::UInt(entry.registered_at.into());
+                                let name_props = Value::Tuple(
+                                    TupleData::from_data(vec![
+                                        (
+                                            "registered-at".into(),
+                                            Value::some(registered_at).unwrap(),
+                                        ),
+                                        ("imported-at".into(), Value::none()),
+                                        ("revoked-at".into(), Value::none()),
+                                        ("zonefile-hash".into(), zonefile_hash),
+                                    ])
+                                    .unwrap(),
+                                );
+
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "name-properties",
+                                    fqn.clone(),
+                                    name_props,
+                                )?;
+
+                                db.insert_entry(
+                                    &bns_contract_id,
+                                    "owner-name",
+                                    Value::Principal(owner_address),
+                                    fqn,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+            });
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
@@ -956,50 +1186,6 @@ impl StacksChainState {
                 ExecutionCost::zero(),
             );
             receipts.push(allocations_receipt);
-
-            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                info!("Initializing chain with lockups");
-                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
-                let initial_lockups = get_schedules();
-                for schedule in initial_lockups {
-                    let stx_address =
-                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
-                    let value = Value::Tuple(
-                        TupleData::from_data(vec![
-                            ("recipient".into(), Value::Principal(stx_address)),
-                            ("amount".into(), Value::UInt(schedule.amount.into())),
-                        ])
-                        .unwrap(),
-                    );
-                    match lockups_per_block.entry(schedule.block_height) {
-                        Entry::Occupied(schedules) => {
-                            schedules.into_mut().push(value);
-                        }
-                        Entry::Vacant(entry) => {
-                            let schedules = vec![value];
-                            entry.insert(schedules);
-                        }
-                    };
-                }
-
-                let lockup_contract_id = boot_code_id("lockup");
-                clarity_tx.connection().as_transaction(|clarity| {
-                    clarity
-                        .with_clarity_db(|db| {
-                            for (block_height, schedule) in lockups_per_block.into_iter() {
-                                let key = Value::UInt(block_height.into());
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "lockups",
-                                    key,
-                                    Value::list_from(schedule).unwrap(),
-                                )?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
-                });
-            }
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
@@ -1733,6 +1919,7 @@ pub mod test {
     use chainstate::stacks::*;
     use std::fs;
 
+    use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
 
     pub fn instantiate_chainstate(
@@ -1770,6 +1957,8 @@ pub mod test {
             first_burnchain_block_timestamp: 0,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
         };
 
         StacksChainState::open_and_exec(
@@ -1814,5 +2003,190 @@ pub mod test {
                 StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
         }
+    }
+
+    #[test]
+    fn test_chainstate_sampled_genesis_consistency() {
+        // Test root hash for the test chainstate data set
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                    ChainstateBNSNamespace {
+                        namespace_id: item.namespace_id,
+                        importer: item.importer,
+                        revealed_at: item.reveal_block as u64,
+                        launched_at: item.ready_block as u64,
+                        buckets: item.buckets,
+                        base: item.base as u64,
+                        coeff: item.coeff as u64,
+                        nonalpha_discount: item.nonalpha_discount as u64,
+                        no_vowel_discount: item.no_vowel_discount as u64,
+                        lifetime: item.lifetime as u64,
+                    }
+                }))
+            })),
+            get_bulk_initial_names: Some(Box::new(|| {
+                Box::new(
+                    GenesisData::new(true)
+                        .read_names()
+                        .map(|item| ChainstateBNSName {
+                            fully_qualified_name: item.fully_qualified_name,
+                            owner: item.owner,
+                            registered_at: item.registered_at as u64,
+                            expired_at: item.expire_block as u64,
+                            zonefile_hash: item.zonefile_hash,
+                        }),
+                )
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate-test");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
+        assert_eq!(
+            format!("{}", genesis_root_hash),
+            "dd2213e2a0f506ec519672752f033ce2070fa279a579d983bcf2edefb35ce131"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_chainstate_full_genesis_consistency() {
+        // Test root hash for the final chainstate data set
+        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            post_flight_callback: None,
+            get_bulk_initial_lockups: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_lockups().map(|item| {
+                    ChainstateAccountLockup {
+                        address: item.address,
+                        amount: item.amount,
+                        block_height: item.block_height,
+                    }
+                }))
+            })),
+            get_bulk_initial_balances: Some(Box::new(|| {
+                Box::new(GenesisData::new(false).read_balances().map(|item| {
+                    ChainstateAccountBalance {
+                        address: item.address,
+                        amount: item.amount,
+                    }
+                }))
+            })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                    ChainstateBNSNamespace {
+                        namespace_id: item.namespace_id,
+                        importer: item.importer,
+                        revealed_at: item.reveal_block as u64,
+                        launched_at: item.ready_block as u64,
+                        buckets: item.buckets,
+                        base: item.base as u64,
+                        coeff: item.coeff as u64,
+                        nonalpha_discount: item.nonalpha_discount as u64,
+                        no_vowel_discount: item.no_vowel_discount as u64,
+                        lifetime: item.lifetime as u64,
+                    }
+                }))
+            })),
+            get_bulk_initial_names: Some(Box::new(|| {
+                Box::new(
+                    GenesisData::new(true)
+                        .read_names()
+                        .map(|item| ChainstateBNSName {
+                            fully_qualified_name: item.fully_qualified_name,
+                            owner: item.owner,
+                            registered_at: item.registered_at as u64,
+                            expired_at: item.expire_block as u64,
+                            zonefile_hash: item.zonefile_hash,
+                        }),
+                )
+            })),
+        };
+
+        let path = chainstate_path("genesis-consistency-chainstate");
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let mut chainstate = StacksChainState::open_and_exec(
+            true,
+            0x000000001,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0;
+
+        let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            marf.get_root_hash_at(&index_block_hash).unwrap()
+        });
+
+        // If the genesis data changed, then this test will fail.
+        // Just update the expected value
+        assert_eq!(
+            format!("{}", genesis_root_hash),
+            "30f4472782b844e508bfebd8912f271270c1fd04393cd18e884f42dbb1a133f1"
+        );
     }
 }

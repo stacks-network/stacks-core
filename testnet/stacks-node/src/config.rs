@@ -14,8 +14,11 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
-use super::neon_node::TESTNET_PEER_VERSION;
-use super::node::TESTNET_CHAIN_ID;
+pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
+
+pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
+pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
 const MINIMUM_DUST_FEE: u64 = 5500;
 
@@ -236,7 +239,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X2".into()),
+            magic_bytes: Some("X3".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -269,6 +272,29 @@ impl ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn mainnet() -> ConfigFile {
+        let burnchain = BurnchainConfigFile {
+            mode: Some("mainnet".to_string()),
+            rpc_port: Some(8332),
+            peer_port: Some(8333),
+            peer_host: Some("bitcoind.blockstack.org".to_string()),
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@mainnet.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            ustx_balance: None,
             ..ConfigFile::default()
         }
     }
@@ -377,10 +403,10 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
-        let node = match config_file.node {
+        let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
                 let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
-                let mut node_config = NodeConfig {
+                let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => {
@@ -423,13 +449,9 @@ impl Config {
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
                 };
-                node_config.set_bootstrap_node(node.bootstrap_node);
-                if let Some(deny_nodes) = node.deny_nodes {
-                    node_config.set_deny_nodes(deny_nodes);
-                }
-                node_config
+                (node_config, node.bootstrap_node, node.deny_nodes)
             }
-            None => default_node_config,
+            None => (default_node_config, None, None),
         };
 
         let default_burnchain_config = BurnchainConfig::default();
@@ -441,10 +463,21 @@ impl Config {
                         burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
                     }
                 }
+                let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
 
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
+                    chain_id: if &burnchain_mode == "mainnet" {
+                        MAINNET_CHAIN_ID
+                    } else {
+                        TESTNET_CHAIN_ID
+                    },
+                    peer_version: if &burnchain_mode == "mainnet" {
+                        MAINNET_PEER_VERSION
+                    } else {
+                        TESTNET_PEER_VERSION
+                    },
+                    mode: burnchain_mode.clone(),
                     burn_fee_cap: burnchain
                         .burn_fee_cap
                         .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -501,7 +534,9 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon"];
+        let supported_modes = vec![
+            "mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet",
+        ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
             panic!(
@@ -512,6 +547,11 @@ impl Config {
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
+        }
+
+        node.set_bootstrap_node(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        if let Some(deny_nodes) = deny_nodes {
+            node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
         }
 
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
@@ -773,6 +813,13 @@ impl Config {
         }
         total
     }
+
+    pub fn is_mainnet(&self) -> bool {
+        match self.burnchain.mode.as_str() {
+            "mainnet" => true,
+            _ => false,
+        }
+    }
 }
 
 impl std::default::Default for Config {
@@ -806,6 +853,8 @@ impl std::default::Default for Config {
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
+    pub chain_id: u32,
+    pub peer_version: u32,
     pub commit_anchor_block_within: u64,
     pub burn_fee_cap: u64,
     pub peer_host: String,
@@ -828,6 +877,8 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
+            chain_id: TESTNET_CHAIN_ID,
+            peer_version: TESTNET_PEER_VERSION,
             burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
@@ -922,6 +973,7 @@ impl NodeConfig {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
+
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
         let rpc_port = 20443;
@@ -964,11 +1016,16 @@ impl NodeConfig {
         format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 
-    fn default_neighbor(addr: SocketAddr, pubk: Secp256k1PublicKey) -> Neighbor {
+    fn default_neighbor(
+        addr: SocketAddr,
+        pubk: Secp256k1PublicKey,
+        chain_id: u32,
+        peer_version: u32,
+    ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: TESTNET_PEER_VERSION,
-                network_id: TESTNET_CHAIN_ID,
+                peer_version: peer_version,
+                network_id: chain_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
             },
@@ -984,7 +1041,12 @@ impl NodeConfig {
         }
     }
 
-    pub fn set_bootstrap_node(&mut self, bootstrap_node: Option<String>) {
+    pub fn set_bootstrap_node(
+        &mut self,
+        bootstrap_node: Option<String>,
+        chain_id: u32,
+        peer_version: u32,
+    ) {
         if let Some(bootstrap_node) = bootstrap_node {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
@@ -994,7 +1056,8 @@ impl NodeConfig {
 
                     let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
                     let sock_addr = addrs_iter.next().unwrap();
-                    let neighbor = NodeConfig::default_neighbor(sock_addr, pubk);
+                    let neighbor =
+                        NodeConfig::default_neighbor(sock_addr, pubk, chain_id, peer_version);
                     self.bootstrap_node = Some(neighbor);
                 }
                 _ => {}
@@ -1002,20 +1065,22 @@ impl NodeConfig {
         }
     }
 
-    pub fn add_deny_node(&mut self, deny_node: &str) {
+    pub fn add_deny_node(&mut self, deny_node: &str, chain_id: u32, peer_version: u32) {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
             Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+            chain_id,
+            peer_version,
         );
         self.deny_nodes.push(neighbor);
     }
 
-    pub fn set_deny_nodes(&mut self, deny_nodes: String) {
+    pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = deny_nodes.split(",").collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
-                self.add_deny_node(&part);
+                self.add_deny_node(&part, chain_id, peer_version);
             }
         }
     }
