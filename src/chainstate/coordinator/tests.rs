@@ -1098,9 +1098,7 @@ fn test_simple_setup() {
         coord_blind.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             // the "blinded" sortition db and the one that's processed all the blocks
             //   should have diverged in sortition_ids now...
             sortition_ids_diverged = true;
@@ -1413,9 +1411,7 @@ fn test_sortition_with_reward_set() {
         coord.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
             // store the anchor block for this sortition for later checking
             let ic = sort_db.index_handle_at_tip();
@@ -1647,9 +1643,7 @@ fn test_sortition_with_burner_reward_set() {
         coord.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
             // store the anchor block for this sortition for later checking
             let ic = sort_db.index_handle_at_tip();
@@ -1900,9 +1894,7 @@ fn test_pox_btc_ops() {
         coord.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
                 // store the anchor block for this sortition for later checking
@@ -2198,9 +2190,7 @@ fn test_stx_transfer_btc_ops() {
         coord.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
                 // store the anchor block for this sortition for later checking
@@ -2688,9 +2678,7 @@ fn test_sortition_with_sunset() {
         coord.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
                 // store the anchor block for this sortition for later checking
@@ -2861,9 +2849,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         coord_blind.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             eprintln!(
                 "Reward cycle start at height={}",
                 new_burnchain_tip.block_height
@@ -3109,9 +3095,7 @@ fn test_pox_no_anchor_selected() {
 
         let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             eprintln!(
                 "Reward cycle start at height={}",
                 new_burnchain_tip.block_height
@@ -3317,9 +3301,7 @@ fn test_pox_fork_out_of_order() {
         coord_blind.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
-        ) {
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             eprintln!(
                 "Reward cycle start at height={}",
                 new_burnchain_tip.block_height

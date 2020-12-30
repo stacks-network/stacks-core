@@ -1502,9 +1502,7 @@ impl PeerNetwork {
         let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
         assert!(
             target_block_reward_cycle == 0
-                || self
-                    .burnchain
-                    .is_reward_cycle_start(target_block_height)
+                || self.burnchain.is_reward_cycle_start(target_block_height)
         );
 
         let num_blocks = match self.get_convo(nk) {
