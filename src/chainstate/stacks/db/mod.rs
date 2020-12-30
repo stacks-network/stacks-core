@@ -1207,7 +1207,6 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-
             let lockup_tx = StacksTransaction::new(
                 tx_version.clone(),
                 boot_code_auth.clone(),
