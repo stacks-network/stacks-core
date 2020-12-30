@@ -2189,7 +2189,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "e09fbe2beda35c18f323ff6832650ecdd4b36236b7375d301ad594afb2b9e364"
+            "30f4472782b844e508bfebd8912f271270c1fd04393cd18e884f42dbb1a133f1"
         );
     }
 }
