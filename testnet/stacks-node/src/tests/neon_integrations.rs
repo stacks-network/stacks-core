@@ -62,7 +62,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '2' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '3' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
@@ -1523,30 +1523,11 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {}", sort_height);
+    test_observer::clear();
 
     // now let's mine until the next reward cycle starts ...
     while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
@@ -1569,7 +1550,6 @@ fn pox_integration_test() {
             break;
         }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        eprintln!("{}", transactions.len());
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
@@ -1577,24 +1557,25 @@ fn pox_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(_) = parsed.payload {
-            } else {
-                continue;
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "stack-stx" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+                    // cycle length of 15 blocks, is a burnchain height of 300)
+                    assert_eq!(parsed.to_string(),
+                               format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
+                                       &spender_addr));
+                    tested = true;
+                }
             }
-
-            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-            // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-            // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-            // cycle length of 15 blocks, is a burnchain height of 300)
-            assert_eq!(parsed.to_string(),
-                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
-                               &spender_addr));
-            tested = true;
         }
     }
 
-    assert!(tested);
+    assert!(tested, "Should have observed stack-stx transaction");
 
     // let's stack with spender 2 and spender 3...
 
@@ -1622,27 +1603,7 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let tx = make_contract_call(
         &spender_3_sk,
@@ -1664,28 +1625,7 @@ fn pox_integration_test() {
         ],
     );
 
-    // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
