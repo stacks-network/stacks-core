@@ -2009,7 +2009,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_chainstate_test_genesis_consistency() {
+    fn test_chainstate_sampled_genesis_consistency() {
         // Test root hash for the test chainstate data set
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
@@ -2031,6 +2031,33 @@ pub mod test {
                     ChainstateAccountBalance {
                         address: item.address,
                         amount: item.amount,
+                    }
+                }))
+            })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                    ChainstateBNSNamespace {
+                        namespace_id: item.namespace_id,
+                        importer: item.importer,
+                        revealed_at: item.reveal_block as u64,
+                        launched_at: item.ready_block as u64,
+                        buckets: item.buckets,
+                        base: item.base as u64,
+                        coeff: item.coeff as u64,
+                        nonalpha_discount: item.nonalpha_discount as u64,
+                        no_vowel_discount: item.no_vowel_discount as u64,
+                        lifetime: item.lifetime as u64,                
+                    }
+                }))
+            })),
+            get_bulk_initial_names: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_names().map(|item| {
+                    ChainstateBNSName {
+                        fully_qualified_name: item.fully_qualified_name,
+                        owner: item.owner,
+                        registered_at: item.registered_at as u64,
+                        expired_at: item.expire_block as u64,
+                        zonefile_hash: item.zonefile_hash,                
                     }
                 }))
             })),
@@ -2066,12 +2093,13 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "e336d28e3bccdf8e5e77216e0dea26b60292f4577b05ab2d4414776f29a5e9fc"
+            "dd2213e2a0f506ec519672752f033ce2070fa279a579d983bcf2edefb35ce131"
         );
     }
 
     #[test]
-    fn test_chainstate_genesis_consistency() {
+    #[ignore]
+    fn test_chainstate_full_genesis_consistency() {
         // Test root hash for the final chainstate data set
         // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
         // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
@@ -2098,6 +2126,33 @@ pub mod test {
                     }
                 }))
             })),
+            get_bulk_initial_namespaces: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                    ChainstateBNSNamespace {
+                        namespace_id: item.namespace_id,
+                        importer: item.importer,
+                        revealed_at: item.reveal_block as u64,
+                        launched_at: item.ready_block as u64,
+                        buckets: item.buckets,
+                        base: item.base as u64,
+                        coeff: item.coeff as u64,
+                        nonalpha_discount: item.nonalpha_discount as u64,
+                        no_vowel_discount: item.no_vowel_discount as u64,
+                        lifetime: item.lifetime as u64,                
+                    }
+                }))
+            })),
+            get_bulk_initial_names: Some(Box::new(|| {
+                Box::new(GenesisData::new(true).read_names().map(|item| {
+                    ChainstateBNSName {
+                        fully_qualified_name: item.fully_qualified_name,
+                        owner: item.owner,
+                        registered_at: item.registered_at as u64,
+                        expired_at: item.expire_block as u64,
+                        zonefile_hash: item.zonefile_hash,                
+                    }
+                }))
+            }))
         };
 
         let path = chainstate_path("genesis-consistency-chainstate");
