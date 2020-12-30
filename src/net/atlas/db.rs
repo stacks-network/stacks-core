@@ -37,7 +37,9 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         content BLOB NOT NULL,
         was_instantiated INTEGER NOT NULL,
         created_at INTEGER NOT NULL
-    );"#,
+    );
+    CREATE INDEX index_was_instanciated ON attachments(was_instantiated);
+    "#,
     r#"
     CREATE TABLE attachment_instances(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -309,7 +311,7 @@ impl AtlasDB {
     }
 
     pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
-        let qry = "SELECT COUNT(*) FROM attachments
+        let qry = "SELECT COUNT(rowid) FROM attachments
                    WHERE was_instantiated = 0";
         let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
         Ok(count)
