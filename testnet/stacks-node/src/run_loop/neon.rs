@@ -1,6 +1,5 @@
 use crate::{
     genesis_data::USE_TEST_GENESIS_CHAINSTATE,
-    neon_node,
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
