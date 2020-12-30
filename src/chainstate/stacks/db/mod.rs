@@ -921,7 +921,6 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            let mut lockup_events: Vec<StacksTransactionEvent> = vec![];
 
             info!(
                 "Initializing chain with {} config balances",
@@ -1007,23 +1006,9 @@ impl StacksChainState {
                                 db.insert_entry(
                                     &lockup_contract_id,
                                     "lockups",
-                                    key.clone(),
-                                    value.clone(),
+                                    key,
+                                    value,
                                 )?;
-
-                                // Attach some events
-                                let lookup_event = TupleData::from_data(vec![
-                                    (ClarityName::try_from("block-height").unwrap(), key),
-                                    (ClarityName::try_from("due-schedules").unwrap(), value),
-                                ])
-                                .unwrap();
-                                let lookup_event = StacksTransactionEvent::SmartContractEvent(
-                                    SmartContractEventData {
-                                        key: (boot_code_id("lockup"), "print".to_string()),
-                                        value: Value::Tuple(lookup_event),
-                                    },
-                                );
-                                lockup_events.push(lookup_event);
                             }
                             Ok(())
                         })
@@ -1206,24 +1191,6 @@ impl StacksChainState {
                 ExecutionCost::zero(),
             );
             receipts.push(allocations_receipt);
-
-            let lockup_tx = StacksTransaction::new(
-                tx_version.clone(),
-                boot_code_auth.clone(),
-                TransactionPayload::ContractCall(TransactionContractCall {
-                    address: boot_code_address,
-                    contract_name: ContractName::try_from("lockup").unwrap(),
-                    function_name: ClarityName::try_from("genesis").unwrap(),
-                    function_args: vec![],
-                }),
-            );
-            let lockup_receipt = StacksTransactionReceipt::from_stx_transfer(
-                lockup_tx,
-                lockup_events,
-                Value::okay_true(),
-                ExecutionCost::zero(),
-            );
-            receipts.push(lockup_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
