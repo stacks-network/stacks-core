@@ -255,54 +255,59 @@ impl RPCPoxInfoData {
             .get("first-burnchain-block-height")
             .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let min_amount_ustx = res
             .get("min-amount-ustx")
             .expect(&format!("FATAL: no 'min-amount-ustx'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let prepare_cycle_length = res
             .get("prepare-cycle-length")
             .expect(&format!("FATAL: no 'prepare-cycle-length'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let rejection_fraction = res
             .get("rejection-fraction")
             .expect(&format!("FATAL: no 'rejection-fraction'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let reward_cycle_id = res
             .get("reward-cycle-id")
             .expect(&format!("FATAL: no 'reward-cycle-id'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let reward_cycle_length = res
             .get("reward-cycle-length")
             .expect(&format!("FATAL: no 'reward-cycle-length'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let current_rejection_votes = res
             .get("current-rejection-votes")
             .expect(&format!("FATAL: no 'current-rejection-votes'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let total_liquid_supply_ustx = res
             .get("total-liquid-supply-ustx")
             .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
-            .expect_u128();
+            .expect_u128() as u64;
 
         let total_required = total_liquid_supply_ustx
             .checked_div(rejection_fraction)
             .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes");
         let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
+
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+
+        let next_reward_cycle_in = reward_cycle_length
+            - ((burnchain_tip.block_height - first_burnchain_block_height) % reward_cycle_length);
 
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox").to_string(),
@@ -314,6 +319,7 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             total_liquid_supply_ustx,
+            next_reward_cycle_in,
         })
     }
 }

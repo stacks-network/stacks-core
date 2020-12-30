@@ -555,7 +555,20 @@ impl LeaderBlockCommitOp {
                     let expect_pox_descendant = if self.all_outputs_burn() {
                         false
                     } else {
-                        if self.commit_outs.len() != reward_set_info.recipients.len() {
+                        let mut check_recipients: Vec<_> = reward_set_info
+                            .recipients
+                            .iter()
+                            .map(|(addr, _)| addr.clone())
+                            .collect();
+
+                        if check_recipients.len() == 1 {
+                            // If the number of recipients in the set was even, we need to pad
+                            // with a burn address
+                            check_recipients
+                                .push(StacksAddress::burn_address(burnchain.is_mainnet()))
+                        }
+
+                        if self.commit_outs.len() != check_recipients.len() {
                             warn!(
                                 "Invalid block commit: expected {} PoX transfers, but commit has {}",
                                 reward_set_info.recipients.len(),
@@ -566,11 +579,6 @@ impl LeaderBlockCommitOp {
 
                         // sort check_recipients and commit_outs so that we can perform an
                         //  iterative equality check
-                        let mut check_recipients: Vec<_> = reward_set_info
-                            .recipients
-                            .iter()
-                            .map(|(addr, _)| addr.clone())
-                            .collect();
                         check_recipients.sort();
                         let mut commit_outs = self.commit_outs.clone();
                         commit_outs.sort();

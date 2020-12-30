@@ -378,7 +378,7 @@ fn liquid_ustx_integration() {
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -415,7 +415,7 @@ fn liquid_ustx_integration() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
+    let _client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
@@ -432,7 +432,7 @@ fn liquid_ustx_integration() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let sort_height = channel.get_sortitions_processed();
+    let _sort_height = channel.get_sortitions_processed();
 
     let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
 

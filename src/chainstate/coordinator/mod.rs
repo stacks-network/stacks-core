@@ -581,14 +581,15 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         &mut self,
         burn_header: &BurnchainBlockHeader,
     ) -> Result<Option<RewardCycleInfo>, Error> {
-        let sortition_tip = self
+        let sortition_tip_id = self
             .canonical_sortition_tip
             .as_ref()
             .expect("FATAL: Processing anchor block, but no known sortition tip");
+
         get_reward_cycle_info(
             burn_header.block_height,
             &burn_header.parent_block_hash,
-            sortition_tip,
+            sortition_tip_id,
             &self.burnchain,
             &mut self.chain_state_db,
             &self.sortition_db,
