@@ -166,8 +166,6 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     needs:
-      - sampled-genesis
-      - full-genesis
       - dist
       - build-publish
       - build-publish-stretch
@@ -219,8 +217,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - notify-start
-      - sampled-genesis
-      - full-genesis
       - dist
       - build-publish
       - build-publish-stretch

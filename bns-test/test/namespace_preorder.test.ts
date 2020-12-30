@@ -162,7 +162,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
         sender: cases[0].namespaceOwner
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     it("should succeed when Alice pre-orders 'id', 'stx-to-burn' = 9600 (balance ok)", async () => {
@@ -170,7 +170,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
         sender: cases[1].namespaceOwner
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     // Given an existing pre-order for 'blockstack' registered by Alice
@@ -181,7 +181,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
         sender: bob
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
 
       // When Alice submits a pre-order with the same salted hashed namespace
       // should fail if TTL is still valid
@@ -189,7 +189,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
         sender: cases[0].namespaceOwner
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u13');
+      expect(receipt.result).include('u147');
 
       // Let's mine 5 blocks and check
       await mineBlocks(bns, 5);
@@ -199,13 +199,13 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
       expect(receipt.success).eq(false);
       expect(receipt.error).include('1003');
 
-      // Let's mine 6 more blocks and check (TTL = 10 (< 5 + 6))
-      await mineBlocks(bns, 6);
+      // Let's mine 136 more blocks and check (TTL = 144)
+      await mineBlocks(bns, 136);
       receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
         sender: bob
       });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u26'); // 20 blocks simulated initially + 11 blocks simulated + TTL
+      expect(receipt.result).include('u290'); // 20 blocks simulated initially + 11 blocks simulated + TTL
     });
 
   });

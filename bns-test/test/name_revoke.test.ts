@@ -221,7 +221,7 @@ describe("BNS Test Suite - NAME_REVOKE", () => {
           sender: bob
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u24');
+      expect(receipt.result).include('u158');
 
       receipt = await bns.nameRegister(
         cases[0].namespace,
@@ -267,7 +267,7 @@ describe("BNS Test Suite - NAME_REVOKE", () => {
           sender: bob
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u28');
+      expect(receipt.result).include('u162');
 
       receipt = await bns.nameRegister(
         cases[0].namespace,
@@ -326,7 +326,7 @@ describe("BNS Test Suite - NAME_REVOKE", () => {
           sender: alice
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u34');
+      expect(receipt.result).include('u168');
 
       receipt = await bns.nameRegister(
         cases[0].namespace,

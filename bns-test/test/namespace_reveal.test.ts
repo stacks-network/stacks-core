@@ -87,7 +87,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     beforeEach(async () => {
       let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     it("should fail", async () => {
@@ -102,7 +102,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     beforeEach(async () => {
       let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     it("should fail if the sender changed", async () => {
@@ -134,7 +134,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     beforeEach(async () => {
       let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
 
@@ -155,7 +155,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     beforeEach(async () => {
       let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, 96, { sender: bob });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     it("should fail", async () => {
@@ -175,7 +175,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     beforeEach(async () => {
       let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u12');
+      expect(receipt.result).include('u146');
     });
 
     it("should succeed if the price-function, lifetime, namespace and salt are valid", async () => {

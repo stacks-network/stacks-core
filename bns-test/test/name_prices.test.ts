@@ -94,14 +94,13 @@ import {
       await bns.deployContract();
     });
   
-  
     it("Testing name prices", async () => {
         // Given a launched namespace 'blockstack', owned by Alice
         var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
             sender: cases[0].namespaceOwner
         });
         expect(receipt.success).eq(true);
-        expect(receipt.result).include('u12');
+        expect(receipt.result).include('u146');
 
         receipt = await bns.namespaceReveal(
             cases[0].namespace,

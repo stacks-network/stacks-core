@@ -1103,7 +1103,7 @@ impl TrieNode for TrieNode48 {
     }
 
     fn as_trie_node_type(&self) -> TrieNodeType {
-        TrieNodeType::Node48(self.clone())
+        TrieNodeType::Node48(Box::new(self.clone()))
     }
 }
 
@@ -1166,7 +1166,7 @@ impl TrieNode for TrieNode256 {
     }
 
     fn as_trie_node_type(&self) -> TrieNodeType {
-        TrieNodeType::Node256(self.clone())
+        TrieNodeType::Node256(Box::new(self.clone()))
     }
 }
 
@@ -1259,8 +1259,8 @@ impl TrieNode for TrieLeaf {
 pub enum TrieNodeType {
     Node4(TrieNode4),
     Node16(TrieNode16),
-    Node48(TrieNode48),
-    Node256(TrieNode256),
+    Node48(Box<TrieNode48>),
+    Node256(Box<TrieNode256>),
     Leaf(TrieLeaf),
 }
 
@@ -5265,13 +5265,13 @@ mod test {
             .unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node48(node48.clone()), hash.clone());
+        let wres = trie_io.write_nodetype(0, &node48.as_trie_node_type(), hash.clone());
         assert!(wres.is_ok());
 
         let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48 as u8, 0, 0));
 
         assert!(rres.is_ok());
-        assert_eq!(rres.unwrap(), (TrieNodeType::Node48(node48.clone()), hash));
+        assert_eq!(rres.unwrap(), (node48.as_trie_node_type(), hash));
     }
 
     #[test]
@@ -5294,7 +5294,7 @@ mod test {
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
             .unwrap();
 
-        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node256(node256.clone()), hash.clone());
+        let wres = trie_io.write_nodetype(0, &node256.as_trie_node_type(), hash.clone());
         assert!(wres.is_ok());
 
         let root_ptr = trie_io.root_ptr();
@@ -5302,10 +5302,7 @@ mod test {
             trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node256 as u8, 0, root_ptr as u32));
 
         assert!(rres.is_ok());
-        assert_eq!(
-            rres.unwrap(),
-            (TrieNodeType::Node256(node256.clone()), hash)
-        );
+        assert_eq!(rres.unwrap(), (node256.as_trie_node_type(), hash));
     }
 
     #[test]
@@ -5464,7 +5461,8 @@ mod test {
             .unwrap();
 
         let read_child_hashes =
-            Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
+            Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(Box::new(node48)))
+                .unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
@@ -5509,7 +5507,8 @@ mod test {
             .unwrap();
 
         let read_child_hashes =
-            Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();
+            Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(Box::new(node256)))
+                .unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
