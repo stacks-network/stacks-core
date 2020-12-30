@@ -1970,7 +1970,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 60;
+            let mut timeout = 120;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -2137,7 +2137,7 @@ fn atlas_integration_test() {
 
     let target_height = match follower_node_rx.recv() {
         Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
-        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        _ => panic!("Bootstrap node could not boot. Aborting test."),
     };
 
     let mut sort_height = channel.get_sortitions_processed();
