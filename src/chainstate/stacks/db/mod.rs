@@ -887,6 +887,7 @@ impl StacksChainState {
             } else {
                 *boot::STACKS_BOOT_CODE_TESTNET
             };
+            let mut lockup_contract_tx: Option<StacksTransaction> = None;
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
                     "Instantiate boot code contract '{}.{}' ({} bytes)...",
@@ -915,7 +916,12 @@ impl StacksChainState {
                         &boot_code_account,
                     )
                 })?;
-                receipts.push(tx_receipt);
+                
+                if boot_code_name.to_string() == "lockup" {
+                    lockup_contract_tx = Some(boot_code_smart_contract);
+                } else {
+                    receipts.push(tx_receipt);
+                }
 
                 boot_code_account.nonce += 1;
             }
@@ -1207,22 +1213,15 @@ impl StacksChainState {
             );
             receipts.push(allocations_receipt);
 
-            let lockup_tx = StacksTransaction::new(
-                tx_version.clone(),
-                boot_code_auth.clone(),
-                TransactionPayload::ContractCall(TransactionContractCall {
-                    address: boot_code_address,
-                    contract_name: ContractName::try_from("lockup").unwrap(),
-                    function_name: ClarityName::try_from("genesis").unwrap(),
-                    function_args: vec![],
-                }),
-            );
-            let lockup_receipt = StacksTransactionReceipt::from_stx_transfer(
-                lockup_tx,
-                lockup_events,
-                Value::okay_true(),
-                ExecutionCost::zero(),
-            );
+            let lockup_receipt = StacksTransactionReceipt {
+                transaction: lockup_contract_tx.unwrap().into(),
+                events: lockup_events,
+                post_condition_aborted: false,
+                result: Value::okay_true(),
+                stx_burned: 0,
+                contract_analysis: None,
+                execution_cost: ExecutionCost::zero(),
+            };
             receipts.push(lockup_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
