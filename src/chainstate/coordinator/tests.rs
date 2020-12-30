@@ -948,7 +948,7 @@ fn missed_block_commits() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1043,7 +1043,6 @@ fn test_simple_setup() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             // the "blinded" sortition db and the one that's processed all the blocks
             //   should have diverged in sortition_ids now...
@@ -1107,7 +1106,7 @@ fn test_simple_setup() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 
@@ -1353,7 +1352,6 @@ fn test_sortition_with_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             started_first_reward_cycle = true;
             // store the anchor block for this sortition for later checking
@@ -1401,7 +1399,7 @@ fn test_sortition_with_reward_set() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1584,7 +1582,6 @@ fn test_sortition_with_burner_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             started_first_reward_cycle = true;
             // store the anchor block for this sortition for later checking
@@ -1631,7 +1628,7 @@ fn test_sortition_with_burner_reward_set() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -1835,7 +1832,6 @@ fn test_pox_btc_ops() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
@@ -1891,7 +1887,7 @@ fn test_pox_btc_ops() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -2132,7 +2128,6 @@ fn test_stx_transfer_btc_ops() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
@@ -2188,7 +2183,7 @@ fn test_stx_transfer_btc_ops() {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11111111111",
+                   "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
@@ -2616,7 +2611,6 @@ fn test_sortition_with_sunset() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
@@ -2786,7 +2780,6 @@ fn test_pox_processable_block_in_different_pox_forks() {
         let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
             new_burnchain_tip.block_height,
         ) {
             eprintln!(
@@ -3031,7 +3024,6 @@ fn test_pox_no_anchor_selected() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
             new_burnchain_tip.block_height,
-            new_burnchain_tip.block_height,
         ) {
             eprintln!(
                 "Reward cycle start at height={}",
@@ -3236,7 +3228,6 @@ fn test_pox_fork_out_of_order() {
         let b = get_burnchain(path, None);
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(
-            new_burnchain_tip.block_height,
             new_burnchain_tip.block_height,
         ) {
             eprintln!(

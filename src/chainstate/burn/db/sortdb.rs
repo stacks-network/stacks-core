@@ -1769,16 +1769,8 @@ impl<'a> SortitionHandleConn<'a> {
             return Err(CoordinatorError::NotPrepareEndBlock);
         }
 
-        if effective_height == 0 {
-            debug!(
-                "effective_height = {}, reward cycle length == {}",
-                effective_height, pox_consts.reward_cycle_length
-            );
-            return Err(CoordinatorError::NotPrepareEndBlock);
-        }
-
         let prepare_end = block_height;
-        let prepare_begin = prepare_end - pox_consts.prepare_length;
+        let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
         let mut candidate_anchors = HashMap::new();
         let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();

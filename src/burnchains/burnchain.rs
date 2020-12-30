@@ -468,15 +468,10 @@ impl Burnchain {
             .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
-    pub fn is_reward_cycle_start(&self, burn_height: u64, num_sortitions: u64) -> bool {
-        if num_sortitions == 0 {
-            // not a reward cycle start if we're the first stacks block.
-            false
-        } else {
-            let effective_height = burn_height - self.first_block_height;
-            // first block of the new reward cycle
-            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
-        }
+    pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
+        let effective_height = burn_height - self.first_block_height;
+        // first block of the new reward cycle
+        (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
     }
 
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
