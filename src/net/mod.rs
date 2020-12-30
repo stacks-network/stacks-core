@@ -3064,7 +3064,17 @@ pub mod test {
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
-                        Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
+                        Some(info) => {
+                            let mut recipients = info
+                                .recipients
+                                .into_iter()
+                                .map(|x| x.0)
+                                .collect::<Vec<StacksAddress>>();
+                            if recipients.len() == 1 {
+                                recipients.push(StacksAddress::burn_address(false));
+                            }
+                            recipients
+                        }
                         None => vec![],
                     };
                     test_debug!(

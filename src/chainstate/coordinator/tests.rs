@@ -462,11 +462,15 @@ fn make_genesis_block_with_recipients(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients
+        let mut commit_outs = recipients
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect()
+            .collect::<Vec<StacksAddress>>();
+        if commit_outs.len() == 1 {
+            commit_outs.push(StacksAddress::burn_address(false))
+        }
+        commit_outs
     } else {
         vec![]
     };
@@ -654,11 +658,16 @@ fn make_stacks_block_with_input(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients
+        let mut commit_outs = recipients
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect()
+            .collect::<Vec<StacksAddress>>();
+        if commit_outs.len() == 1 {
+            // Padding with burn address if required
+            commit_outs.push(StacksAddress::burn_address(false))
+        }
+        commit_outs
     } else if post_sunset_burn {
         vec![StacksAddress::burn_address(false)]
     } else {
