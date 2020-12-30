@@ -406,7 +406,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             ic.get_chosen_pox_anchor(
                 &parent_bhh,
                 &burnchain.pox_constants,
-                burnchain.first_block_height,
             )
         }?;
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {

@@ -1748,7 +1748,6 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
-        first_block_height: u64,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
@@ -1760,7 +1759,7 @@ impl<'a> SortitionHandleConn<'a> {
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
         // if this block is the _end_ of a prepare phase,
-        let effective_height = block_height - first_block_height as u32;
+        let effective_height = block_height - self.context.first_block_height as u32;
         let position_in_cycle = effective_height % pox_consts.reward_cycle_length;
         if position_in_cycle != 0 {
             debug!(
