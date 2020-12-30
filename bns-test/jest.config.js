@@ -11,6 +11,7 @@ module.exports = {
     },
   },
   moduleFileExtensions: ['js', 'ts', 'd.ts'],
+  testTimeout: 2000000
   // setupFiles: ['./tests/global-setup.ts'],
   // setupFilesAfterEnv: ['./tests/setup.ts'],
 };

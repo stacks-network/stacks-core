@@ -16,7 +16,7 @@
     "lint": "tslint -p tsconfig.json 'src/**/*.ts' 'test/**/*.ts'",
     "lint-fix": "tslint --fix -p tsconfig.json 'src/**/*.ts' 'test/**/*.ts'",
     "test": "jest",
-    "test:watch": "jest --watch --coverage=false --runInBand"
+    "test:watch": "jest --watch --coverage=false"
   },
   "engines": {
     "node": ">=10"

@@ -112,7 +112,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
       sender: cases[1].namespaceOwner
     });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u33');
+    expect(receipt.result).include('u167');
 
     receipt = await bns.namespaceReveal(
       cases[1].namespace,
@@ -132,7 +132,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
       100, {
         sender: bob
       });
-    expect(receipt.result).include('u35');
+    expect(receipt.result).include('u169');
     expect(receipt.success).eq(true);
 
     receipt = await bns.nameRegister(
@@ -152,7 +152,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
       sender: cases[0].namespaceOwner
     });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u37');
+    expect(receipt.result).include('u171');
 
     receipt = await bns.namespaceReveal(
       cases[0].namespace,
@@ -194,7 +194,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: bob
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u42');
+    expect(receipt.result).include('u176');
 
     // should fail
     receipt = await bns.nameRegister(
@@ -216,7 +216,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u44');
+    expect(receipt.result).include('u178');
 
     // Bob registering the name 'Bob.blockstack' should fail
     receipt = await bns.nameRegister(
@@ -238,7 +238,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u46');
+    expect(receipt.result).include('u180');
 
     // Bob registering the name 'bob.blockstack'
     // should succeed
@@ -282,7 +282,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: charlie
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u50');
+    expect(receipt.result).include('u184');
 
     receipt = await bns.nameRegister(
       cases[0].namespace,
@@ -309,7 +309,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u53');
+    expect(receipt.result).include('u187');
 
     receipt = await bns.nameRegister(
       cases[0].namespace,
@@ -323,7 +323,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
 
 
     // should succeed once 'bob.blockstack' is expired
-    await mineBlocks(bns, cases[0].renewalRule);
+    await mineBlocks(bns, cases[0].renewalRule + 5000);
 
     receipt = await bns.namePreorder(
       cases[0].namespace,
@@ -333,7 +333,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u65');
+    expect(receipt.result).include('u5199');
 
     receipt = await bns.getNameZonefile(
       cases[0].namespace,
@@ -370,7 +370,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
         sender: charlie
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u69');
+    expect(receipt.result).include('u5203');
 
     receipt = await bns.nameRegister(
       cases[0].namespace,

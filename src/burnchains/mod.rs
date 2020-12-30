@@ -102,6 +102,7 @@ pub struct BurnchainParameters {
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
+    pub initial_reward_start_block: u64,
 }
 
 impl BurnchainParameters {
@@ -125,6 +126,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK,
         }
     }
 
@@ -139,6 +141,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT - 10_000,
         }
     }
 
@@ -153,6 +156,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
         }
     }
 
@@ -304,6 +308,7 @@ pub struct Burnchain {
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
+    pub initial_reward_start_block: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

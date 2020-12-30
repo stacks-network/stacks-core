@@ -108,7 +108,7 @@ export class BNSClient extends Client {
   }
 
   // (name-import (namespace (buff 20))
-  //              (name (buff 16))
+  //              (name (buff 48))
   //              (zonefile-hash (buff 20)))
   async nameImport(namespace: string,
     name: string,
@@ -168,7 +168,7 @@ export class BNSClient extends Client {
   }
 
   // (name-register (namespace (buff 20))
-  //                (name (buff 16))
+  //                (name (buff 48))
   //                (salt (buff 20))
   //                (zonefile-hash (buff 20)))
   async nameRegister(namespace: string,
@@ -190,7 +190,7 @@ export class BNSClient extends Client {
   }
 
   // (name-update (namespace (buff 20))
-  //              (name (buff 16))
+  //              (name (buff 48))
   //              (zonefile-hash (buff 20)))
   async nameUpdate(namespace: string,
     name: string,
@@ -210,7 +210,7 @@ export class BNSClient extends Client {
   }
 
   // (name-transfer (namespace (buff 20))
-  //                (name (buff 16))
+  //                (name (buff 48))
   //                (new-owner principal)
   //                (zonefile-hash (optional (buff 20))))
   async nameTransfer(namespace: string,
@@ -235,7 +235,7 @@ export class BNSClient extends Client {
   }
 
   // (name-revoke (namespace (buff 20))
-  //              (name (buff 16)))
+  //              (name (buff 48)))
   async nameRevoke(namespace: string,
     name: string,
     params: {
@@ -253,7 +253,7 @@ export class BNSClient extends Client {
   }
 
   // (name-renewal (namespace (buff 20))
-  //               (name (buff 16))
+  //               (name (buff 48))
   //               (stx-to-burn uint)
   //               (new-owner (optional principal))
   //               (zonefile-hash (optional (buff 20))))
@@ -281,7 +281,7 @@ export class BNSClient extends Client {
   }
 
   // (get-name-zonefile (namespace (buff 20))
-  //                    (name (buff 16)))
+  //                    (name (buff 48)))
   async getNameZonefile(namespace: string,
     name: string,
     params: {
@@ -299,7 +299,7 @@ export class BNSClient extends Client {
   }
 
   // (can-name-be-registered (namespace (buff 20))
-  //                         (name (buff 16))
+  //                         (name (buff 48))
   async canNameBeRegistered(namespace: string,
     name: string): Promise<Receipt> {
     const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`];
@@ -315,7 +315,7 @@ export class BNSClient extends Client {
   }
 
   // (get-name-price (namespace (buff 20))
-  //                      (name (buff 16))
+  //                      (name (buff 48))
   async getNamePrice(namespace: string,
     name: string): Promise<Receipt> {
     const args = [`0x${this.toHexString(namespace)}`, `0x${this.toHexString(name)}`];

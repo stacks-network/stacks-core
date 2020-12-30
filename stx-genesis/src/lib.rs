@@ -21,20 +21,20 @@ pub struct GenesisAccountLockup {
 
 pub struct GenesisNamespace {
     pub namespace_id: String,
-    pub address: String,
+    pub importer: String,
     pub reveal_block: i64,
     pub ready_block: i64,
     pub buckets: String,
-    pub base: String,
-    pub coeff: String,
-    pub nonalpha_discount: String,
-    pub no_vowel_discount: String,
-    pub lifetime: String,
+    pub base: i64,
+    pub coeff: i64,
+    pub nonalpha_discount: i64,
+    pub no_vowel_discount: i64,
+    pub lifetime: i64,
 }
 
 pub struct GenesisName {
-    pub name: String,
-    pub address: String,
+    pub fully_qualified_name: String,
+    pub owner: String,
     pub registered_at: i64,
     pub expire_block: i64,
     pub zonefile_hash: String,
@@ -114,23 +114,23 @@ fn read_lockups(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Genesis
 fn read_namespaces(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisNamespace>> {
     let namespaces = iter_deflated_csv(deflate_bytes).map(|cols| GenesisNamespace {
         namespace_id: cols[0].to_string(),
-        address: cols[1].to_string(),
+        importer: cols[1].to_string(),
         reveal_block: cols[2].parse::<i64>().unwrap(),
         ready_block: cols[3].parse::<i64>().unwrap(),
         buckets: cols[4].to_string(),
-        base: cols[5].to_string(),
-        coeff: cols[6].to_string(),
-        nonalpha_discount: cols[7].to_string(),
-        no_vowel_discount: cols[8].to_string(),
-        lifetime: cols[9].to_string(),
+        base: cols[5].parse::<i64>().unwrap(),
+        coeff: cols[6].parse::<i64>().unwrap(),
+        nonalpha_discount: cols[7].parse::<i64>().unwrap(),
+        no_vowel_discount: cols[8].parse::<i64>().unwrap(),
+        lifetime: cols[9].parse::<i64>().unwrap(),
     });
     return Box::new(namespaces);
 }
 
 fn read_names(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisName>> {
     let names = iter_deflated_csv(deflate_bytes).map(|cols| GenesisName {
-        name: cols[0].to_string(),
-        address: cols[1].to_string(),
+        fully_qualified_name: cols[0].to_string(),
+        owner: cols[1].to_string(),
         registered_at: cols[2].parse::<i64>().unwrap(),
         expire_block: cols[3].parse::<i64>().unwrap(),
         zonefile_hash: cols[4].to_string(),

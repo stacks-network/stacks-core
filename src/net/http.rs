@@ -35,7 +35,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
     StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
 };
-use net::atlas::{Attachment, BNS_NAME_REGEX};
+use net::atlas::Attachment;
 use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
@@ -61,9 +61,9 @@ use net::UnconfirmedTransactionStatus;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use net::{MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
 
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -2041,6 +2041,14 @@ impl HttpRequestType {
             ));
         }
 
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: PostTransaction body is too big".to_string(),
+            ));
+        }
+
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+
         match preamble.content_type {
             None => {
                 return Err(net_error::DeserializeError(
@@ -2048,10 +2056,10 @@ impl HttpRequestType {
                 ));
             }
             Some(HttpContentType::Bytes) => {
-                HttpRequestType::parse_posttransaction_octets(preamble, fd)
+                HttpRequestType::parse_posttransaction_octets(preamble, &mut bound_fd)
             }
             Some(HttpContentType::JSON) => {
-                HttpRequestType::parse_posttransaction_json(preamble, fd)
+                HttpRequestType::parse_posttransaction_json(preamble, &mut bound_fd)
             }
             _ => {
                 return Err(net_error::DeserializeError(

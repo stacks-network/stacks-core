@@ -98,6 +98,9 @@ impl AttachmentsDownloader {
                         .resolve_attachment(&attachment.hash())
                 }
 
+                // Every once in a while, we delete uninstantiated attachments
+                network.atlasdb.evict_expired_uninstantiated_attachments()?;
+
                 // Update reliability reports
                 for (peer_url, report) in context.peers.drain() {
                     self.reliability_reports.insert(peer_url, report);
@@ -133,7 +136,7 @@ impl AttachmentsDownloader {
             if attachment_instance.content_hash == Hash160::empty() {
                 // todo(ludo) insert or update ?
                 atlasdb
-                    .insert_new_attachment_instance(&attachment_instance, true)
+                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
                 resolved_attachments.push(attachment_instance);
@@ -141,11 +144,9 @@ impl AttachmentsDownloader {
             }
 
             // Do we already have a matching validated attachment
-            if let Ok(Some(_entry)) =
-                atlasdb.find_instantiated_attachment(&attachment_instance.content_hash)
-            {
+            if let Ok(Some(_entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
                 atlasdb
-                    .insert_new_attachment_instance(&attachment_instance, true)
+                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
@@ -156,13 +157,13 @@ impl AttachmentsDownloader {
 
             // Do we already have a matching inboxed attachment
             if let Ok(Some(attachment)) =
-                atlasdb.find_new_attachment(&attachment_instance.content_hash)
+                atlasdb.find_uninstantiated_attachment(&attachment_instance.content_hash)
             {
                 atlasdb
                     .insert_instantiated_attachment(&attachment)
                     .map_err(|e| net_error::DBError(e))?;
                 atlasdb
-                    .insert_new_attachment_instance(&attachment_instance, true)
+                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
                 resolved_attachments.push(attachment_instance);
@@ -173,7 +174,7 @@ impl AttachmentsDownloader {
             // Let's append it to the batch being constructed in this routine.
             attachments_batch.track_attachment(&attachment_instance);
             atlasdb
-                .insert_new_attachment_instance(&attachment_instance, false)
+                .insert_uninstantiated_attachment_instance(&attachment_instance, false)
                 .map_err(|e| net_error::DBError(e))?;
         }
 
