@@ -1003,12 +1003,7 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(
-                                    &lockup_contract_id,
-                                    "lockups",
-                                    key,
-                                    value,
-                                )?;
+                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
                             }
                             Ok(())
                         })
