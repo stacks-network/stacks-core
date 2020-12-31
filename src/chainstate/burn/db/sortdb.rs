@@ -1798,6 +1798,11 @@ impl<'a> SortitionHandleConn<'a> {
                     let block_commit = self.get_block_commit_by_txid(&cursor.0)?.expect(
                         "CORRUPTED: Failed to fetch block commit for known sortition winner",
                     );
+                    // is this a height=1 block?
+                    if block_commit.is_parent_genesis() {
+                        break;
+                    }
+
                     // find the parent sortition
                     let sn = SortitionDB::get_ancestor_snapshot(
                         self,
