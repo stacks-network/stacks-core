@@ -1788,6 +1788,7 @@ impl<'a> SortitionHandleConn<'a> {
         let winners = self.get_sortition_winners_in_fork(prepare_begin, prepare_end)?;
         for (winner_commit_txid, winner_block_height) in winners.into_iter() {
             let mut cursor = (winner_commit_txid, winner_block_height);
+            let mut found_ancestor = true;
 
             while cursor.1 > (prepare_begin as u64) {
                 // check if we've already discovered the candidate for this block
@@ -1798,6 +1799,15 @@ impl<'a> SortitionHandleConn<'a> {
                     let block_commit = self.get_block_commit_by_txid(&cursor.0)?.expect(
                         "CORRUPTED: Failed to fetch block commit for known sortition winner",
                     );
+                    // is this a height=1 block?
+                    if block_commit.is_parent_genesis() {
+                        debug!("First parent before prepare phase for block winner is the genesis block, dropping block's PoX anchor vote";
+                               "winner_txid" => %&cursor.0,
+                               "burn_block_height" => cursor.1);
+                        found_ancestor = false;
+                        break;
+                    }
+
                     // find the parent sortition
                     let sn = SortitionDB::get_ancestor_snapshot(
                         self,
@@ -1811,6 +1821,9 @@ impl<'a> SortitionHandleConn<'a> {
 
                     cursor = (sn.winning_block_txid, sn.block_height);
                 }
+            }
+            if !found_ancestor {
+                continue;
             }
             // this is the burn block height of the sortition that chose the
             //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
