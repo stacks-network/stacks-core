@@ -173,6 +173,7 @@ mod test_observer {
     }
 
     pub fn spawn() {
+        clear();
         thread::spawn(|| {
             let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
@@ -330,26 +331,24 @@ fn bitcoind_integration_test() {
 
     eprintln!("Miner account: {}", miner_account);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     channel.stop_chains_coordinator();
 }
 
-fn get_balance<F: std::fmt::Display>(
-    client: &reqwest::blocking::Client,
-    http_origin: &str,
-    account: &F,
-) -> u128 {
+fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
+    get_account(http_origin, account).balance
+}
+
+struct Account {
+    balance: u128,
+    nonce: u64,
+}
+
+fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+    let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client
         .get(&path)
@@ -357,8 +356,11 @@ fn get_balance<F: std::fmt::Display>(
         .unwrap()
         .json::<AccountEntryResponse>()
         .unwrap();
-    eprintln!("Response: {:#?}", res);
-    u128::from_str_radix(&res.balance[2..], 16).unwrap()
+    info!("Account response: {:#?}", res);
+    Account {
+        balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+        nonce: res.nonce,
+    }
 }
 
 #[test]
@@ -557,7 +559,7 @@ fn stx_transfer_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the spender's account:
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -608,15 +610,15 @@ fn stx_transfer_btc_integration_test() {
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 0);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
 
     // this block should process the transfer
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // now let's do a pre-stx-op and a transfer op in the same burnchain block...
     // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
@@ -675,16 +677,16 @@ fn stx_transfer_btc_integration_test() {
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // should process the transfer
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 200_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
 
     channel.stop_chains_coordinator();
 }
@@ -713,7 +715,6 @@ fn bitcoind_forking_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -740,17 +741,9 @@ fn bitcoind_forking_test() {
 
     eprintln!("Miner account: {}", miner_account);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 7);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 7);
 
     // okay, let's figure out the burn block we want to fork away.
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
@@ -760,35 +753,16 @@ fn bitcoind_forking_test() {
     thread::sleep(Duration::from_secs(5));
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    // the fork reduced our block height
-    assert_eq!(res.nonce, 2);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 2);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
     // but we're able to keep on mining
-    assert_eq!(res.nonce, 3);
+    assert_eq!(account.nonce, 3);
 
     channel.stop_chains_coordinator();
 }
@@ -855,52 +829,20 @@ fn microblock_integration_test() {
 
     // let's query the miner's account nonce:
 
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    info!("Miner account: {}", miner_account);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     // and our spender
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100300);
-    assert_eq!(res.nonce, 0);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, 100300);
+    assert_eq!(account.nonce, 0);
 
     // okay, let's push a transaction that is marked microblock only!
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
-
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res: String = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-
-    assert_eq!(
-        res,
-        StacksTransaction::consensus_deserialize(&mut &tx[..])
-            .unwrap()
-            .txid()
-            .to_string()
-    );
+    submit_tx(&http_origin, &tx);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
@@ -913,14 +855,9 @@ fn microblock_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // microblock must have bumped our nonce
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(res.nonce, 1);
+    // and our spender
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 1);
 
     // push another transaction that is marked microblock only
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
@@ -977,16 +914,9 @@ fn microblock_integration_test() {
 
     eprintln!("\n\nBegin testing\nmicroblock: {:?}\n\n", &microblock);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    assert_eq!(res.nonce, 1);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 98300);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 98300);
 
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client
@@ -1227,10 +1157,6 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .build()
-        .unwrap();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -1249,60 +1175,20 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
-
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
-
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
     // and our potential spenders:
 
     for spender_addr in spender_addrs.iter() {
-        let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-        let res = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<AccountEntryResponse>()
-            .unwrap();
-        assert_eq!(
-            u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-            1049230
-        );
-        assert_eq!(res.nonce, 0);
+        let account = get_account(&http_origin, &spender_addr);
+        assert_eq!(account.nonce, 0);
+        assert_eq!(account.balance, 1049230);
     }
 
     for tx in txs.iter() {
         // okay, let's push a bunch of transactions that can only fit one per block!
-        let path = format!("{}/v2/transactions", &http_origin);
-        let res = client
-            .post(&path)
-            .header("Content-Type", "application/octet-stream")
-            .body(tx.clone())
-            .send()
-            .unwrap();
-        eprintln!("{:#?}", res);
-        if res.status().is_success() {
-            let res: String = res.json().unwrap();
-            assert_eq!(
-                res,
-                StacksTransaction::consensus_deserialize(&mut &tx[..])
-                    .unwrap()
-                    .txid()
-                    .to_string()
-            );
-        } else {
-            eprintln!("{}", res.text().unwrap());
-            panic!("");
-        }
+        submit_tx(&http_origin, tx);
     }
 
     sleep_ms(60_000);
@@ -1326,13 +1212,7 @@ fn size_check_integration_test() {
     let mut micro_block_txs = 0;
     let mut anchor_block_txs = 0;
     for (ix, spender_addr) in spender_addrs.iter().enumerate() {
-        let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-        let res = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<AccountEntryResponse>()
-            .unwrap();
+        let res = get_account(&http_origin, &spender_addr);
         if res.nonce == 1 {
             if ix % 2 == 0 {
                 anchor_block_txs += 1;
@@ -1473,34 +1353,14 @@ fn pox_integration_test() {
     let sort_height = channel.get_sortitions_processed();
 
     // let's query the miner's account nonce:
-
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     // and our potential spenders:
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(
-        u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-        first_bal as u128
-    );
-    assert_eq!(res.nonce, 0);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, first_bal as u128);
+    assert_eq!(account.nonce, 0);
 
     let tx = make_contract_call(
         &spender_sk,
