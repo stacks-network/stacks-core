@@ -298,14 +298,13 @@ fn mine_one_microblock(
             match StacksMicroblockBuilder::resume_unconfirmed(chainstate, &ic) {
                 Ok(x) => x,
                 Err(e) => {
-                    let msg = format!(
+                    error!(
                         "Failed to create a microblock miner at chaintip {}/{}: {:?}",
                         &microblock_state.parent_consensus_hash,
                         &microblock_state.parent_block_hash,
                         &e
                     );
-                    error!("{}", msg);
-                    return Err(NetError::ChainstateError(msg));
+                    return Err(NetError::MicroblockMinerCreation(e));
                 }
             };
 
@@ -313,16 +312,10 @@ fn mine_one_microblock(
 
         info!("Minted microblock with {} transactions", mblock.txs.len());
 
-        Ok(mblock)
+        mblock
     };
 
-    let mined_microblock = match mint_result {
-        Ok(mined_microblock) => mined_microblock,
-        Err(e) => {
-            warn!("Failed to mine microblock: {}", e);
-            return Err(e);
-        }
-    };
+    let mined_microblock = mint_result;
 
     // preprocess the microblock locally
     chainstate
@@ -337,7 +330,7 @@ fn mine_one_microblock(
                 mined_microblock.header.block_hash(),
                 e
             );
-            NetError::ChainstateError(format!("{:?}", &e))
+            NetError::ChainstateError(e)
         })?;
 
     microblock_state.quantity += 1;
@@ -419,15 +412,10 @@ fn try_mine_microblock(
                                 // will need to relay this
                                 next_microblock = Some(microblock);
                             }
-                            Err(NetError::ChainstateError(err_str)) => {
-                                if err_str.contains("NoTransactionsToMine") {
-                                    trace!("Failed to mine microblock because there are no transactions to mine");
-                                } else {
-                                    warn!(
-                                        "Failed to mine one microblock: {:?}",
-                                        &NetError::ChainstateError(err_str)
-                                    );
-                                }
+                            Err(NetError::ChainstateError(
+                                ChainstateError::NoTransactionsToMine,
+                            )) => {
+                                trace!("Failed to mine microblock because there are no transactions to mine");
                             }
                             Err(e) => {
                                 warn!("Failed to mine one microblock: {:?}", &e);
@@ -476,8 +464,7 @@ fn spawn_peer(
         config.burnchain.chain_id,
         &stacks_chainstate_path,
         block_limit,
-    )
-    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    )?;
 
     let mut mem_pool = MemPoolDB::open(
         is_mainnet,
@@ -669,8 +656,7 @@ fn spawn_miner_relayer(
         chain_id,
         &stacks_chainstate_path,
         config.block_limit.clone(),
-    )
-    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    )?;
 
     let mut mem_pool = MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;

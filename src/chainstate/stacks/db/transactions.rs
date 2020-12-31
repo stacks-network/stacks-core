@@ -359,7 +359,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
     ) -> Result<(), Error> {
         // valid auth?
-        tx.verify().map_err(Error::NetError)?;
+        tx.verify()?;
 
         // destined for us?
         if config.chain_id != tx.chain_id {

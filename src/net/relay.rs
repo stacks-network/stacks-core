@@ -39,6 +39,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 

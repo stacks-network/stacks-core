@@ -648,7 +648,7 @@ impl StacksChainState {
             })?;
 
         let mut bound_reader = BoundReader::from_reader(&mut fd, MAX_MESSAGE_LEN as u64);
-        let inst = T::consensus_deserialize(&mut bound_reader).map_err(Error::NetError)?;
+        let inst = T::consensus_deserialize(&mut bound_reader)?;
         Ok(inst)
     }
 
@@ -711,7 +711,7 @@ impl StacksChainState {
             &block_path
         );
         StacksChainState::atomic_file_store(&block_path, true, |ref mut fd| {
-            block.consensus_serialize(fd).map_err(Error::NetError)
+            block.consensus_serialize(fd).map_err(Error::from)
         })
     }
 
@@ -1617,9 +1617,7 @@ impl StacksChainState {
         );
 
         let mut microblock_bytes = vec![];
-        microblock
-            .consensus_serialize(&mut microblock_bytes)
-            .map_err(Error::NetError)?;
+        microblock.consensus_serialize(&mut microblock_bytes)?;
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(
             parent_consensus_hash,
@@ -4566,10 +4564,8 @@ impl StacksChainState {
 
     /// Extract and parse the block from a loaded staging block, and verify its integrity.
     fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
-        let block = {
-            StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
-                .map_err(Error::NetError)?
-        };
+        let block =
+            { StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])? };
 
         let block_hash = block.block_hash();
         if block_hash != next_staging_block.anchored_block_hash {
@@ -4969,10 +4965,15 @@ impl StacksChainState {
                     warn!("Encountered invalid microblock {}: {}", hash, &msg);
                     continue;
                 }
-                Err(Error::NetError(net_error::DeserializeError(msg))) => {
-                    // happens if we load a zero-sized block (i.e. an invalid block)
-                    warn!("Encountered invalid block: {}", &msg);
-                    continue;
+                Err(Error::NetError(net_err)) => {
+                    if let net_error::DeserializeError(msg) = *net_err {
+                        // happens if we load a zero-sized block (i.e. an invalid block)
+                        warn!("Encountered invalid block: {}", &msg);
+                        continue;
+                    } else {
+                        error!("Unrecoverable error when processing blocks: {:?}", &net_err);
+                        return Err(Error::NetError(net_err));
+                    }
                 }
                 Err(e) => {
                     error!("Unrecoverable error when processing blocks: {:?}", &e);

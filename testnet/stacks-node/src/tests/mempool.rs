@@ -246,11 +246,12 @@ fn mempool_setup_chainstate() {
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(
-                    if let MemPoolRejection::FailedToValidate(ChainstateError::NetError(
-                        NetError::VerifyingError(_),
-                    )) = e
-                    {
-                        true
+                    if let MemPoolRejection::FailedToValidate(ChainstateError::NetError(e)) = e {
+                        if let NetError::VerifyingError(_) = *e {
+                            true
+                        } else {
+                            false
+                        }
                     } else {
                         false
                     }

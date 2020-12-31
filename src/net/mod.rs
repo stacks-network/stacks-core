@@ -79,8 +79,6 @@ use chainstate::stacks::{
     StacksPublicKey, StacksTransaction,
 };
 
-use chainstate::stacks::Error as chainstate_error;
-
 use vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
     ContractName, Value,
@@ -210,7 +208,9 @@ pub enum Error {
     /// Clarity VM error, percolated up from chainstate
     ClarityError(clarity_error),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
-    ChainstateError(String),
+    ChainstateError(chain_error),
+    /// Microblock miner creation failure
+    MicroblockMinerCreation(chain_error),
     /// Catch-all for errors that a client should receive more information about
     ClientError(ClientError),
     /// Coordinator hung up
@@ -295,7 +295,10 @@ impl fmt::Display for Error {
             Error::NoDataUrl => write!(f, "No data URL available"),
             Error::PeerThrottled => write!(f, "Peer is transmitting too fast"),
             Error::LookupError(ref s) => fmt::Display::fmt(s, f),
-            Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
+            Error::ChainstateError(ref s) => write!(f, "Chainstate error: {}", s),
+            Error::MicroblockMinerCreation(ref s) => {
+                write!(f, "Failed to create microblock miner: {}", s)
+            }
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
@@ -357,6 +360,7 @@ impl error::Error for Error {
             Error::ClientError(ref e) => Some(e),
             Error::ClarityError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
+            Error::MicroblockMinerCreation(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
             Error::ConnectionCycle => None,
@@ -368,25 +372,13 @@ impl error::Error for Error {
 impl From<chain_error> for Error {
     fn from(e: chain_error) -> Error {
         match e {
-            chain_error::InvalidStacksBlock(s) => {
-                Error::ChainstateError(format!("Invalid stacks block: {}", s))
-            }
-            chain_error::InvalidStacksMicroblock(msg, hash) => {
-                Error::ChainstateError(format!("Invalid stacks microblock {:?}: {}", hash, msg))
-            }
-            chain_error::InvalidStacksTransaction(s, _) => {
-                Error::ChainstateError(format!("Invalid stacks transaction: {}", s))
-            }
-            chain_error::PostConditionFailed(s) => {
-                Error::ChainstateError(format!("Postcondition failed: {}", s))
-            }
             chain_error::ClarityError(e) => Error::ClarityError(e),
             chain_error::DBError(e) => Error::DBError(e),
-            chain_error::NetError(e) => e,
+            chain_error::NetError(e) => *e,
             chain_error::MARFError(e) => Error::MARFError(e),
             chain_error::ReadError(e) => Error::ReadError(e),
             chain_error::WriteError(e) => Error::WriteError(e),
-            _ => Error::ChainstateError(format!("Stacks chainstate error: {:?}", &e)),
+            e => Error::ChainstateError(e),
         }
     }
 }

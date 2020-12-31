@@ -165,7 +165,7 @@ pub enum Error {
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
     ClarityError(clarity_error),
     DBError(db_error),
-    NetError(net_error),
+    NetError(Box<net_error>),
     MARFError(marf_error),
     ReadError(io::Error),
     WriteError(io::Error),
@@ -189,7 +189,7 @@ impl From<clarity_error> for Error {
 
 impl From<net_error> for Error {
     fn from(e: net_error) -> Error {
-        Error::NetError(e)
+        Error::NetError(Box::new(e))
     }
 }
 

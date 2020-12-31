@@ -867,7 +867,7 @@ impl StacksTransactionSigner {
         }
         let mut new_tx = tx.clone();
         new_tx.auth.set_sponsor(spending_condition)?;
-        let origin_sighash = new_tx.verify_origin().map_err(Error::NetError)?;
+        let origin_sighash = new_tx.verify_origin()?;
 
         Ok(StacksTransactionSigner {
             tx: new_tx,
