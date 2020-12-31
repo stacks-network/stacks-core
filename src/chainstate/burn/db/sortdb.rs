@@ -1822,6 +1822,9 @@ impl<'a> SortitionHandleConn<'a> {
                     cursor = (sn.winning_block_txid, sn.block_height);
                 }
             }
+            if !found_ancestor {
+                continue;
+            }
             // this is the burn block height of the sortition that chose the
             //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
             //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
