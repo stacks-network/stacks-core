@@ -37,6 +37,8 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
+// sliding burnchain window over which a miner's past block-commit payouts will be used to weight
+// its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
 /// The number of blocks which will share the block bonus
@@ -56,6 +58,7 @@ pub const BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT: u64 = 661389;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP: u32 = 1607986994;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
     "0000000000000000000351332d33cb67e4baa9bbe7808dc7c46517eb0b396e4b";
+pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
 
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1894315;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1606093490;

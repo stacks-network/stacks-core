@@ -102,6 +102,7 @@ pub struct BurnchainParameters {
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
+    pub initial_reward_start_block: u64,
 }
 
 impl BurnchainParameters {
@@ -125,6 +126,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK,
         }
     }
 
@@ -139,6 +141,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT - 10_000,
         }
     }
 
@@ -153,6 +156,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
         }
     }
 
@@ -304,6 +308,7 @@ pub struct Burnchain {
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
+    pub initial_reward_start_block: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -387,14 +392,26 @@ impl PoxConstants {
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            150, // 120 reward slots; 30 prepare-phase slots
-            30,
-            20,
+            50, // 40 reward slots; 10 prepare-phase slots
+            10,
+            6,
             3333333333333333,
-            5,
+            1,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         ) // total liquid supply is 40000000000000000 µSTX
+    }
+
+    pub fn regtest_default() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            1,
+            1,
+            3333333333333333,
+            1,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+        )
     }
 }
 

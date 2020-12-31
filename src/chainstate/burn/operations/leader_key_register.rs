@@ -109,7 +109,7 @@ impl LeaderKeyRegisterOp {
             0      2  3              23                       55                          80
             |------|--|---------------|-----------------------|---------------------------|
              magic  op consensus hash   proving public key               memo
-
+                       (ignored)                                       (ignored)
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
@@ -205,6 +205,7 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
         0      2  3              23                       55                          80
         |------|--|---------------|-----------------------|---------------------------|
          magic  op consensus hash    proving public key               memo
+                   (ignored)                                       (ignored)
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
@@ -234,7 +235,11 @@ impl LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
+    pub fn check(
+        &self,
+        _burnchain: &Burnchain,
+        tx: &mut SortitionHandleTx,
+    ) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
@@ -248,23 +253,6 @@ impl LeaderKeyRegisterOp {
                 &self.public_key.to_hex()
             );
             return Err(op_error::LeaderKeyAlreadyRegistered);
-        }
-
-        /////////////////////////////////////////////////////////////////
-        // Consensus hash must be recent and valid
-        /////////////////////////////////////////////////////////////////
-
-        let consensus_hash_recent = tx.is_fresh_consensus_hash(
-            burnchain.consensus_hash_lifetime.into(),
-            &self.consensus_hash,
-        )?;
-
-        if !consensus_hash_recent {
-            warn!(
-                "Invalid leader key registration: invalid consensus hash {}",
-                &self.consensus_hash
-            );
-            return Err(op_error::LeaderKeyBadConsensusHash);
         }
 
         Ok(())
@@ -511,7 +499,8 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
             first_block_timestamp: 0,
         };
@@ -691,43 +680,6 @@ pub mod tests {
                     burn_header_hash: block_123_hash.clone(),
                 },
                 res: Err(op_error::LeaderKeyAlreadyRegistered),
-            },
-            CheckFixture {
-                // reject -- invalid consensus hash
-                op: LeaderKeyRegisterOp {
-                    consensus_hash: ConsensusHash::from_bytes(
-                        &hex_bytes("1000000000000000000000000000000000000000").unwrap(),
-                    )
-                    .unwrap(),
-                    public_key: VRFPublicKey::from_bytes(
-                        &hex_bytes(
-                            "bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c",
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap(),
-                    memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(
-                        &BitcoinAddress::from_scriptpubkey(
-                            BitcoinNetworkType::Testnet,
-                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    ),
-
-                    txid: Txid::from_bytes_be(
-                        &hex_bytes(
-                            "1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562",
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap(),
-                    vtxindex: 456,
-                    block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
-                },
-                res: Err(op_error::LeaderKeyBadConsensusHash),
             },
             CheckFixture {
                 // accept

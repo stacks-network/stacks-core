@@ -269,6 +269,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "stx-genesis",
  "time 0.2.16",
  "tini",
  "url",

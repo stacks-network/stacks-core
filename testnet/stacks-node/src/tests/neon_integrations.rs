@@ -62,7 +62,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '2' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '3' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
@@ -215,6 +215,31 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
+fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/transactions", http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+}
+
 fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
@@ -334,6 +359,135 @@ fn get_balance<F: std::fmt::Display>(
         .unwrap();
     eprintln!("Response: {:#?}", res);
     u128::from_str_radix(&res.balance[2..], 16).unwrap()
+}
+
+#[test]
+#[ignore]
+fn liquid_ustx_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // the contract that we'll test the costs of
+    let caller_src = "
+    (define-public (execute)
+       (ok stx-liquid-supply))
+    ";
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let _client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let _sort_height = channel.get_sortitions_processed();
+
+    let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
+
+    submit_tx(&http_origin, &publish);
+
+    // mine 1 burn block for the miner to issue the next block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // mine next burn block for the miner to win
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let call_tx = make_contract_call(
+        &spender_sk,
+        1,
+        1000,
+        &spender_addr,
+        "caller",
+        "execute",
+        &[],
+    );
+
+    submit_tx(&http_origin, &call_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "execute" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let liquid_ustx = parsed.expect_result_ok().expect_u128();
+                assert!(liquid_ustx > 0, "Should be more liquid ustx than 0");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
 }
 
 #[test]
@@ -1369,30 +1523,11 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {}", sort_height);
+    test_observer::clear();
 
     // now let's mine until the next reward cycle starts ...
     while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
@@ -1415,7 +1550,6 @@ fn pox_integration_test() {
             break;
         }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        eprintln!("{}", transactions.len());
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
@@ -1423,24 +1557,25 @@ fn pox_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(_) = parsed.payload {
-            } else {
-                continue;
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "stack-stx" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+                    // cycle length of 15 blocks, is a burnchain height of 300)
+                    assert_eq!(parsed.to_string(),
+                               format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
+                                       &spender_addr));
+                    tested = true;
+                }
             }
-
-            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-            // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-            // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-            // cycle length of 15 blocks, is a burnchain height of 300)
-            assert_eq!(parsed.to_string(),
-                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
-                               &spender_addr));
-            tested = true;
         }
     }
 
-    assert!(tested);
+    assert!(tested, "Should have observed stack-stx transaction");
 
     // let's stack with spender 2 and spender 3...
 
@@ -1468,27 +1603,7 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let tx = make_contract_call(
         &spender_3_sk,
@@ -1510,28 +1625,7 @@ fn pox_integration_test() {
         ],
     );
 
-    // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
@@ -1892,7 +1986,7 @@ fn atlas_integration_test() {
         }
 
         // (define-public (name-import (namespace (buff 20))
-        //                             (name (buff 32))
+        //                             (name (buff 48))
         //                             (zonefile-hash (buff 20)))
         let zonefile_hex = "facade00";
         let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
@@ -1970,7 +2064,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 60;
+            let mut timeout = 120;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -2137,7 +2231,7 @@ fn atlas_integration_test() {
 
     let target_height = match follower_node_rx.recv() {
         Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
-        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        _ => panic!("Bootstrap node could not boot. Aborting test."),
     };
 
     let mut sort_height = channel.get_sortitions_processed();

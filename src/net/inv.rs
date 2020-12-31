@@ -1499,6 +1499,7 @@ impl PeerNetwork {
             return Ok(None);
         }
 
+        let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
         assert!(
             target_block_reward_cycle == 0
                 || self.burnchain.is_reward_cycle_start(target_block_height)
@@ -1525,7 +1526,6 @@ impl PeerNetwork {
         };
 
         assert!(num_blocks <= self.burnchain.pox_constants.reward_cycle_length as u64);
-        let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
 
         debug!(
             "{:?}: Send GetBlocksInv to {:?} for {} blocks at sortition block {} ({})",
@@ -3039,8 +3039,8 @@ mod test {
 
         match reply {
             StacksMessageType::PoxInv(poxinv) => {
-                assert_eq!(poxinv.bitlen, 6); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
-                assert_eq!(poxinv.pox_bitvec, vec![0x3f]);
+                assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
+                assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
             }
             x => {
                 error!("Did not get PoxInv, but got {:?}", &x);

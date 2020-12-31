@@ -2541,6 +2541,7 @@ mod test {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
+            initial_reward_start_block: 12300,
             first_block_hash: first_burn_hash.clone(),
             first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),

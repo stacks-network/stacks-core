@@ -691,9 +691,16 @@ impl<'a> ClarityDatabase<'a> {
             .into()
     }
 
+    /// Returns the total liquid ustx of the parent block
+    ///   if we'd rather expose `total-liquid-ustx` as the _current_ block's
+    ///   total liquid supply, then it needs to be tracked as a variable in the
+    ///   clarity marf proper (rather than the headers db)
     pub fn get_total_liquid_ustx(&mut self) -> u128 {
         let cur_height = self.get_current_block_height();
-        let cur_id_bhh = self.get_index_block_header_hash(cur_height);
+        if cur_height == 0 {
+            return 0;
+        }
+        let cur_id_bhh = self.get_index_block_header_hash(cur_height - 1);
         self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
     }
 

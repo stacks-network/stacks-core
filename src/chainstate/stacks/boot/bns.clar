@@ -42,10 +42,10 @@
 (define-constant ERR_PRINCIPAL_ALREADY_ASSOCIATED 3001)
 (define-constant ERR_INSUFFICIENT_FUNDS 4001)
 
-(define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u10)
-(define-constant NAMESPACE_LAUNCHABILITY_TTL u10)
-(define-constant NAME_PREORDER_CLAIMABILITY_TTL u10)
-(define-constant NAME_GRACE_PERIOD_DURATION u5)
+(define-constant NAMESPACE_PREORDER_CLAIMABILITY_TTL u144)
+(define-constant NAMESPACE_LAUNCHABILITY_TTL u52595)
+(define-constant NAME_PREORDER_CLAIMABILITY_TTL u144)
+(define-constant NAME_GRACE_PERIOD_DURATION u5000)
 
 (define-data-var attachment-index uint u0)
 
@@ -58,7 +58,7 @@
 
 ;;;; Data
 (define-map namespaces
-  { namespace: (buff 20) }
+  (buff 20)
   { namespace-import: principal,
     revealed-at: uint,
     launched-at: (optional uint),
@@ -76,16 +76,16 @@
   { hashed-salted-namespace: (buff 20), buyer: principal }
   { created-at: uint, claimed: bool, stx-burned: uint })
 
-(define-non-fungible-token names { name: (buff 32), namespace: (buff 20) })
+(define-non-fungible-token names { name: (buff 48), namespace: (buff 20) })
 
 ;; Rule 1-1 -> 1 principal, 1 name
-(define-map owner-name { owner: principal } { name: (buff 32), namespace: (buff 20) })
+(define-map owner-name principal { name: (buff 48), namespace: (buff 20) })
 ;; Only applies to non-revoked, non-expired names. 
 ;; A principal can own many expired names (but they will be transferred away once someone re-registers them), 
 ;; and can own many revoked names (but they do not resolve and cannot be transferred or updated).
 
 (define-map name-properties
-  { name: (buff 32), namespace: (buff 20) }
+  { name: (buff 48), namespace: (buff 20) }
   { registered-at: (optional uint),
     imported-at: (optional uint),
     revoked-at: (optional uint),
@@ -171,13 +171,13 @@
     (is-digit char)
     (is-special-char char)))
 
-(define-private (has-vowels-chars (name (buff 32)))
+(define-private (has-vowels-chars (name (buff 48)))
   (> (len (filter is-vowel name)) u0))
 
-(define-private (has-nonalpha-chars (name (buff 32)))
+(define-private (has-nonalpha-chars (name (buff 48)))
   (> (len (filter is-nonalpha name)) u0))
 
-(define-private (has-invalid-chars (name (buff 32)))
+(define-private (has-invalid-chars (name (buff 48)))
   (< (len (filter is-char-valid name)) (len name)))
 
 (define-private (name-lease-started-at? (namespace-launched-at (optional uint)) 
@@ -216,7 +216,7 @@
 
 ;; Note: the following method is used in name-import and name-register. The latter ensure that the name
 ;; can be registered, the former does not. 
-(define-private (mint-or-transfer-name? (namespace (buff 20)) (name (buff 32)) (beneficiary principal))
+(define-private (mint-or-transfer-name? (namespace (buff 20)) (name (buff 48)) (beneficiary principal))
     (let (
       (current-owner (nft-get-owner? names (tuple (name name) (namespace namespace)))))
       ;; The principal can register a name
@@ -233,13 +233,13 @@
               beneficiary)
             (err ERR_NAME_COULD_NOT_BE_MINTED))
           (map-set owner-name
-            { owner: beneficiary }
+            beneficiary
             { name: name, namespace: namespace })
           (ok true))
         (update-name-ownership? namespace name (unwrap-panic current-owner) beneficiary))))
 
 (define-private (update-name-ownership? (namespace (buff 20)) 
-                                        (name (buff 32)) 
+                                        (name (buff 48)) 
                                         (from principal) 
                                         (to principal))
   (if (is-eq from to)
@@ -248,14 +248,14 @@
       (unwrap!
         (nft-transfer? names { name: name, namespace: namespace } from to)
         (err ERR_NAME_COULD_NOT_BE_TRANSFERED))
-      (map-delete owner-name { owner: from })
+      (map-delete owner-name from)
       (map-set owner-name
-        { owner: to }
+        to
         { name: name, namespace: namespace })
       (ok true))))
 
 (define-private (update-zonefile-and-props (namespace (buff 20))
-                                           (name (buff 32))
+                                           (name (buff 48))
                                            (registered-at (optional uint)) 
                                            (imported-at (optional uint)) 
                                            (revoked-at (optional uint)) 
@@ -285,7 +285,7 @@
           zonefile-hash: zonefile-hash })))
 
 (define-private (is-namespace-available (namespace (buff 20)))
-  (match (map-get? namespaces { namespace: namespace }) namespace-props
+  (match (map-get? namespaces namespace) namespace-props
     (begin
       ;; Is the namespace launched?
       (if (is-some (get launched-at namespace-props)) 
@@ -293,7 +293,7 @@
         (> block-height (+ (get revealed-at namespace-props) NAMESPACE_LAUNCHABILITY_TTL)))) ;; Is the namespace expired?
     true))
 
-(define-private (compute-name-price (name (buff 32))
+(define-private (compute-name-price (name (buff 48))
                                     (price-function (tuple (buckets (list 16 uint)) 
                                                            (base uint) 
                                                            (coeff uint) 
@@ -422,7 +422,7 @@
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
     (map-set namespaces
-      { namespace: namespace }
+      namespace
       { namespace-import: namespace-import,
         revealed-at: block-height,
         launched-at: none,
@@ -434,12 +434,12 @@
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given
 ;; both an owner and some off-chain state. This step is optional; Namespace creators are not required to import names.
 (define-public (name-import (namespace (buff 20))
-                            (name (buff 32))
+                            (name (buff 48))
                             (beneficiary principal)
                             (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
-      (map-get? namespaces { namespace: namespace })
+      (map-get? namespaces namespace)
       (err ERR_NAMESPACE_NOT_FOUND))))
       ;; The name must only have valid chars
       (asserts!
@@ -476,7 +476,7 @@
 (define-public (namespace-ready (namespace (buff 20)))
   (let (
       (namespace-props (unwrap!
-        (map-get? namespaces { namespace: namespace })
+        (map-get? namespaces namespace)
         (err ERR_NAMESPACE_NOT_FOUND))))
     ;; The sender principal must match the namespace's import principal
     (asserts!
@@ -492,7 +492,7 @@
       (err ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED))        
     (let ((namespace-props-updated (merge namespace-props { launched-at: (some block-height) })))
       ;; The namespace will be set to "launched"
-      (map-set namespaces { namespace: namespace } namespace-props-updated)
+      (map-set namespaces namespace namespace-props-updated)
       ;; Emit an event
       (print { namespace: namespace, status: "ready", properties: namespace-props-updated })
       (ok true))))
@@ -531,13 +531,13 @@
 ;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
 (define-public (name-register (namespace (buff 20))
-                              (name (buff 32))
+                              (name (buff 48))
                               (salt (buff 20))
                               (zonefile-hash (buff 20)))
   (let (
     (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt)))
     (namespace-props (unwrap!
-          (map-get? namespaces { namespace: namespace })
+          (map-get? namespaces namespace)
           (err ERR_NAMESPACE_NOT_FOUND)))
     (preorder (unwrap!
       (map-get? name-preorders { hashed-salted-fqn: hashed-salted-fqn, buyer: tx-sender })
@@ -579,7 +579,7 @@
 ;; if you wanted to change the name's zone file contents. 
 ;; For example, you would do this if you want to deploy your own Gaia hub and want other people to read from it.
 (define-public (name-update (namespace (buff 20))
-                            (name (buff 32))
+                            (name (buff 48))
                             (zonefile-hash (buff 20)))
   (let (
     (data (try! (check-name-ops-preconditions namespace name))))
@@ -601,7 +601,7 @@
 ;; When transferring a name, you have the option to also clear the name's zone file hash (i.e. set it to null). 
 ;; This is useful for when you send the name to someone else, so the recipient's name does not resolve to your zone file.
 (define-public (name-transfer (namespace (buff 20))
-                              (name (buff 32))
+                              (name (buff 48))
                               (new-owner principal)
                               (zonefile-hash (optional (buff 20))))
   (let (
@@ -623,7 +623,7 @@
         (get imported-at (get name-props data))
         none
         (if (is-none zonefile-hash)
-          0x00
+          0x
           (unwrap-panic zonefile-hash))
         "name-transfer")
     (ok true)))
@@ -634,7 +634,7 @@
 ;; The name's zone file hash is set to null to prevent it from resolving.
 ;; You should only do this if your private key is compromised, or if you want to render your name unusable for whatever reason.
 (define-public (name-revoke (namespace (buff 20))
-                            (name (buff 32)))
+                            (name (buff 48)))
   (let (
     (data (try! (check-name-ops-preconditions namespace name))))
     ;; Clear the zonefile
@@ -644,7 +644,7 @@
         (get registered-at (get name-props data))
         (get imported-at (get name-props data))
         (some block-height)
-        0x00
+        0x
         "name-revoke")
     (ok true)))
 
@@ -657,13 +657,13 @@
 ;; You may, however, send a NAME_RENEWAL during this grace period to preserve your name.
 ;; If your name is in a namespace where names do not expire, then you never need to use this transaction.
 (define-public (name-renewal (namespace (buff 20))
-                             (name (buff 32))
+                             (name (buff 48))
                              (stx-to-burn uint)
                              (new-owner (optional principal))
                              (zonefile-hash (optional (buff 20))))
   (let (
     (namespace-props (unwrap!
-      (map-get? namespaces { namespace: namespace })
+      (map-get? namespaces namespace)
       (err ERR_NAMESPACE_NOT_FOUND)))
     (owner (unwrap!
       (nft-get-owner? names { name: name, namespace: namespace })
@@ -729,20 +729,20 @@
     (ok (unwrap-panic
       (element-at NAMESPACE_PRICE_TIERS (min u7 (- namespace-len u1)))))))
 
-(define-read-only (get-name-price (namespace (buff 20)) (name (buff 32)))
+(define-read-only (get-name-price (namespace (buff 20)) (name (buff 48)))
   (let (
       (namespace-props (unwrap!
-        (map-get? namespaces { namespace: namespace })
+        (map-get? namespaces namespace)
         (err ERR_NAMESPACE_NOT_FOUND))))
     (ok (compute-name-price name (get price-function namespace-props)))))
 
-(define-read-only (check-name-ops-preconditions (namespace (buff 20)) (name (buff 32)))
+(define-read-only (check-name-ops-preconditions (namespace (buff 20)) (name (buff 48)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND))) ;; The name must exist
     (namespace-props (unwrap!
-      (map-get? namespaces { namespace: namespace })
+      (map-get? namespaces namespace)
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap!
       (map-get? name-properties { name: name, namespace: namespace })
@@ -772,10 +772,10 @@
 (define-read-only (can-namespace-be-registered (namespace (buff 20)))
   (ok (is-namespace-available namespace)))
 
-(define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 32)))
+(define-read-only (is-name-lease-expired (namespace (buff 20)) (name (buff 48)))
   (let (
     (namespace-props (unwrap! 
-      (map-get? namespaces { namespace: namespace }) 
+      (map-get? namespaces namespace) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap! 
       (map-get? name-properties { name: name, namespace: namespace }) 
@@ -786,10 +786,10 @@
         (ok false)
         (ok (> block-height (+ lifetime lease-started-at))))))
 
-(define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 32)))
+(define-read-only (is-name-in-grace-period (namespace (buff 20)) (name (buff 48)))
   (let (
     (namespace-props (unwrap! 
-      (map-get? namespaces { namespace: namespace }) 
+      (map-get? namespaces namespace) 
       (err ERR_NAMESPACE_NOT_FOUND)))
     (name-props (unwrap! 
       (map-get? name-properties { name: name, namespace: namespace }) 
@@ -803,7 +803,7 @@
           (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION)))))))
 
 (define-read-only (can-receive-name (owner principal))
-  (let ((current-owned-name (map-get? owner-name { owner: owner })))
+  (let ((current-owned-name (map-get? owner-name owner)))
     (if (is-none current-owned-name)
       (ok true)
       (let (
@@ -822,10 +822,10 @@
               (asserts! (is-some (get revoked-at name-props)) (ok false))
               (ok true))))))))
 
-(define-read-only (can-name-be-registered (namespace (buff 20)) (name (buff 32)))
+(define-read-only (can-name-be-registered (namespace (buff 20)) (name (buff 48)))
   (let (
       (wrapped-name-props (map-get? name-properties { name: name, namespace: namespace }))
-      (namespace-props (unwrap! (map-get? namespaces { namespace: namespace }) (ok false))))
+      (namespace-props (unwrap! (map-get? namespaces namespace) (ok false))))
     ;; The name must only have valid chars
     (asserts!
       (not (has-invalid-chars name))
@@ -842,7 +842,7 @@
       ;; Is lease expired?
       (is-name-lease-expired namespace name))))
 
-(define-read-only (name-resolve (namespace (buff 20)) (name (buff 32)))
+(define-read-only (name-resolve (namespace (buff 20)) (name (buff 48)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names { name: name, namespace: namespace })
@@ -851,7 +851,7 @@
       (map-get? name-properties { name: name, namespace: namespace })
       (err ERR_NAME_NOT_FOUND)))
     (namespace-props (unwrap! 
-      (map-get? namespaces { namespace: namespace }) 
+      (map-get? namespaces namespace) 
       (err ERR_NAMESPACE_NOT_FOUND))))
     ;; The name must not be in grace period
     (asserts!
@@ -866,4 +866,11 @@
       (is-none (get revoked-at name-props))
       (err ERR_NAME_REVOKED))
     ;; Get the zonefile
-    (ok { zonefile-hash: (get zonefile-hash name-props), owner: owner })))
+    (let (
+      (lease-started-at (try! (name-lease-started-at? (get launched-at namespace-props) (get revealed-at namespace-props) name-props))))
+      (ok { 
+        zonefile-hash: (get zonefile-hash name-props), 
+        owner: owner,
+        lease-started-at: lease-started-at,
+        lease-ending-at: (if (is-eq (get lifetime namespace-props) u0) none (some (+ lease-started-at (get lifetime namespace-props))))
+      }))))

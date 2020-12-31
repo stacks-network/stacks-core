@@ -181,7 +181,7 @@ describe("BNS Test Suite - NAME_UPDATE", () => {
         sender: cases[0].nameOwner
       });
     expect(receipt.success).eq(true);
-    expect(receipt.result).include('u20');
+    expect(receipt.result).include('u154');
 
     receipt = await bns.nameRegister(
       cases[0].namespace,

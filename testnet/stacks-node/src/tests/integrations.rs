@@ -753,7 +753,7 @@ fn contract_stx_transfer() {
                             &mut chainstate_copy,
                             &consensus_hash,
                             &header_hash,
-                            xfer_to_contract,
+                            &xfer_to_contract,
                         )
                         .unwrap();
                 }
@@ -768,7 +768,7 @@ fn contract_stx_transfer() {
                         &mut chainstate_copy,
                         &consensus_hash,
                         &header_hash,
-                        xfer_to_contract,
+                        &xfer_to_contract,
                     )
                     .unwrap_err()
                 {
