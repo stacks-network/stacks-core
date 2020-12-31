@@ -419,6 +419,16 @@ fn try_mine_microblock(
                                 // will need to relay this
                                 next_microblock = Some(microblock);
                             }
+                            Err(NetError::ChainstateError(err_str)) => {
+                                if err_str.contains("NoTransactionsToMine") {
+                                    trace!("Failed to mine microblock because there are no transactions to mine");
+                                } else {
+                                    warn!(
+                                        "Failed to mine one microblock: {:?}",
+                                        &NetError::ChainstateError(err_str)
+                                    );
+                                }
+                            }
                             Err(e) => {
                                 warn!("Failed to mine one microblock: {:?}", &e);
                             }

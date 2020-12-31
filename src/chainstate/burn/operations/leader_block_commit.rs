@@ -223,6 +223,10 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    pub fn is_parent_genesis(&self) -> bool {
+        self.parent_block_ptr == 0 && self.parent_vtxindex == 0
+    }
+
     /// parse a LeaderBlockCommitOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
