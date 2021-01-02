@@ -930,7 +930,10 @@ fn test_lets() {
 }
 
 #[test]
-fn test_2239_merge() {
+// tests that the type signature of the result of a merge tuple is updated.
+//  this is required to pass the type admission checks of, e.g., data store
+//  operations like `(define-data-var ...)`
+fn merge_update_type_signature_2239() {
     let tests = [
         "(define-data-var a {p: uint} (merge {p: 2} {p: u2})) (var-get a)",
         "(merge {p: 2} {p: u2})",
