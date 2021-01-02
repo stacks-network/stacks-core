@@ -68,7 +68,7 @@ fn pretty_print_msg_header(rd: &mut dyn RecordDecorator, record: &Record, debug:
     rd.start_timestamp()?;
     let now: DateTime<Utc> = Utc::now();
     write!(
-        rd, "\x1b[0;90m{}", now.format("%b %e %T"))?;
+        rd, "\x1b[0;90m{}", now.format("%b %e %T%.6f"))?;
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
