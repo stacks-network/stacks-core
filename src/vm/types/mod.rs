@@ -1255,11 +1255,15 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(base: TupleData, updates: TupleData) -> Result<TupleData> {
-        let mut base = base;
-        for (name, value) in updates.data_map.into_iter() {
+    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> Result<TupleData> {
+        let TupleData {
+            data_map,
+            mut type_signature,
+        } = updates;
+        for (name, value) in data_map.into_iter() {
             base.data_map.insert(name, value);
         }
+        base.type_signature.shallow_merge(&mut type_signature);
         Ok(base)
     }
 }
