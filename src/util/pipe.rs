@@ -412,7 +412,9 @@ mod test {
 
     #[test]
     fn test_connection_pipe_producer_consumer() {
-        let mut buf = Box::new([0u8; 1048576]); // 1 MB
+        let mut buf = Vec::new();
+        buf.resize(1048576, 0);
+
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut *buf);
 
