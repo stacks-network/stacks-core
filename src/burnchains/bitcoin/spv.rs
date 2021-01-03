@@ -914,10 +914,10 @@ impl BitcoinMessageHandler for SpvClient {
                 if total > batch_size {
                     let progress = (block_height - self.start_block_height) as f32 / total as f32 * 100.;
                     info!(
-                        "Syncing Bitcoin headers: {:.2}% ({}/{})",
+                        "Syncing Bitcoin headers: {:.2}% ({} out of {})",
                         progress,
-                        total,
-                        block_height);    
+                        block_height,
+                        total);    
                 } else {
                     debug!(
                         "Request headers for blocks {} - {} in range {} - {}",

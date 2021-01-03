@@ -1856,9 +1856,9 @@ impl<'a> SortitionHandleConn<'a> {
 
         let reward_cycle_id = effective_height / pox_consts.reward_cycle_length;
         if result.is_none() {
-            info!("Reward cycle #{} ({}): (F*w) not reached, performing consensus over Proof of Burn", reward_cycle_id, block_height);
+            info!("Reward cycle #{} ({}): (F*w) not reached, performing consensus over proof of burn", reward_cycle_id, block_height);
         } else {
-            info!("Reward cycle #{} ({}): {:?} reached (F*w), performing consensus over Proof of Transfer", reward_cycle_id, block_height, result);
+            info!("Reward cycle #{} ({}): {:?} reached (F*w), performing consensus over proof of transfer", reward_cycle_id, block_height, result);
         }
 
         Ok(result)

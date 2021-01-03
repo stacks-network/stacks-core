@@ -1188,7 +1188,7 @@ impl<T: MarfTrieId> MARF<T> {
                     let updated_progress = 100 * index / last;
                     if updated_progress > progress {
                         progress = updated_progress;
-                        info!("Batching insertions in MARF: {}% ({}/{})", progress, index, last);
+                        info!("Batching insertions in MARF: {}% ({} out of {})", progress, index, last);
                     }    
                 }
                 MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)

@@ -545,13 +545,13 @@ impl PeerNetwork {
     ) -> Result<(usize, bool), net_error> {
         let convo_opt = self.peers.get_mut(&event_id);
         if convo_opt.is_none() {
-            info!("No open socket for {}", event_id);
+            debug!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
 
         let socket_opt = self.sockets.get_mut(&event_id);
         if socket_opt.is_none() {
-            info!("No open socket for {}", event_id);
+            debug!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
 
@@ -4141,9 +4141,7 @@ impl PeerNetwork {
         }
 
         if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
-            info!("Reject transaction {}: {:?}", txid, &e;
-                  "txid" => %txid
-            );
+            warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
 
