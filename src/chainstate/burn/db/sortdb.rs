@@ -1854,10 +1854,11 @@ impl<'a> SortitionHandleConn<'a> {
             }
         }
 
+        let reward_cycle_id = effective_height / pox_consts.reward_cycle_length;
         if result.is_none() {
-            warn!("Proof of Tranfer: none of the candidates passed the threshold, miners will be competing through Proof of Burn");
+            info!("Reward cycle #{} ({}): (F*w) not reached, performing consensus over Proof of Burn", reward_cycle_id, block_height);
         } else {
-            warn!("Proof of Tranfer: {:?} selected", result);
+            info!("Reward cycle #{} ({}): {:?} reached (F*w), performing consensus over Proof of Transfer", reward_cycle_id, block_height, result);
         }
 
         Ok(result)

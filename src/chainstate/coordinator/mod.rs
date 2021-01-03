@@ -395,7 +395,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle";
+        debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
               "prepare_phase_length" => burnchain.pox_constants.prepare_length);
