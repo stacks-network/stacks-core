@@ -217,9 +217,10 @@ impl StacksChainState {
     }
 
     /// Given a threshold and set of registered addresses, return a reward set where
-    /// addresses stacking an amount > threshold are repeated floor(stacked_amt / threshold) times.
+    ///   every entry address has stacked more than the threshold, and addresses
+    ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
-    /// are summed.
+    ///   are summed.
     pub fn make_reward_set(
         threshold: u128,
         mut addresses: Vec<(StacksAddress, u128)>,
@@ -237,12 +238,8 @@ impl StacksChainState {
                     .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
             }
-            let slots_taken = if stacked_amt > threshold {
-                u32::try_from(stacked_amt / threshold)
-                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots")
-            } else {
-                1
-            };
+            let slots_taken = u32::try_from(stacked_amt / threshold)
+                .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
             info!(
                 "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
                 &address, slots_taken, stacked_amt, threshold
@@ -282,8 +279,8 @@ impl StacksChainState {
         };
         let threshold = threshold_precise + ceil_amount;
         info!(
-            "PoX participation threshold is {}, from {}",
-            threshold, threshold_precise
+            "PoX participation threshold is {}, from {} + {} ({})",
+            threshold, threshold_precise, ceil_amount, scale_by, 
         );
         (threshold, participation)
     }
@@ -428,8 +425,10 @@ pub mod test {
                 400,
             ),
         ];
-        let reward_set = StacksChainState::make_reward_set(threshold, addresses);
-        assert_eq!(reward_set.len(), 4);
+        assert_eq!(
+            StacksChainState::make_reward_set(threshold, addresses).len(),
+            3
+        );
     }
 
     #[test]
