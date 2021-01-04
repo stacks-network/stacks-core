@@ -907,17 +907,17 @@ impl BitcoinMessageHandler for SpvClient {
                 // clear timeout
                 indexer.runtime.last_getheaders_send_time = 0;
 
-                // if syncing requires to request more than one batch of 2000 headers, 
+                // if syncing requires to request more than one batch of 2000 headers,
                 // we'll provide some progress in the logs
                 let total = end_block_height - self.start_block_height;
                 let batch_size = 2000;
                 if total > batch_size {
-                    let progress = (block_height - self.start_block_height) as f32 / total as f32 * 100.;
+                    let progress =
+                        (block_height - self.start_block_height) as f32 / total as f32 * 100.;
                     info!(
                         "Syncing Bitcoin headers: {:.1}% ({} out of {})",
-                        progress,
-                        block_height,
-                        total);    
+                        progress, block_height, total
+                    );
                 } else {
                     debug!(
                         "Request headers for blocks {} - {} in range {} - {}",
@@ -925,7 +925,7 @@ impl BitcoinMessageHandler for SpvClient {
                         block_height + batch_size,
                         self.start_block_height,
                         end_block_height
-                    );    
+                    );
                 }
                 self.send_next_getheaders(indexer, block_height)
                     .and_then(|_| Ok(true))

@@ -43,10 +43,10 @@ extern crate url;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
+extern crate chrono;
 #[cfg(feature = "slog_json")]
 extern crate slog_json;
 extern crate slog_term;
-extern crate chrono;
 
 #[macro_use]
 extern crate serde_derive;

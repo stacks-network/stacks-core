@@ -944,7 +944,7 @@ impl StacksChainState {
             clarity_tx.connection().as_transaction(|clarity| {
                 // Balances
                 if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                		info!("Importing accounts from Stacks 1.0");
+                    info!("Importing accounts from Stacks 1.0");
                     let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {

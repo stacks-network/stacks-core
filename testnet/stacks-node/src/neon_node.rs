@@ -325,12 +325,11 @@ fn mine_one_microblock(
     };
 
     // preprocess the microblock locally
-    chainstate
-        .preprocess_streamed_microblock(
-            &microblock_state.parent_consensus_hash,
-            &microblock_state.parent_block_hash,
-            &mined_microblock,
-        )?;
+    chainstate.preprocess_streamed_microblock(
+        &microblock_state.parent_consensus_hash,
+        &microblock_state.parent_block_hash,
+        &mined_microblock,
+    )?;
 
     microblock_state.quantity += 1;
     return Ok(mined_microblock);

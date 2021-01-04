@@ -429,10 +429,7 @@ pub mod test {
             ),
         ];
         let reward_set = StacksChainState::make_reward_set(threshold, addresses);
-        assert_eq!(
-            reward_set.len(),
-            4
-        );
+        assert_eq!(reward_set.len(), 4);
     }
 
     #[test]

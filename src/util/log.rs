@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use slog::{BorrowedKV, Drain, FnValue, Logger, OwnedKVList, Record, KV, Level};
+use chrono::prelude::*;
+use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 use std::env;
 use std::io;
@@ -22,7 +23,6 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use chrono::prelude::*;
 
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
@@ -64,23 +64,28 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     Ok(count_rd.count() != 0)
 }
 
-fn pretty_print_msg_header(rd: &mut dyn RecordDecorator, record: &Record, debug: bool) -> io::Result<bool> {
+fn pretty_print_msg_header(
+    rd: &mut dyn RecordDecorator,
+    record: &Record,
+    debug: bool,
+) -> io::Result<bool> {
     rd.start_timestamp()?;
     let now: DateTime<Utc> = Utc::now();
-    write!(
-        rd, "\x1b[0;90m{}", now.format("%b %e %T%.6f"))?;
+    write!(rd, "\x1b[0;90m{}", now.format("%b %e %T%.6f"))?;
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
     rd.start_level()?;
 
     match record.level() {
-        Level::Critical | Level::Error => write!(rd, "\x1b[0;91m{}\x1b[0m", record.level().as_short_str()),
+        Level::Critical | Level::Error => {
+            write!(rd, "\x1b[0;91m{}\x1b[0m", record.level().as_short_str())
+        }
         Level::Warning => write!(rd, "\x1b[0;33m{}\x1b[0m", record.level().as_short_str()),
         Level::Info => write!(rd, "\x1b[0;94m{}\x1b[0m", record.level().as_short_str()),
         _ => write!(rd, "{}", record.level().as_short_str()),
     }?;
-    
+
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
@@ -89,7 +94,13 @@ fn pretty_print_msg_header(rd: &mut dyn RecordDecorator, record: &Record, debug:
 
     if debug {
         write!(rd, " ")?;
-        write!(rd, "\x1b[0;90m({:?}, {}:{})\x1b[0m", thread::current().id(), record.file(), record.line())?;    
+        write!(
+            rd,
+            "\x1b[0;90m({:?}, {}:{})\x1b[0m",
+            thread::current().id(),
+            record.file(),
+            record.line()
+        )?;
     }
 
     Ok(true)
@@ -106,7 +117,11 @@ impl<D: Decorator> Drain for TermFormat<D> {
 
 impl<D: Decorator> TermFormat<D> {
     pub fn new(decorator: D, pretty_print: bool, debug: bool) -> TermFormat<D> {
-        TermFormat { decorator, pretty_print, debug }
+        TermFormat {
+            decorator,
+            pretty_print,
+            debug,
+        }
     }
 
     fn format_full(&self, record: &Record, values: &OwnedKVList) -> io::Result<()> {
