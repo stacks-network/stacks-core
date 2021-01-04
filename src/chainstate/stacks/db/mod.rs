@@ -2088,8 +2088,8 @@ pub mod test {
         // If the genesis data changed, then this test will fail.
         // Just update the expected value
         assert_eq!(
-            format!("{}", genesis_root_hash),
-            "dd2213e2a0f506ec519672752f033ce2070fa279a579d983bcf2edefb35ce131"
+            genesis_root_hash.to_string(),
+            "96b7696b43c286fd9b824d111e1662bd748400257b27467908088bc37d048d8e"
         );
     }
 

@@ -1900,6 +1900,10 @@ mod test {
                         .get_stx_balance_snapshot_genesis(&docs_principal_id);
                     snapshot.set_balance(balance);
                     snapshot.save();
+                    e.global_context
+                        .database
+                        .increment_ustx_liquid_supply(100000)
+                        .unwrap();
                     Ok(())
                 },
             )
