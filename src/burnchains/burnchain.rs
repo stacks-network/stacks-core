@@ -1274,9 +1274,9 @@ impl Burnchain {
         }
 
         let total = sync_height - self.first_block_height;
-        let progress = (start_block - self.first_block_height) as f32 / total as f32 * 100.;
+        let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Syncing Bitcoin blocks: {}% ({} to {} out of {})",
+            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
         );
 
