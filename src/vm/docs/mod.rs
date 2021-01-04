@@ -1790,9 +1790,6 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
             None
         }
-        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-            1592653589333333u128
-        }
     }
 
     struct DocBurnStateDB {}

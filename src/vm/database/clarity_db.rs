@@ -97,7 +97,6 @@ pub trait HeadersDB {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
-    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128;
 }
 
 pub trait BurnStateDB {
@@ -159,12 +158,6 @@ impl HeadersDB for DBConn {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self, id_bhh).map(|x| x.address)
     }
-
-    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128 {
-        get_stacks_header_info(self, id_bhh)
-            .map(|x| x.total_liquid_ustx)
-            .unwrap_or(0)
-    }
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -188,9 +181,6 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
-    }
-    fn get_total_liquid_ustx(&self, bhh: &StacksBlockId) -> u128 {
-        (*self).get_total_liquid_ustx(bhh)
     }
 }
 
@@ -324,9 +314,6 @@ impl HeadersDB for NullHeadersDB {
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
-    }
-    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-        0
     }
 }
 
@@ -602,6 +589,47 @@ impl<'a> ClarityDatabase<'a> {
         Ok(data)
     }
 
+    pub fn ustx_liquid_supply_key() -> &'static str {
+        "_stx-data::ustx_liquid_supply"
+    }
+
+    /// Returns the _current_ total liquid ustx
+    pub fn get_total_liquid_ustx(&mut self) -> u128 {
+        self.get_value(
+            ClarityDatabase::ustx_liquid_supply_key(),
+            &TypeSignature::UIntType,
+        )
+        .map(|v| v.expect_u128())
+        .unwrap_or(0)
+    }
+
+    fn set_ustx_liquid_supply(&mut self, set_to: u128) {
+        self.put(
+            ClarityDatabase::ustx_liquid_supply_key(),
+            &Value::UInt(set_to),
+        )
+    }
+
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) -> Result<()> {
+        let current = self.get_total_liquid_ustx();
+        let next = current.checked_add(incr_by).ok_or_else(|| {
+            error!("Overflowed `ustx-liquid-supply`");
+            RuntimeErrorType::ArithmeticOverflow
+        })?;
+        self.set_ustx_liquid_supply(next);
+        Ok(())
+    }
+
+    pub fn decrement_ustx_liquid_supply(&mut self, decr_by: u128) -> Result<()> {
+        let current = self.get_total_liquid_ustx();
+        let next = current.checked_sub(decr_by).ok_or_else(|| {
+            error!("`stx-burn?` accepted that reduces `ustx-liquid-supply` below 0");
+            RuntimeErrorType::ArithmeticUnderflow
+        })?;
+        self.set_ustx_liquid_supply(next);
+        Ok(())
+    }
+
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
@@ -689,19 +717,6 @@ impl<'a> ClarityDatabase<'a> {
             .get_miner_address(&id_bhh)
             .expect("Failed to get block data.")
             .into()
-    }
-
-    /// Returns the total liquid ustx of the parent block
-    ///   if we'd rather expose `total-liquid-ustx` as the _current_ block's
-    ///   total liquid supply, then it needs to be tracked as a variable in the
-    ///   clarity marf proper (rather than the headers db)
-    pub fn get_total_liquid_ustx(&mut self) -> u128 {
-        let cur_height = self.get_current_block_height();
-        if cur_height == 0 {
-            return 0;
-        }
-        let cur_id_bhh = self.get_index_block_header_hash(cur_height - 1);
-        self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
     }
 
     pub fn get_stx_btc_ops_processed(&mut self) -> u64 {

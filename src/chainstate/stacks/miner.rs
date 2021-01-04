@@ -539,7 +539,6 @@ impl StacksBlockBuilder {
             burn_header_hash: genesis_burn_header_hash.clone(),
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
-            total_liquid_ustx: 0,
             anchored_block_size: 0,
         };
 

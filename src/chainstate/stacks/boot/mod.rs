@@ -166,6 +166,17 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
+    pub fn get_liquid_ustx(&mut self, stacks_block_id: &StacksBlockId) -> u128 {
+        let mut connection = self.clarity_state.read_only_connection(
+            stacks_block_id,
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+        connection.with_clarity_db_readonly_owned(|mut clarity_db| {
+            (clarity_db.get_total_liquid_ustx(), clarity_db)
+        })
+    }
+
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
     #[cfg(test)]
