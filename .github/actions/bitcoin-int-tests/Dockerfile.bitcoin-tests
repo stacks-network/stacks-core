@@ -16,7 +16,6 @@ WORKDIR /src/testnet/stacks-node
 RUN cargo test -- --test-threads 1 --ignored tests::integrations::integration_test_get_info
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::bitcoind_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_check_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::atlas_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::liquid_ustx_integration
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::stx_transfer_btc_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::bitcoind_forking_test
