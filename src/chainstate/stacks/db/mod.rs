@@ -356,6 +356,17 @@ impl<'a> ClarityTx<'a> {
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
     }
+
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) {
+        self.connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|db| {
+                    db.increment_ustx_liquid_supply(incr_by)
+                        .map_err(|e| e.into())
+                })
+            })
+            .expect("FATAL: `ust-liquid-supply` overflowed");
+    }
 }
 
 pub struct ChainstateTx<'a> {

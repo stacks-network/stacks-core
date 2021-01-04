@@ -4333,15 +4333,7 @@ impl StacksChainState {
                     0
                 };
 
-            clarity_tx
-                .connection()
-                .as_transaction(|tx| {
-                    tx.with_clarity_db(|db| {
-                        db.increment_ustx_liquid_supply(new_liquid_miner_ustx)
-                            .map_err(|e| e.into())
-                    })
-                })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+            clarity_tx.increment_ustx_liquid_supply(new_liquid_miner_ustx);
 
             // obtain reward info for receipt
             let (matured_rewards, matured_rewards_info) =
@@ -4366,15 +4358,7 @@ impl StacksChainState {
             let (new_unlocked_ustx, _unlocked_events) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
 
-            clarity_tx
-                .connection()
-                .as_transaction(|tx| {
-                    tx.with_clarity_db(|db| {
-                        db.increment_ustx_liquid_supply(new_unlocked_ustx)
-                            .map_err(|e| e.into())
-                    })
-                })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+            clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
             // record that this microblock public key hash was used at this height
             match StacksChainState::insert_microblock_pubkey_hash(

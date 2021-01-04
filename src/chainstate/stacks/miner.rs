@@ -774,30 +774,14 @@ impl StacksBlockBuilder {
             )
             .expect("FATAL: failed to process miner rewards");
 
-            clarity_tx
-                .connection()
-                .as_transaction(|tx| {
-                    tx.with_clarity_db(|db| {
-                        db.increment_ustx_liquid_supply(matured_ustx)
-                            .map_err(|e| e.into())
-                    })
-                })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+            clarity_tx.increment_ustx_liquid_supply(matured_ustx);
         }
 
         // process unlocks
         let (new_unlocked_ustx, _) =
             StacksChainState::process_stx_unlocks(clarity_tx).expect("FATAL: failed to unlock STX");
 
-        clarity_tx
-            .connection()
-            .as_transaction(|tx| {
-                tx.with_clarity_db(|db| {
-                    db.increment_ustx_liquid_supply(new_unlocked_ustx)
-                        .map_err(|e| e.into())
-                })
-            })
-            .expect("FATAL: `ust-liquid-supply` overflowed");
+        clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
         // mark microblock public key as used
         StacksChainState::insert_microblock_pubkey_hash(
