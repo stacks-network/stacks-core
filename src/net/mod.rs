@@ -1014,14 +1014,15 @@ pub struct RPCPeerInfoData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
-    pub first_burnchain_block_height: u128,
-    pub min_amount_ustx: u128,
-    pub prepare_cycle_length: u128,
-    pub rejection_fraction: u128,
-    pub reward_cycle_id: u128,
-    pub reward_cycle_length: u128,
-    pub rejection_votes_left_required: u128,
-    pub total_liquid_supply_ustx: u128,
+    pub first_burnchain_block_height: u64,
+    pub min_amount_ustx: u64,
+    pub prepare_cycle_length: u64,
+    pub rejection_fraction: u64,
+    pub reward_cycle_id: u64,
+    pub reward_cycle_length: u64,
+    pub rejection_votes_left_required: u64,
+    pub total_liquid_supply_ustx: u64,
+    pub next_reward_cycle_in: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -2290,7 +2291,7 @@ pub mod test {
             .unwrap();
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
-            let atlasdb = AtlasDB::connect(&atlasdb_path, true).unwrap();
+            let atlasdb = AtlasDB::connect(AtlasConfig::default(), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
@@ -3063,7 +3064,17 @@ pub mod test {
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
-                        Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
+                        Some(info) => {
+                            let mut recipients = info
+                                .recipients
+                                .into_iter()
+                                .map(|x| x.0)
+                                .collect::<Vec<StacksAddress>>();
+                            if recipients.len() == 1 {
+                                recipients.push(StacksAddress::burn_address(false));
+                            }
+                            recipients
+                        }
                         None => vec![],
                     };
                     test_debug!(

@@ -122,7 +122,7 @@
                                 cost-function-name: cost-function-name,
                                 function-contract: function-contract,
                                 function-name: function-name,
-                                expiration-block-height: (+ burn-block-height VOTE_LENGTH) })
+                                expiration-block-height: (+ block-height VOTE_LENGTH) })
         (map-insert proposal-votes { proposal-id: (var-get proposal-count) } { votes: u0 })
         (var-set proposal-count (+ (var-get proposal-count) u1))
         (ok (- (var-get proposal-count) u1))))
@@ -135,14 +135,13 @@
         (cur-votes (default-to u0 (get votes (map-get? proposal-votes { proposal-id: proposal-id }))))
         (cur-principal-votes (default-to u0 (get votes (map-get? principal-proposal-votes {
             address: tx-sender,
-            proposal-id: proposal-id }))))
-    )
+            proposal-id: proposal-id })))))
 
     ;; a vote must have a positive amount
     (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
     ;; the vote must occur before the expiration
-    (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+    (asserts! (< block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
 
     ;; the proposal must not already be voter confirmed
     (asserts! (is-none (map-get? vote-confirmed-proposals { proposal-id: proposal-id }))
@@ -154,8 +153,7 @@
     (map-set proposal-votes { proposal-id: proposal-id } { votes: (+ amount cur-votes) })
     (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id}
                                     { votes: (+ amount cur-principal-votes)})
-    (ok true))
-)
+    (ok true)))
 
 ;; Withdraw votes
 (define-public (withdraw-votes (proposal-id uint) (amount uint))
@@ -164,8 +162,7 @@
         (cur-principal-votes (default-to u0 (get votes (map-get? principal-proposal-votes {
             address: tx-sender,
             proposal-id: proposal-id }))))
-        (sender tx-sender)
-    )
+        (sender tx-sender))
 
     (asserts! (> amount u0) (err ERR_AMOUNT_NOT_POSITIVE))
     (asserts! (>= cur-principal-votes amount) (err ERR_INSUFFICIENT_FUNDS))
@@ -177,8 +174,7 @@
     (map-set proposal-votes { proposal-id: proposal-id } { votes: (- cur-votes amount) })
     (map-set principal-proposal-votes { address: tx-sender, proposal-id: proposal-id }
                                         { votes: (- cur-principal-votes amount) })
-    (ok true))
-)
+    (ok true)))
 
 ;; Miner veto
 (define-public (veto (proposal-id uint))
@@ -190,14 +186,13 @@
         (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposal-id: proposal-id,
                                                                          veto-height: block-height }))))
         (last-miner (unwrap! (get-block-info? miner-address (- block-height u1))
-            (err ERR_FETCHING_BLOCK_INFO)))
-    )
+            (err ERR_FETCHING_BLOCK_INFO))))
 
     ;; a miner can only veto once per block
     (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
 
-    ;; vetoes must be case within the veto period
-    (asserts! (< burn-block-height expiration-block-height) (err ERR_VETO_PERIOD_OVER))
+    ;; vetoes must be cast within the veto period
+    (asserts! (< block-height expiration-block-height) (err ERR_VETO_PERIOD_OVER))
 
     ;; a miner can only veto if they mined the previous block
     (asserts! (is-eq contract-caller last-miner) (err ERR_NOT_LAST_MINER))
@@ -209,8 +204,7 @@
     (map-set proposal-vetos { proposal-id: proposal-id } { vetos: (+ u1 cur-vetos) })
     (map-set exercised-veto { proposal-id: proposal-id, veto-height: block-height }
                             { vetoed: true })
-    (ok true))
-)
+    (ok true)))
 
 ;; Confirm proposal has reached required vote count
 (define-public (confirm-votes (proposal-id uint))
@@ -218,23 +212,19 @@
         (votes (default-to u0 (get votes (map-get? proposal-votes { proposal-id: proposal-id }))))
         (proposal (unwrap! (map-get? proposals { proposal-id: proposal-id }) (err ERR_NO_SUCH_PROPOSAL)))
         (confirmed-count (var-get confirmed-proposal-count))
-    )
-    (let (
-        (expiration-block-height (get expiration-block-height proposal))
-    )
+        (expiration-block-height (get expiration-block-height proposal)))
 
     ;; confirmation fails if invoked after proposal has expired
-    (asserts! (< burn-block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
+    (asserts! (< block-height expiration-block-height) (err ERR_PROPOSAL_EXPIRED))
 
     ;; confirmation fails if the required threshold of votes is not met
     (asserts! (>= (/ (* votes u100) stx-liquid-supply) REQUIRED_PERCENT_STX_VOTE)
         (err ERR_INSUFFICIENT_VOTES))
 
     (map-insert vote-confirmed-proposals { proposal-id: proposal-id }
-        { expiration-block-height: (+ VETO_LENGTH burn-block-height) })
+        { expiration-block-height: (+ VETO_LENGTH block-height) })
 
     (ok true)))
-)
 
 ;; Confirm proposal hasn't been vetoed
 (define-public (confirm-miners (proposal-id uint))
@@ -252,7 +242,7 @@
     (map-set confirmed-count-at-block block-height (+ u1 confirmed-this-block))
 
     ;; miner confirmation will fail if invoked before the expiration
-    (asserts! (>= burn-block-height expiration-block-height) (err ERR_VETO_PERIOD_NOT_OVER))
+    (asserts! (>= block-height expiration-block-height) (err ERR_VETO_PERIOD_NOT_OVER))
 
     ;; miner confirmation will fail if there are enough vetos
     (asserts! (< vetos REQUIRED_VETOES) (err ERR_PROPOSAL_VETOED))

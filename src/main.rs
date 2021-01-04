@@ -455,7 +455,7 @@ fn main() {
             &old_burnchaindb_path,
             first_burnchain_block_height,
             &first_burnchain_block_hash,
-            FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
             true,
         )
         .unwrap();
@@ -468,6 +468,8 @@ fn main() {
             first_burnchain_block_timestamp: 0,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
+            get_bulk_initial_namespaces: None,
+            get_bulk_initial_names: None,
         };
 
         let (mut new_chainstate, _) = StacksChainState::open_and_exec(

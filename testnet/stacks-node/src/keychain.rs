@@ -161,15 +161,19 @@ impl Keychain {
     }
 
     /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
-    /// Note: Testnet bit is hardcoded.
-    pub fn get_address(&self) -> StacksAddress {
+    pub fn get_address(&self, is_mainnet: bool) -> StacksAddress {
         let public_keys = self
             .secret_keys
             .iter()
             .map(|ref pk| StacksPublicKey::from_private(pk))
             .collect();
+        let version = if is_mainnet {
+            self.hash_mode.to_version_mainnet()
+        } else {
+            self.hash_mode.to_version_testnet()
+        };
         StacksAddress::from_public_keys(
-            self.hash_mode.to_version_testnet(),
+            version,
             &self.hash_mode,
             self.threshold as usize,
             &public_keys,
@@ -177,9 +181,17 @@ impl Keychain {
         .unwrap()
     }
 
-    pub fn address_from_burnchain_signer(signer: &BurnchainSigner) -> StacksAddress {
+    pub fn address_from_burnchain_signer(
+        signer: &BurnchainSigner,
+        is_mainnet: bool,
+    ) -> StacksAddress {
+        let version = if is_mainnet {
+            signer.hash_mode.to_version_mainnet()
+        } else {
+            signer.hash_mode.to_version_testnet()
+        };
         StacksAddress::from_public_keys(
-            signer.hash_mode.to_version_testnet(),
+            version,
             &signer.hash_mode,
             signer.num_sigs,
             &signer.public_keys,

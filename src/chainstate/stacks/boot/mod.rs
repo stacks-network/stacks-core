@@ -1019,6 +1019,7 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
+        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
@@ -1047,7 +1048,7 @@ pub mod test {
 
                     let block_txs = vec![coinbase_tx];
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1070,13 +1071,15 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            assert_eq!(liquid_ustx, expected_liquid_ustx);
+            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
+            assert_eq!(liquid_ustx, prior_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
-                let expected_bonus = (missed_initial_blocks as u128) * block_reward
+                let expected_bonus = (missed_initial_blocks as u128 * block_reward)
                     / (INITIAL_MINING_BONUS_WINDOW as u128);
                 // add mature coinbases
+                prior_liquid_ustx = expected_liquid_ustx;
                 expected_liquid_ustx += block_reward + expected_bonus;
             }
         }
@@ -1169,7 +1172,7 @@ pub mod test {
 
                     let block_txs = vec![coinbase_tx];
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1263,7 +1266,7 @@ pub mod test {
 
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -1317,6 +1320,7 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
+        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         let alice = keys.pop().unwrap();
@@ -1355,7 +1359,7 @@ pub mod test {
 
                     let block_txs = vec![coinbase_tx, burn_tx];
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1377,10 +1381,12 @@ pub mod test {
             peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            expected_liquid_ustx -= 1;
-
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            assert_eq!(liquid_ustx, expected_liquid_ustx);
+            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
+            assert_eq!(liquid_ustx, prior_liquid_ustx);
+
+            expected_liquid_ustx -= 1;
+            prior_liquid_ustx = expected_liquid_ustx;
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
@@ -1460,7 +1466,7 @@ pub mod test {
                         block_txs.push(alice_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1671,6 +1677,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_block_builder(
+                        false,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1814,7 +1821,7 @@ pub mod test {
 
                 if cur_reward_cycle >= lockup_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -1924,7 +1931,7 @@ pub mod test {
                         block_txs.push(alice_stack);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2192,7 +2199,7 @@ pub mod test {
                         block_txs.push(bob_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2403,7 +2410,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) burn-block-height u12)))
+                                (contract-call? '{}.pox stack-stx u10240000000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -2440,7 +2447,7 @@ pub mod test {
                     block_txs.push(charlie_test_tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -2603,7 +2610,7 @@ pub mod test {
                         block_txs.push(alice_lockup);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2702,7 +2709,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -2895,7 +2902,7 @@ pub mod test {
                         block_txs.push(charlie_stack);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3016,7 +3023,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3470,7 +3477,7 @@ pub mod test {
                         block_txs.push(alice_withdraw_tx);
                     }
 
-                    let block_builder = StacksBlockBuilder::make_block_builder(
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3816,7 +3823,7 @@ pub mod test {
                     //      Note: this behavior is a bug in the miner and block processor: see issue #?
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
@@ -3843,7 +3850,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {
@@ -3960,7 +3967,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);

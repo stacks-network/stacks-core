@@ -65,11 +65,6 @@ use util::hash::Hash160;
 
 use util::secp256k1::MessageSignature;
 
-const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1894315;
-const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1606093490;
-const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
-    "000000000000003efa81a29f2ee638ca4d4928a073e68789bb06a4fc0b153653";
-
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
@@ -107,6 +102,7 @@ pub struct BurnchainParameters {
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
+    pub initial_reward_start_block: u64,
 }
 
 impl BurnchainParameters {
@@ -126,9 +122,11 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_MAINNET,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
-            first_block_height: 0,
-            first_block_hash: BurnchainHeaderHash::zero(),
-            first_block_timestamp: 0,
+            first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK,
         }
     }
 
@@ -143,6 +141,7 @@ impl BurnchainParameters {
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH)
                 .unwrap(),
             first_block_timestamp: BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT - 10_000,
         }
     }
 
@@ -153,9 +152,11 @@ impl BurnchainParameters {
             network_id: BITCOIN_NETWORK_ID_REGTEST,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
-            first_block_height: 0,
-            first_block_hash: BurnchainHeaderHash::zero(),
-            first_block_timestamp: 0,
+            first_block_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_block_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            initial_reward_start_block: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
         }
     }
 
@@ -307,6 +308,7 @@ pub struct Burnchain {
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
+    pub initial_reward_start_block: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -383,21 +385,33 @@ impl PoxConstants {
             80,
             25,
             5,
-            POX_SUNSET_START,
-            POX_SUNSET_END,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
     }
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            150, // 120 reward slots; 30 prepare-phase slots
-            30,
-            20,
+            50, // 40 reward slots; 10 prepare-phase slots
+            10,
+            6,
             3333333333333333,
-            5,
-            POX_SUNSET_START,
-            POX_SUNSET_END,
+            1,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         ) // total liquid supply is 40000000000000000 µSTX
+    }
+
+    pub fn regtest_default() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            1,
+            1,
+            3333333333333333,
+            1,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+        )
     }
 }
 
@@ -1270,7 +1284,7 @@ pub mod test {
     impl TestBurnchainNode {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
-            let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
+            let first_block_hash = BurnchainHeaderHash([0u8; 32]);
             let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 sortdb: db,

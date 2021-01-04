@@ -20,7 +20,7 @@ use stacks::vm::database::ClarityDeserializable;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, node::TESTNET_CHAIN_ID,
+    config::EventObserverConfig, config::InitialBalance, config::TESTNET_CHAIN_ID, neon,
     operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
     ConfigFile, Keychain,
 };
@@ -62,7 +62,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '2' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '3' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
@@ -173,6 +173,7 @@ mod test_observer {
     }
 
     pub fn spawn() {
+        clear();
         thread::spawn(|| {
             let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
@@ -198,7 +199,8 @@ fn next_block_and_wait(
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
-            panic!("Timed out waiting for block to process");
+            error!("Timed out waiting for block to process, trying to continue test");
+            return;
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -211,6 +213,31 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
             panic!("Timed out waiting for run loop to start");
         }
         thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/transactions", http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
     }
 }
 
@@ -304,26 +331,24 @@ fn bitcoind_integration_test() {
 
     eprintln!("Miner account: {}", miner_account);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     channel.stop_chains_coordinator();
 }
 
-fn get_balance<F: std::fmt::Display>(
-    client: &reqwest::blocking::Client,
-    http_origin: &str,
-    account: &F,
-) -> u128 {
+fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
+    get_account(http_origin, account).balance
+}
+
+struct Account {
+    balance: u128,
+    nonce: u64,
+}
+
+fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+    let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client
         .get(&path)
@@ -331,8 +356,140 @@ fn get_balance<F: std::fmt::Display>(
         .unwrap()
         .json::<AccountEntryResponse>()
         .unwrap();
-    eprintln!("Response: {:#?}", res);
-    u128::from_str_radix(&res.balance[2..], 16).unwrap()
+    info!("Account response: {:#?}", res);
+    Account {
+        balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+        nonce: res.nonce,
+    }
+}
+
+#[test]
+#[ignore]
+fn liquid_ustx_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // the contract that we'll test the costs of
+    let caller_src = "
+    (define-public (execute)
+       (ok stx-liquid-supply))
+    ";
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let _client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let _sort_height = channel.get_sortitions_processed();
+
+    let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
+
+    submit_tx(&http_origin, &publish);
+
+    // mine 1 burn block for the miner to issue the next block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // mine next burn block for the miner to win
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let call_tx = make_contract_call(
+        &spender_sk,
+        1,
+        1000,
+        &spender_addr,
+        "caller",
+        "execute",
+        &[],
+    );
+
+    submit_tx(&http_origin, &call_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "execute" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let liquid_ustx = parsed.expect_result_ok().expect_u128();
+                assert!(liquid_ustx > 0, "Should be more liquid ustx than 0");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
 }
 
 #[test]
@@ -402,7 +559,7 @@ fn stx_transfer_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the spender's account:
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -453,15 +610,15 @@ fn stx_transfer_btc_integration_test() {
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 100300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 0);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
 
     // this block should process the transfer
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // now let's do a pre-stx-op and a transfer op in the same burnchain block...
     // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
@@ -520,16 +677,16 @@ fn stx_transfer_btc_integration_test() {
     // should be elected in the same block as the transfer, so balances should be unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 100_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 100_300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // should process the transfer
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    assert_eq!(get_balance(&client, &http_origin, &spender_addr), 300);
-    assert_eq!(get_balance(&client, &http_origin, &recipient_addr), 200_000);
-    assert_eq!(get_balance(&client, &http_origin, &spender_2_addr), 300);
+    assert_eq!(get_balance(&http_origin, &spender_addr), 300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
+    assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
 
     channel.stop_chains_coordinator();
 }
@@ -558,7 +715,6 @@ fn bitcoind_forking_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -585,17 +741,9 @@ fn bitcoind_forking_test() {
 
     eprintln!("Miner account: {}", miner_account);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 7);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 7);
 
     // okay, let's figure out the burn block we want to fork away.
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
@@ -605,35 +753,16 @@ fn bitcoind_forking_test() {
     thread::sleep(Duration::from_secs(5));
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    // the fork reduced our block height
-    assert_eq!(res.nonce, 2);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 2);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("Response: {:#?}", res);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
     // but we're able to keep on mining
-    assert_eq!(res.nonce, 3);
+    assert_eq!(account.nonce, 3);
 
     channel.stop_chains_coordinator();
 }
@@ -700,52 +829,20 @@ fn microblock_integration_test() {
 
     // let's query the miner's account nonce:
 
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    info!("Miner account: {}", miner_account);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     // and our spender
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100300);
-    assert_eq!(res.nonce, 0);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, 100300);
+    assert_eq!(account.nonce, 0);
 
     // okay, let's push a transaction that is marked microblock only!
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
-
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res: String = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-
-    assert_eq!(
-        res,
-        StacksTransaction::consensus_deserialize(&mut &tx[..])
-            .unwrap()
-            .txid()
-            .to_string()
-    );
+    submit_tx(&http_origin, &tx);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
@@ -758,14 +855,9 @@ fn microblock_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // microblock must have bumped our nonce
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(res.nonce, 1);
+    // and our spender
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 1);
 
     // push another transaction that is marked microblock only
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
@@ -822,16 +914,9 @@ fn microblock_integration_test() {
 
     eprintln!("\n\nBegin testing\nmicroblock: {:?}\n\n", &microblock);
 
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    assert_eq!(res.nonce, 1);
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 98300);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 98300);
 
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client
@@ -1072,10 +1157,6 @@ fn size_check_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .build()
-        .unwrap();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -1094,60 +1175,20 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
-
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
-
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
     // and our potential spenders:
 
     for spender_addr in spender_addrs.iter() {
-        let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-        let res = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<AccountEntryResponse>()
-            .unwrap();
-        assert_eq!(
-            u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-            1049230
-        );
-        assert_eq!(res.nonce, 0);
+        let account = get_account(&http_origin, &spender_addr);
+        assert_eq!(account.nonce, 0);
+        assert_eq!(account.balance, 1049230);
     }
 
     for tx in txs.iter() {
         // okay, let's push a bunch of transactions that can only fit one per block!
-        let path = format!("{}/v2/transactions", &http_origin);
-        let res = client
-            .post(&path)
-            .header("Content-Type", "application/octet-stream")
-            .body(tx.clone())
-            .send()
-            .unwrap();
-        eprintln!("{:#?}", res);
-        if res.status().is_success() {
-            let res: String = res.json().unwrap();
-            assert_eq!(
-                res,
-                StacksTransaction::consensus_deserialize(&mut &tx[..])
-                    .unwrap()
-                    .txid()
-                    .to_string()
-            );
-        } else {
-            eprintln!("{}", res.text().unwrap());
-            panic!("");
-        }
+        submit_tx(&http_origin, tx);
     }
 
     sleep_ms(60_000);
@@ -1171,13 +1212,7 @@ fn size_check_integration_test() {
     let mut micro_block_txs = 0;
     let mut anchor_block_txs = 0;
     for (ix, spender_addr) in spender_addrs.iter().enumerate() {
-        let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-        let res = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<AccountEntryResponse>()
-            .unwrap();
+        let res = get_account(&http_origin, &spender_addr);
         if res.nonce == 1 {
             if ix % 2 == 0 {
                 anchor_block_txs += 1;
@@ -1318,34 +1353,14 @@ fn pox_integration_test() {
     let sort_height = channel.get_sortitions_processed();
 
     // let's query the miner's account nonce:
-
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-    assert_eq!(res.nonce, 1);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
 
     // and our potential spenders:
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(
-        u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-        first_bal as u128
-    );
-    assert_eq!(res.nonce, 0);
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, first_bal as u128);
+    assert_eq!(account.nonce, 0);
 
     let tx = make_contract_call(
         &spender_sk,
@@ -1368,30 +1383,11 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {}", sort_height);
+    test_observer::clear();
 
     // now let's mine until the next reward cycle starts ...
     while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
@@ -1414,7 +1410,6 @@ fn pox_integration_test() {
             break;
         }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        eprintln!("{}", transactions.len());
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
@@ -1422,24 +1417,25 @@ fn pox_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(_) = parsed.payload {
-            } else {
-                continue;
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "stack-stx" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+                    // cycle length of 15 blocks, is a burnchain height of 300)
+                    assert_eq!(parsed.to_string(),
+                               format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
+                                       &spender_addr));
+                    tested = true;
+                }
             }
-
-            let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-            let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-            // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-            // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-            // cycle length of 15 blocks, is a burnchain height of 300)
-            assert_eq!(parsed.to_string(),
-                       format!("(ok (tuple (lock-amount u1000000000000000) (stacker {}) (unlock-burn-height u300)))",
-                               &spender_addr));
-            tested = true;
         }
     }
 
-    assert!(tested);
+    assert!(tested, "Should have observed stack-stx transaction");
 
     // let's stack with spender 2 and spender 3...
 
@@ -1467,27 +1463,7 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     let tx = make_contract_call(
         &spender_3_sk,
@@ -1509,28 +1485,7 @@ fn pox_integration_test() {
         ],
     );
 
-    // okay, let's push that stacking transaction!
-    let path = format!("{}/v2/transactions", &http_origin);
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(tx.clone())
-        .send()
-        .unwrap();
-    eprintln!("{:#?}", res);
-    if res.status().is_success() {
-        let res: String = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksTransaction::consensus_deserialize(&mut &tx[..])
-                .unwrap()
-                .txid()
-                .to_string()
-        );
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
+    submit_tx(&http_origin, &tx);
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
@@ -1695,9 +1650,11 @@ fn atlas_integration_test() {
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
     );
-    conf_follower_node
-        .node
-        .set_bootstrap_node(Some(bootstrap_node_url));
+    conf_follower_node.node.set_bootstrap_node(
+        Some(bootstrap_node_url),
+        conf_follower_node.burnchain.chain_id,
+        conf_follower_node.burnchain.peer_version,
+    );
     conf_follower_node.node.miner = false;
     conf_follower_node
         .initial_balances
@@ -1889,7 +1846,7 @@ fn atlas_integration_test() {
         }
 
         // (define-public (name-import (namespace (buff 20))
-        //                             (name (buff 32))
+        //                             (name (buff 48))
         //                             (zonefile-hash (buff 20)))
         let zonefile_hex = "facade00";
         let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
@@ -1967,7 +1924,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 60;
+            let mut timeout = 120;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -2134,7 +2091,7 @@ fn atlas_integration_test() {
 
     let target_height = match follower_node_rx.recv() {
         Ok(Signal::ReplicatingAttachmentsCheckTest2(target_height)) => target_height,
-        _ => panic!("Bootstrap node could nod boot. Aborting test."),
+        _ => panic!("Bootstrap node could not boot. Aborting test."),
     };
 
     let mut sort_height = channel.get_sortitions_processed();
@@ -2146,7 +2103,7 @@ fn atlas_integration_test() {
     // Poll GET v2/attachments/<attachment-hash>
     for i in 1..10 {
         let mut attachments_did_sync = false;
-        let mut timeout = 30;
+        let mut timeout = 60;
         while attachments_did_sync != true {
             let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
             let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -2168,7 +2125,7 @@ fn atlas_integration_test() {
             } else {
                 timeout -= 1;
                 if timeout == 0 {
-                    panic!("Failed syncing 9 attachments between 2 neon runloops within 30s - Something is wrong");
+                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
                 }
                 eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                 thread::sleep(Duration::from_millis(1000));

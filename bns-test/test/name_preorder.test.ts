@@ -120,7 +120,7 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
           sender: cases[0].nameOwner
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u33');
+      expect(receipt.result).include('u167');
 
       // should fail if the same order is being re-submitted by Bob
       receipt = await bns.namePreorder(
@@ -142,11 +142,11 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
           sender: alice
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u35');
+      expect(receipt.result).include('u169');
 
 
       // should succeed once claimability TTL expired
-      await mineBlocks(bns, 10);
+      await mineBlocks(bns, 154);
       receipt = await bns.namePreorder(
         cases[0].namespace,
         "bob",
@@ -155,7 +155,7 @@ describe("BNS Test Suite - NAME_PREORDER", () => {
           sender: cases[0].nameOwner
         });
       expect(receipt.success).eq(true);
-      expect(receipt.result).include('u46');
+      expect(receipt.result).include('u324');
     });
   });
 });

@@ -78,7 +78,6 @@ pub enum Error {
 
     // all the things that can go wrong with leader key register
     LeaderKeyAlreadyRegistered,
-    LeaderKeyBadConsensusHash,
 
     // all the things that can go wrong with user burn supports
     UserBurnSupportBadConsensusHash,
@@ -118,19 +117,13 @@ impl fmt::Display for Error {
             Error::BlockCommitBadModulus => {
                 write!(f, "Block commit included a bad burn block height modulus")
             }
-            Error::MissedBlockCommit(_) => {
-                write!(
-                    f,
-                    "Block commit included in a burn block that was not intended"
-                )
-            }
+            Error::MissedBlockCommit(_) => write!(
+                f,
+                "Block commit included in a burn block that was not intended"
+            ),
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }
-            Error::LeaderKeyBadConsensusHash => {
-                write!(f, "Leader key has an invalid consensus hash")
-            }
-
             Error::UserBurnSupportBadConsensusHash => {
                 write!(f, "User burn support has an invalid consensus hash")
             }

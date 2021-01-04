@@ -148,9 +148,9 @@ impl LeaderBlockCommitOp {
         } as u8;
     }
 
-    pub fn expected_chained_utxo(sunset_finished: bool) -> u32 {
-        if sunset_finished {
-            2 // if sunset has occurred, chained commits should spend the output after the burn commit
+    pub fn expected_chained_utxo(burn_only: bool) -> u32 {
+        if burn_only {
+            2 // if sunset has occurred, or we're in the prepare phase, then chained commits should spend the output after the burn commit
         } else {
             // otherwise, it's the output after the last PoX output
             (OUTPUTS_PER_COMMIT as u32) + 1
@@ -221,6 +221,10 @@ impl LeaderBlockCommitOp {
             &block_header.block_hash,
             tx,
         )
+    }
+
+    pub fn is_parent_genesis(&self) -> bool {
+        self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }
 
     /// parse a LeaderBlockCommitOp
@@ -394,6 +398,18 @@ impl LeaderBlockCommitOp {
                 previous_is_burn && output_addr.is_burn()
             })
     }
+
+    pub fn spent_txid(&self) -> &Txid {
+        &self.input.0
+    }
+
+    pub fn spent_output(&self) -> u32 {
+        self.input.1
+    }
+
+    pub fn is_first_block(&self) -> bool {
+        self.parent_block_ptr == 0 && self.parent_vtxindex == 0
+    }
 }
 
 impl StacksMessageCodec for LeaderBlockCommitOp {
@@ -437,6 +453,16 @@ pub struct MissedBlockCommit {
     pub txid: Txid,
     pub input: (Txid, u32),
     pub intended_sortition: SortitionId,
+}
+
+impl MissedBlockCommit {
+    pub fn spent_txid(&self) -> &Txid {
+        &self.input.0
+    }
+
+    pub fn spent_output(&self) -> u32 {
+        self.input.1
+    }
 }
 
 impl RewardSetInfo {
@@ -533,7 +559,20 @@ impl LeaderBlockCommitOp {
                     let expect_pox_descendant = if self.all_outputs_burn() {
                         false
                     } else {
-                        if self.commit_outs.len() != reward_set_info.recipients.len() {
+                        let mut check_recipients: Vec<_> = reward_set_info
+                            .recipients
+                            .iter()
+                            .map(|(addr, _)| addr.clone())
+                            .collect();
+
+                        if check_recipients.len() == 1 {
+                            // If the number of recipients in the set was even, we need to pad
+                            // with a burn address
+                            check_recipients
+                                .push(StacksAddress::burn_address(burnchain.is_mainnet()))
+                        }
+
+                        if self.commit_outs.len() != check_recipients.len() {
                             warn!(
                                 "Invalid block commit: expected {} PoX transfers, but commit has {}",
                                 reward_set_info.recipients.len(),
@@ -544,11 +583,6 @@ impl LeaderBlockCommitOp {
 
                         // sort check_recipients and commit_outs so that we can perform an
                         //  iterative equality check
-                        let mut check_recipients: Vec<_> = reward_set_info
-                            .recipients
-                            .iter()
-                            .map(|(addr, _)| addr.clone())
-                            .collect();
                         check_recipients.sort();
                         let mut commit_outs = self.commit_outs.clone();
                         commit_outs.sort();
@@ -1433,7 +1467,8 @@ mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
         };
@@ -1553,19 +1588,6 @@ mod tests {
             vec![BlockstackOperationType::LeaderBlockCommit(
                 block_commit_1.clone(),
             )],
-            // 126
-            vec![],
-        ];
-
-        let consumed_leader_keys = vec![
-            // 122
-            vec![],
-            // 123
-            vec![],
-            // 124
-            vec![],
-            // 125
-            vec![leader_key_1.clone()],
             // 126
             vec![],
         ];
@@ -2049,6 +2071,56 @@ mod tests {
                     )
                     .unwrap(),
                     vtxindex: 445,
+                    block_height: 126,
+                    burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                    burn_header_hash: block_126_hash.clone(),
+                },
+                res: Ok(()),
+            },
+            CheckFixture {
+                // accept -- also consumes leader_key_1
+                op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
+                    block_header_hash: BlockHeaderHash::from_bytes(
+                        &hex_bytes(
+                            "2222222222222222222222222222222222222222222222222222222222222222",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    new_seed: VRFSeed::from_bytes(
+                        &hex_bytes(
+                            "3333333333333333333333333333333333333333333333333333333333333333",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    parent_block_ptr: 0,
+                    parent_vtxindex: 0,
+                    key_block_ptr: 124,
+                    key_vtxindex: 456,
+                    memo: vec![0x80],
+                    commit_outs: vec![],
+
+                    burn_fee: 12345,
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
+
+                    txid: Txid::from_bytes_be(
+                        &hex_bytes(
+                            "3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    vtxindex: 444,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),

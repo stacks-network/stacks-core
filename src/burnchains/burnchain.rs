@@ -109,6 +109,7 @@ impl BurnchainStateTransition {
 
     pub fn from_block_ops(
         sort_tx: &mut SortitionHandleTx,
+        burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
         missed_commits: &Vec<MissedBlockCommit>,
@@ -164,68 +165,89 @@ impl BurnchainStateTransition {
         let mut windowed_block_commits = vec![block_commits];
         let mut windowed_missed_commits = vec![];
 
-        // build a map of intended sortition -> missed commit for the missed commits
-        //   discovered in this block
-        let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
-        for missed in missed_commits.iter() {
-            if let Some(commits_at_sortition) =
-                missed_commits_map.get_mut(&missed.intended_sortition)
-            {
-                commits_at_sortition.push(missed);
-            } else {
-                missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
-            }
-        }
-
-        for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
-            if parent_snapshot.block_height < (blocks_back as u64) {
-                debug!("Mining commitment window shortened because block height is less than window size";
-                       "block_height" => %parent_snapshot.block_height,
-                       "window_size" => %MINING_COMMITMENT_WINDOW);
-                break;
-            }
-            let block_height = parent_snapshot.block_height - (blocks_back as u64);
-            let sortition_id = match sort_tx.get_block_snapshot_by_height(block_height)? {
-                Some(sn) => sn.sortition_id,
-                None => break,
-            };
-            windowed_block_commits.push(SortitionDB::get_block_commits_by_block(
-                sort_tx.tx(),
-                &sortition_id,
-            )?);
-            let mut missed_commits_at_height =
-                SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
-            if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
-                missed_commits_at_height
-                    .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
+            && parent_snapshot.block_height + 1 <= burnchain.pox_constants.sunset_end
+        {
+            // PoX reward-phase is active!
+            // build a map of intended sortition -> missed commit for the missed commits
+            //   discovered in this block.
+            let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
+            for missed in missed_commits.iter() {
+                if let Some(commits_at_sortition) =
+                    missed_commits_map.get_mut(&missed.intended_sortition)
+                {
+                    commits_at_sortition.push(missed);
+                } else {
+                    missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
+                }
             }
 
-            windowed_missed_commits.push(missed_commits_at_height);
+            for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
+                if parent_snapshot.block_height < (blocks_back as u64) {
+                    debug!("Mining commitment window shortened because block height is less than window size";
+                           "block_height" => %parent_snapshot.block_height,
+                           "window_size" => %MINING_COMMITMENT_WINDOW);
+                    break;
+                }
+                let block_height = parent_snapshot.block_height - (blocks_back as u64);
+                let sortition_id = match sort_tx.get_block_snapshot_by_height(block_height)? {
+                    Some(sn) => sn.sortition_id,
+                    None => break,
+                };
+                windowed_block_commits.push(SortitionDB::get_block_commits_by_block(
+                    sort_tx.tx(),
+                    &sortition_id,
+                )?);
+                let mut missed_commits_at_height =
+                    SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
+                if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
+                    missed_commits_at_height
+                        .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+                }
+
+                windowed_missed_commits.push(missed_commits_at_height);
+            }
+        } else {
+            // PoX reward-phase is not active
+            debug!(
+                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
+                parent_snapshot.block_height + 1
+            );
+
+            assert_eq!(windowed_block_commits.len(), 1);
+            assert_eq!(windowed_missed_commits.len(), 0);
         }
 
         // reverse vecs so that windows are in ascending block height order
         windowed_block_commits.reverse();
         windowed_missed_commits.reverse();
 
-        // figure out if the PoX sunset finished during the window
+        // figure out if the PoX sunset finished during the window,
+        // and/or which sortitions must be PoB due to them falling in a prepare phase.
         let window_end_height = parent_snapshot.block_height + 1;
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
-        let sunset_finished_at = if sunset_end <= window_start_height {
-            Some(0)
-        } else if sunset_end > window_end_height {
-            None
-        } else {
-            Some((sunset_end - window_start_height) as u8)
-        };
+        let mut burn_blocks = vec![false; windowed_block_commits.len()];
+
+        // set burn_blocks flags to accomodate prepare phases and PoX sunset
+        for (i, b) in burn_blocks.iter_mut().enumerate() {
+            if sunset_end <= window_start_height + (i as u64) {
+                // past PoX sunset, so must burn
+                *b = true;
+            } else if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
+                // must burn
+                *b = true;
+            } else {
+                // must not burn
+                *b = false;
+            }
+        }
 
         // calculate the burn distribution from these operations.
-        // The resulting distribution will contain the user burns that match block commits, and
-        // will only contain block commits that consume one leader key (multiple block commits that
-        // consume the same key will be rejected)
+        // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
             windowed_block_commits,
             windowed_missed_commits,
-            sunset_finished_at,
+            burn_blocks,
         );
 
         // find out which user burns and block commits we're going to take
@@ -315,20 +337,16 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_testnet_address(&self) -> String {
+    pub fn to_address(&self, network_type: BitcoinNetworkType) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
             }
             _ => BitcoinAddressType::ScriptHash,
         };
-        BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Testnet,
-            addr_type,
-            &self.to_address_bits(),
-        )
-        .unwrap()
-        .to_string()
+        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
+            .unwrap()
+            .to_string()
     }
 
     pub fn to_address_bits(&self) -> Vec<u8> {
@@ -412,7 +430,7 @@ impl Burnchain {
             ),
             ("bitcoin", "regtest") => (
                 BurnchainParameters::bitcoin_regtest(),
-                PoxConstants::testnet_default(),
+                PoxConstants::regtest_default(),
             ),
             (_, _) => {
                 return Err(burnchain_error::UnsupportedBurnchain);
@@ -428,10 +446,15 @@ impl Burnchain {
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
+            initial_reward_start_block: params.initial_reward_start_block,
             first_block_hash: params.first_block_hash,
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
         })
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        self.network_id == NETWORK_ID_MAINNET
     }
 
     /// the expected sunset burn is:
@@ -468,15 +491,10 @@ impl Burnchain {
             .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
-    pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
-        if block_height <= (self.first_block_height + 1) {
-            // not a reward cycle start if we're the first block after genesis.
-            false
-        } else {
-            let effective_height = block_height - self.first_block_height;
-            // first block of the new reward cycle
-            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
-        }
+    pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
+        let effective_height = burn_height - self.first_block_height;
+        // first block of the new reward cycle
+        (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
     }
 
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
@@ -530,6 +548,7 @@ impl Burnchain {
         )
         .unwrap();
         ret.first_block_height = first_block_height;
+        ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
         ret
     }
@@ -857,68 +876,6 @@ impl Burnchain {
         });
 
         checked_ops
-    }
-
-    /// Verify that two or more block commits do not consume the same VRF key.
-    /// If a key is consumed more than once, then pick the block-commit with the highest burn (to
-    /// stop griefing attacks).  In case of ties, pick the block-commit that occurs earlier in the
-    /// block.
-    pub fn filter_block_commits_with_same_VRF_key(
-        checked_ops: Vec<BlockstackOperationType>,
-    ) -> Vec<BlockstackOperationType> {
-        debug!("Check Blockstack transactions: filter commits that consume the same VRF key");
-        assert!(Burnchain::ops_are_sorted(&checked_ops));
-
-        let mut ret = Vec::with_capacity(checked_ops.len());
-
-        let mut collisions: HashMap<(u64, u32), BlockstackOperationType> = HashMap::new();
-        for op in checked_ops.into_iter() {
-            match op {
-                BlockstackOperationType::LeaderBlockCommit(ref new_block_commit) => {
-                    let key_loc = (
-                        new_block_commit.key_block_ptr as u64,
-                        new_block_commit.key_vtxindex as u32,
-                    );
-                    if let Some(existing_block_commit) = collisions.get_mut(&key_loc) {
-                        if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) =
-                            existing_block_commit
-                        {
-                            warn!(
-                                "Block commit {} consumes the same VRF key as {}",
-                                &new_block_commit.block_header_hash,
-                                &existing_block_commit.block_header_hash
-                            );
-                            if new_block_commit.burn_fee > existing_block_commit.burn_fee {
-                                warn!("REJECTED({}) block-commit {} for {}: later competing commit {} for {} has a higher burn",
-                                      existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash, &new_block_commit.txid, &new_block_commit.block_header_hash);
-                                collisions.insert(key_loc, op);
-                            } else {
-                                warn!("REJECTED({}) block-commit {} for {}: keeping earlier commit {} for {} which has a higher burn",
-                                      new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash,
-                                      &existing_block_commit.txid, &existing_block_commit.block_header_hash);
-                            }
-                        } else {
-                            unreachable!("Inserted non-block-commit");
-                        }
-                    } else {
-                        collisions.insert(key_loc, op);
-                    }
-                }
-                _ => {
-                    // preserve
-                    ret.push(op);
-                }
-            }
-        }
-
-        // fold back in
-        for (_, op) in collisions.into_iter() {
-            ret.push(op);
-        }
-
-        // preserve block order
-        ret.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-        ret
     }
 
     /// Top-level entry point to check and process a block.
@@ -1537,7 +1494,8 @@ pub mod tests {
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: BurnchainHeaderHash::zero(),
         };
@@ -2350,156 +2308,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_filter_block_commits_with_same_VRF_key() {
-        let mut block_commits = vec![];
-
-        for i in 0..10 {
-            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-                sunset_burn: 0,
-                commit_outs: vec![],
-                block_header_hash: BlockHeaderHash::from_bytes(&vec![
-                    i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0,
-                ])
-                .unwrap(),
-                new_seed: VRFSeed::from_bytes(&vec![
-                    i, i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0,
-                ])
-                .unwrap(),
-                parent_block_ptr: 3,
-                parent_vtxindex: 1,
-                key_block_ptr: 2, // make them all try to use the same VRF key
-                key_vtxindex: 1,
-                memo: vec![i],
-
-                burn_fee: (i + 1) as u64,
-                input: (Txid([0; 32]), 0),
-                apparent_sender: BurnchainSigner {
-                    public_keys: vec![StacksPublicKey::from_hex(
-                        "02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c",
-                    )
-                    .unwrap()],
-                    num_sigs: 1,
-                    hash_mode: AddressHashMode::SerializeP2PKH,
-                },
-
-                txid: Txid::from_bytes(&vec![
-                    i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, i,
-                ])
-                .unwrap(),
-                vtxindex: (i + 2) as u32,
-                block_height: 5,
-                burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-            });
-            block_commits.push(op);
-        }
-
-        let noncolliding_op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-            sunset_burn: 0,
-            commit_outs: vec![],
-            block_header_hash: BlockHeaderHash([0xbb; 32]),
-            new_seed: VRFSeed([0xcc; 32]),
-            parent_block_ptr: 3,
-            parent_vtxindex: 1,
-            key_block_ptr: 2,
-            key_vtxindex: 2,
-            memo: vec![0x00],
-
-            burn_fee: 256,
-            input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c",
-                )
-                .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
-
-            txid: Txid([0xdd; 32]),
-            vtxindex: 1,
-            block_height: 5,
-            burn_parent_modulus: (4 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-            burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-        });
-
-        let mut csprng: ThreadRng = thread_rng();
-        let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
-
-        let key_op = BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
-            consensus_hash: ConsensusHash([0x11; 20]),
-            public_key: VRFPublicKey::from_bytes(&keypair.public.to_bytes()).unwrap(),
-            memo: vec![0, 0, 0, 0, 0],
-            address: StacksAddress {
-                version: 1,
-                bytes: Hash160([0x33; 20]),
-            },
-
-            txid: Txid::from_bytes(&vec![
-                4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ])
-            .unwrap(),
-            vtxindex: 100,
-            block_height: 5,
-            burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-        });
-
-        // add a non-colliding one
-        block_commits.push(noncolliding_op.clone());
-        block_commits.push(key_op.clone());
-
-        let winner = block_commits[9].clone();
-
-        block_commits.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-
-        let ops = Burnchain::filter_block_commits_with_same_VRF_key(block_commits);
-        assert_eq!(ops.len(), 3);
-
-        // first op should be the non-colliding one
-        match (ops[0].clone(), noncolliding_op) {
-            (
-                BlockstackOperationType::LeaderBlockCommit(ref op1),
-                BlockstackOperationType::LeaderBlockCommit(ref op2),
-            ) => {
-                assert_eq!(op1, op2);
-            }
-            (_, _) => {
-                assert!(false);
-            }
-        }
-
-        // second op should be the colliding op with the higehst fee
-        match (ops[1].clone(), winner) {
-            (
-                BlockstackOperationType::LeaderBlockCommit(ref op1),
-                BlockstackOperationType::LeaderBlockCommit(ref op2),
-            ) => {
-                assert_eq!(op1, op2);
-            }
-            (_, _) => {
-                assert!(false);
-            }
-        }
-
-        // third op should be the leader key (untouched)
-        match (ops[2].clone(), key_op) {
-            (
-                BlockstackOperationType::LeaderKeyRegister(ref op1),
-                BlockstackOperationType::LeaderKeyRegister(ref op2),
-            ) => {
-                assert_eq!(op1, op2);
-            }
-            (_, _) => {
-                assert!(false);
-            }
-        }
-    }
-
-    #[test]
     fn test_burn_snapshot_sequence() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000123",
@@ -2518,7 +2326,8 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash,
-            first_block_height: first_block_height,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
         };
 
         let mut leader_private_keys = vec![];
