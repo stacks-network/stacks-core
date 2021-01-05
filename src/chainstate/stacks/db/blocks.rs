@@ -1216,12 +1216,12 @@ impl StacksChainState {
                         &microblock.block_hash(),
                     ),
                 )? {
-                    test_debug!("Microblock {} is not processed", &microblock.block_hash());
+                    debug!("Microblock {} is not processed", &microblock.block_hash());
                     return Ok(None);
                 }
             }
 
-            test_debug!(
+            debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
