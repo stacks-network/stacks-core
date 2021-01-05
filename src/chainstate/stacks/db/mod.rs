@@ -356,6 +356,17 @@ impl<'a> ClarityTx<'a> {
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
     }
+
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) {
+        self.connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|db| {
+                    db.increment_ustx_liquid_supply(incr_by)
+                        .map_err(|e| e.into())
+                })
+            })
+            .expect("FATAL: `ust-liquid-supply` overflowed");
+    }
 }
 
 pub struct ChainstateTx<'a> {
@@ -1400,6 +1411,10 @@ impl StacksChainState {
     /// Does not create a Clarity instance.
     pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
         Ok(StacksDBTx::new(&mut self.state_index, ()))
+    }
+
+    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
+        Ok(StacksDBConn::new(&self.state_index, ()))
     }
 
     /// Begin a transaction against the underlying DB

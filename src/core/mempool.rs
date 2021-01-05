@@ -392,11 +392,11 @@ impl MemPoolDB {
         }
 
         let ancestor_tip = {
-            let mut headers_tx = chainstate.index_tx_begin()?;
+            let headers_conn = chainstate.index_conn()?;
             let index_block =
                 StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
-            match StacksChainState::get_index_tip_ancestor(
-                &mut headers_tx,
+            match StacksChainState::get_index_tip_ancestor_conn(
+                &headers_conn,
                 &index_block,
                 next_height,
             )? {
