@@ -649,7 +649,8 @@ fn spawn_peer(
 
                 if mblock_deadline < get_epoch_time_ms() {
                     results_with_data.push_back(RelayerDirective::RunMicroblockTenure);
-                    mblock_deadline = get_epoch_time_ms() + (config.node.microblock_frequency as u128);
+                    mblock_deadline =
+                        get_epoch_time_ms() + (config.node.microblock_frequency as u128);
                 }
 
                 while let Some(next_result) = results_with_data.pop_front() {
