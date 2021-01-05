@@ -110,7 +110,10 @@ fn make_json_logger() -> Logger {
                           info.line()
                       }),
                       "thread" => FnValue(move |_| {
-                          format!("{:?}", thread::current().id())
+                          match thread::current().name() {
+                              None => format!("{:?}", thread::current().id()),
+                              Some(name) => name.to_string(),
+                          }
                       }),
     );
 
