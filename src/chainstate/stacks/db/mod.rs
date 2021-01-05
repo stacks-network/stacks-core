@@ -1621,30 +1621,32 @@ impl StacksChainState {
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
         to_do: F,
-    ) -> Option<R>
+    ) -> Result<Option<R>, Error>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
             if !unconfirmed.is_readable() {
-                return None;
+                return Ok(None);
             }
         }
 
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
-            let mut conn = unconfirmed_state.clarity_inst.read_only_connection(
-                &unconfirmed_state.unconfirmed_chain_tip,
-                self.db(),
-                burn_dbconn,
-            );
+            let mut conn = unconfirmed_state
+                .clarity_inst
+                .read_only_connection_checked(
+                    &unconfirmed_state.unconfirmed_chain_tip,
+                    self.db(),
+                    burn_dbconn,
+                )?;
             let result = to_do(&mut conn);
             Some(result)
         } else {
             None
         };
         self.unconfirmed_state = unconfirmed_state_opt;
-        res
+        Ok(res)
     }
 
     /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
@@ -1655,7 +1657,7 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> Option<R>
+    ) -> Result<Option<R>, Error>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
@@ -1669,7 +1671,7 @@ impl StacksChainState {
         if unconfirmed {
             self.with_read_only_unconfirmed_clarity_tx(burn_dbconn, to_do)
         } else {
-            self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do)
+            Ok(self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do))
         }
     }
 
@@ -1708,8 +1710,6 @@ impl StacksChainState {
     }
 
     /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
-    /// This marks the unconfirmed chainstate as "dirty" so that no future queries against it can
-    /// happen.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -1720,8 +1720,6 @@ impl StacksChainState {
                 debug!("Unconfirmed state is not writable; cannot begin unconfirmed Clarity Tx");
                 return None;
             }
-
-            unconfirmed.set_dirty(true);
 
             Some(StacksChainState::chainstate_begin_unconfirmed(
                 conf,

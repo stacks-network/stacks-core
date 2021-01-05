@@ -884,6 +884,40 @@ impl StacksBlockBuilder {
         Ok(microblock)
     }
 
+    fn load_parent_microblocks(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
+        parent_index_hash: &StacksBlockId,
+    ) -> Result<Vec<StacksMicroblock>, Error> {
+        if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
+            // load up a microblock fork
+            let microblocks = StacksChainState::load_microblock_stream_fork(
+                &chainstate.db(),
+                &parent_consensus_hash,
+                &parent_header_hash,
+                &microblock_parent_hash,
+            )?
+            .ok_or(Error::NoSuchBlockError)?;
+
+            Ok(microblocks)
+        } else {
+            // apply all known parent microblocks before beginning our tenure
+            let (parent_microblocks, _) =
+                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                    &chainstate.db(),
+                    &parent_index_hash,
+                    0,
+                    u16::MAX,
+                )? {
+                    Some(x) => x,
+                    None => (vec![], None),
+                };
+            Ok(parent_microblocks)
+        }
+    }
+
     /// Begin mining an epoch's transactions.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -932,32 +966,26 @@ impl StacksBlockBuilder {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
-        let parent_microblocks =
-            if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
-                // load up a microblock fork
-                let microblocks = StacksChainState::load_microblock_stream_fork(
-                    &chainstate.db(),
-                    &parent_consensus_hash,
-                    &parent_header_hash,
-                    &microblock_parent_hash,
-                )?
-                .ok_or(Error::NoSuchBlockError)?;
-
-                microblocks
-            } else {
-                // apply all known parent microblocks before beginning our tenure
-                let (parent_microblocks, _) =
-                    match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
-                        &chainstate.db(),
-                        &parent_index_hash,
-                        0,
-                        u16::MAX,
-                    )? {
-                        Some(x) => x,
-                        None => (vec![], None),
-                    };
-                parent_microblocks
-            };
+        let parent_microblocks = match self.load_parent_microblocks(
+            chainstate,
+            &parent_consensus_hash,
+            &parent_header_hash,
+            &parent_index_hash,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Miner failed to load parent microblock, mining without parent microblock tail";
+                      "parent_block_hash" => %parent_header_hash,
+                      "parent_index_hash" => %parent_header_hash,
+                      "parent_consensus_hash" => %parent_header_hash,
+                      "parent_microblock_hash" => match self.parent_microblock_hash.as_ref() {
+                          Some(x) => format!("Some({})", x.to_string()),
+                          None => "None".to_string(),
+                      },
+                      "error" => ?e);
+                vec![]
+            }
+        };
 
         debug!(
             "Descendant of {}/{} confirms {} microblock(s)",
