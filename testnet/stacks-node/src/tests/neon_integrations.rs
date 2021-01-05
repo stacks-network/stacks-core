@@ -1335,35 +1335,14 @@ fn cost_voting_integration() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let sort_height = channel.get_sortitions_processed();
-
     // let's query the miner's account nonce:
-
-    eprintln!("Miner account: {}", miner_account);
-
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &miner_account);
-    eprintln!("Test: GET {}", path);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    let res = get_account(&http_origin, &miner_account);
+    assert_eq!(res.balance, 0);
     assert_eq!(res.nonce, 1);
 
     // and our spender:
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, &spender_princ);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    assert_eq!(
-        u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-        spender_bal as u128
-    );
+    let res = get_account(&http_origin, &spender_princ);
+    assert_eq!(res.balance, spender_bal as u128);
     assert_eq!(res.nonce, 0);
 
     let transactions = vec![

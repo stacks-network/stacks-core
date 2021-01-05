@@ -1202,7 +1202,7 @@ fn test_vote_fail() {
 
     let fork_start = sim.height;
 
-    for _ in 0..1000 {
+    for i in 0..25 {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
@@ -1254,7 +1254,7 @@ fn test_vote_fail() {
 
     // let's fork, and overcome the veto
     sim.execute_block_as_fork(fork_start, |_| {});
-    for _ in 0..1100 {
+    for _ in 0..125 {
         sim.execute_next_block(|_| {});
     }
 
