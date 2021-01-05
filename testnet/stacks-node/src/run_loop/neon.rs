@@ -227,16 +227,19 @@ impl RunLoop {
         let atlas_config = AtlasConfig::default();
         let moved_atlas_config = atlas_config.clone();
 
-        thread::spawn(move || {
-            ChainsCoordinator::run(
-                chain_state_db,
-                coordinator_burnchain_config,
-                attachments_tx,
-                &mut coordinator_dispatcher,
-                coordinator_receivers,
-                moved_atlas_config,
-            );
-        });
+        thread::Builder::new()
+            .name("chains-coordinator".to_string())
+            .spawn(move || {
+                ChainsCoordinator::run(
+                    chain_state_db,
+                    coordinator_burnchain_config,
+                    attachments_tx,
+                    &mut coordinator_dispatcher,
+                    coordinator_receivers,
+                    moved_atlas_config,
+                );
+            })
+            .unwrap();
 
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
@@ -287,9 +290,12 @@ impl RunLoop {
 
         let prometheus_bind = self.config.node.prometheus_bind.clone();
         if let Some(prometheus_bind) = prometheus_bind {
-            thread::spawn(move || {
-                start_serving_monitoring_metrics(prometheus_bind);
-            });
+            thread::Builder::new()
+                .name("prometheus".to_string())
+                .spawn(move || {
+                    start_serving_monitoring_metrics(prometheus_bind);
+                })
+                .unwrap();
         }
 
         let mut block_height = 1.max(burnchain_config.first_block_height);
