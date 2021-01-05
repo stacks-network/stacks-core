@@ -1362,7 +1362,7 @@ fn cost_voting_integration() {
     assert_eq!(res.nonce, 0);
 
     let transactions = vec![
-        make_contract_publish(&spender_sk, 0, 1000, "cost-define", cost_definer_src),
+        make_contract_publish(&spender_sk, 0, 1000, "cost-definer", cost_definer_src),
         make_contract_publish(&spender_sk, 1, 1000, "caller", caller_src),
         make_contract_publish(&spender_sk, 2, 1000, "voter", power_vote_src),
     ];
@@ -1450,7 +1450,7 @@ fn cost_voting_integration() {
 
     // this is a _long_ test compared to the other neon_integrations,
     //   which is why we guard this one even more.
-    for _i in 0..1009 {
+    for _i in 0..60 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
@@ -1489,7 +1489,7 @@ fn cost_voting_integration() {
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "propose-vote-confirm" {
+            if contract_call.function_name.as_str() == "confirm-miners" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                 let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
                 assert_eq!(parsed.to_string(), "(ok true)");
