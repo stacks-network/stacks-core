@@ -309,7 +309,6 @@ fn bitcoind_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -540,7 +539,6 @@ fn stx_transfer_btc_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 

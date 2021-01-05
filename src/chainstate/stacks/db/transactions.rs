@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{query_count, query_rows, DBConn};
 
-use util::strings::StacksString;
+use util::strings::{StacksString, VecDisplay};
 
 use util::hash::to_hex;
 
@@ -892,7 +892,7 @@ impl StacksChainState {
                         info!("Contract-call successfully processed";
                               "contract_name" => %contract_id,
                               "function_name" => %contract_call.function_name,
-                              "function_args" => ?contract_call.function_args,
+                              "function_args" => %VecDisplay(&contract_call.function_args),
                               "return_value" => %return_value,
                               "cost" => ?total_cost);
                         (return_value, asset_map, events)
@@ -902,7 +902,7 @@ impl StacksChainState {
                             info!("Contract-call processed with {}", err_type;
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
-                                      "function_args" => ?contract_call.function_args,
+                                      "function_args" => %VecDisplay(&contract_call.function_args),
                                       "error" => ?error);
                             (Value::err_none(), AssetMap::new(), vec![])
                         }
@@ -923,7 +923,7 @@ impl StacksChainState {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
-                                       "function_args" => ?contract_call.function_args,
+                                       "function_args" => %VecDisplay(&contract_call.function_args),
                                        "error" => ?e);
                             return Err(Error::ClarityError(e));
                         }
