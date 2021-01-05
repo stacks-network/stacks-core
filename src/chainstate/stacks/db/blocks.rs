@@ -5109,6 +5109,12 @@ impl StacksChainState {
                             tx_size,
                         )
                     })
+                    .map_err(|_| {
+                        MemPoolRejection::NoSuchChainTip(
+                            current_consensus_hash.clone(),
+                            current_block.clone(),
+                        )
+                    })?
                     .expect("BUG: do not have unconfirmed state, despite being Some(..)")
                 } else {
                     Err(MemPoolRejection::BadNonces(mismatch_error))

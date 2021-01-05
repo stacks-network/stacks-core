@@ -41,17 +41,20 @@ use vm::database::NULL_HEADER_DB;
 
 use vm::costs::ExecutionCost;
 
+pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
+
 pub struct UnconfirmedState {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
     pub clarity_inst: ClarityInstance,
-    pub mined_txs: HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>,
+    pub mined_txs: UnconfirmedTxMap,
     pub cost_so_far: ExecutionCost,
     pub bytes_so_far: u64,
 
     pub last_mblock: Option<StacksMicroblockHeader>,
     pub last_mblock_seq: u16,
 
+    readonly: bool,
     dirty: bool,
 }
 
@@ -68,13 +71,40 @@ impl UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
-            mined_txs: HashMap::new(),
+            mined_txs: UnconfirmedTxMap::new(),
             cost_so_far: ExecutionCost::zero(),
             bytes_so_far: 0,
 
             last_mblock: None,
             last_mblock_seq: 0,
 
+            readonly: false,
+            dirty: false,
+        })
+    }
+
+    /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
+    fn new_readonly(
+        chainstate: &StacksChainState,
+        tip: StacksBlockId,
+    ) -> Result<UnconfirmedState, Error> {
+        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+
+        let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
+        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+
+        Ok(UnconfirmedState {
+            confirmed_chain_tip: tip,
+            unconfirmed_chain_tip: unconfirmed_tip,
+            clarity_inst: clarity_instance,
+            mined_txs: UnconfirmedTxMap::new(),
+            cost_so_far: ExecutionCost::zero(),
+            bytes_so_far: 0,
+
+            last_mblock: None,
+            last_mblock_seq: 0,
+
+            readonly: true,
             dirty: false,
         })
     }
@@ -91,7 +121,7 @@ impl UnconfirmedState {
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         if self.last_mblock_seq == u16::max_value() {
-            // drop them
+            // drop them -- nothing to do
             return Ok((0, 0, vec![]));
         }
 
@@ -108,7 +138,7 @@ impl UnconfirmedState {
         let mut total_fees = 0;
         let mut total_burns = 0;
         let mut all_receipts = vec![];
-        let mut mined_txs = HashMap::new();
+        let mut mined_txs = UnconfirmedTxMap::new();
         let new_cost;
         let mut new_bytes = 0;
 
@@ -195,7 +225,7 @@ impl UnconfirmedState {
         Ok((total_fees, total_burns, all_receipts))
     }
 
-    /// Load up Stacks microblock stream to process
+    /// Load up the Stacks microblock stream to process, composed of only the new microblocks
     fn load_child_microblocks(
         &self,
         chainstate: &StacksChainState,
@@ -222,6 +252,11 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+        assert!(
+            !self.readonly,
+            "BUG: code tried to write unconfirmed state to a read-only instance"
+        );
+
         if self.last_mblock_seq == u16::max_value() {
             // no-op
             return Ok((0, 0, vec![]));
@@ -235,7 +270,7 @@ impl UnconfirmedState {
 
     /// Is there any state to read?
     pub fn is_readable(&self) -> bool {
-        self.has_data() && !self.dirty
+        (self.has_data() || self.readonly) && !self.dirty
     }
 
     /// Can we write to this unconfirmed state?
@@ -393,6 +428,25 @@ impl StacksChainState {
         };
         self.unconfirmed_state = unconfirmed_state;
         res
+    }
+
+    /// Instantiate a read-only view of unconfirmed state.
+    /// Use from a dedicated chainstate handle that will only do read-only operations on it (such
+    /// as the p2p network thread)
+    pub fn refresh_unconfirmed_readonly(
+        &mut self,
+        canonical_tip: StacksBlockId,
+    ) -> Result<(), Error> {
+        if let Some(ref unconfirmed) = self.unconfirmed_state {
+            assert!(
+                unconfirmed.readonly,
+                "BUG: tried to replace a read/write unconfirmed state instance"
+            );
+        }
+
+        let unconfirmed = UnconfirmedState::new_readonly(self, canonical_tip)?;
+        self.unconfirmed_state = Some(unconfirmed);
+        Ok(())
     }
 
     pub fn set_unconfirmed_dirty(&mut self, dirty: bool) {
@@ -632,6 +686,7 @@ mod test {
                         clarity_db.get_account_stx_balance(&recv_addr.into())
                     })
                 })
+                .unwrap()
                 .unwrap();
             peer.sortdb = Some(sortdb);
 
@@ -862,6 +917,7 @@ mod test {
                             clarity_db.get_account_stx_balance(&recv_addr.into())
                         })
                     })
+                    .unwrap()
                     .unwrap();
                 peer.sortdb = Some(sortdb);
 
