@@ -3436,7 +3436,7 @@ pub mod test {
                         // Alice sends a transaction with a non-zero fee
                         let alice_tx = make_bare_contract(
                             &alice,
-                            2,
+                            3,
                             1,
                             "alice-test",
                             "(begin (print \"hello alice\"))",
@@ -3474,7 +3474,7 @@ pub mod test {
                         // Alice gets some of her STX back
                         let alice_withdraw_tx = make_pox_withdraw_stx_contract_call(
                             &alice,
-                            3,
+                            4,
                             &key_to_stacks_addr(&bob),
                             "do-lockup",
                             1,

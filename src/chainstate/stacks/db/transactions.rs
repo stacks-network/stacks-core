@@ -253,6 +253,39 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
     }
 }
 
+enum ClarityRuntimeTxError {
+    Acceptable {
+        error: clarity_error,
+        err_type: &'static str,
+    },
+    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
+    CostError(ExecutionCost, ExecutionCost),
+    Rejectable(clarity_error),
+}
+
+fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+    match error {
+        // runtime errors are okay
+        clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
+            ClarityRuntimeTxError::Acceptable {
+                error,
+                err_type: "runtime error",
+            }
+        }
+        clarity_error::Interpreter(InterpreterError::ShortReturn(_)) => {
+            ClarityRuntimeTxError::Acceptable {
+                error,
+                err_type: "short return/panic",
+            }
+        }
+        clarity_error::AbortedByCallback(val, assets, events) => {
+            ClarityRuntimeTxError::AbortedByCallback(val, assets, events)
+        }
+        clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
+    }
+}
+
 impl StacksChainState {
     /// Get the payer account
     fn get_payer_account<T: ClarityConnection>(
@@ -862,59 +895,40 @@ impl StacksChainState {
                               "function_args" => ?contract_call.function_args,
                               "return_value" => %return_value,
                               "cost" => ?total_cost);
-                        Ok((return_value, asset_map, events))
-                    },
-                    Err(e) => {
-                        match e {
-                            // runtime errors are okay -- we just have an empty asset map
-                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                info!("Contract-call processed with error";
+                        (return_value, asset_map, events)
+                    }
+                    Err(e) => match handle_clarity_runtime_error(e) {
+                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                            info!("Contract-call processed with {}", err_type;
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => ?contract_call.function_args,
-                                      "error" => ?runtime_error,
-                                      "stack" => ?stack);
-                                Ok((Value::err_none(), AssetMap::new(), vec![]))
-                            },
-                            clarity_error::Interpreter(InterpreterError::ShortReturn(ref short_ret)) => {
-                                info!("Contract-call processed with a short return/panic";
-                                      "contract_name" => %contract_id,
-                                      "function_name" => %contract_call.function_name,
-                                      "function_args" => ?contract_call.function_args,
-                                      "error" => ?short_ret);
-                                Ok((Value::err_none(), AssetMap::new(), vec![]))
-                            },
-                            clarity_error::AbortedByCallback(value, assets, events) => {
-                                let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
+                                      "error" => ?error);
+                            (Value::err_none(), AssetMap::new(), vec![])
+                        }
+                        ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
+                            let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
                                     value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
                                     assets.get_stx_burned_total(),
                                     total_cost);
-                                return Ok(receipt);
-                            },
-                            // log this for now
-                            clarity_error::CostError(ref cost, ref budget) => {
-                                warn!("Block compute budget exceeded"; "txid" => %tx.txid(), "cost" => %cost, "budget" => %budget);
-                                Err(e)
-                            },
-                            _ => {
-                                error!("Unexpected error variant: invalidating contract-call transaction";
+                            return Ok(receipt);
+                        }
+                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                            warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
+                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
+                        }
+                        ClarityRuntimeTxError::Rejectable(e) => {
+                            error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => ?contract_call.function_args,
                                        "error" => ?e);
-                                Err(e)
-                            }
+                            return Err(Error::ClarityError(e));
                         }
-                    }
-                }.map_err(|e| {
-                    warn!("Invalid contract-call transaction: if included, this will invalidate a block"; "txid" => %tx.txid(), "error" => ?e);
-                    match e {
-                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
-                        _ => Error::ClarityError(e)
-                    }
-                })?;
+                    },
+                };
 
                 let receipt = StacksTransactionReceipt::from_contract_call(
                     tx.clone(),
@@ -1017,54 +1031,42 @@ impl StacksChainState {
                     .expect("BUG: total block cost decreased");
 
                 let (asset_map, events) = match initialize_resp {
-                    Ok(x) => Ok(x),
-                    Err(e) => {
-                        match e {
-                            // runtime errors are okay -- we just have an empty asset map
-                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                info!("Smart-contract processed with error";
+                    Ok(x) => x,
+                    Err(e) => match handle_clarity_runtime_error(e) {
+                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                            info!("Smart-contract processed with {}", err_type;
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
-                                      "error" => ?runtime_error,
-                                      "stack" => ?stack);
-                                Ok((AssetMap::new(), vec![]))
-                            },
-                            clarity_error::Interpreter(InterpreterError::ShortReturn(ref short_ret)) => {
-                                info!("Smart-contract processed with a short return/panic";
-                                      "contract" => %contract_id,
-                                      "code" => %contract_code_str,
-                                      "error" => ?short_ret);
-                                Ok((AssetMap::new(), vec![]))
-                            },
-                            clarity_error::AbortedByCallback(_, assets, events) => {
-                                let receipt = StacksTransactionReceipt::from_condition_aborted_smart_contract(
-                                    tx.clone(), events, assets.get_stx_burned_total(), contract_analysis, total_cost);
-                                return Ok(receipt);
-                            },
-                            // log cost overflow errors
-                            clarity_error::CostError(ref cost, ref budget) => {
-                                warn!("Block compute budget exceeded"; "txid" => %tx.txid(), "cost" => %cost, "budget" => %budget);
-                                Err(e)
-                            },
-                            _ => {
-                                error!("Unexpected error variant: invalidating smart-contract transaction";
+                                      "error" => ?error);
+                            (AssetMap::new(), vec![])
+                        }
+                        ClarityRuntimeTxError::AbortedByCallback(_, assets, events) => {
+                            let receipt =
+                                StacksTransactionReceipt::from_condition_aborted_smart_contract(
+                                    tx.clone(),
+                                    events,
+                                    assets.get_stx_burned_total(),
+                                    contract_analysis,
+                                    total_cost,
+                                );
+                            return Ok(receipt);
+                        }
+                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                            warn!("Block compute budget exceeded: if included, this will invalidate a block";
+                                      "txid" => %tx.txid(),
+                                      "cost" => %cost_after,
+                                      "budget" => %budget);
+                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
+                        }
+                        ClarityRuntimeTxError::Rejectable(e) => {
+                            error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "code" => %contract_code_str,
                                        "error" => ?e);
-                                Err(e)
-                            }
+                            return Err(Error::ClarityError(e));
                         }
-                    }
-                }.map_err(|e| {
-                    warn!("Invalid smart-contract publish transaction: if included, this will invalidate a block"; "txid" => %tx.txid(), "error" => ?e);
-                    match e {
-                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
-                        _ => Error::ClarityError(e)
-                    }
-                })?;
-
-                info!("Smart-contract publish successfully processed";
-                      "contract" => %contract_id);
+                    },
+                };
 
                 // store analysis -- if this fails, then the have some pretty bad problems
                 clarity_tx
