@@ -8,6 +8,7 @@ use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
@@ -18,6 +19,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -80,7 +82,7 @@ enum RelayerDirective {
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot),
     RegisterKey(BlockSnapshot),
-    RunMicroblockTenure
+    RunMicroblockTenure,
 }
 
 pub struct InitializedNeonNode {
@@ -273,8 +275,6 @@ fn inner_generate_block_commit_op(
 }
 
 /// Mine and broadcast a single microblock, unconditionally.
-/// Note that the StacksChainState here **must** be the **same** StacksChainState that gets
-/// maintained by the peer network thread!
 fn mine_one_microblock(
     microblock_state: &mut MicroblockMinerState,
     sortdb: &SortitionDB,
@@ -446,12 +446,15 @@ fn run_microblock_tenure(
     sortdb: &mut SortitionDB,
     mem_pool: &MemPoolDB,
     relayer: &mut Relayer,
-    miner_tip: Option<&(ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey)>
+    miner_tip: Option<&(ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey)>,
 ) {
     // TODO: this is sensitive to poll latency -- can we call this on a fixed
     // schedule, regardless of network activity?
     if let Some((ref parent_consensus_hash, ref parent_block_hash, _)) = miner_tip.as_ref() {
-        debug!("Run microblock tenure for {}/{}", parent_consensus_hash, parent_block_hash);
+        debug!(
+            "Run microblock tenure for {}/{}",
+            parent_consensus_hash, parent_block_hash
+        );
 
         // Mine microblocks, if we're active
         let next_microblock_opt = match try_mine_microblock(
@@ -490,6 +493,48 @@ fn run_microblock_tenure(
     }
 }
 
+/// Grant the p2p thread a copy of the unconfirmed microblock transaction list, so it can serve it
+/// out via the unconfirmed transaction API.
+/// Not the prettiest way to do this, but the least disruptive way to do this.
+fn send_unconfirmed_txs(
+    chainstate: &StacksChainState,
+    unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
+) {
+    if let Some(ref unconfirmed) = chainstate.unconfirmed_state {
+        match unconfirmed_txs.lock() {
+            Ok(mut txs) => {
+                txs.clear();
+                txs.extend(unconfirmed.mined_txs.clone());
+            }
+            Err(e) => {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: unconfirmed tx arc mutex is poisoned: {:?}", &e);
+                panic!();
+            }
+        };
+    }
+}
+
+/// Have the p2p thread receive unconfirmed txs
+fn recv_unconfirmed_txs(
+    chainstate: &mut StacksChainState,
+    unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
+) {
+    if let Some(ref mut unconfirmed) = chainstate.unconfirmed_state {
+        match unconfirmed_txs.lock() {
+            Ok(txs) => {
+                unconfirmed.mined_txs.clear();
+                unconfirmed.mined_txs.extend(txs.clone());
+            }
+            Err(e) => {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: unconfirmed arc mutex is poisoned: {:?}", &e);
+                panic!();
+            }
+        };
+    }
+}
+
 fn spawn_peer(
     is_mainnet: bool,
     mut this: PeerNetwork,
@@ -498,9 +543,9 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-    coord_comms: CoordinatorChannels,
     mut sync_comms: PoxSyncWatchdogComms,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+    unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -564,6 +609,9 @@ fn spawn_peer(
                 }
             };
 
+            let _ = Relayer::setup_unconfirmed_state_readonly(&mut chainstate, &sortdb);
+            recv_unconfirmed_txs(&mut chainstate, unconfirmed_txs.clone());
+
             let network_result = match this.run(
                 &sortdb,
                 &mut chainstate,
@@ -614,8 +662,7 @@ fn spawn_peer(
                         TrySendError::Full(directive) => {
                             if let RelayerDirective::RunMicroblockTenure = directive {
                                 // can drop this
-                            }
-                            else {
+                            } else {
                                 // don't lose this data -- just try it again
                                 results_with_data.push_front(directive);
                             }
@@ -656,6 +703,7 @@ fn spawn_miner_relayer(
     blocks_processed: BlocksProcessedCounter,
     burnchain: Burnchain,
     coord_comms: CoordinatorChannels,
+    unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<(), NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
@@ -714,44 +762,8 @@ fn spawn_miner_relayer(
                         event_dispatcher.process_new_attachments(&net_result.attachments);
                     }
 
-                    // TODO: this is sensitive to poll latency -- can we call this on a fixed
-                    // schedule, regardless of network activity?
-                    if let Some((ref parent_consensus_hash, ref parent_block_hash, _)) = miner_tip.as_ref() {
-                        // Mine microblocks, if we're active
-                        let next_microblock_opt = match try_mine_microblock(
-                            &config,
-                            &mut microblock_miner_state,
-                            &mut chainstate,
-                            &sortdb,
-                            &mem_pool,
-                            miner_tip.as_ref(),
-                        ) {
-                            Ok(x) => x,
-                            Err(e) => {
-                                warn!("Failed to mine next microblock: {:?}", &e);
-                                None
-                            }
-                        };
-
-                        // did we mine anything?
-                        if let Some(next_microblock) = next_microblock_opt {
-                            // apply it
-                            Relayer::refresh_unconfirmed(&mut chainstate, &mut sortdb);
-
-                            // send it off
-                            let microblock_hash = next_microblock.block_hash();
-                            if let Err(e) = relayer.broadcast_microblock(
-                                parent_consensus_hash,
-                                parent_block_hash,
-                                next_microblock,
-                            ) {
-                                error!(
-                                    "Failure trying to broadcast microblock {}: {}",
-                                    microblock_hash, e
-                                );
-                            }
-                        }
-                    }
+                    // synchronize unconfirmed tx index to p2p thread
+                    send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
                     debug!(
@@ -844,7 +856,10 @@ fn spawn_miner_relayer(
                                     }
 
                                     // proceed to mine microblocks
-                                    debug!("Microblock mner tip is now {}/{}", &ch, &bh);
+                                    debug!(
+                                        "Microblock miner tip is now {}/{}",
+                                        &consensus_hash, &block_header_hash
+                                    );
                                     miner_tip = Some((ch, bh, microblock_privkey));
                                 }
                             } else {
@@ -908,6 +923,12 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::RunMicroblockTenure => {
                     debug!("Relayer: run microblock tenure");
+
+                    // unconfirmed state must be consistent with the chain tip
+                    if miner_tip.is_some() {
+                        Relayer::refresh_unconfirmed(&mut chainstate, &mut sortdb);
+                    }
+
                     run_microblock_tenure(
                         &config,
                         &mut microblock_miner_state,
@@ -915,8 +936,11 @@ fn spawn_miner_relayer(
                         &mut sortdb,
                         &mem_pool,
                         &mut relayer,
-                        miner_tip.as_ref()
+                        miner_tip.as_ref(),
                     );
+
+                    // synchronize unconfirmed tx index to p2p thread
+                    send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
             }
         }
@@ -1041,6 +1065,7 @@ impl InitializedNeonNode {
 
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
+        let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
         spawn_miner_relayer(
@@ -1057,6 +1082,7 @@ impl InitializedNeonNode {
             blocks_processed.clone(),
             burnchain,
             coord_comms.clone(),
+            shared_unconfirmed_txs.clone(),
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1068,9 +1094,9 @@ impl InitializedNeonNode {
             config.clone(),
             5000,
             relay_send.clone(),
-            coord_comms,
             sync_comms,
             attachments_rx,
+            shared_unconfirmed_txs.clone(),
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1439,7 +1465,12 @@ impl InitializedNeonNode {
             ) {
                 Ok(x) => {
                     let num_mblocks = x.as_ref().map(|(mblocks, ..)| mblocks.len()).unwrap_or(0);
-                    debug!("Loaded {} microblocks descending from {}/{}", num_mblocks, &parent_consensus_hash, &stacks_parent_header.anchored_header.block_hash());
+                    debug!(
+                        "Loaded {} microblocks descending from {}/{}",
+                        num_mblocks,
+                        &parent_consensus_hash,
+                        &stacks_parent_header.anchored_header.block_hash()
+                    );
                     x
                 }
                 Err(e) => {
