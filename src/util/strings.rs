@@ -49,6 +49,22 @@ use util::retry::BoundReader;
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StacksString(Vec<u8>);
 
+pub struct VecDisplay<'a, T: fmt::Display>(pub &'a [T]);
+
+impl<'a, T: fmt::Display> fmt::Display for VecDisplay<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (ix, val) in self.0.iter().enumerate() {
+            if ix == 0 {
+                write!(f, "{}", val)?;
+            } else {
+                write!(f, ", {}", val)?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+
 impl fmt::Display for StacksString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(String::from_utf8_lossy(&self).into_owned().as_str())
