@@ -3824,11 +3824,12 @@ pub mod test {
 
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
-                    // If it's the case, then this tx will NOT be mined.
-                    //      Note: this behavior is a bug in the miner and block processor: see issue #?
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 17)
+                               (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
@@ -3839,17 +3840,22 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 3))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 3)
+                               (print (contract-call? '{}.pox reject-pox))))",
                             boot_code_addr()));
 
                     block_txs.push(alice_reject);
 
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
-                    // If it's the case, then this tx will NOT be mined.
                     let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 17))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 17)
+                               (print (contract-call? '{}.pox reject-pox))))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_reject);
@@ -3859,8 +3865,8 @@ pub mod test {
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {
-                    // block should be coinbase tx + 2 allowed txs
-                    assert_eq!(anchored_block.txs.len(), 3);
+                    // block should be all the transactions
+                    assert_eq!(anchored_block.txs.len(), 6);
                 }
 
                 (anchored_block, vec![])
@@ -3936,34 +3942,30 @@ pub mod test {
             } else {
                 if tenure_id == 2 {
                     // charlie's contract did NOT materialize
-                    assert!(get_contract(
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&charlie), "charlie-try-stack")
-                            .into()
+                        &key_to_stacks_addr(&charlie),
+                        "charlie-try-stack",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-                    assert!(get_contract(
+                    .expect_bool();
+                    assert!(result, "charlie-try-stack test should be `true`");
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(
-                            &key_to_stacks_addr(&charlie),
-                            "charlie-try-stack-delegator"
-                        )
-                        .into()
+                        &key_to_stacks_addr(&charlie),
+                        "charlie-try-reject",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-                    assert!(get_contract(
+                    .expect_bool();
+                    assert!(result, "charlie-try-reject test should be `true`");
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&charlie), "charlie-try-reject")
-                            .into()
+                        &key_to_stacks_addr(&alice),
+                        "alice-try-reject",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-
-                    // alice's contract did NOT materialize
-                    assert!(get_contract(
-                        &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-reject").into()
-                    )
-                    .is_none());
+                    .expect_bool();
+                    assert!(result, "alice-try-reject test should be `true`");
                 }
 
                 // Alice's address is locked as of the next reward cycle

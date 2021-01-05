@@ -856,15 +856,32 @@ impl StacksChainState {
 
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
-                        info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
-                        info!("Contract-call to {}.{:?} args {:?} cost {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &total_cost);
+                        info!("Contract-call successfully processed";
+                              "contract_name" => %contract_id,
+                              "function_name" => %contract_call.function_name,
+                              "function_args" => ?contract_call.function_args,
+                              "return_value" => %return_value,
+                              "cost" => ?total_cost);
                         Ok((return_value, asset_map, events))
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
+                                info!("Contract-call processed with error";
+                                      "contract_name" => %contract_id,
+                                      "function_name" => %contract_call.function_name,
+                                      "function_args" => ?contract_call.function_args,
+                                      "error" => ?runtime_error,
+                                      "stack" => ?stack);
+                                Ok((Value::err_none(), AssetMap::new(), vec![]))
+                            },
+                            clarity_error::Interpreter(InterpreterError::ShortReturn(ref short_ret)) => {
+                                info!("Contract-call processed with a short return/panic";
+                                      "contract_name" => %contract_id,
+                                      "function_name" => %contract_call.function_name,
+                                      "function_args" => ?contract_call.function_args,
+                                      "error" => ?short_ret);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
                             clarity_error::AbortedByCallback(value, assets, events) => {
@@ -878,14 +895,21 @@ impl StacksChainState {
                             },
                             // log this for now
                             clarity_error::CostError(ref cost, ref budget) => {
-                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
+                                warn!("Block compute budget exceeded"; "txid" => %tx.txid(), "cost" => %cost, "budget" => %budget);
                                 Err(e)
                             },
-                            _ => Err(e)
+                            _ => {
+                                error!("Unexpected error variant: invalidating contract-call transaction";
+                                       "contract_name" => %contract_id,
+                                       "function_name" => %contract_call.function_name,
+                                       "function_args" => ?contract_call.function_args,
+                                       "error" => ?e);
+                                Err(e)
+                            }
                         }
                     }
                 }.map_err(|e| {
-                    warn!("Invalid contract-call transaction {}: {:?}", &tx.txid(), &e);
+                    warn!("Invalid contract-call transaction: if included, this will invalidate a block"; "txid" => %tx.txid(), "error" => ?e);
                     match e {
                         clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
                         _ => Error::ClarityError(e)
@@ -996,31 +1020,51 @@ impl StacksChainState {
                     Ok(x) => Ok(x),
                     Err(e) => {
                         match e {
-                            // log cost overflow errors
-                            clarity_error::CostError(ref cost, ref budget) => {
-                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
-                                Err(e)
+                            // runtime errors are okay -- we just have an empty asset map
+                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
+                                info!("Smart-contract processed with error";
+                                      "contract" => %contract_id,
+                                      "code" => %contract_code_str,
+                                      "error" => ?runtime_error,
+                                      "stack" => ?stack);
+                                Ok((AssetMap::new(), vec![]))
+                            },
+                            clarity_error::Interpreter(InterpreterError::ShortReturn(ref short_ret)) => {
+                                info!("Smart-contract processed with a short return/panic";
+                                      "contract" => %contract_id,
+                                      "code" => %contract_code_str,
+                                      "error" => ?short_ret);
+                                Ok((AssetMap::new(), vec![]))
                             },
                             clarity_error::AbortedByCallback(_, assets, events) => {
                                 let receipt = StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(), events, assets.get_stx_burned_total(), contract_analysis, total_cost);
                                 return Ok(receipt);
                             },
-                            // runtime errors are okay -- we just have an empty asset map
-                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
-                                Ok((AssetMap::new(), vec![]))
+                            // log cost overflow errors
+                            clarity_error::CostError(ref cost, ref budget) => {
+                                warn!("Block compute budget exceeded"; "txid" => %tx.txid(), "cost" => %cost, "budget" => %budget);
+                                Err(e)
                             },
-                            _ => Err(e)
+                            _ => {
+                                error!("Unexpected error variant: invalidating smart-contract transaction";
+                                       "contract_name" => %contract_id,
+                                       "code" => %contract_code_str,
+                                       "error" => ?e);
+                                Err(e)
+                            }
                         }
                     }
                 }.map_err(|e| {
-                    info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
+                    warn!("Invalid smart-contract publish transaction: if included, this will invalidate a block"; "txid" => %tx.txid(), "error" => ?e);
                     match e {
                         clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
                         _ => Error::ClarityError(e)
                     }
                 })?;
+
+                info!("Smart-contract publish successfully processed";
+                      "contract" => %contract_id);
 
                 // store analysis -- if this fails, then the have some pretty bad problems
                 clarity_tx
@@ -2120,6 +2164,56 @@ pub mod test {
             assert!(var_res.is_some());
             assert_eq!(var_res, Some(Value::Int(1)));
         }
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_smart_contract_user_aborts_2257() {
+        let contract = "(asserts! false (err 1))";
+
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "process-smart-contract-user-aborts");
+
+        // contract instantiation
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("hello-world"),
+        );
+
+        let mut tx_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"hello-world".to_string(),
+                &contract.to_string(),
+            )
+            .unwrap(),
+        );
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(
+            &NULL_BURN_STATE_DB,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+        let (_fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
+
         conn.commit_block();
     }
 
