@@ -1318,7 +1318,6 @@ fn cost_voting_integration() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
@@ -1432,8 +1431,6 @@ fn cost_voting_integration() {
 
     submit_tx(&http_origin, &confirm_proposal);
 
-    // this is a _long_ test compared to the other neon_integrations,
-    //   which is why we guard this one even more.
     for _i in 0..60 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
