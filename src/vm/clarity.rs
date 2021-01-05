@@ -374,13 +374,8 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
-        let datastore = self.datastore.begin_read_only(Some(at_block));
-
-        ClarityReadOnlyConnection {
-            datastore,
-            header_db,
-            burn_state_db,
-        }
+        self.read_only_connection_checked(at_block, header_db, burn_state_db)
+            .expect(&format!("BUG: failed to open block {}", at_block))
     }
 
     pub fn read_only_connection_checked<'a>(

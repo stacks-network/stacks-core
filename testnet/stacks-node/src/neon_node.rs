@@ -740,6 +740,7 @@ fn spawn_miner_relayer(
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state = None;
     let mut miner_tip = None;
+    let mut last_microblock_tenure_time = 0;
 
     let _relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
         let mut did_register_key = false;
@@ -929,6 +930,12 @@ fn spawn_miner_relayer(
                     bump_processed_counter(&blocks_processed);
                 }
                 RelayerDirective::RunMicroblockTenure => {
+                    if last_microblock_tenure_time + (config.node.microblock_frequency as u128) > get_epoch_time_ms() {
+                        // only mine when necessary -- the deadline to begin hasn't passed yet
+                        continue;
+                    }
+                    last_microblock_tenure_time = get_epoch_time_ms();
+
                     debug!("Relayer: run microblock tenure");
 
                     // unconfirmed state must be consistent with the chain tip
