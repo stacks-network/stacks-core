@@ -1,5 +1,10 @@
 FROM rust:stretch as build
 
+ARG CARGO_PKG_VERSION
+
+ENV CARGO_PKG_NAME=stacks-blockchain \
+    CARGO_PKG_VERSION=${CARGO_PKG_VERSION}
+
 WORKDIR /src
 
 COPY . .
@@ -17,4 +22,4 @@ FROM debian:stretch-slim
 RUN apt update && apt install -y netcat
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "argon"]
+CMD ["stacks-node", "xenon"]

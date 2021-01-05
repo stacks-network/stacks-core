@@ -1,5 +1,10 @@
 FROM rust:alpine as build
 
+ARG CARGO_PKG_VERSION
+
+ENV CARGO_PKG_NAME=stacks-blockchain \
+    CARGO_PKG_VERSION=${CARGO_PKG_VERSION}
+
 WORKDIR /src
 
 COPY . .
@@ -18,4 +23,4 @@ FROM alpine
 
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "argon"]
+CMD ["stacks-node", "xenon"]
