@@ -492,150 +492,156 @@ fn spawn_peer(
     // microblock miner state
     let mut microblock_miner_state = None;
 
-    let server_thread = thread::spawn(move || {
-        let handler_args = RPCHandlerArgs {
-            exit_at_block_height: exit_at_block_height.as_ref(),
-            genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
-                .unwrap(),
-            ..RPCHandlerArgs::default()
-        };
-
-        let mut disconnected = false;
-        let mut num_p2p_state_machine_passes = 0;
-        let mut num_inv_sync_passes = 0;
-
-        while !disconnected {
-            let download_backpressure = results_with_data.len() > 0;
-            let poll_ms = if !download_backpressure && this.has_more_downloads() {
-                // keep getting those blocks -- drive the downloader state-machine
-                debug!(
-                    "P2P: backpressure: {}, more downloads: {}",
-                    download_backpressure,
-                    this.has_more_downloads()
-                );
-                100
-            } else {
-                cmp::min(poll_timeout, config.node.microblock_frequency)
+    let server_thread = thread::Builder::new()
+        .name("p2p".to_string())
+        .spawn(move || {
+            let handler_args = RPCHandlerArgs {
+                exit_at_block_height: exit_at_block_height.as_ref(),
+                genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
+                    .unwrap(),
+                ..RPCHandlerArgs::default()
             };
 
-            // Mine microblocks.
-            // NOTE: this has to go *here* because control over who can refresh the unconfirmed
-            // state (or mutate it in general) *must* reside within the same thread as the p2p
-            // thread, so that the p2p thread's in-RAM MARF state stays in-sync with the DB.
-            //
-            // If you don't do this, you'll get runtime panics in the RPC code due to the network
-            // thread's in-RAM view of the unconfirmed chain state trie (namely, the rowid of the
-            // trie) being out-of-sync with what's actually in the DB.  An attempt to read from
-            // the MARF may lead to a panic, because there may not be a trie on-disk with the
-            // network code's rowid any longer in the case where *some other thread* modifies the
-            // unconfirmed state trie and invalidates the network thread's in-RAM copy of the trie
-            // rowid.
-            //
-            // Fortunately, microblock-mining isn't a very CPU or I/O-intensive process, and the
-            // node operator can bound how expensive each microblock can be in order to limit the
-            // amount of time the microblock miner spends mining.
-            //
-            // Once the Clarity DB has been refactored to be safe to write to by multiple threads
-            // concurrently, then microblock mining can be moved to the relayer thread (where it
-            // really ought to occur, since microblock mining can be both CPU- and I/O-intensive).
-            let next_microblock = match try_mine_microblock(
-                &config,
-                &mut microblock_miner_state,
-                &mut chainstate,
-                &sortdb,
-                &mem_pool,
-                &coord_comms,
-                miner_tip_arc.clone(),
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Failed to mine next microblock: {:?}", &e);
-                    None
-                }
-            };
+            let mut disconnected = false;
+            let mut num_p2p_state_machine_passes = 0;
+            let mut num_inv_sync_passes = 0;
 
-            let (canonical_consensus_tip, canonical_block_tip) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
-                    .expect("Failed to read canonical stacks chain tip");
-
-            let mut expected_attachments = match attachments_rx.try_recv() {
-                Ok(expected_attachments) => expected_attachments,
-                _ => {
-                    debug!("Atlas: attachment channel is empty");
-                    HashSet::new()
-                }
-            };
-
-            let network_result = match this.run(
-                &sortdb,
-                &mut chainstate,
-                &mut mem_pool,
-                Some(&mut dns_client),
-                download_backpressure,
-                poll_ms,
-                &handler_args,
-                &mut expected_attachments,
-            ) {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("P2P: Failed to process network dispatch: {:?}", &e);
-                    panic!();
-                }
-            };
-
-            if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                // p2p state-machine did a full pass. Notify anyone listening.
-                sync_comms.notify_p2p_state_pass();
-                num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-            }
-
-            if num_inv_sync_passes < network_result.num_inv_sync_passes {
-                // inv-sync state-machine did a full pass. Notify anyone listening.
-                sync_comms.notify_inv_sync_pass();
-                num_inv_sync_passes = network_result.num_inv_sync_passes;
-            }
-
-            if network_result.has_data_to_store() {
-                results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
-            }
-            if let Some(microblock) = next_microblock {
-                results_with_data.push_back(RelayerDirective::BroadcastMicroblock(
-                    canonical_consensus_tip,
-                    canonical_block_tip,
-                    microblock,
-                ));
-            }
-
-            while let Some(next_result) = results_with_data.pop_front() {
-                // have blocks, microblocks, and/or transactions (don't care about anything else),
-                if let Err(e) = relay_channel.try_send(next_result) {
+            while !disconnected {
+                let download_backpressure = results_with_data.len() > 0;
+                let poll_ms = if !download_backpressure && this.has_more_downloads() {
+                    // keep getting those blocks -- drive the downloader state-machine
                     debug!(
-                        "P2P: {:?}: download backpressure detected",
-                        &this.local_peer
+                        "P2P: backpressure: {}, more downloads: {}",
+                        download_backpressure,
+                        this.has_more_downloads()
                     );
-                    match e {
-                        TrySendError::Full(directive) => {
-                            // don't lose this data -- just try it again
-                            results_with_data.push_front(directive);
-                            break;
-                        }
-                        TrySendError::Disconnected(_) => {
-                            info!("P2P: Relayer hang up with p2p channel");
-                            disconnected = true;
-                            break;
-                        }
-                    }
+                    100
                 } else {
-                    debug!("P2P: Dispatched result to Relayer!");
+                    cmp::min(poll_timeout, config.node.microblock_frequency)
+                };
+
+                // Mine microblocks.
+                // NOTE: this has to go *here* because control over who can refresh the unconfirmed
+                // state (or mutate it in general) *must* reside within the same thread as the p2p
+                // thread, so that the p2p thread's in-RAM MARF state stays in-sync with the DB.
+                //
+                // If you don't do this, you'll get runtime panics in the RPC code due to the network
+                // thread's in-RAM view of the unconfirmed chain state trie (namely, the rowid of the
+                // trie) being out-of-sync with what's actually in the DB.  An attempt to read from
+                // the MARF may lead to a panic, because there may not be a trie on-disk with the
+                // network code's rowid any longer in the case where *some other thread* modifies the
+                // unconfirmed state trie and invalidates the network thread's in-RAM copy of the trie
+                // rowid.
+                //
+                // Fortunately, microblock-mining isn't a very CPU or I/O-intensive process, and the
+                // node operator can bound how expensive each microblock can be in order to limit the
+                // amount of time the microblock miner spends mining.
+                //
+                // Once the Clarity DB has been refactored to be safe to write to by multiple threads
+                // concurrently, then microblock mining can be moved to the relayer thread (where it
+                // really ought to occur, since microblock mining can be both CPU- and I/O-intensive).
+                let next_microblock = match try_mine_microblock(
+                    &config,
+                    &mut microblock_miner_state,
+                    &mut chainstate,
+                    &sortdb,
+                    &mem_pool,
+                    &coord_comms,
+                    miner_tip_arc.clone(),
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        warn!("Failed to mine next microblock: {:?}", &e);
+                        None
+                    }
+                };
+
+                let (canonical_consensus_tip, canonical_block_tip) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+                        .expect("Failed to read canonical stacks chain tip");
+
+                let mut expected_attachments = match attachments_rx.try_recv() {
+                    Ok(expected_attachments) => expected_attachments,
+                    _ => {
+                        debug!("Atlas: attachment channel is empty");
+                        HashSet::new()
+                    }
+                };
+
+                let network_result = match this.run(
+                    &sortdb,
+                    &mut chainstate,
+                    &mut mem_pool,
+                    Some(&mut dns_client),
+                    download_backpressure,
+                    poll_ms,
+                    &handler_args,
+                    &mut expected_attachments,
+                ) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        error!("P2P: Failed to process network dispatch: {:?}", &e);
+                        panic!();
+                    }
+                };
+
+                if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
+                    // p2p state-machine did a full pass. Notify anyone listening.
+                    sync_comms.notify_p2p_state_pass();
+                    num_p2p_state_machine_passes = network_result.num_state_machine_passes;
+                }
+
+                if num_inv_sync_passes < network_result.num_inv_sync_passes {
+                    // inv-sync state-machine did a full pass. Notify anyone listening.
+                    sync_comms.notify_inv_sync_pass();
+                    num_inv_sync_passes = network_result.num_inv_sync_passes;
+                }
+
+                if network_result.has_data_to_store() {
+                    results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
+                }
+                if let Some(microblock) = next_microblock {
+                    results_with_data.push_back(RelayerDirective::BroadcastMicroblock(
+                        canonical_consensus_tip,
+                        canonical_block_tip,
+                        microblock,
+                    ));
+                }
+
+                while let Some(next_result) = results_with_data.pop_front() {
+                    // have blocks, microblocks, and/or transactions (don't care about anything else),
+                    if let Err(e) = relay_channel.try_send(next_result) {
+                        debug!(
+                            "P2P: {:?}: download backpressure detected",
+                            &this.local_peer
+                        );
+                        match e {
+                            TrySendError::Full(directive) => {
+                                // don't lose this data -- just try it again
+                                results_with_data.push_front(directive);
+                                break;
+                            }
+                            TrySendError::Disconnected(_) => {
+                                info!("P2P: Relayer hang up with p2p channel");
+                                disconnected = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        debug!("P2P: Dispatched result to Relayer!");
+                    }
                 }
             }
-        }
-        debug!("P2P thread exit!");
-    });
+            debug!("P2P thread exit!");
+        })
+        .unwrap();
 
-    let _jh = thread::spawn(move || {
-        dns_resolver.thread_main();
-    });
+    let _jh = thread::Builder::new()
+        .name("dns-resolver".to_string())
+        .spawn(move || {
+            dns_resolver.thread_main();
+        })
+        .unwrap();
 
     Ok(server_thread)
 }
@@ -683,7 +689,7 @@ fn spawn_miner_relayer(
 
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
-    let _relayer_handle = thread::spawn(move || {
+    let _relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
         let mut did_register_key = false;
         let mut key_registered_at_block = 0;
         while let Ok(mut directive) = relay_channel.recv() {
@@ -899,7 +905,7 @@ fn spawn_miner_relayer(
             }
         }
         debug!("Relayer exit!");
-    });
+    }).unwrap();
 
     Ok(())
 }
