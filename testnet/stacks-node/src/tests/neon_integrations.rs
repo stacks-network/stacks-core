@@ -844,15 +844,21 @@ fn microblock_integration_test() {
     let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
     submit_tx(&http_origin, &tx);
 
+    info!("Try to mine a microblock-only tx");
+
     // now let's mine a couple blocks, and then check the sender's nonce.
     // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
+    info!("Wait for second block");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // I guess let's push another block for good measure?
+    info!("Wait for third block");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    info!("Test microblock");
 
     // microblock must have bumped our nonce
     // and our spender
@@ -999,13 +1005,14 @@ fn microblock_integration_test() {
         "{}/v2/accounts/{}?proof=0&tip={}",
         &http_origin, &spender_addr, &tip_info.unanchored_tip
     );
+    eprintln!("{:?}", &path);
+
     let res = client
         .get(&path)
         .send()
         .unwrap()
         .json::<AccountEntryResponse>()
         .unwrap();
-    eprintln!("{:?}", &path);
     eprintln!("{:#?}", res);
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
