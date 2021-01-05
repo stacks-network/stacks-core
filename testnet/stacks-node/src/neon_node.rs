@@ -1263,7 +1263,6 @@ impl InitializedNeonNode {
                     .expect("Bitcoin network unsupported");
 
             let chain_tip = ChainTip::genesis(
-                config.get_initial_liquid_ustx(),
                 &burnchain_params.first_block_hash,
                 burnchain_params.first_block_height.into(),
                 burnchain_params.first_block_timestamp.into(),
