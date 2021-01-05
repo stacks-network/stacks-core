@@ -574,117 +574,123 @@ fn spawn_peer(
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
 
-    let server_thread = thread::spawn(move || {
-        let handler_args = RPCHandlerArgs {
-            exit_at_block_height: exit_at_block_height.as_ref(),
-            genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
-                .unwrap(),
-            ..RPCHandlerArgs::default()
-        };
-
-        let mut disconnected = false;
-        let mut num_p2p_state_machine_passes = 0;
-        let mut num_inv_sync_passes = 0;
-        let mut mblock_deadline = 0;
-
-        while !disconnected {
-            let download_backpressure = results_with_data.len() > 0;
-            let poll_ms = if !download_backpressure && this.has_more_downloads() {
-                // keep getting those blocks -- drive the downloader state-machine
-                debug!(
-                    "P2P: backpressure: {}, more downloads: {}",
-                    download_backpressure,
-                    this.has_more_downloads()
-                );
-                100
-            } else {
-                cmp::min(poll_timeout, config.node.microblock_frequency)
+    let server_thread = thread::Builder::new()
+        .name("p2p".to_string())
+        .spawn(move || {
+            let handler_args = RPCHandlerArgs {
+                exit_at_block_height: exit_at_block_height.as_ref(),
+                genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
+                    .unwrap(),
+                ..RPCHandlerArgs::default()
             };
 
-            let mut expected_attachments = match attachments_rx.try_recv() {
-                Ok(expected_attachments) => expected_attachments,
-                _ => {
-                    debug!("Atlas: attachment channel is empty");
-                    HashSet::new()
-                }
-            };
+            let mut disconnected = false;
+            let mut num_p2p_state_machine_passes = 0;
+            let mut num_inv_sync_passes = 0;
+            let mut mblock_deadline = 0;
 
-            let _ = Relayer::setup_unconfirmed_state_readonly(&mut chainstate, &sortdb);
-            recv_unconfirmed_txs(&mut chainstate, unconfirmed_txs.clone());
-
-            let network_result = match this.run(
-                &sortdb,
-                &mut chainstate,
-                &mut mem_pool,
-                Some(&mut dns_client),
-                download_backpressure,
-                poll_ms,
-                &handler_args,
-                &mut expected_attachments,
-            ) {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("P2P: Failed to process network dispatch: {:?}", &e);
-                    panic!();
-                }
-            };
-
-            if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                // p2p state-machine did a full pass. Notify anyone listening.
-                sync_comms.notify_p2p_state_pass();
-                num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-            }
-
-            if num_inv_sync_passes < network_result.num_inv_sync_passes {
-                // inv-sync state-machine did a full pass. Notify anyone listening.
-                sync_comms.notify_inv_sync_pass();
-                num_inv_sync_passes = network_result.num_inv_sync_passes;
-            }
-
-            if network_result.has_data_to_store() {
-                results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
-            }
-
-            if mblock_deadline < get_epoch_time_ms() {
-                results_with_data.push_back(RelayerDirective::RunMicroblockTenure);
-                mblock_deadline = get_epoch_time_ms() + (config.node.microblock_frequency as u128);
-            }
-
-            while let Some(next_result) = results_with_data.pop_front() {
-                // have blocks, microblocks, and/or transactions (don't care about anything else),
-                // or a directive to mine microblocks
-                if let Err(e) = relay_channel.try_send(next_result) {
+            while !disconnected {
+                let download_backpressure = results_with_data.len() > 0;
+                let poll_ms = if !download_backpressure && this.has_more_downloads() {
+                    // keep getting those blocks -- drive the downloader state-machine
                     debug!(
-                        "P2P: {:?}: download backpressure detected",
-                        &this.local_peer
+                        "P2P: backpressure: {}, more downloads: {}",
+                        download_backpressure,
+                        this.has_more_downloads()
                     );
-                    match e {
-                        TrySendError::Full(directive) => {
-                            if let RelayerDirective::RunMicroblockTenure = directive {
-                                // can drop this
-                            } else {
-                                // don't lose this data -- just try it again
-                                results_with_data.push_front(directive);
-                            }
-                            break;
-                        }
-                        TrySendError::Disconnected(_) => {
-                            info!("P2P: Relayer hang up with p2p channel");
-                            disconnected = true;
-                            break;
-                        }
-                    }
+                    100
                 } else {
-                    debug!("P2P: Dispatched result to Relayer!");
+                    cmp::min(poll_timeout, config.node.microblock_frequency)
+                };
+
+                let mut expected_attachments = match attachments_rx.try_recv() {
+                    Ok(expected_attachments) => expected_attachments,
+                    _ => {
+                        debug!("Atlas: attachment channel is empty");
+                        HashSet::new()
+                    }
+                };
+
+                let _ = Relayer::setup_unconfirmed_state_readonly(&mut chainstate, &sortdb);
+                recv_unconfirmed_txs(&mut chainstate, unconfirmed_txs.clone());
+
+                let network_result = match this.run(
+                    &sortdb,
+                    &mut chainstate,
+                    &mut mem_pool,
+                    Some(&mut dns_client),
+                    download_backpressure,
+                    poll_ms,
+                    &handler_args,
+                    &mut expected_attachments,
+                ) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        error!("P2P: Failed to process network dispatch: {:?}", &e);
+                        panic!();
+                    }
+                };
+
+                if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
+                    // p2p state-machine did a full pass. Notify anyone listening.
+                    sync_comms.notify_p2p_state_pass();
+                    num_p2p_state_machine_passes = network_result.num_state_machine_passes;
+                }
+
+                if num_inv_sync_passes < network_result.num_inv_sync_passes {
+                    // inv-sync state-machine did a full pass. Notify anyone listening.
+                    sync_comms.notify_inv_sync_pass();
+                    num_inv_sync_passes = network_result.num_inv_sync_passes;
+                }
+
+                if network_result.has_data_to_store() {
+                    results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
+                }
+
+                if mblock_deadline < get_epoch_time_ms() {
+                    results_with_data.push_back(RelayerDirective::RunMicroblockTenure);
+                    mblock_deadline = get_epoch_time_ms() + (config.node.microblock_frequency as u128);
+                }
+
+                while let Some(next_result) = results_with_data.pop_front() {
+                    // have blocks, microblocks, and/or transactions (don't care about anything else),
+                    // or a directive to mine microblocks
+                    if let Err(e) = relay_channel.try_send(next_result) {
+                        debug!(
+                            "P2P: {:?}: download backpressure detected",
+                            &this.local_peer
+                        );
+                        match e {
+                            TrySendError::Full(directive) => {
+                                if let RelayerDirective::RunMicroblockTenure = directive {
+                                    // can drop this
+                                } else {
+                                    // don't lose this data -- just try it again
+                                    results_with_data.push_front(directive);
+                                }
+                                break;
+                            }
+                            TrySendError::Disconnected(_) => {
+                                info!("P2P: Relayer hang up with p2p channel");
+                                disconnected = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        debug!("P2P: Dispatched result to Relayer!");
+                    }
                 }
             }
-        }
-        debug!("P2P thread exit!");
-    });
+            debug!("P2P thread exit!");
+        })
+        .unwrap();
 
-    let _jh = thread::spawn(move || {
-        dns_resolver.thread_main();
-    });
+    let _jh = thread::Builder::new()
+        .name("dns-resolver".to_string())
+        .spawn(move || {
+            dns_resolver.thread_main();
+        })
+        .unwrap();
 
     Ok(server_thread)
 }
@@ -734,7 +740,7 @@ fn spawn_miner_relayer(
     let mut microblock_miner_state = None;
     let mut miner_tip = None;
 
-    let _relayer_handle = thread::spawn(move || {
+    let _relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
         let mut did_register_key = false;
         let mut key_registered_at_block = 0;
         while let Ok(mut directive) = relay_channel.recv() {
@@ -945,7 +951,7 @@ fn spawn_miner_relayer(
             }
         }
         debug!("Relayer exit!");
-    });
+    }).unwrap();
 
     Ok(())
 }
