@@ -2653,7 +2653,7 @@ mod test {
             m.commit().unwrap();
             let flush_end_time = get_epoch_time_ms();
 
-            debug!(
+            eprintln!(
                 "Inserted {} in {} (1 insert = {} ms).  Processed {} keys in {} ms (flush = {} ms)",
                 i,
                 end_time - start_time,
@@ -2703,7 +2703,7 @@ mod test {
 
             end_time = get_epoch_time_ms();
 
-            debug!(
+            eprintln!(
                 "Got {} in {} (1 get = {} ms)",
                 i,
                 end_time - start_time,
