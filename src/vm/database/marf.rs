@@ -294,6 +294,27 @@ impl MarfedKV {
         }
     }
 
+    pub fn begin_read_only_checked<'a>(
+        &'a mut self,
+        at_block: Option<&StacksBlockId>,
+    ) -> Result<ReadOnlyMarfStore<'a>> {
+        let chain_tip = if let Some(at_block) = at_block {
+            self.marf.open_block(at_block).map_err(|_| {
+                debug!("Failed to open read only connection at {}", at_block);
+                InterpreterError::MarfFailure(IncomparableError {
+                    err: MarfError::NotFoundError,
+                })
+            })?;
+            at_block.clone()
+        } else {
+            self.chain_tip.clone()
+        };
+        Ok(ReadOnlyMarfStore {
+            chain_tip,
+            marf: &mut self.marf,
+        })
+    }
+
     /// begin, commit, rollback a save point identified by key
     ///    this is used to clean up any data from aborted blocks
     ///     (NOT aborted transactions that is handled by the clarity vm directly).
