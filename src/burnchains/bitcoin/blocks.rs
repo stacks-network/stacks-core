@@ -214,7 +214,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
                 block_hash = ipc_header.block_header.header.bitcoin_hash();
             }
             _ => {
-                return Err(btc_error::UnhandledMessage(msg.clone()));
+                return Err(btc_error::UnhandledMessage(msg));
             }
         }
 

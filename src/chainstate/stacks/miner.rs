@@ -293,7 +293,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         &cost_after,
                         &total_budget
                     );
-                    clarity_tx.reset_cost(cost_before.clone());
+                    clarity_tx.reset_cost(cost_before);
                 }
                 _ => {
                     warn!("Error processing TX {}: {}", tx.txid(), e);

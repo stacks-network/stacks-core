@@ -182,7 +182,7 @@ impl BitcoinRegtestController {
 
     pub fn get_pox_constants(&self) -> PoxConstants {
         let burnchain = self.get_burnchain();
-        burnchain.pox_constants.clone()
+        burnchain.pox_constants
     }
 
     pub fn get_burnchain(&self) -> Burnchain {

@@ -1369,8 +1369,8 @@ impl StacksChainState {
                         &parent_index_block_hash, mblock.header.sequence
                     );
                     fork_poison = Some(TransactionPayload::PoisonMicroblock(
-                        mblock.header.clone(),
-                        tip_mblock.header.clone(),
+                        mblock.header,
+                        tip_mblock.header,
                     ));
                     ret.pop(); // last microblock pushed (i.e. the tip) conflicts with mblock
                     break;

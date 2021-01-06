@@ -298,7 +298,7 @@ impl PeerBlocksInv {
                 highest_agreed_block_height,
                 num_bits,
                 zeros.clone(),
-                zeros.clone(),
+                zeros,
                 true,
             );
             self.num_sortitions = highest_agreed_block_height - self.first_block_height;
@@ -1147,7 +1147,7 @@ impl InvState {
     pub fn add_peer(&mut self, nk: NeighborKey) -> () {
         self.block_stats.insert(
             nk.clone(),
-            NeighborBlockStats::new(nk.clone(), self.first_block_height),
+            NeighborBlockStats::new(nk, self.first_block_height),
         );
     }
 
