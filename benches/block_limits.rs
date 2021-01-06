@@ -1,4 +1,5 @@
 extern crate blockstack_lib;
+extern crate rand;
 extern crate serde_json;
 
 use blockstack_lib::{
@@ -12,16 +13,17 @@ use blockstack_lib::{
     vm::costs::ExecutionCost,
     vm::database::{MarfedKV, NULL_HEADER_DB},
     vm::{
-        clarity::ClarityConnection,
         database::{HeadersDB, NULL_BURN_STATE_DB},
-        types::{QualifiedContractIdentifier, StandardPrincipalData},
+        types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     },
 };
 use chainstate::{burn::VRFSeed, stacks::StacksAddress};
 
-use std::env;
 use std::fmt::Write;
 use std::process;
+use std::{env, time::Instant};
+
+use rand::Rng;
 
 struct TestHeadersDB;
 
@@ -40,7 +42,7 @@ impl HeadersDB for TestHeadersDB {
         Some(BurnchainHeaderHash(id_bhh.0.clone()))
     }
 
-    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(&self, _id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         Some(VRFSeed([0; 32]))
     }
 
@@ -57,11 +59,11 @@ impl HeadersDB for TestHeadersDB {
         }
     }
 
-    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
 
-    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128 {
+    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
         u128::max_value()
     }
 }
@@ -193,90 +195,120 @@ fn runtime_hash_test(scaling: u32) -> ExecutionCost {
     test_via_tx(scaling, inner_loop, other_decl)
 }
 
-fn transfer_test(scaling: u32) -> ExecutionCost {
+fn as_hash160(inp: u32) -> [u8; 20] {
+    let mut out = [0; 20];
+    out[0..4].copy_from_slice(&inp.to_le_bytes());
+    out
+}
+
+fn as_hash(inp: u32) -> [u8; 32] {
+    let mut out = [0; 32];
+    out[0..4].copy_from_slice(&inp.to_le_bytes());
+    out
+}
+
+fn transfer_test(buildup_count: u32, scaling: u32) -> ExecutionCost {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+    let mut blocks = vec![StacksBlockId::sentinel()];
+    blocks.extend(
+        (0..buildup_count)
+            .into_iter()
+            .map(|i| StacksBlockId(as_hash(i))),
+    );
 
-    let blocks = [
-        StacksBlockId::sentinel(),
-        StacksBlockId([1; 32]),
-        StacksBlockId([2; 32]),
-    ];
+    let principals: Vec<PrincipalData> = (0..(buildup_count - 1))
+        .into_iter()
+        .map(|i| StandardPrincipalData(0, as_hash160(i)).into())
+        .collect();
 
-    let principals = [
-        StandardPrincipalData(0, [0; 20]).into(),
-        StandardPrincipalData(0, [1; 20]).into(),
-    ];
+    eprintln!("Blocks to produce: {}", blocks.len() - 1);
+    eprintln!("Principals to credit: {}", principals.len());
 
-    {
-        let mut conn = clarity_instance.begin_test_genesis_block(
-            &blocks[0],
-            &blocks[1],
-            &TestHeadersDB,
-            &NULL_BURN_STATE_DB,
-        );
-        conn.as_transaction(|tx| {
-            tx.with_clarity_db(|db| {
-                let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&principals[0]);
-                stx_account_0.credit(1_000_000);
-                stx_account_0.save();
-                Ok(())
-            })
-            .unwrap()
-        });
-        conn.commit_to_block(&blocks[1]);
-    }
+    let mut exec_cost = None;
 
-    {
-        let mut conn = clarity_instance.begin_block(
-            &blocks[1],
-            &blocks[2],
-            &TestHeadersDB,
-            &NULL_BURN_STATE_DB,
-        );
-        let start_balance = conn.with_clarity_db_readonly_owned(|mut db| {
-            let bal = db.get_account_stx_balance(&principals[0]);
-            (bal, db)
-        });
-        assert_eq!(start_balance.amount_unlocked, 1_000_000);
+    for ix in 0..(blocks.len() - 1) {
+        let parent_block = &blocks[ix];
+        let current_block = &blocks[ix + 1];
 
-        for _i in 0..scaling {
+        let mut conn = if ix == 0 {
+            clarity_instance.begin_test_genesis_block(
+                parent_block,
+                current_block,
+                &TestHeadersDB,
+                &NULL_BURN_STATE_DB,
+            )
+        } else {
+            clarity_instance.begin_block(
+                parent_block,
+                current_block,
+                &TestHeadersDB,
+                &NULL_BURN_STATE_DB,
+            )
+        };
+
+        let begin = Instant::now();
+
+        if ix < principals.len() {
+            // minting phase
             conn.as_transaction(|tx| {
-                tx.run_stx_transfer(&principals[0], &principals[1], 10)
-                    .unwrap()
+                tx.with_clarity_db(|db| {
+                    let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&principals[ix]);
+                    stx_account_0.credit(1_000_000);
+                    stx_account_0.save();
+                    Ok(())
+                })
+                .unwrap()
             });
+        } else {
+            // transfer phase
+            let mut rng = rand::thread_rng();
+            for _i in 0..scaling {
+                let from = rng.gen_range(0, principals.len());
+                let to = (from + rng.gen_range(1, principals.len())) % principals.len();
+
+                conn.as_transaction(|tx| {
+                    tx.run_stx_transfer(&principals[from], &principals[to], 10)
+                        .unwrap()
+                });
+            }
         }
 
-        let end_balance = conn.with_clarity_db_readonly_owned(|mut db| {
-            let bal = db.get_account_stx_balance(&principals[0]);
-            (bal, db)
-        });
-        assert_eq!(
-            end_balance.amount_unlocked,
-            1_000_000 - (10 * scaling as u128)
-        );
+        let this_cost = conn.commit_to_block(current_block).get_total();
+        let elapsed = begin.elapsed();
 
-        conn.commit_to_block(&blocks[2]).get_total()
+        if ix >= principals.len() {
+            println!(
+                "Elapsed time during transfer block: {} transfers in {} ms, after {} block buildup",
+                scaling,
+                elapsed.as_millis(),
+                buildup_count
+            );
+            exec_cost = Some(this_cost);
+        }
     }
+
+    exec_cost.expect("Failed to calculate the exec cost during the transfer block")
 }
 
 fn main() {
     let argv: Vec<_> = env::args().collect();
 
     if argv.len() < 3 {
-        eprintln!("Usage: {} [test-name] [scalar]", argv[0]);
+        eprintln!("Usage: {} [test-name] [scalar-0] ... [scalar-n]", argv[0]);
         process::exit(1);
     }
 
-    let scalar = argv[2].parse().expect("Invalid scalar");
+    let scalar_0 = argv[2].parse().expect("Invalid scalar");
+    let scalar_1 = argv[3].parse().expect("Invalid scalar");
 
     let result = match argv[1].as_str() {
-        "transfer" => transfer_test(scalar),
-        "runtime" => runtime_hash_test(scalar),
-        "read-length" => read_length_test(scalar),
-        "read-count" => read_count_test(scalar),
-        "write-count" => write_count_test(scalar),
-        "write-length" => write_length_test(scalar),
+        "transfer" => transfer_test(scalar_0, scalar_1),
+        "runtime" => runtime_hash_test(scalar_0),
+        "read-length" => read_length_test(scalar_0),
+        "read-count" => read_count_test(scalar_0),
+        "write-count" => write_count_test(scalar_0),
+        "write-length" => write_length_test(scalar_0),
         _ => {
             eprintln!("bad test name");
             process::exit(1);
