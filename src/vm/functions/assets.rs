@@ -105,7 +105,7 @@ pub fn stx_transfer_consolidated(
     to: &PrincipalData,
     amount: u128,
 ) -> Result<Value> {
-    if amount <= 0 {
+    if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
     }
 
@@ -178,7 +178,7 @@ pub fn special_stx_burn(
     let from_val = eval(&args[1], env, context)?;
 
     if let (Value::Principal(ref from), Value::UInt(amount)) = (&from_val, amount_val) {
-        if amount <= 0 {
+        if amount == 0 {
             return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -221,7 +221,7 @@ pub fn special_mint_token(
     let to = eval(&args[2], env, context)?;
 
     if let (Value::UInt(amount), Value::Principal(ref to_principal)) = (amount, to) {
-        if amount <= 0 {
+        if amount == 0 {
             return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -425,7 +425,7 @@ pub fn special_transfer_token(
         Value::Principal(ref to_principal),
     ) = (amount, from, to)
     {
-        if amount <= 0 {
+        if amount == 0 {
             return clarity_ecode!(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -594,7 +594,7 @@ pub fn special_burn_token(
     let from = eval(&args[2], env, context)?;
 
     if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
-        if amount <= 0 {
+        if amount == 0 {
             return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
