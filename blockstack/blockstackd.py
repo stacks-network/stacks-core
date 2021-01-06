@@ -3733,8 +3733,8 @@ def run_blockstackd():
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
             namespace = {}
-            namespace['ready_block'] = namespace_info['ready_block']
-            namespace['reveal_block'] = namespace_info['reveal_block']
+            namespace['ready_block'] = namespace_info['ready_block'] - block
+            namespace['reveal_block'] = namespace_info['reveal_block'] - block
             namespace['namespace_id'] = namespace_info['namespace_id']
             namespace['address'] = b58ToC32(str(namespace_info['address']))
             namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
@@ -3757,7 +3757,7 @@ def run_blockstackd():
         name_zonefiles_txt_output_path = os.path.join(output_dir, 'name_zonefiles.txt')
         name_zonefiles_txt_hash_output_path = name_zonefiles_txt_output_path + '.sha256'
         chainstate_f.write('-----BEGIN NAMES-----\n')
-        chainstate_f.write('name,address,registered_at,expire_block,zonefile_hash\n')
+        chainstate_f.write('name,address,registered_at,expire_block,renewal_deadline,zonefile_hash\n')
         name_zonefiles = open(name_zonefiles_txt_output_path, 'w')
         for name_str in name_entries:
             name_info = load_name_info(db, name_str, block)
@@ -3768,8 +3768,16 @@ def run_blockstackd():
             name = {}
             name['name'] = name_info['name']
             name['address'] = b58ToC32(str(name_info['address']))
+
             name['expire_block'] = name_info['expire_block']
-            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
+            if name['expire_block'] != -1: # for special flag `-1` do not subtract the block height
+                name['expire_block'] = name['expire_block'] - block
+
+            name['renewal_deadline'] = name_info['renewal_deadline']
+            if name['renewal_deadline'] != -1: # for special flag `-1` do not subtract the block height
+                name['renewal_deadline'] = name['renewal_deadline'] - block
+
+            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed']) - block
 
             has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
             if has_zonefile_hash:
@@ -3781,8 +3789,8 @@ def run_blockstackd():
                 # print 'missing zonefile for {}'.format(name)
                 name_zonefiles.write(name_info['value_hash'] + '\n')
                 name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
-            chainstate_f.write('{},{},{},{},{}\n'.format(
-                name['name'], name['address'], name['registered_at'], name['expire_block'], name['zonefile_hash']
+            chainstate_f.write('{},{},{},{},{},{}\n'.format(
+                name['name'], name['address'], name['registered_at'], name['expire_block'], name['renewal_deadline'], name['zonefile_hash']
             ))
         name_zonefiles.flush()
         name_zonefiles.close()
