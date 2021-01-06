@@ -3773,7 +3773,7 @@ def run_blockstackd():
             if name['expire_block'] != -1: # for special flag `-1` do not subtract the block height
                 name['expire_block'] = name['expire_block'] - block
 
-            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed']) - block
+            name['registered_at'] = 0
 
             has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
             if has_zonefile_hash:
