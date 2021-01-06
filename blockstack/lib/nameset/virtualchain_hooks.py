@@ -580,7 +580,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         # threshold of required ID registrations
         v2_upgrade_signal_required_registrations = 20
         # number of blocks to wait after signal threshold is reached until block import and chainstate dump 
-        v2_upgrade_signal_import_threshold = 500
+        v2_upgrade_signal_import_threshold = 300
         if BLOCKSTACK_TEST:
             v2_upgrade_signal_import_threshold = 10
 
