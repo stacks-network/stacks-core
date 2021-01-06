@@ -60,7 +60,11 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-pub const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_COST_VOTING_BODY: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_COST_VOTING_TESTNET_CONSTS: &'static str =
+    std::include_str!("cost-voting-testnet.clar");
+const BOOT_CODE_COST_VOTING_MAINNET_CONSTS: &'static str =
+    std::include_str!("cost-voting-mainnet.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 
 lazy_static! {
@@ -68,20 +72,28 @@ lazy_static! {
         StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR).unwrap();
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
-    static ref BOOT_CODE_POX_TESTNET: String =
+    pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+    static ref BOOT_CODE_COST_VOTING_MAINNET: String = format!(
+        "{}\n{}",
+        BOOT_CODE_COST_VOTING_MAINNET_CONSTS, BOOT_CODE_COST_VOTING_BODY
+    );
+    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = format!(
+        "{}\n{}",
+        BOOT_CODE_COST_VOTING_TESTNET_CONSTS, BOOT_CODE_COST_VOTING_BODY
+    );
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
     ];
     pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
         ("bns", &BOOT_CODE_BNS),
     ];
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
