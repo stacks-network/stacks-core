@@ -141,10 +141,7 @@ pub fn special_contract_call(
                             .lookup_trait_definition(&trait_name)
                             .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.clone()))?;
                         let expected_sig = constraining_trait.get(function_name).ok_or(
-                            CheckErrors::TraitMethodUnknown(
-                                trait_name.clone(),
-                                function_name.to_string(),
-                            ),
+                            CheckErrors::TraitMethodUnknown(trait_name, function_name.to_string()),
                         )?;
                         (contract_identifier, Some(expected_sig.returns.clone()))
                     }
@@ -159,7 +156,7 @@ pub fn special_contract_call(
         env.contract_context.contract_identifier.clone(),
     ));
 
-    let mut nested_env = env.nest_with_caller(contract_principal.clone());
+    let mut nested_env = env.nest_with_caller(contract_principal);
     let result = if nested_env.short_circuit_contract_call(
         &contract_identifier,
         function_name,
@@ -177,11 +174,9 @@ pub fn special_contract_call(
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result);
         if !returns_type_signature.admits_type(&actual_returns) {
-            return Err(CheckErrors::ReturnTypesMustMatch(
-                returns_type_signature.clone(),
-                actual_returns.clone(),
-            )
-            .into());
+            return Err(
+                CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
+            );
         }
     }
 

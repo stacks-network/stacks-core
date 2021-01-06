@@ -1561,12 +1561,12 @@ impl PartialEq for NeighborKey {
 impl fmt::Display for NeighborKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let peer_version_str = if self.peer_version > 0 {
-            format!("{:08x}", self.peer_version).to_string()
+            format!("{:08x}", self.peer_version)
         } else {
             "UNKNOWN".to_string()
         };
         let network_id_str = if self.network_id > 0 {
-            format!("{:08x}", self.network_id).to_string()
+            format!("{:08x}", self.network_id)
         } else {
             "UNKNOWN".to_string()
         };

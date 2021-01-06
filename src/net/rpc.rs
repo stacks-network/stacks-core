@@ -593,7 +593,7 @@ impl ConversationHttp {
                 MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
             );
             warn!("{}", msg);
-            let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+            let response = HttpResponseType::ServerError(response_metadata, msg);
             response.send(http, fd)?;
             return Ok(());
         }
@@ -625,7 +625,7 @@ impl ConversationHttp {
             Err(e) => {
                 let msg = format!("Unable to read Atlas DB");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+                let response = HttpResponseType::ServerError(response_metadata, msg);
                 response.send(http, fd)?;
                 return Err(net_error::DBError(e));
             }
@@ -665,7 +665,7 @@ impl ConversationHttp {
             Err(e) => {
                 let msg = format!("Unable to read Atlas DB");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+                let response = HttpResponseType::ServerError(response_metadata, msg);
                 response.send(http, fd)?;
                 return Err(net_error::DBError(e));
             }
@@ -689,7 +689,7 @@ impl ConversationHttp {
             _ => {
                 let msg = format!("Unable to find attachment");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+                let response = HttpResponseType::ServerError(response_metadata, msg);
                 response.send(http, fd)
             }
         }

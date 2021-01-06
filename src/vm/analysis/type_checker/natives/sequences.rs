@@ -330,7 +330,7 @@ pub fn check_special_len(
 
     match collection_type {
         TypeSignature::SequenceType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedSequence(collection_type.clone())),
+        _ => Err(CheckErrors::ExpectedSequence(collection_type)),
     }?;
 
     Ok(TypeSignature::UIntType)
@@ -382,7 +382,7 @@ pub fn check_special_index_of(
 
     let expected_input_type = match list_type {
         TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
-        _ => Err(CheckErrors::ExpectedSequence(list_type.clone())),
+        _ => Err(CheckErrors::ExpectedSequence(list_type)),
     }?;
 
     checker.type_check_expects(&args[1], context, &expected_input_type)?;

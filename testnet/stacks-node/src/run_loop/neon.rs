@@ -102,7 +102,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt.clone(),
+            burnchain_opt,
         );
         let pox_constants = burnchain.get_pox_constants();
 
