@@ -421,7 +421,7 @@ impl Neighbor {
         let mut neighbor = match peer_opt {
             Some(neighbor) => {
                 let mut ret = neighbor;
-                ret.addr = addr;
+                ret.addr = addr.clone();
                 ret
             }
             None => {
