@@ -67,6 +67,23 @@ import {
       renewalRule: 52595,
       nameImporter: alice,
       zonefile: "1111",
+    }, {
+      namespace: "btc",
+      version: 1,
+      salt: "0000",
+      value: 9600,
+      namespaceOwner: alice,
+      nameOwner: bob,
+      priceFunction: {
+        buckets: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        base: 1000,
+        coeff: 200,
+        noVowelDiscount: 1,
+        nonAlphaDiscount: 1,
+      },
+      renewalRule: 52595,
+      nameImporter: alice,
+      zonefile: "2222",
     }];
   
     beforeEach(async () => {
@@ -94,6 +111,43 @@ import {
       await bns.deployContract();
     });
   
+    it("Test btc name price", async () => {
+        // Given a launched namespace 'btc', owned by Alice
+        var receipt = await bns.namespacePreorder(cases[2].namespace, cases[2].salt, cases[2].value, {
+            sender: cases[2].namespaceOwner
+        });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).include('u146');
+
+        receipt = await bns.namespaceReveal(
+            cases[2].namespace,
+            cases[2].salt,
+            cases[2].priceFunction,
+            cases[2].renewalRule,
+            cases[2].nameImporter, {
+            sender: cases[2].namespaceOwner
+            });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).include('true');
+
+        receipt = await bns.namespaceReady(cases[2].namespace, {
+            sender: cases[2].namespaceOwner
+        });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).include('true');
+
+        var receipt = await bns.getNamePrice(cases[2].namespace, "a");
+        expect(receipt.success).eq(true);
+        // 2 STX
+        expect(receipt.result).include(`(ok u2000000)`); 
+
+        var receipt = await bns.getNamePrice(cases[2].namespace, "abcdefghijk123456789");
+        expect(receipt.success).eq(true);
+        // 2 STX
+        expect(receipt.result).include(`(ok u2000000)`);
+
+    });
+
     it("Testing name prices", async () => {
         // Given a launched namespace 'blockstack', owned by Alice
         var receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, {
