@@ -1024,7 +1024,7 @@ impl Relayer {
     fn process_transactions(
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
         let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
@@ -1037,6 +1037,11 @@ impl Relayer {
                 return Ok(vec![]);
             }
         };
+
+        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, network_result)
+        {
+            warn!("Failed to store transactions: {:?}", &e);
+        }
 
         let mut ret = vec![];
 
@@ -1103,6 +1108,61 @@ impl Relayer {
         )
     }
 
+    /// Set up the unconfirmed chain state off of the canonical chain tip.
+    pub fn setup_unconfirmed_state(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+    ) -> Result<(), Error> {
+        let (canonical_consensus_hash, canonical_block_hash) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(
+            &canonical_consensus_hash,
+            &canonical_block_hash,
+        );
+        // setup unconfirmed state off of this tip
+        debug!(
+            "Reload unconfirmed state off of {}/{}",
+            &canonical_consensus_hash, &canonical_block_hash
+        );
+        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
+        Ok(())
+    }
+
+    /// Set up unconfirmed chain state in a read-only fashion
+    pub fn setup_unconfirmed_state_readonly(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+    ) -> Result<(), Error> {
+        let (canonical_consensus_hash, canonical_block_hash) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(
+            &canonical_consensus_hash,
+            &canonical_block_hash,
+        );
+
+        // setup unconfirmed state off of this tip
+        debug!(
+            "Reload read-only unconfirmed state off of {}/{}",
+            &canonical_consensus_hash, &canonical_block_hash
+        );
+        chainstate.refresh_unconfirmed_readonly(canonical_tip)?;
+        Ok(())
+    }
+
+    pub fn refresh_unconfirmed(chainstate: &mut StacksChainState, sortdb: &mut SortitionDB) {
+        if let Err(e) = Relayer::setup_unconfirmed_state(chainstate, sortdb) {
+            if let net_error::ChainstateError(ref err_msg) = e {
+                if err_msg == "Stacks chainstate error: NoSuchBlockError" {
+                    trace!("Failed to instantiate unconfirmed state: {:?}", &e);
+                } else {
+                    warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+                }
+            } else {
+                warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+            }
+        }
+    }
+
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
     /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks
@@ -1110,6 +1170,7 @@ impl Relayer {
     /// * Forward along unconfirmed microblocks that we didn't already have
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
+    /// * Reload the unconfirmed state, if necessary.
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(
@@ -1212,6 +1273,9 @@ impl Relayer {
         }
 
         let receipts = ProcessedNetReceipts { mempool_txs_added };
+
+        // finally, refresh the unconfirmed chainstate, if need be
+        Relayer::refresh_unconfirmed(chainstate, sortdb);
 
         Ok(receipts)
     }
@@ -2941,10 +3005,8 @@ mod test {
             }
 
             // peer 1 should have 1 tx per chain tip
-            for ((consensus_hash, block, _), sent_tx) in blocks_and_microblocks
-                .iter()
-                .skip(1)
-                .zip(expected_txs.iter())
+            for ((consensus_hash, block, _), sent_tx) in
+                blocks_and_microblocks.iter().zip(expected_txs.iter())
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
@@ -2955,6 +3017,13 @@ mod test {
                     1000,
                 )
                 .unwrap();
+                test_debug!(
+                    "Check {}/{} (height {}): expect {}",
+                    &consensus_hash,
+                    &block_hash,
+                    block.header.total_work.work,
+                    &sent_tx.txid()
+                );
                 assert_eq!(tx_infos.len(), 1);
                 assert_eq!(tx_infos[0].tx.txid(), sent_tx.txid());
             }

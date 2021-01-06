@@ -50,7 +50,10 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     write!(rd, " ")?;
     write!(rd, "[{}:{}]", record.file(), record.line())?;
     write!(rd, " ")?;
-    write!(rd, "[{:?}]", thread::current().id())?;
+    match thread::current().name() {
+        None => write!(rd, "[{:?}]", thread::current().id())?,
+        Some(name) => write!(rd, "[{}]", name)?,
+    }
 
     rd.start_whitespace()?;
     write!(rd, " ")?;
@@ -107,7 +110,10 @@ fn make_json_logger() -> Logger {
                           info.line()
                       }),
                       "thread" => FnValue(move |_| {
-                          format!("{:?}", thread::current().id())
+                          match thread::current().name() {
+                              None => format!("{:?}", thread::current().id()),
+                              Some(name) => name.to_string(),
+                          }
                       }),
     );
 

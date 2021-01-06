@@ -54,7 +54,6 @@ pub struct ChainTip {
 
 impl ChainTip {
     pub fn genesis(
-        initial_liquid_ustx: u128,
         first_burnchain_block_hash: &BurnchainHeaderHash,
         first_burnchain_block_height: u64,
         first_burnchain_block_timestamp: u64,
@@ -62,7 +61,6 @@ impl ChainTip {
         ChainTip {
             metadata: StacksHeaderInfo::genesis(
                 TrieHash([0u8; 32]),
-                initial_liquid_ustx,
                 first_burnchain_block_hash,
                 first_burnchain_block_height as u32,
                 first_burnchain_block_timestamp,
@@ -605,12 +603,7 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(
-                self.config.get_initial_liquid_ustx(),
-                &BurnchainHeaderHash::zero(),
-                0,
-                0,
-            ),
+            true => ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),

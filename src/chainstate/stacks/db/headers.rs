@@ -135,7 +135,6 @@ impl StacksChainState {
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
-        let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
         let block_size_str = format!("{}", tip_info.anchored_block_size);
 
         let block_hash = header.block_hash();
@@ -162,7 +161,6 @@ impl StacksChainState {
             &burn_header_hash,
             &(burn_header_height as i64),
             &(burn_header_timestamp as i64),
-            &total_liquid_stx_str,
             &(block_height as i64),
             &index_root,
             anchored_block_cost,
@@ -187,13 +185,12 @@ impl StacksChainState {
                     burn_header_hash, \
                     burn_header_height, \
                     burn_header_timestamp, \
-                    total_liquid_ustx, \
                     block_height, \
                     index_root,
                     cost,
                     block_size,
                     parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -256,14 +253,23 @@ impl StacksChainState {
     }
 
     /// Get an ancestor block header
-    pub fn get_tip_ancestor<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_tip_ancestor(
+        tx: &mut StacksDBTx,
         tip: &StacksHeaderInfo,
         height: u64,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         assert!(tip.block_height >= height);
+        StacksChainState::get_index_tip_ancestor(tx, &tip.index_block_hash(), height)
+    }
+
+    /// Get an ancestor block header given an index hash
+    pub fn get_index_tip_ancestor(
+        tx: &mut StacksDBTx,
+        tip_index_hash: &StacksBlockId,
+        height: u64,
+    ) -> Result<Option<StacksHeaderInfo>, Error> {
         match tx
-            .get_ancestor_block_hash(height, &tip.index_block_hash())
+            .get_ancestor_block_hash(height, tip_index_hash)
             .map_err(Error::DBError)?
         {
             Some(bhh) => {
@@ -274,17 +280,17 @@ impl StacksChainState {
     }
 
     /// Get an ancestor block header given an index hash
-    pub fn get_index_tip_ancestor<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_index_tip_ancestor_conn(
+        conn: &StacksDBConn,
         tip_index_hash: &StacksBlockId,
         height: u64,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
-        match tx
+        match conn
             .get_ancestor_block_hash(height, tip_index_hash)
             .map_err(Error::DBError)?
         {
             Some(bhh) => {
-                StacksChainState::get_stacks_block_header_info_by_index_block_hash(tx, &bhh)
+                StacksChainState::get_stacks_block_header_info_by_index_block_hash(conn, &bhh)
             }
             None => Ok(None),
         }

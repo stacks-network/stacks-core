@@ -277,9 +277,6 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }
-    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-        *LIQUID_SUPPLY
-    }
 }
 
 #[test]
