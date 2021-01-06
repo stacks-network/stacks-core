@@ -7,21 +7,24 @@ use blockstack_lib::{
     chainstate::{
         self,
         burn::BlockHeaderHash,
+        stacks::boot::STACKS_BOOT_POX_CONTRACT,
         stacks::{index::MarfTrieId, StacksBlockId},
     },
     vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
     vm::database::{MarfedKV, NULL_HEADER_DB},
     vm::{
+        contexts::OwnedEnvironment,
         database::{HeadersDB, NULL_BURN_STATE_DB},
         types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
+        Value,
     },
 };
 use chainstate::{burn::VRFSeed, stacks::StacksAddress};
 
-use std::fmt::Write;
 use std::process;
 use std::{env, time::Instant};
+use std::{fmt::Write, fs};
 
 use rand::Rng;
 
@@ -54,17 +57,15 @@ impl HeadersDB for TestHeadersDB {
         if id_bhh == &StacksBlockId::sentinel() {
             Some(0)
         } else {
-            let height = id_bhh.0[0];
-            Some(height as u32)
+            let mut bytes = [0; 4];
+            bytes.copy_from_slice(&id_bhh.0[0..4]);
+            let height = u32::from_le_bytes(bytes);
+            Some(height)
         }
     }
 
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
-    }
-
-    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-        u128::max_value()
     }
 }
 
@@ -201,101 +202,241 @@ fn as_hash160(inp: u32) -> [u8; 20] {
     out
 }
 
+fn as_garbage_hash160(inp: u32) -> [u8; 20] {
+    let mut out = [0; 20];
+    out[8..12].copy_from_slice(&inp.to_le_bytes());
+    out
+}
+
 fn as_hash(inp: u32) -> [u8; 32] {
     let mut out = [0; 32];
     out[0..4].copy_from_slice(&inp.to_le_bytes());
     out
 }
 
-fn transfer_test(buildup_count: u32, scaling: u32) -> ExecutionCost {
-    let marf = MarfedKV::temporary();
+fn transfer_test(buildup_count: u32, scaling: u32, genesis_size: u32) -> ExecutionCost {
+    let marf = setup_chain_state(genesis_size);
     let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
-    let mut blocks = vec![StacksBlockId::sentinel()];
-    blocks.extend(
-        (0..buildup_count)
-            .into_iter()
-            .map(|i| StacksBlockId(as_hash(i))),
-    );
+    let blocks: Vec<_> = (0..(buildup_count + 1))
+        .into_iter()
+        .map(|i| StacksBlockId(as_hash(i)))
+        .collect();
 
     let principals: Vec<PrincipalData> = (0..(buildup_count - 1))
         .into_iter()
         .map(|i| StandardPrincipalData(0, as_hash160(i)).into())
         .collect();
 
-    eprintln!("Blocks to produce: {}", blocks.len() - 1);
-    eprintln!("Principals to credit: {}", principals.len());
+    let last_mint_block = blocks.len() - 2;
+    let last_block = blocks.len() - 1;
 
-    let mut exec_cost = None;
+    for ix in 1..(last_mint_block + 1) {
+        let parent_block = &blocks[ix - 1];
+        let current_block = &blocks[ix];
 
-    for ix in 0..(blocks.len() - 1) {
-        let parent_block = &blocks[ix];
-        let current_block = &blocks[ix + 1];
+        let mut conn = clarity_instance.begin_block(
+            parent_block,
+            current_block,
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
 
-        let mut conn = if ix == 0 {
-            clarity_instance.begin_test_genesis_block(
-                parent_block,
-                current_block,
-                &TestHeadersDB,
-                &NULL_BURN_STATE_DB,
-            )
-        } else {
-            clarity_instance.begin_block(
-                parent_block,
-                current_block,
-                &TestHeadersDB,
-                &NULL_BURN_STATE_DB,
-            )
-        };
+        // minting phase
+        conn.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&principals[ix - 1]);
+                stx_account_0.credit(1_000_000);
+                stx_account_0.save();
+                Ok(())
+            })
+            .unwrap()
+        });
 
-        let begin = Instant::now();
-
-        if ix < principals.len() {
-            // minting phase
-            conn.as_transaction(|tx| {
-                tx.with_clarity_db(|db| {
-                    let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&principals[ix]);
-                    stx_account_0.credit(1_000_000);
-                    stx_account_0.save();
-                    Ok(())
-                })
-                .unwrap()
-            });
-        } else {
-            // transfer phase
-            let mut rng = rand::thread_rng();
-            for _i in 0..scaling {
-                let from = rng.gen_range(0, principals.len());
-                let to = (from + rng.gen_range(1, principals.len())) % principals.len();
-
-                conn.as_transaction(|tx| {
-                    tx.run_stx_transfer(&principals[from], &principals[to], 10)
-                        .unwrap()
-                });
-            }
-        }
-
-        let this_cost = conn.commit_to_block(current_block).get_total();
-        let elapsed = begin.elapsed();
-
-        if ix >= principals.len() {
-            println!(
-                "Elapsed time during transfer block: {} transfers in {} ms, after {} block buildup",
-                scaling,
-                elapsed.as_millis(),
-                buildup_count
-            );
-            exec_cost = Some(this_cost);
-        }
+        conn.commit_to_block(current_block);
     }
 
-    exec_cost.expect("Failed to calculate the exec cost during the transfer block")
+    // transfer phase
+    let mut conn = clarity_instance.begin_block(
+        &blocks[last_mint_block],
+        &blocks[last_block],
+        &TestHeadersDB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    let begin = Instant::now();
+
+    let mut rng = rand::thread_rng();
+    for _i in 0..scaling {
+        let from = rng.gen_range(0, principals.len());
+        let to = (from + rng.gen_range(1, principals.len())) % principals.len();
+
+        conn.as_transaction(|tx| {
+            tx.run_stx_transfer(&principals[from], &principals[to], 10)
+                .unwrap()
+        });
+    }
+
+    let this_cost = conn.commit_to_block(&blocks[last_block]).get_total();
+    let elapsed = begin.elapsed();
+
+    println!(
+        "{} transfers in {} ms, after {} block buildup with a {} account genesis",
+        scaling,
+        elapsed.as_millis(),
+        buildup_count,
+        genesis_size,
+    );
+
+    this_cost
+}
+
+fn setup_chain_state(scaling: u32) -> MarfedKV {
+    let pre_initialized_path = format!("/tmp/block_limit_bench_{}.marf", scaling);
+    let out_path = "/tmp/block_limit_bench_last.marf";
+
+    if fs::metadata(&pre_initialized_path).is_err() {
+        let marf = MarfedKV::open(&pre_initialized_path, None).unwrap();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let mut conn = clarity_instance.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockId(as_hash(0)),
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+
+        conn.as_transaction(|tx| {
+            for j in 0..scaling {
+                tx.with_clarity_db(|db| {
+                    let addr = StandardPrincipalData(0, as_hash160(j + 1)).into();
+                    let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&addr);
+                    stx_account_0.credit(1);
+                    stx_account_0.save();
+                    db.increment_ustx_liquid_supply(1).unwrap();
+                    Ok(())
+                })
+                .unwrap();
+            }
+        });
+
+        conn.commit_to_block(&StacksBlockId(as_hash(0)));
+    };
+
+    fs::copy(
+        &format!("{}/marf", pre_initialized_path),
+        &format!("{}/marf", out_path),
+    );
+    return MarfedKV::open(out_path, None).unwrap();
+}
+
+fn stack_stx_test(buildup_count: u32, genesis_size: u32) -> ExecutionCost {
+    let marf = setup_chain_state(genesis_size);
+
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+    let blocks: Vec<_> = (0..(buildup_count + 1))
+        .into_iter()
+        .map(|i| StacksBlockId(as_hash(i)))
+        .collect();
+
+    let stacker: PrincipalData = StandardPrincipalData(0, as_hash160(0)).into();
+
+    let stacker_balance = 1_000_000 * (buildup_count as u128);
+    let stacking_amount = stacker_balance / 2;
+
+    let POX_ADDRS: Vec<Value> = (0..50u64)
+        .map(|ix| {
+            blockstack_lib::vm::execute(&format!(
+                "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
+                &blockstack_lib::util::hash::to_hex(&ix.to_le_bytes())
+            ))
+            .unwrap()
+            .unwrap()
+        })
+        .collect();
+
+    let last_mint_block = blocks.len() - 2;
+    let last_block = blocks.len() - 1;
+
+    for ix in 1..(last_mint_block + 1) {
+        let parent_block = &blocks[ix - 1];
+        let current_block = &blocks[ix];
+
+        let mut conn = clarity_instance.begin_block(
+            parent_block,
+            current_block,
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+
+        // minting phase
+        conn.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&stacker);
+                stx_account_0.credit(1_000_000);
+                stx_account_0.save();
+                db.increment_ustx_liquid_supply(1_000_000).unwrap();
+                Ok(())
+            })
+            .unwrap();
+        });
+
+        conn.commit_to_block(current_block);
+    }
+
+    // do the stack-stx block
+    let mut conn = clarity_instance.begin_block(
+        &blocks[last_mint_block],
+        &blocks[last_block],
+        &TestHeadersDB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    let begin = Instant::now();
+
+    conn.as_transaction(|tx| {
+        let result = tx
+            .run_contract_call(
+                &stacker,
+                &*STACKS_BOOT_POX_CONTRACT,
+                "stack-stx",
+                &[
+                    Value::UInt(stacking_amount),
+                    POX_ADDRS[0].clone(),
+                    Value::UInt(buildup_count as u128 + 2),
+                    Value::UInt(12),
+                ],
+                |_, _| false,
+            )
+            .unwrap()
+            .0;
+
+        eprintln!("Stacking result: {}", result);
+    });
+
+    let this_cost = conn.commit_to_block(&blocks[last_block]).get_total();
+    let elapsed = begin.elapsed();
+
+    println!(
+        "Completed stack-stx in {} ms, after {} block buildup with a {} account genesis",
+        elapsed.as_millis(),
+        buildup_count,
+        genesis_size,
+    );
+
+    this_cost
 }
 
 fn main() {
     let argv: Vec<_> = env::args().collect();
 
     if argv.len() < 3 {
-        eprintln!("Usage: {} [test-name] [scalar-0] ... [scalar-n]", argv[0]);
+        eprintln!(
+            "Usage: {} [test-name] [scalar-0] ... [scalar-n]
+
+transfer <block_build_up> <genesis_size> <number_of_ops>
+stack-stx <block_build_up> <genesis_size>
+",
+            argv[0]
+        );
         process::exit(1);
     }
 
@@ -303,7 +444,8 @@ fn main() {
     let scalar_1 = argv[3].parse().expect("Invalid scalar");
 
     let result = match argv[1].as_str() {
-        "transfer" => transfer_test(scalar_0, scalar_1),
+        "transfer" => transfer_test(scalar_0, argv[4].parse().expect("Invalid scalar"), scalar_1),
+        "stack-stx" => stack_stx_test(scalar_0, scalar_1),
         "runtime" => runtime_hash_test(scalar_0),
         "read-length" => read_length_test(scalar_0),
         "read-count" => read_count_test(scalar_0),

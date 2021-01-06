@@ -68,7 +68,7 @@ lazy_static! {
         StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR).unwrap();
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
-    static ref BOOT_CODE_POX_TESTNET: String =
+    pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -84,6 +84,7 @@ lazy_static! {
         ("cost-voting", BOOT_CODE_COST_VOTING),
         ("bns", &BOOT_CODE_BNS),
     ];
+    pub static ref STACKS_BOOT_POX_CONTRACT: QualifiedContractIdentifier = boot_code_id("pox");
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
     pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting");
