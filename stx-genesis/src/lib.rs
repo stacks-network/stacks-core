@@ -1,5 +1,5 @@
-use std::io::{Cursor, Lines, prelude::*};
 use std::io::{self, BufReader};
+use std::io::{prelude::*, Cursor, Lines};
 
 use libflate::deflate::{self, Decoder};
 
@@ -87,13 +87,16 @@ impl GenesisData {
         })
     }
     pub fn read_name_zonefiles(&self) -> Box<dyn Iterator<Item = GenesisZonefile>> {
-        let zonefiles_bytes: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/name_zonefiles.gz"));
-        read_deflated_zonefiles(zonefiles_bytes)
+        read_deflated_zonefiles(if self.use_test_chainstate_data {
+            include_bytes!(concat!(env!("OUT_DIR"), "/name_zonefiles-test.gz"))
+        } else {
+            include_bytes!(concat!(env!("OUT_DIR"), "/name_zonefiles.gz"))
+        })
     }
 }
 
 struct LinePairReader {
-    val: Lines<BufReader<Decoder<Cursor<&'static [u8]>>>>
+    val: Lines<BufReader<Decoder<Cursor<&'static [u8]>>>>,
 }
 
 impl Iterator for LinePairReader {
@@ -107,18 +110,18 @@ impl Iterator for LinePairReader {
     }
 }
 
-fn read_deflated_zonefiles(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisZonefile>> {
+fn read_deflated_zonefiles(
+    deflate_bytes: &'static [u8],
+) -> Box<dyn Iterator<Item = GenesisZonefile>> {
     let cursor = io::Cursor::new(deflate_bytes);
     let deflate_decoder = deflate::Decoder::new(cursor);
     let buff_reader = BufReader::new(deflate_decoder);
     let pairs = LinePairReader {
-        val: buff_reader.lines()
+        val: buff_reader.lines(),
     };
-    let pair_iter = pairs.into_iter().map(|pair| {
-        GenesisZonefile {
-            zonefile_hash: pair[0].to_owned(),
-            zonefile_content: pair[1].replace("\\n", "\n"),
-        }
+    let pair_iter = pairs.into_iter().map(|pair| GenesisZonefile {
+        zonefile_hash: pair[0].to_owned(),
+        zonefile_content: pair[1].replace("\\n", "\n"),
     });
     return Box::new(pair_iter);
 }
@@ -227,6 +230,9 @@ mod tests {
     #[test]
     fn test_name_zonefiles_read() {
         for zonefile in GenesisData::new(false).read_name_zonefiles() {
+            assert_eq!(zonefile.zonefile_hash.len(), 40);
+        }
+        for zonefile in GenesisData::new(true).read_name_zonefiles() {
             assert_eq!(zonefile.zonefile_hash.len(), 40);
         }
     }

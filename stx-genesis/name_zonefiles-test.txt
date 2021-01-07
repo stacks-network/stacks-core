@@ -1,0 +1,24 @@
+c5f5b4197c94d4561f6332160f624d728b0da8bf
+$ORIGIN 0.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/1A4aeTdM35rYtUoiCiV81jKwKyi1Egzb32/profile.json"\n\n
+8961c32ad98df87af12b186c3d0be6ca22105936
+$ORIGIN 1.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/19i6q73cKHLFfZ12JmHqB6HaXZNWos2MeE/profile.json"\n\n
+8ae7173b9a2f96521ba077bbcbe9b56b1cf2449f
+$ORIGIN 10.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/17MJkt1kfmV5SjWDeNmzjdJpawwCXn9kyY/profile.json"\n\n
+3d0576cd134fa1ff8d54d8e2ef5da97f5cae36f2
+$ORIGIN 10x.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/1NND3tMZuSfq7TJ6cHuV2Z72ij2JnyaRoX/profile.json"\n\n
+01a8c60c852b75f9c6417491ac89275fb9de774c
+$ORIGIN 111111111.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/17uym3RccQG97RQAETTHe32YPGAhq6A1qq/profile.json"\n\n
+ae34427289a8865028eb2d475dafb085060d5625
+$ORIGIN 123.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/1GmQ9hgopAeSinysvJzpSggSknEjJJtDkg/profile.json"\n\n
+c7b0bbeb92c2575a3e4a82632d8ec4b7fc86cc19
+$ORIGIN zinai.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/18cR3haFbmuYQVNcrCM9N1GvfPzDraQGN9/profile.json"\n\n
+da6a954fdf90c890966cde5ae808ca6c96082428
+$ORIGIN zlh.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/19QTJKJDiUuGcQaDqF3cixdEcvRffpggp4/profile.json"\n\n
+578ed433dabeb24952c892d5f3fc0cd7b9844bb8
+$ORIGIN zone117x.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/1Nw25PemCRv24UQAcZdaj4uD11nkTCWRTE/profile.json"\n\n
+fa602059cb01dbe8d1885d8fc2a7c6b265c57e64
+$ORIGIN zumminer_crux.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://hub.cruxpay.com/1LyHVnkR3Dn227ywxEiYRRhL4AmiJF4sqJ/profile.json"\n\n
+f9569aa25b6325b0f2e3a5f9edb552cd98260f9b
+$ORIGIN zumminer_dev_crux.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://hub.cruxpay.com/15hvnWj74LiamdFnQW9PMvqnLAb6PQQnKt/profile.json"\n\n
+853cd126478237bc7392e65091f7ffa5a1556a33
+$ORIGIN zumrai.id\n$TTL 3600\n_http._tcp	IN	URI	10	1	"https://gaia.blockstack.org/hub/1EPno1VcdGx89ukN2we4iVpnFtkHzw8i5d/profile.json"\n\n
