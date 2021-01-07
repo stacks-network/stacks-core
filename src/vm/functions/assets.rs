@@ -229,16 +229,23 @@ pub fn special_mint_token(
             return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
+        let ft_info = env
+            .global_context
+            .database
+            .load_ft(&env.contract_context.contract_identifier, token_name)?;
+
         env.global_context.database.checked_increase_token_supply(
             &env.contract_context.contract_identifier,
             token_name,
             amount,
+            Some(ft_info.clone()),
         )?;
 
         let to_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             to_principal,
+            Some(ft_info),
         )?;
 
         let final_to_bal = to_bal.checked_add(amount).expect("STX overflow");
@@ -441,10 +448,16 @@ pub fn special_transfer_token(
             return clarity_ecode!(TransferTokenErrorCodes::SENDER_IS_RECIPIENT);
         }
 
+        let ft_info = env
+            .global_context
+            .database
+            .load_ft(&env.contract_context.contract_identifier, token_name)?;
+
         let from_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             from_principal,
+            Some(ft_info.clone()),
         )?;
 
         if from_bal < amount {
@@ -457,6 +470,7 @@ pub fn special_transfer_token(
             &env.contract_context.contract_identifier,
             token_name,
             to_principal,
+            Some(ft_info),
         )?;
 
         let final_to_bal = to_bal
@@ -519,10 +533,16 @@ pub fn special_get_balance(
     let owner = eval(&args[1], env, context)?;
 
     if let Value::Principal(ref principal) = owner {
+        let ft_info = env
+            .global_context
+            .database
+            .load_ft(&env.contract_context.contract_identifier, token_name)?;
+
         let balance = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             principal,
+            Some(ft_info),
         )?;
         Ok(Value::UInt(balance))
     } else {
@@ -611,6 +631,7 @@ pub fn special_burn_token(
             &env.contract_context.contract_identifier,
             token_name,
             burner,
+            None,
         )?;
 
         if amount > burner_bal {

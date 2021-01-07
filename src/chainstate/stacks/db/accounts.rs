@@ -162,7 +162,7 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .with_clarity_db_readonly(|ref mut db| {
-                let ft_balance = db.get_ft_balance(contract_id, token_name, principal)?;
+                let ft_balance = db.get_ft_balance(contract_id, token_name, principal, None)?;
                 Ok(ft_balance)
             })
             .map_err(Error::ClarityError)

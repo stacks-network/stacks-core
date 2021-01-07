@@ -1117,7 +1117,7 @@ impl<'a> ClarityDatabase<'a> {
         self.put(&supply_key, &(0 as u128));
     }
 
-    fn load_ft(
+    pub fn load_ft(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
@@ -1157,8 +1157,12 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
         amount: u128,
+        descriptor: Option<FungibleTokenMetadata>,
     ) -> Result<()> {
-        let descriptor = self.load_ft(contract_identifier, token_name)?;
+        let descriptor = match descriptor {
+            Some(x) => x,
+            None => self.load_ft(contract_identifier, token_name)?,
+        };
 
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
@@ -1213,8 +1217,11 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
+        descriptor: Option<FungibleTokenMetadata>,
     ) -> Result<u128> {
-        self.load_ft(contract_identifier, token_name)?;
+        if descriptor.is_none() {
+            self.load_ft(contract_identifier, token_name)?;
+        }
 
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
