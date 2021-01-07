@@ -40,6 +40,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::vm::costs::ExecutionCost;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1236,6 +1237,109 @@ fn size_check_integration_test() {
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn max_block_integration_test() {
+    // TODO: set this
+    let block_limit = ExecutionCost {
+        write_length: 0,
+        write_count: 0,
+        read_length: 0,
+        read_count: 0,
+        runtime: 0,
+    };
+
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // TODO: make sure this is exactly the max cost
+    let max_contract = format!(
+        "(define-public (f) (begin {} (ok 1)))",
+        (0..100)
+            .map(|_| "(< 1 2)".to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    let private_key = StacksPrivateKey::new();
+    let addr: PrincipalData = to_addr(&private_key).into();
+
+    let tx = make_contract_publish(&private_key, 0, 1049230, "max", &max_contract);
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    // Set block limit
+    conf.block_limit = block_limit;
+
+    conf.initial_balances.push(InitialBalance {
+        address: addr.clone(),
+        amount: 1049230,
+    });
+
+    // conf.node.mine_microblocks = true;
+    // conf.node.wait_time_for_microblocks = 30000;
+    // conf.node.microblock_frequency = 1000;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
+
+    // and our potential spenders:
+    let account = get_account(&http_origin, &addr);
+    assert_eq!(account.nonce, 0);
+    assert_eq!(account.balance, 1049230);
+
+    submit_tx(&http_origin, &tx);
+
+    sleep_ms(60_000);
+
+    // now let's mine some block, and then check the sender's nonce.
+    //  after mining a block, there should be _one_ transactions from the anchor block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let res = get_account(&http_origin, &addr);
+    assert_eq!(res.nonce, 1);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
