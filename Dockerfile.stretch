@@ -1,9 +1,8 @@
 FROM rust:stretch as build
 
-ARG CARGO_PKG_VERSION
-
-ENV CARGO_PKG_NAME=stacks-blockchain \
-    CARGO_PKG_VERSION=${CARGO_PKG_VERSION}
+ARG STACKS_NODE_VERSION="No Version Info"
+ARG GIT_BRANCH='No Branch Info'
+ARG GIT_COMMIT='No Commit Info'
 
 WORKDIR /src
 

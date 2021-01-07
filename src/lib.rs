@@ -96,16 +96,15 @@ const BUILD_TYPE: &'static str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
     let git_branch = GIT_BRANCH
-        .map(|x| format!("{}:", x))
+        .map(|x| format!("{}", x))
         .unwrap_or("".to_string());
     let git_commit = GIT_COMMIT.unwrap_or("");
     let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
 
     format!(
-        "{} {} => {} ({}{}{}, {} build, {} [{}])",
+        "{} {} ({}:{}{}, {} build, {} [{}])",
         pkg_name,
         pkg_version,
-        core::CHAINSTATE_VERSION,
         &git_branch,
         git_commit,
         git_tree_clean,
