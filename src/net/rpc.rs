@@ -189,8 +189,8 @@ impl RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
             option_env!("STACKS_NODE_VERSION")
-                        .or(option_env!("CARGO_PKG_VERSION"))
-                        .unwrap_or("0.0.0.0"),
+                .or(option_env!("CARGO_PKG_VERSION"))
+                .unwrap_or("0.0.0.0"),
         );
         let stacks_tip_consensus_hash = burnchain_tip.canonical_stacks_tip_consensus_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;

@@ -8,13 +8,12 @@ fn current_git_hash() -> Option<String> {
             .arg("--pretty=format:%h") // Abbreviated commit hash
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output();
-    
+
         if let Ok(commit) = commit {
             if let Ok(commit) = String::from_utf8(commit.stdout) {
                 return Some(commit);
             }
         }
-
     } else {
         return option_env!("GIT_COMMIT").map(String::from);
     }
