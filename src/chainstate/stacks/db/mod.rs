@@ -1004,7 +1004,12 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                                db.insert_entry_unknown_descriptor(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    value,
+                                )?;
                             }
                             Ok(())
                         })
@@ -1074,7 +1079,7 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "namespaces",
                                     namespace,
@@ -1136,7 +1141,15 @@ impl StacksChainState {
                                     }
                                 };
 
-                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+                                let expected_asset_type =
+                                    db.get_nft_key_type(&bns_contract_id, "names")?;
+                                db.set_nft_owner(
+                                    &bns_contract_id,
+                                    "names",
+                                    &fqn,
+                                    &owner_address,
+                                    &expected_asset_type,
+                                )?;
 
                                 let registered_at = Value::UInt(entry.registered_at.into());
                                 let name_props = Value::Tuple(
@@ -1152,14 +1165,14 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
                                 )?;
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "owner-name",
                                     Value::Principal(owner_address),
@@ -2103,7 +2116,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "96b7696b43c286fd9b824d111e1662bd748400257b27467908088bc37d048d8e"
+            "146bb2f3c11d543c126067a4fb39091c0596b3257a3c0b6ef4b9861546ae56e9",
         );
     }
 
