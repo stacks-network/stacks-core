@@ -69,6 +69,7 @@ use std::sync::mpsc::TrySendError;
 
 use std::net::SocketAddr;
 
+use std::cmp;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -274,12 +275,6 @@ pub struct PeerNetwork {
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
-    // do we need to do a prune at the end of the work state cycle?
-    pub do_prune: bool,
-
-    // prune state
-    pub prune_deadline: u64,
-
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
@@ -396,9 +391,6 @@ impl PeerNetwork {
             block_downloader: None,
             attachments_downloader: None,
 
-            do_prune: false,
-
-            prune_deadline: 0,
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
 
@@ -1901,7 +1893,7 @@ impl PeerNetwork {
             return;
         }
 
-        test_debug!("Prune connections");
+        debug!("Prune from {} connections", self.events.len());
         let mut safe: HashSet<usize> = HashSet::new();
         let now = get_epoch_time_secs();
 
@@ -2064,10 +2056,7 @@ impl PeerNetwork {
             return Ok(true);
         }
 
-        if self.do_prune {
-            // wait until we do a prune before we try and find new neighbors
-            return Ok(true);
-        }
+        debug!("{:?}: walk peer graph", &self.local_peer);
 
         // walk the peer graph and deal with new/dropped connections
         let (done, walk_result_opt) = self.walk_peer_graph();
@@ -2075,7 +2064,6 @@ impl PeerNetwork {
             None => {}
             Some(walk_result) => {
                 // remember to prune later, if need be
-                self.do_prune = walk_result.do_prune;
                 self.process_neighbor_walk(walk_result);
             }
         }
@@ -2219,8 +2207,10 @@ impl PeerNetwork {
                             Some((data.addrbytes, self.bind_nk.port));
 
                         if old_ip != self.local_peer.public_ip_address {
-                            info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
-                            self.disconnect_all();
+                            info!(
+                                "IP address changed from {:?} to {:?}",
+                                &old_ip, &self.local_peer.public_ip_address
+                            );
                         }
                         return Ok(true);
                     }
@@ -2362,6 +2352,8 @@ impl PeerNetwork {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok((true, false));
         }
+
+        debug!("{:?}: network inventory sync", &self.local_peer);
 
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
@@ -2904,6 +2896,13 @@ impl PeerNetwork {
         download_backpressure: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
+        if self.peers.len() == 0 {
+            // don't do anything; just go straight to the neighbor walk so we can get some new
+            // neighbors
+            debug!("No peers, so no work to do");
+            return Ok(false);
+        }
+
         // do some Actual Work(tm)
         let mut do_prune = false;
         let mut did_cycle = false;
@@ -2950,7 +2949,10 @@ impl PeerNetwork {
                             if inv_sync.hint_learned_data {
                                 // tell the downloader to wake up
                                 if let Some(ref mut downloader) = self.block_downloader {
-                                    downloader.hint_download_rescan();
+                                    downloader.hint_download_rescan(cmp::min(
+                                        self.chain_view.burn_block_height,
+                                        inv_sync.hint_learned_data_height,
+                                    ));
                                 }
                             }
                         }
@@ -3004,14 +3006,16 @@ impl PeerNetwork {
                 PeerNetworkWorkState::Prune => {
                     // did one pass
                     did_cycle = true;
-
-                    // clear out neighbor connections after we finish sending
-                    if self.do_prune {
-                        do_prune = true;
-
-                        // re-enable neighbor walks
-                        self.do_prune = false;
-                    }
+                    do_prune = true;
+                    /*
+                    do_prune = match self.walk {
+                        Some(ref mut walk) => {
+                            walk.do_prune = false;
+                            true
+                        }
+                        None => true
+                    };
+                    */
 
                     // restart
                     self.work_state = PeerNetworkWorkState::GetPublicIP;
@@ -3950,8 +3954,8 @@ impl PeerNetwork {
             };
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
-            self.hint_sync_invs();
-            self.hint_download_rescan();
+            self.hint_sync_invs(self.chain_view.burn_stable_block_height);
+            self.hint_download_rescan(self.chain_view.burn_stable_block_height);
             self.chain_view = new_chain_view;
         }
 
@@ -4043,11 +4047,11 @@ impl PeerNetwork {
             self.prune_connections();
         }
 
-        // download attachments
-        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
-
         // In parallel, do a neighbor walk
         self.do_network_neighbor_walk()?;
+
+        // download attachments
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4090,14 +4094,16 @@ impl PeerNetwork {
         self.dispatch_requests();
 
         // fault injection -- periodically disconnect from everyone
-        if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
-            if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
-                debug!(
-                    "{:?}: Fault injection: forcing disconnect",
-                    &self.local_peer
-                );
-                self.disconnect_all();
-                self.fault_last_disconnect = get_epoch_time_secs();
+        if cfg!(test) {
+            if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
+                if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
+                    debug!(
+                        "{:?}: Fault injection: forcing disconnect",
+                        &self.local_peer
+                    );
+                    self.disconnect_all();
+                    self.fault_last_disconnect = get_epoch_time_secs();
+                }
             }
         }
 
