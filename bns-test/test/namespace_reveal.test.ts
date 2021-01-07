@@ -24,7 +24,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     namespace: "blockstack",
     version: 1,
     salt: "0000",
-    value: 96,
+    value: 640000000,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -41,7 +41,7 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
     namespace: "id",
     version: 1,
     salt: "0000",
-    value: 9600,
+    value: 64000000000,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -58,10 +58,10 @@ describe("BNS Test Suite - NAMESPACE_REVEAL", () => {
 
   beforeEach(async () => {
     const allocations = [
-      { principal: alice, amount: 10_000_000_000 },
-      { principal: bob, amount: 10_000_000 },
-      { principal: charlie, amount: 10_000_000 },
-      { principal: dave, amount: 10_000_000 },
+      { principal: alice, amount: 10_000_000_000_000 },
+      { principal: bob, amount: 10_000_000_000_000 },
+      { principal: charlie, amount: 10_000_000_000_000 },
+      { principal: dave, amount: 10_000_000_000_000 },
     ]
     const binFile = getDefaultBinaryFilePath();
     const dbFileName = getTempFilePath();
