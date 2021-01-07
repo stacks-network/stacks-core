@@ -121,8 +121,6 @@ pub fn get_namespaces(
             .map(|item| ChainstateBNSNamespace {
                 namespace_id: item.namespace_id,
                 importer: item.importer,
-                revealed_at: item.reveal_block as u64,
-                launched_at: item.ready_block as u64,
                 buckets: item.buckets,
                 base: item.base as u64,
                 coeff: item.coeff as u64,
@@ -140,8 +138,6 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
             .map(|item| ChainstateBNSName {
                 fully_qualified_name: item.fully_qualified_name,
                 owner: item.owner,
-                registered_at: item.registered_at as u64,
-                expired_at: item.expire_block as u64,
                 zonefile_hash: item.zonefile_hash,
             }),
     )
