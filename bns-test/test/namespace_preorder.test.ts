@@ -37,7 +37,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
     namespace: "blockstack",
     version: 1,
     salt: "0000",
-    value: 96,
+    value: 640000000,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -54,7 +54,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
     namespace: "id",
     version: 1,
     salt: "0000",
-    value: 9600,
+    value: 64000000000,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -72,19 +72,19 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
   beforeEach(async () => {
     const allocations = [{
         principal: alice,
-        amount: 10_000_000_000
+        amount: 10_000_000_000_000
       },
       {
         principal: bob,
-        amount: 10_000_000
+        amount: 10_000_000_000_000
       },
       {
         principal: charlie,
-        amount: 10_000_000
+        amount: 10_000_000_000_000
       },
       {
         principal: dave,
-        amount: 10_000_000
+        amount: 10_000_000_000_000
       },
     ]
     const binFile = getDefaultBinaryFilePath();
@@ -150,7 +150,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", () => {
     });
 
     it("should fail if Alice can't afford paying the fee", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 20000000000, {
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 20000000000000, {
         sender: cases[0].namespaceOwner
       });
       expect(receipt.success).eq(false);
