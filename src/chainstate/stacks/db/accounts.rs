@@ -177,7 +177,9 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .with_clarity_db_readonly(|ref mut db| {
-                let nft_owner = db.get_nft_owner(contract_id, token_name, token_value, None)?;
+                let expected_asset_type = db.get_nft_key_type(contract_id, token_name)?;
+                let nft_owner =
+                    db.get_nft_owner(contract_id, token_name, token_value, &expected_asset_type)?;
                 Ok(nft_owner)
             })
             .map_err(Error::ClarityError)

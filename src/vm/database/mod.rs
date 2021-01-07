@@ -29,4 +29,7 @@ pub use self::clarity_db::{
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 pub use self::marf::{ClarityBackingStore, MarfedKV, MemoryBackingStore};
 pub use self::sqlite::SqliteConnection;
-pub use self::structures::{ClarityDeserializable, ClaritySerializable, STXBalance};
+pub use self::structures::{
+    ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
+    FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
+};

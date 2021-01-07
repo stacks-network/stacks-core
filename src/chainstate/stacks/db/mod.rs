@@ -1004,7 +1004,12 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value, None)?;
+                                db.insert_entry_unknown_descriptor(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    value,
+                                )?;
                             }
                             Ok(())
                         })
@@ -1074,12 +1079,11 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "namespaces",
                                     namespace,
                                     namespace_props,
-                                    None,
                                 )?;
                             }
                             Ok(())
@@ -1137,12 +1141,14 @@ impl StacksChainState {
                                     }
                                 };
 
+                                let expected_asset_type =
+                                    db.get_nft_key_type(&bns_contract_id, "names")?;
                                 db.set_nft_owner(
                                     &bns_contract_id,
                                     "names",
                                     &fqn,
                                     &owner_address,
-                                    None,
+                                    &expected_asset_type,
                                 )?;
 
                                 let registered_at = Value::UInt(entry.registered_at.into());
@@ -1159,20 +1165,18 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
-                                    None,
                                 )?;
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "owner-name",
                                     Value::Principal(owner_address),
                                     fqn,
-                                    None,
                                 )?;
                             }
                             Ok(())
