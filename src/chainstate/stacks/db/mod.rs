@@ -1067,6 +1067,7 @@ impl StacksChainState {
                                         ("launched-at".into(), Value::some(launched_at).unwrap()),
                                         ("lifetime".into(), lifetime),
                                         ("namespace-import".into(), importer),
+                                        ("can-update-price-function".into(), Value::Bool(true)),
                                         ("price-function".into(), Value::Tuple(price_function)),
                                     ])
                                     .unwrap(),
@@ -1191,6 +1192,7 @@ impl StacksChainState {
                 callback(&mut clarity_tx);
             }
 
+            info!("Committing Genesis transaction.");
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
