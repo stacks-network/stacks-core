@@ -587,6 +587,11 @@ impl<'a> OwnedEnvironment<'a> {
             balance.amount_unlocked += amount;
             snapshot.set_balance(balance);
             snapshot.save();
+
+            env.global_context
+                .database
+                .increment_ustx_liquid_supply(amount)
+                .unwrap();
             Ok(())
         })
         .unwrap();
