@@ -12,9 +12,8 @@ use blockstack_lib::{
     },
     vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
-    vm::database::{MarfedKV, NULL_HEADER_DB},
+    vm::database::MarfedKV,
     vm::{
-        contexts::OwnedEnvironment,
         database::{HeadersDB, NULL_BURN_STATE_DB},
         types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
         Value,
@@ -22,9 +21,9 @@ use blockstack_lib::{
 };
 use chainstate::{burn::VRFSeed, stacks::StacksAddress};
 
+use std::fs;
 use std::process;
 use std::{env, time::Instant};
-use std::{fmt::Write, fs};
 
 use rand::Rng;
 
@@ -69,142 +68,9 @@ impl HeadersDB for TestHeadersDB {
     }
 }
 
-fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCost {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
-
-    let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-
-    let blocks = [
-        StacksBlockId::sentinel(),
-        StacksBlockId([1; 32]),
-        StacksBlockId([2; 32]),
-    ];
-
-    {
-        let mut conn = clarity_instance.begin_block(
-            &blocks[0],
-            &blocks[1],
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
-        );
-
-        let mut contract = "(define-constant list-0 (list 0))".to_string();
-
-        for i in 0..15 {
-            contract.push_str("\n");
-            contract.push_str(&format!(
-                "(define-constant list-{} (concat list-{} list-{}))",
-                i + 1,
-                i,
-                i
-            ));
-        }
-
-        contract.push_str("\n");
-        contract.push_str(other_decl);
-        contract.push_str("\n");
-        contract.push_str(inner_loop);
-
-        write!(
-            contract,
-            "\n(define-private (outer-loop) (map inner-loop list-10))\n"
-        )
-        .unwrap();
-        write!(contract, "(define-public (do-it) (begin \n").unwrap();
-        for _i in 0..scaling {
-            write!(contract, "(outer-loop)\n").unwrap();
-        }
-        write!(contract, " (ok 1)))\n").unwrap();
-
-        conn.as_transaction(|tx| {
-            let (ct_ast, _ct_analysis) = tx
-                .analyze_smart_contract(&contract_identifier, &contract)
-                .unwrap();
-            tx.initialize_smart_contract(
-                // initialize the ok contract without errs, but still abort.
-                &contract_identifier,
-                &ct_ast,
-                &contract,
-                |_, _| false,
-            )
-            .unwrap();
-        });
-        conn.commit_to_block(&blocks[1]);
-    }
-
-    {
-        let mut conn = clarity_instance.begin_block(
-            &blocks[1],
-            &blocks[2],
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
-        );
-        conn.as_transaction(|tx| {
-            tx.run_contract_call(
-                &contract_identifier.clone().into(),
-                &contract_identifier,
-                "do-it",
-                &[],
-                |_, _| false,
-            )
-            .unwrap()
-        });
-        conn.commit_to_block(&blocks[2]).get_total()
-    }
-}
-
-// on a fairly underpowered laptop:
-// read-length of ~1e9 corresponds to 10 seconds. (scaling => 2)
-fn read_length_test(scaling: u32) -> ExecutionCost {
-    let other_decl = "(define-data-var var-to-read (list 33000 int) list-15)";
-    let inner_loop = "(define-private (inner-loop (x int)) (len (var-get var-to-read)))";
-    test_via_tx(scaling, inner_loop, other_decl)
-}
-
-// on a fairly underpowered laptop:
-// read-count of ~50k corresponds to 10 seconds. (scaling => 50)
-fn read_count_test(scaling: u32) -> ExecutionCost {
-    let other_decl = "(define-data-var var-to-read int 0)";
-    let inner_loop = "(define-private (inner-loop (x int)) (var-get var-to-read))";
-    test_via_tx(scaling, inner_loop, other_decl)
-}
-
-// on a fairly underpowered laptop:
-// write-length of ~1e8 corresponds to 10 seconds. (scaling => 10)
-//   at scaling = 5, the tx takes about 5 seconds => write-length of ~8e7,
-//   so for ~10s, max write-len should be 1.5e8
-fn write_length_test(scaling: u32) -> ExecutionCost {
-    let other_decl = "(define-data-var var-to-read (list 1024 int) list-10)";
-    let inner_loop = "(define-private (inner-loop (x int)) (var-set var-to-read list-10))";
-    test_via_tx(scaling, inner_loop, other_decl)
-}
-
-// on a fairly underpowered laptop:
-// write-count of ~50k corresponds to 10 seconds. (scaling => 50)
-fn write_count_test(scaling: u32) -> ExecutionCost {
-    let other_decl = "(define-data-var var-to-read int 0)";
-    let inner_loop = "(define-private (inner-loop (x int)) (var-set var-to-read 0))";
-    test_via_tx(scaling, inner_loop, other_decl)
-}
-
-// on a fairly underpowered laptop:
-// runtime count of ~1e8 corresponds to 10 seconds. (scaling => 6)
-fn runtime_hash_test(scaling: u32) -> ExecutionCost {
-    let other_decl = "";
-    let inner_loop = "(define-private (inner-loop (x int)) (begin (map sha512 list-10) 0))";
-    test_via_tx(scaling, inner_loop, other_decl)
-}
-
 fn as_hash160(inp: u32) -> [u8; 20] {
     let mut out = [0; 20];
     out[0..4].copy_from_slice(&inp.to_le_bytes());
-    out
-}
-
-fn as_garbage_hash160(inp: u32) -> [u8; 20] {
-    let mut out = [0; 20];
-    out[8..12].copy_from_slice(&inp.to_le_bytes());
     out
 }
 
@@ -215,6 +81,8 @@ fn as_hash(inp: u32) -> [u8; 32] {
 }
 
 fn transfer_test(buildup_count: u32, scaling: u32, genesis_size: u32) -> ExecutionCost {
+    let start = Instant::now();
+
     let marf = setup_chain_state(genesis_size);
     let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let blocks: Vec<_> = (0..(buildup_count + 1))
@@ -254,6 +122,8 @@ fn transfer_test(buildup_count: u32, scaling: u32, genesis_size: u32) -> Executi
 
         conn.commit_to_block(current_block);
     }
+
+    eprintln!("Finished buildup in {}ms", start.elapsed().as_millis());
 
     // transfer phase
     let mut conn = clarity_instance.begin_block(
@@ -324,11 +194,19 @@ fn setup_chain_state(scaling: u32) -> MarfedKV {
     fs::copy(
         &format!("{}/marf", pre_initialized_path),
         &format!("{}/marf", out_path),
-    );
+    )
+    .unwrap();
     return MarfedKV::open(out_path, None).unwrap();
 }
 
-fn stack_stx_test(buildup_count: u32, genesis_size: u32) -> ExecutionCost {
+fn test_via_raw_contract(
+    eval: &str,
+    scaling: u32,
+    buildup_count: u32,
+    genesis_size: u32,
+) -> ExecutionCost {
+    let start = Instant::now();
+
     let marf = setup_chain_state(genesis_size);
 
     let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
@@ -339,19 +217,13 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32) -> ExecutionCost {
 
     let stacker: PrincipalData = StandardPrincipalData(0, as_hash160(0)).into();
 
-    let stacker_balance = 1_000_000 * (buildup_count as u128);
-    let stacking_amount = stacker_balance / 2;
+    let contract_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData(0, as_hash160(0)), "test".into());
 
-    let POX_ADDRS: Vec<Value> = (0..50u64)
-        .map(|ix| {
-            blockstack_lib::vm::execute(&format!(
-                "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
-                &blockstack_lib::util::hash::to_hex(&ix.to_le_bytes())
-            ))
-            .unwrap()
-            .unwrap()
-        })
-        .collect();
+    let mut smart_contract = "".to_string();
+    for _i in 0..scaling {
+        smart_contract.push_str(&format!("{}\n", eval));
+    }
 
     let last_mint_block = blocks.len() - 2;
     let last_block = blocks.len() - 1;
@@ -382,6 +254,197 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32) -> ExecutionCost {
         conn.commit_to_block(current_block);
     }
 
+    eprintln!("Finished buildup in {}ms", start.elapsed().as_millis());
+
+    // execute the block
+    let mut conn = clarity_instance.begin_block(
+        &blocks[last_mint_block],
+        &blocks[last_block],
+        &TestHeadersDB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    let begin = Instant::now();
+
+    let exec_cost = conn.as_transaction(|tx| {
+        let analysis_cost = tx.cost_so_far();
+        let (contract_ast, contract_analysis) = tx
+            .analyze_smart_contract(&contract_id, &smart_contract)
+            .unwrap();
+        tx.initialize_smart_contract(&contract_id, &contract_ast, &smart_contract, |_, _| false)
+            .unwrap();
+
+        let mut initialize_cost = tx.cost_so_far();
+        initialize_cost.sub(&analysis_cost).unwrap();
+
+        tx.save_analysis(&contract_id, &contract_analysis)
+            .expect("FATAL: failed to store contract analysis");
+
+        initialize_cost
+    });
+
+    let _this_cost = conn.commit_to_block(&blocks[last_block]).get_total();
+    let elapsed = begin.elapsed();
+
+    println!(
+        "Completed raw execution scaled at {} in {} ms, after {} block buildup with a {} account genesis",
+        scaling,
+        elapsed.as_millis(),
+        buildup_count,
+        genesis_size,
+    );
+
+    exec_cost
+}
+
+fn smart_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) -> ExecutionCost {
+    let start = Instant::now();
+
+    let marf = setup_chain_state(genesis_size);
+
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+    let blocks: Vec<_> = (0..(buildup_count + 1))
+        .into_iter()
+        .map(|i| StacksBlockId(as_hash(i)))
+        .collect();
+
+    let stacker: PrincipalData = StandardPrincipalData(0, as_hash160(0)).into();
+
+    let contract_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData(0, as_hash160(0)), "test".into());
+
+    let mut smart_contract = "".to_string();
+    for i in 0..scaling {
+        smart_contract.push_str(&format!("(define-public (foo-{}) (ok (+ u2 u3)))\n", i));
+    }
+
+    let last_mint_block = blocks.len() - 2;
+    let last_block = blocks.len() - 1;
+
+    for ix in 1..(last_mint_block + 1) {
+        let parent_block = &blocks[ix - 1];
+        let current_block = &blocks[ix];
+
+        let mut conn = clarity_instance.begin_block(
+            parent_block,
+            current_block,
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+
+        // minting phase
+        conn.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(&stacker);
+                stx_account_0.credit(1_000_000);
+                stx_account_0.save();
+                db.increment_ustx_liquid_supply(1_000_000).unwrap();
+                Ok(())
+            })
+            .unwrap();
+        });
+
+        conn.commit_to_block(current_block);
+    }
+
+    eprintln!("Finished buildup in {}ms", start.elapsed().as_millis());
+
+    // execute the block
+    let mut conn = clarity_instance.begin_block(
+        &blocks[last_mint_block],
+        &blocks[last_block],
+        &TestHeadersDB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    let begin = Instant::now();
+
+    conn.as_transaction(|tx| {
+        let (contract_ast, contract_analysis) = tx
+            .analyze_smart_contract(&contract_id, &smart_contract)
+            .unwrap();
+        tx.initialize_smart_contract(&contract_id, &contract_ast, &smart_contract, |_, _| false)
+            .unwrap();
+
+        tx.save_analysis(&contract_id, &contract_analysis)
+            .expect("FATAL: failed to store contract analysis");
+    });
+
+    let this_cost = conn.commit_to_block(&blocks[last_block]).get_total();
+    let elapsed = begin.elapsed();
+
+    println!(
+        "Completed smart-contract scaled at {} in {} ms, after {} block buildup with a {} account genesis",
+        scaling,
+        elapsed.as_millis(),
+        buildup_count,
+        genesis_size,
+    );
+
+    this_cost
+}
+
+fn stack_stx_test(buildup_count: u32, genesis_size: u32, scaling: u32) -> ExecutionCost {
+    let start = Instant::now();
+    let marf = setup_chain_state(genesis_size);
+
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+    let blocks: Vec<_> = (0..(buildup_count + 1))
+        .into_iter()
+        .map(|i| StacksBlockId(as_hash(i)))
+        .collect();
+
+    let stackers: Vec<PrincipalData> = (0..scaling)
+        .into_iter()
+        .map(|i| StandardPrincipalData(0, as_hash160(i)).into())
+        .collect();
+
+    let stacker_balance = (buildup_count as u128 - 1) * 1_000_000;
+
+    let pox_addrs: Vec<Value> = (0..50u64)
+        .map(|ix| {
+            blockstack_lib::vm::execute(&format!(
+                "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
+                &blockstack_lib::util::hash::to_hex(&ix.to_le_bytes())
+            ))
+            .unwrap()
+            .unwrap()
+        })
+        .collect();
+
+    let last_mint_block = blocks.len() - 2;
+    let last_block = blocks.len() - 1;
+
+    for ix in 1..(last_mint_block + 1) {
+        let parent_block = &blocks[ix - 1];
+        let current_block = &blocks[ix];
+
+        let mut conn = clarity_instance.begin_block(
+            parent_block,
+            current_block,
+            &TestHeadersDB,
+            &NULL_BURN_STATE_DB,
+        );
+
+        // minting phase
+        conn.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                for stacker in stackers.iter() {
+                    let mut stx_account_0 = db.get_stx_balance_snapshot_genesis(stacker);
+                    stx_account_0.credit(1_000_000);
+                    stx_account_0.save();
+                    db.increment_ustx_liquid_supply(1_000_000).unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
+        });
+
+        conn.commit_to_block(current_block);
+    }
+
+    eprintln!("Finished buildup in {}ms", start.elapsed().as_millis());
+
     // do the stack-stx block
     let mut conn = clarity_instance.begin_block(
         &blocks[last_mint_block],
@@ -393,30 +456,34 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32) -> ExecutionCost {
     let begin = Instant::now();
 
     conn.as_transaction(|tx| {
-        let result = tx
-            .run_contract_call(
-                &stacker,
-                &*STACKS_BOOT_POX_CONTRACT,
-                "stack-stx",
-                &[
-                    Value::UInt(stacking_amount),
-                    POX_ADDRS[0].clone(),
-                    Value::UInt(buildup_count as u128 + 2),
-                    Value::UInt(12),
-                ],
-                |_, _| false,
-            )
-            .unwrap()
-            .0;
-
-        eprintln!("Stacking result: {}", result);
+        for stacker in stackers.iter() {
+            let result = tx
+                .run_contract_call(
+                    stacker,
+                    &*STACKS_BOOT_POX_CONTRACT,
+                    "stack-stx",
+                    &[
+                        Value::UInt(stacker_balance),
+                        pox_addrs[0].clone(),
+                        Value::UInt(buildup_count as u128 + 2),
+                        Value::UInt(12),
+                    ],
+                    |_, _| false,
+                )
+                .unwrap()
+                .0;
+            if let Err(v) = result.expect_result() {
+                panic!("Stacking failed: {}", v);
+            }
+        }
     });
 
     let this_cost = conn.commit_to_block(&blocks[last_block]).get_total();
     let elapsed = begin.elapsed();
 
     println!(
-        "Completed stack-stx in {} ms, after {} block buildup with a {} account genesis",
+        "Completed {} stack-stx ops in {} ms, after {} block buildup with a {} account genesis",
+        scaling,
         elapsed.as_millis(),
         buildup_count,
         genesis_size,
@@ -433,24 +500,31 @@ fn main() {
             "Usage: {} [test-name] [scalar-0] ... [scalar-n]
 
 transfer <block_build_up> <genesis_size> <number_of_ops>
-stack-stx <block_build_up> <genesis_size>
+smart-contract <block_build_up> <genesis_size> <number_of_ops>
+stack-stx <block_build_up> <genesis_size> <number_of_ops>
+clarity-transfer <block_build_up> <genesis_size> <number_of_ops>
+clarity-verify <block_build_up> <genesis_size> <number_of_ops>
+clarity-raw  <block_build_up> <genesis_size> <number_of_ops> <eval-block>
 ",
             argv[0]
         );
         process::exit(1);
     }
 
-    let scalar_0 = argv[2].parse().expect("Invalid scalar");
-    let scalar_1 = argv[3].parse().expect("Invalid scalar");
+    let block_build_up = argv[2].parse().expect("Invalid scalar");
+    let genesis_size = argv[3].parse().expect("Invalid scalar");
+    let scaling = argv[4].parse().expect("Invalid scalar");
 
     let result = match argv[1].as_str() {
-        "transfer" => transfer_test(scalar_0, argv[4].parse().expect("Invalid scalar"), scalar_1),
-        "stack-stx" => stack_stx_test(scalar_0, scalar_1),
-        "runtime" => runtime_hash_test(scalar_0),
-        "read-length" => read_length_test(scalar_0),
-        "read-count" => read_count_test(scalar_0),
-        "write-count" => write_count_test(scalar_0),
-        "write-length" => write_length_test(scalar_0),
+        "transfer" => transfer_test(block_build_up, scaling, genesis_size),
+        "smart-contract" => smart_contract_test(scaling, block_build_up, genesis_size),
+        "clarity-transfer" => test_via_raw_contract("(stx-transfer? u1 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+                                                    scaling, block_build_up, genesis_size),
+        "clarity-verify" => test_via_raw_contract("(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+                                                  scaling, block_build_up, genesis_size),
+        "stack-stx" => stack_stx_test(block_build_up, genesis_size, scaling),
         _ => {
             eprintln!("bad test name");
             process::exit(1);
