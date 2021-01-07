@@ -51,15 +51,15 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
         let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
 
-        let coinbase_text: String = row.get("coinbase");
-        let tx_fees_anchored_text: String = row.get("tx_fees_anchored");
-        let tx_fees_streamed_text: String = row.get("tx_fees_streamed");
-        let burns_text: String = row.get("stx_burns");
+        let coinbase_text: String = row.get("coinbase")?;
+        let tx_fees_anchored_text: String = row.get("tx_fees_anchored")?;
+        let tx_fees_streamed_text: String = row.get("tx_fees_streamed")?;
+        let burns_text: String = row.get("stx_burns")?;
         let burnchain_commit_burn = u64::from_column(row, "burnchain_commit_burn")?;
         let burnchain_sortition_burn = u64::from_column(row, "burnchain_sortition_burn")?;
-        let miner: bool = row.get("miner");
+        let miner: bool = row.get("miner")?;
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
 
         let coinbase = coinbase_text
             .parse::<u128>()

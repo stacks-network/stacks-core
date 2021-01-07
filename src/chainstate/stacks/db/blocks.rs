@@ -275,9 +275,9 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let microblock_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "microblock_hash")?;
         let parent_hash: BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_hash")?;
-        let sequence: u16 = row.get("sequence");
-        let processed_i64: i64 = row.get("processed");
-        let orphaned_i64: i64 = row.get("orphaned");
+        let sequence: u16 = row.get("sequence")?;
+        let processed_i64: i64 = row.get("processed")?;
+        let orphaned_i64: i64 = row.get("orphaned")?;
         let block_data: Vec<u8> = vec![];
 
         let processed = processed_i64 != 0;
@@ -307,12 +307,12 @@ impl FromRow<StagingBlock> for StagingBlock {
             ConsensusHash::from_column(row, "parent_consensus_hash")?;
         let parent_microblock_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "parent_microblock_hash")?;
-        let parent_microblock_seq: u16 = row.get("parent_microblock_seq");
+        let parent_microblock_seq: u16 = row.get("parent_microblock_seq")?;
         let microblock_pubkey_hash: Hash160 = Hash160::from_column(row, "microblock_pubkey_hash")?;
         let height = u64::from_column(row, "height")?;
-        let attachable_i64: i64 = row.get("attachable");
-        let processed_i64: i64 = row.get("processed");
-        let orphaned_i64: i64 = row.get("orphaned");
+        let attachable_i64: i64 = row.get("attachable")?;
+        let processed_i64: i64 = row.get("processed")?;
+        let orphaned_i64: i64 = row.get("orphaned")?;
         let commit_burn = u64::from_column(row, "commit_burn")?;
         let sortition_burn = u64::from_column(row, "sortition_burn")?;
         let block_data: Vec<u8> = vec![];
@@ -347,7 +347,7 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
         let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
         let address: StacksAddress = StacksAddress::from_column(row, "address")?;
         let burn_amount = u64::from_column(row, "burn_amount")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
 
         Ok(StagingUserBurnSupport {
             anchored_block_hash,

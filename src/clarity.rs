@@ -175,9 +175,9 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     );
     let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
     let mut hash_opt = None;
-    while let Some(row_res) = rows.next() {
+    while let row_res = rows.next() {
         match row_res {
-            Ok(row) => {
+            Ok(Some(row)) => {
                 let bhh = friendly_expect(
                     StacksBlockId::from_column(&row, "block_hash"),
                     "FATAL: could not parse block hash",
@@ -203,9 +203,9 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
     );
     let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
     let mut row_opt = None;
-    while let Some(row_res) = rows.next() {
+    while let row_res = rows.next() {
         match row_res {
-            Ok(row) => {
+            Ok(Some(row)) => {
                 let rowid = friendly_expect(
                     u64::from_column(&row, "id"),
                     "FATAL: could not parse row ID",
