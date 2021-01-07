@@ -20,6 +20,9 @@ use vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use vm::types::BuffData;
 use vm::types::Value;
 
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::runtime_cost;
+
 define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
@@ -54,10 +57,12 @@ pub fn lookup_reserved_variable(
                 Ok(Some(sender))
             }
             NativeVariables::BlockHeight => {
+                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let block_height = env.global_context.database.get_current_block_height();
                 Ok(Some(Value::UInt(block_height as u128)))
             }
             NativeVariables::BurnBlockHeight => {
+                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let burn_block_height = env
                     .global_context
                     .database
@@ -68,6 +73,7 @@ pub fn lookup_reserved_variable(
             NativeVariables::NativeTrue => Ok(Some(Value::Bool(true))),
             NativeVariables::NativeFalse => Ok(Some(Value::Bool(false))),
             NativeVariables::TotalLiquidMicroSTX => {
+                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let liq = env.global_context.database.get_total_liquid_ustx();
                 Ok(Some(Value::UInt(liq)))
             }
