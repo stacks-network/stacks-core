@@ -345,7 +345,8 @@
         runtime: (linear n u1000 u1000),
         write_length: u0,
         write_count: u0,
-        read_count: u1,
+        ;; set to 3 because of the associated metadata loads
+        read_count: u3,
         read_length: (linear n u1 u1)
     })
 
