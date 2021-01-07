@@ -166,6 +166,17 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
+    pub fn get_liquid_ustx(&mut self, stacks_block_id: &StacksBlockId) -> u128 {
+        let mut connection = self.clarity_state.read_only_connection(
+            stacks_block_id,
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+        connection.with_clarity_db_readonly_owned(|mut clarity_db| {
+            (clarity_db.get_total_liquid_ustx(), clarity_db)
+        })
+    }
+
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
     #[cfg(test)]
@@ -1019,7 +1030,6 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
-        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
@@ -1071,15 +1081,13 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
-            assert_eq!(liquid_ustx, prior_liquid_ustx);
+            assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
                 let expected_bonus = (missed_initial_blocks as u128 * block_reward)
                     / (INITIAL_MINING_BONUS_WINDOW as u128);
                 // add mature coinbases
-                prior_liquid_ustx = expected_liquid_ustx;
                 expected_liquid_ustx += block_reward + expected_bonus;
             }
         }
@@ -1320,7 +1328,6 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
-        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         let alice = keys.pop().unwrap();
@@ -1382,11 +1389,9 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
-            assert_eq!(liquid_ustx, prior_liquid_ustx);
 
             expected_liquid_ustx -= 1;
-            prior_liquid_ustx = expected_liquid_ustx;
+            assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
@@ -1821,7 +1826,7 @@ pub mod test {
 
                 if cur_reward_cycle >= lockup_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -2709,7 +2714,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3023,7 +3028,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3431,7 +3436,7 @@ pub mod test {
                         // Alice sends a transaction with a non-zero fee
                         let alice_tx = make_bare_contract(
                             &alice,
-                            2,
+                            3,
                             1,
                             "alice-test",
                             "(begin (print \"hello alice\"))",
@@ -3469,7 +3474,7 @@ pub mod test {
                         // Alice gets some of her STX back
                         let alice_withdraw_tx = make_pox_withdraw_stx_contract_call(
                             &alice,
-                            3,
+                            4,
                             &key_to_stacks_addr(&bob),
                             "do-lockup",
                             1,
@@ -3819,11 +3824,12 @@ pub mod test {
 
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
-                    // If it's the case, then this tx will NOT be mined.
-                    //      Note: this behavior is a bug in the miner and block processor: see issue #?
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 17)
+                               (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
@@ -3834,17 +3840,22 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 3))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 3)
+                               (print (contract-call? '{}.pox reject-pox))))",
                             boot_code_addr()));
 
                     block_txs.push(alice_reject);
 
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
-                    // If it's the case, then this tx will NOT be mined.
                     let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 17))) (err 1))",
+                            "(define-data-var test-passed bool false)
+                             (var-set test-passed (is-eq
+                               (err 17)
+                               (print (contract-call? '{}.pox reject-pox))))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_reject);
@@ -3854,8 +3865,8 @@ pub mod test {
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {
-                    // block should be coinbase tx + 2 allowed txs
-                    assert_eq!(anchored_block.txs.len(), 3);
+                    // block should be all the transactions
+                    assert_eq!(anchored_block.txs.len(), 6);
                 }
 
                 (anchored_block, vec![])
@@ -3931,34 +3942,30 @@ pub mod test {
             } else {
                 if tenure_id == 2 {
                     // charlie's contract did NOT materialize
-                    assert!(get_contract(
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&charlie), "charlie-try-stack")
-                            .into()
+                        &key_to_stacks_addr(&charlie),
+                        "charlie-try-stack",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-                    assert!(get_contract(
+                    .expect_bool();
+                    assert!(result, "charlie-try-stack test should be `true`");
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(
-                            &key_to_stacks_addr(&charlie),
-                            "charlie-try-stack-delegator"
-                        )
-                        .into()
+                        &key_to_stacks_addr(&charlie),
+                        "charlie-try-reject",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-                    assert!(get_contract(
+                    .expect_bool();
+                    assert!(result, "charlie-try-reject test should be `true`");
+                    let result = eval_contract_at_tip(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&charlie), "charlie-try-reject")
-                            .into()
+                        &key_to_stacks_addr(&alice),
+                        "alice-try-reject",
+                        "(var-get test-passed)",
                     )
-                    .is_none());
-
-                    // alice's contract did NOT materialize
-                    assert!(get_contract(
-                        &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-reject").into()
-                    )
-                    .is_none());
+                    .expect_bool();
+                    assert!(result, "alice-try-reject test should be `true`");
                 }
 
                 // Alice's address is locked as of the next reward cycle
@@ -3967,7 +3974,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);

@@ -344,6 +344,68 @@ export class BNSClient extends Client {
     return res;
   }
 
+  // (define-public (namespace-update-function-price (namespace (buff 20))
+  // (p-func-base uint)
+  // (p-func-coeff uint)
+  // (p-func-b1 uint)
+  // (p-func-b2 uint)
+  // (p-func-b3 uint)
+  // (p-func-b4 uint)
+  // (p-func-b5 uint)
+  // (p-func-b6 uint)
+  // (p-func-b7 uint)
+  // (p-func-b8 uint)
+  // (p-func-b9 uint)
+  // (p-func-b10 uint)
+  // (p-func-b11 uint)
+  // (p-func-b12 uint)
+  // (p-func-b13 uint)
+  // (p-func-b14 uint)
+  // (p-func-b15 uint)
+  // (p-func-b16 uint)
+  // (p-func-non-alpha-discount uint)
+  // (p-func-no-vowel-discount uint))
+  async namespaceUpdatePriceFunction(
+    namespace: string,
+    priceFunction: PriceFunction,
+    params: {
+      sender: string
+    }): Promise<Receipt> {
+    let priceFuncAsArgs = [
+      `u${priceFunction.base}`,
+      `u${priceFunction.coeff}`,
+      ...priceFunction.buckets.map(bucket => `u${bucket}`),
+      `u${priceFunction.nonAlphaDiscount}`,
+      `u${priceFunction.noVowelDiscount}`
+    ];
+    const tx = this.createTransaction({
+      method: {
+        name: "namespace-update-function-price",
+        args: [`0x${this.toHexString(namespace)}`, ...priceFuncAsArgs]
+      }
+    });
+    await tx.sign(params.sender);
+    const res = await this.submitTransaction(tx);
+    return res;
+  }
+
+  // (name-revoke (namespace (buff 20))
+  //              (name (buff 48)))
+  async namespaceRevokePriceFunctionUpdates(namespace: string,
+    params: {
+      sender: string
+    }): Promise<Receipt> {
+    const tx = this.createTransaction({
+      method: {
+        name: "namespace-revoke-function-price-edition",
+        args: [`0x${this.toHexString(namespace)}`]
+      }
+    });
+    await tx.sign(params.sender);
+    const res = await this.submitTransaction(tx);
+    return res;
+  }
+
   async mineBlocks(blocks: number) {
     for (let index = 0; index < blocks; index++) {
       const query = this.createQuery({

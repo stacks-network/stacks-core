@@ -389,7 +389,7 @@ impl TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
                 if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
-                    if other_list_type.max_len <= 0 {
+                    if other_list_type.max_len == 0 {
                         // if other is an empty list, a list type should always admit.
                         true
                     } else if my_list_type.max_len >= other_list_type.max_len {

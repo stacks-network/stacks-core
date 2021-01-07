@@ -4109,7 +4109,6 @@ impl StacksChainState {
             tx_receipts,
             microblock_execution_cost,
             block_execution_cost,
-            total_liquid_ustx,
             matured_rewards,
             matured_rewards_info,
         ) = {
@@ -4334,6 +4333,8 @@ impl StacksChainState {
                     0
                 };
 
+            clarity_tx.increment_ustx_liquid_supply(new_liquid_miner_ustx);
+
             // obtain reward info for receipt
             let (matured_rewards, matured_rewards_info) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
@@ -4357,15 +4358,7 @@ impl StacksChainState {
             let (new_unlocked_ustx, _unlocked_events) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
 
-            // calculate total liquid uSTX
-            let total_liquid_ustx = parent_chain_tip
-                .total_liquid_ustx
-                .checked_add(new_liquid_miner_ustx)
-                .expect("FATAL: uSTX overflow")
-                .checked_add(new_unlocked_ustx)
-                .expect("FATAL: uSTX overflow")
-                .checked_sub(total_burnt)
-                .expect("FATAL: uSTX underflow");
+            clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
             // record that this microblock public key hash was used at this height
             match StacksChainState::insert_microblock_pubkey_hash(
@@ -4450,7 +4443,6 @@ impl StacksChainState {
                 receipts,
                 microblock_cost,
                 block_cost,
-                total_liquid_ustx,
                 matured_rewards,
                 matured_rewards_info,
             )
@@ -4473,7 +4465,6 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
-            total_liquid_ustx,
             &block_execution_cost,
             block_size,
         )
@@ -5109,6 +5100,12 @@ impl StacksChainState {
                             tx_size,
                         )
                     })
+                    .map_err(|_| {
+                        MemPoolRejection::NoSuchChainTip(
+                            current_consensus_hash.clone(),
+                            current_block.clone(),
+                        )
+                    })?
                     .expect("BUG: do not have unconfirmed state, despite being Some(..)")
                 } else {
                     Err(MemPoolRejection::BadNonces(mismatch_error))

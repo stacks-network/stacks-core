@@ -65,12 +65,7 @@ impl RunLoop {
         // Sync and update node with this new block.
         let (burnchain_tip, _) = burnchain.sync(None)?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis(
-            self.config.get_initial_liquid_ustx(),
-            &BurnchainHeaderHash::zero(),
-            0,
-            0,
-        );
+        let mut chain_tip = ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0);
 
         self.node.spawn_peer_server();
 

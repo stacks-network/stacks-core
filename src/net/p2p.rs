@@ -3939,9 +3939,7 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height > self.chain_view.burn_block_height
-            || sn.burn_header_hash != self.antientropy_last_burnchain_tip
-        {
+        if sn.block_height > self.chain_view.burn_block_height {
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
@@ -3955,7 +3953,9 @@ impl PeerNetwork {
             self.hint_sync_invs();
             self.hint_download_rescan();
             self.chain_view = new_chain_view;
+        }
 
+        if sn.burn_header_hash != self.antientropy_last_burnchain_tip {
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             ret = self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
@@ -4104,26 +4104,6 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Set up the unconfirmed chain state off of the canonical chain tip.
-    pub fn setup_unconfirmed_state(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-    ) -> Result<(), Error> {
-        let (canonical_consensus_hash, canonical_block_hash) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
-        let canonical_tip = StacksBlockHeader::make_index_block_hash(
-            &canonical_consensus_hash,
-            &canonical_block_hash,
-        );
-        // setup unconfirmed state off of this tip
-        debug!(
-            "Reload unconfirmed state off of {}/{}",
-            &canonical_consensus_hash, &canonical_block_hash
-        );
-        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
-        Ok(())
-    }
-
     /// Store a single transaction
     /// Return true if stored; false if it was a dup.
     /// Has to be done here, since only the p2p network has the unconfirmed state.
@@ -4153,7 +4133,7 @@ impl PeerNetwork {
 
     /// Store all inbound transactions, and return the ones that we actually stored so they can be
     /// relayed.
-    fn store_transactions(
+    pub fn store_transactions(
         mempool: &mut MemPoolDB,
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -4183,6 +4163,8 @@ impl PeerNetwork {
                 }
             }
         }
+
+        // (HTTP-uploaded transactions are already in the mempool)
 
         network_result.pushed_transactions.extend(ret);
         Ok(())
@@ -4268,24 +4250,6 @@ impl PeerNetwork {
             download_backpressure,
             p2p_poll_state,
         )?;
-
-        if let Err(e) =
-            PeerNetwork::store_transactions(mempool, chainstate, sortdb, &mut network_result)
-        {
-            warn!("Failed to store transactions: {:?}", &e);
-        }
-
-        if let Err(e) = PeerNetwork::setup_unconfirmed_state(chainstate, sortdb) {
-            if let net_error::ChainstateError(ref err_msg) = e {
-                if err_msg == "Stacks chainstate error: NoSuchBlockError" {
-                    trace!("Failed to instantiate unconfirmed state: {:?}", &e);
-                } else {
-                    warn!("Failed to instantiate unconfirmed state: {:?}", &e);
-                }
-            } else {
-                warn!("Failed to instantiate unconfirmed state: {:?}", &e);
-            }
-        }
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)

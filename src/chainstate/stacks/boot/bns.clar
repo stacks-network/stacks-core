@@ -51,10 +51,10 @@
 
 ;; Price tables
 (define-constant NAMESPACE_PRICE_TIERS (list
-  u96000 
-  u9600 u9600 
-  u960 u960 u960 u960 
-  u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96))
+  u640000000000
+  u64000000000 u64000000000 
+  u6400000000 u6400000000 u6400000000 u6400000000 
+  u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000 u640000000))
 
 ;;;; Data
 (define-map namespaces
@@ -63,6 +63,7 @@
     revealed-at: uint,
     launched-at: (optional uint),
     lifetime: uint,
+    can-update-price-function: bool,
     price-function: {
       buckets: (list 16 uint),
       base: uint, 
@@ -427,6 +428,7 @@
         revealed-at: block-height,
         launched-at: none,
         lifetime: lifetime,
+        can-update-price-function: true,
         price-function: price-function })
     (ok true)))
 
@@ -497,7 +499,81 @@
       (print { namespace: namespace, status: "ready", properties: namespace-props-updated })
       (ok true))))
 
-;;;; NAMES
+;; NAMESPACE_UPDATE_FUNCTION_PRICE
+(define-public (namespace-update-function-price (namespace (buff 20))
+                                        (p-func-base uint)
+                                        (p-func-coeff uint)
+                                        (p-func-b1 uint)
+                                        (p-func-b2 uint)
+                                        (p-func-b3 uint)
+                                        (p-func-b4 uint)
+                                        (p-func-b5 uint)
+                                        (p-func-b6 uint)
+                                        (p-func-b7 uint)
+                                        (p-func-b8 uint)
+                                        (p-func-b9 uint)
+                                        (p-func-b10 uint)
+                                        (p-func-b11 uint)
+                                        (p-func-b12 uint)
+                                        (p-func-b13 uint)
+                                        (p-func-b14 uint)
+                                        (p-func-b15 uint)
+                                        (p-func-b16 uint)
+                                        (p-func-non-alpha-discount uint)
+                                        (p-func-no-vowel-discount uint))
+  (let (
+      (namespace-props (unwrap!
+        (map-get? namespaces namespace)
+        (err ERR_NAMESPACE_NOT_FOUND)))
+      (price-function (tuple 
+        (buckets (list
+          p-func-b1
+          p-func-b2
+          p-func-b3
+          p-func-b4
+          p-func-b5
+          p-func-b6
+          p-func-b7
+          p-func-b8
+          p-func-b9
+          p-func-b10
+          p-func-b11
+          p-func-b12
+          p-func-b13
+          p-func-b14
+          p-func-b15
+          p-func-b16))
+        (base p-func-base)
+        (coeff p-func-coeff)
+        (nonalpha-discount p-func-non-alpha-discount)
+        (no-vowel-discount p-func-no-vowel-discount))))
+    ;; The sender principal must match the namespace's import principal
+    (asserts!
+      (is-eq (get namespace-import namespace-props) tx-sender)
+      (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
+    ;; The namespace price function must still be editable
+    (asserts!
+      (get can-update-price-function namespace-props)
+      (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
+    (map-set namespaces
+      namespace
+      (merge namespace-props { price-function: price-function }))
+    (ok true)))
+
+;; NAMESPACE_REVOKE_PRICE_EDITION
+(define-public (namespace-revoke-function-price-edition (namespace (buff 20)))
+  (let (
+      (namespace-props (unwrap!
+        (map-get? namespaces namespace)
+        (err ERR_NAMESPACE_NOT_FOUND))))
+    ;; The sender principal must match the namespace's import principal
+    (asserts!
+      (is-eq (get namespace-import namespace-props) tx-sender)
+      (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
+    (map-set namespaces
+      namespace
+      (merge namespace-props { can-update-price-function: false }))
+    (ok true)))
 
 ;; NAME_PREORDER
 ;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
@@ -874,3 +950,10 @@
         lease-started-at: lease-started-at,
         lease-ending-at: (if (is-eq (get lifetime namespace-props) u0) none (some (+ lease-started-at (get lifetime namespace-props))))
       }))))
+
+(define-read-only (get-namespace-properties (namespace (buff 20)))
+  (let (
+    (namespace-props (unwrap!
+      (map-get? namespaces namespace)
+      (err ERR_NAMESPACE_NOT_FOUND))))
+    (ok { namespace: namespace, properties: namespace-props })))

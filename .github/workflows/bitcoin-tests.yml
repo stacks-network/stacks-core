@@ -1,0 +1,28 @@
+name: stacks-bitcoin-integration-tests
+
+# Only run when:
+#   - tags starting with "v" get pushed
+#   - PRs are opened against the master branch
+#   - the workflow is started from the UI (an optional tag can be passed in via parameter)
+#     - If the optional tag parameter is passed in, a new tag will be generated based off the selected branch
+on:
+  pull_request:
+
+jobs:
+  # Run sampled genesis tests
+  sampled-genesis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: All integration tests with sampled genesis
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+  atlas-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: All integration tests with sampled genesis
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.atlas-test .
