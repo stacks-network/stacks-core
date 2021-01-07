@@ -145,7 +145,6 @@ pub struct StacksHeaderInfo {
     pub burn_header_hash: BurnchainHeaderHash,
     pub burn_header_height: u32,
     pub burn_header_timestamp: u64,
-    pub total_liquid_ustx: u128,
     pub anchored_block_size: u64,
 }
 
@@ -177,7 +176,7 @@ impl StacksHeaderInfo {
         self.anchored_header.index_block_hash(&self.consensus_hash)
     }
 
-    pub fn regtest_genesis(total_liquid_ustx: u128) -> StacksHeaderInfo {
+    pub fn regtest_genesis() -> StacksHeaderInfo {
         let burnchain_params = BurnchainParameters::bitcoin_regtest();
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
@@ -188,14 +187,12 @@ impl StacksHeaderInfo {
             burn_header_height: burnchain_params.first_block_height as u32,
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
-            total_liquid_ustx,
             anchored_block_size: 0,
         }
     }
 
     pub fn genesis(
         root_hash: TrieHash,
-        initial_liquid_ustx: u128,
         first_burnchain_block_hash: &BurnchainHeaderHash,
         first_burnchain_block_height: u32,
         first_burnchain_block_timestamp: u64,
@@ -209,7 +206,6 @@ impl StacksHeaderInfo {
             burn_header_height: first_burnchain_block_height,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
-            total_liquid_ustx: initial_liquid_ustx,
             anchored_block_size: 0,
         }
     }
@@ -245,10 +241,6 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        let total_liquid_ustx_str: String = row.get("total_liquid_ustx");
-        let total_liquid_ustx = total_liquid_ustx_str
-            .parse::<u128>()
-            .map_err(|_| db_error::ParseError)?;
         let anchored_block_size_str: String = row.get("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
@@ -267,7 +259,6 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_hash: burn_header_hash,
             burn_header_height: burn_header_height,
             burn_header_timestamp: burn_header_timestamp,
-            total_liquid_ustx: total_liquid_ustx,
             anchored_block_size: anchored_block_size,
         })
     }
@@ -364,6 +355,17 @@ impl<'a> ClarityTx<'a> {
 
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
+    }
+
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) {
+        self.connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|db| {
+                    db.increment_ustx_liquid_supply(incr_by)
+                        .map_err(|e| e.into())
+                })
+            })
+            .expect("FATAL: `ust-liquid-supply` overflowed");
     }
 }
 
@@ -481,7 +483,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         burn_header_hash TEXT NOT NULL,              -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can have 2+ blocks per burn block if there's a PoX fork)
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
-        total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
         parent_block_id TEXT NOT NULL,               -- NOTE: this is the parent index_block_hash
 
         cost TEXT NOT NULL,
@@ -1192,7 +1193,16 @@ impl StacksChainState {
                 callback(&mut clarity_tx);
             }
 
-            info!("Committing Genesis transaction.");
+            clarity_tx
+                .connection()
+                .as_transaction(|tx| {
+                    tx.with_clarity_db(|db| {
+                        db.increment_ustx_liquid_supply(initial_liquid_ustx)
+                            .map_err(|e| e.into())
+                    })
+                })
+                .expect("FATAL: `ust-liquid-supply` overflowed");
+
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
@@ -1222,7 +1232,6 @@ impl StacksChainState {
 
             let first_tip_info = StacksHeaderInfo::genesis(
                 first_root_hash,
-                initial_liquid_ustx,
                 &boot_data.first_burnchain_block_hash,
                 boot_data.first_burnchain_block_height,
                 boot_data.first_burnchain_block_timestamp as u64,
@@ -1850,7 +1859,6 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
-        total_liquid_ustx: u128,
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
@@ -1894,7 +1902,6 @@ impl StacksChainState {
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
-            total_liquid_ustx,
             anchored_block_size: anchor_block_size,
         };
 
@@ -2095,8 +2102,8 @@ pub mod test {
         // If the genesis data changed, then this test will fail.
         // Just update the expected value
         assert_eq!(
-            format!("{}", genesis_root_hash),
-            "dd2213e2a0f506ec519672752f033ce2070fa279a579d983bcf2edefb35ce131"
+            genesis_root_hash.to_string(),
+            "96b7696b43c286fd9b824d111e1662bd748400257b27467908088bc37d048d8e"
         );
     }
 

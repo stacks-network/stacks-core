@@ -930,6 +930,39 @@ fn test_lets() {
 }
 
 #[test]
+// tests that the type signature of the result of a merge tuple is updated.
+//  this is required to pass the type admission checks of, e.g., data store
+//  operations like `(define-data-var ...)`
+fn merge_update_type_signature_2239() {
+    let tests = [
+        "(define-data-var a {p: uint} (merge {p: 2} {p: u2})) (var-get a)",
+        "(merge {p: 2} {p: u2})",
+        "(merge {p: 2} {q: 3})",
+        "(define-data-var c {p: uint} {p: u2}) (var-get c)",
+        "(define-data-var d {p: uint} (merge {p: u2} {p: u2})) (var-get d)",
+        "(define-data-var e {p: int, q: int} {p: 2, q: 3}) (var-get e)",
+        "(define-data-var f {p: int, q: int} (merge {q: 2, p: 3} {p: 4})) (var-get f)",
+    ];
+
+    let expectations = [
+        "(tuple (p u2))",
+        "(tuple (p u2))",
+        "(tuple (p 2) (q 3))",
+        "(tuple (p u2))",
+        "(tuple (p u2))",
+        "(tuple (p 2) (q 3))",
+        "(tuple (p 4) (q 2))",
+    ];
+
+    tests
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(expectation.to_string(), execute(program).to_string())
+        });
+}
+
+#[test]
 fn test_2053_stacked_user_funcs() {
     let test = "
 (define-read-only (identity (n int)) n)

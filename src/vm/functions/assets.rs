@@ -197,6 +197,10 @@ pub fn special_stx_burn(
         burner_snapshot.debit(amount);
         burner_snapshot.save();
 
+        env.global_context
+            .database
+            .decrement_ustx_liquid_supply(amount)?;
+
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
 

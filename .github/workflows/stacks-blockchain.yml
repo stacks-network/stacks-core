@@ -45,16 +45,6 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
 
-  # Run sampled genesis tests
-  sampled-genesis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: All integration tests with sampled genesis
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-  
   # Run net-tests
   nettest:
     runs-on: ubuntu-latest

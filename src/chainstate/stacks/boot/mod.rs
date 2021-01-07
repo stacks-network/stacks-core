@@ -166,6 +166,17 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
+    pub fn get_liquid_ustx(&mut self, stacks_block_id: &StacksBlockId) -> u128 {
+        let mut connection = self.clarity_state.read_only_connection(
+            stacks_block_id,
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+        connection.with_clarity_db_readonly_owned(|mut clarity_db| {
+            (clarity_db.get_total_liquid_ustx(), clarity_db)
+        })
+    }
+
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
     #[cfg(test)]
@@ -1019,7 +1030,6 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
-        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
@@ -1071,15 +1081,13 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
-            assert_eq!(liquid_ustx, prior_liquid_ustx);
+            assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
                 let expected_bonus = (missed_initial_blocks as u128 * block_reward)
                     / (INITIAL_MINING_BONUS_WINDOW as u128);
                 // add mature coinbases
-                prior_liquid_ustx = expected_liquid_ustx;
                 expected_liquid_ustx += block_reward + expected_bonus;
             }
         }
@@ -1320,7 +1328,6 @@ pub mod test {
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
-        let mut prior_liquid_ustx = expected_liquid_ustx;
         let mut missed_initial_blocks = 0;
 
         let alice = keys.pop().unwrap();
@@ -1382,11 +1389,9 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let liquid_ustx = get_liquid_ustx(&mut peer);
-            // get_liquid_ustx is "off by one", i.e., it loads the parents liquid ustx
-            assert_eq!(liquid_ustx, prior_liquid_ustx);
 
             expected_liquid_ustx -= 1;
-            prior_liquid_ustx = expected_liquid_ustx;
+            assert_eq!(liquid_ustx, expected_liquid_ustx);
 
             if tenure_id >= MINER_REWARD_MATURITY as usize {
                 let block_reward = 1_000 * MICROSTACKS_PER_STACKS as u128;
@@ -1821,7 +1826,7 @@ pub mod test {
 
                 if cur_reward_cycle >= lockup_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -2709,7 +2714,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3023,7 +3028,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3967,7 +3972,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + 2) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * POX_THRESHOLD_STEPS_USTX);
