@@ -1068,6 +1068,7 @@ impl StacksChainState {
                                         ("launched-at".into(), Value::some(launched_at).unwrap()),
                                         ("lifetime".into(), lifetime),
                                         ("namespace-import".into(), importer),
+                                        ("can-update-price-function".into(), Value::Bool(true)),
                                         ("price-function".into(), Value::Tuple(price_function)),
                                     ])
                                     .unwrap(),
