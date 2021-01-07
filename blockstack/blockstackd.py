@@ -3725,6 +3725,16 @@ def run_blockstackd():
         chainstate_txt_hash_output_path = chainstate_txt_output_path + '.sha256'
         chainstate_f = open(chainstate_txt_output_path, 'w')
 
+        # namespace patches
+        namespace_patches = {
+            'btc': {
+                'buckets': '1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1',   # originally: 3;3;3;3;3;3;3;3;3;3;3;3;3;3;3;3
+                'base': '1000',                                 # originally: 100
+                'coeff': '200',                                 # originally: 2
+                'nonalpha_discount': '1',
+                'no_vowel_discount': '1',
+            }
+        }
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
         namespaces_entries.sort()
@@ -3732,8 +3742,9 @@ def run_blockstackd():
         chainstate_f.write('namespace_id,address,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
+            namespace_id = namespace_info['namespace_id']
             namespace = {}
-            namespace['namespace_id'] = namespace_info['namespace_id']
+            namespace['namespace_id'] = namespace_id
             namespace['address'] = b58ToC32(str(namespace_info['address']))
             namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
             namespace['base'] = namespace_info['base']
@@ -3741,6 +3752,8 @@ def run_blockstackd():
             namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
             namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
             namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
+            if namespace_id in namespace_patches:
+                namespace.update(namespace_patches[namespace_id])
             chainstate_f.write('{},{},{},{},{},{},{},{}\n'.format(
                 namespace['namespace_id'], namespace['address'],
                 namespace['buckets'], namespace['base'], namespace['coeff'], namespace['nonalpha_discount'], 
