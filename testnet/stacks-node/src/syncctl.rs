@@ -395,7 +395,7 @@ impl PoxSyncWatchdog {
             // burnchain has advanced since the last call
             self.last_burnchain_height = burnchain_height;
             debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(self.max_samples);
+            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait an hour
             waited = true;
         }
 
