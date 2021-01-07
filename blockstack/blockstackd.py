@@ -3729,12 +3729,10 @@ def run_blockstackd():
         namespaces_entries = db.get_all_namespace_ids()
         namespaces_entries.sort()
         chainstate_f.write('-----BEGIN NAMESPACES-----\n')
-        chainstate_f.write('namespace_id,address,reveal_block,ready_block,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
+        chainstate_f.write('namespace_id,address,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
             namespace = {}
-            namespace['ready_block'] = namespace_info['ready_block'] - block
-            namespace['reveal_block'] = namespace_info['reveal_block'] - block
             namespace['namespace_id'] = namespace_info['namespace_id']
             namespace['address'] = b58ToC32(str(namespace_info['address']))
             namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
@@ -3743,8 +3741,8 @@ def run_blockstackd():
             namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
             namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
             namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
-            chainstate_f.write('{},{},{},{},{},{},{},{},{},{}\n'.format(
-                namespace['namespace_id'], namespace['address'], namespace['reveal_block'], namespace['ready_block'],
+            chainstate_f.write('{},{},{},{},{},{},{},{}\n'.format(
+                namespace['namespace_id'], namespace['address'],
                 namespace['buckets'], namespace['base'], namespace['coeff'], namespace['nonalpha_discount'], 
                 namespace['no_vowel_discount'], namespace['lifetime']
             ))
