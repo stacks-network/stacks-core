@@ -3729,12 +3729,10 @@ def run_blockstackd():
         namespaces_entries = db.get_all_namespace_ids()
         namespaces_entries.sort()
         chainstate_f.write('-----BEGIN NAMESPACES-----\n')
-        chainstate_f.write('namespace_id,address,reveal_block,ready_block,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
+        chainstate_f.write('namespace_id,address,buckets,base,coeff,nonalpha_discount,no_vowel_discount,lifetime\n')
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
             namespace = {}
-            namespace['ready_block'] = namespace_info['ready_block']
-            namespace['reveal_block'] = namespace_info['reveal_block']
             namespace['namespace_id'] = namespace_info['namespace_id']
             namespace['address'] = b58ToC32(str(namespace_info['address']))
             namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
@@ -3743,8 +3741,8 @@ def run_blockstackd():
             namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
             namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
             namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
-            chainstate_f.write('{},{},{},{},{},{},{},{},{},{}\n'.format(
-                namespace['namespace_id'], namespace['address'], namespace['reveal_block'], namespace['ready_block'],
+            chainstate_f.write('{},{},{},{},{},{},{},{}\n'.format(
+                namespace['namespace_id'], namespace['address'],
                 namespace['buckets'], namespace['base'], namespace['coeff'], namespace['nonalpha_discount'], 
                 namespace['no_vowel_discount'], namespace['lifetime']
             ))
@@ -3757,7 +3755,7 @@ def run_blockstackd():
         name_zonefiles_txt_output_path = os.path.join(output_dir, 'name_zonefiles.txt')
         name_zonefiles_txt_hash_output_path = name_zonefiles_txt_output_path + '.sha256'
         chainstate_f.write('-----BEGIN NAMES-----\n')
-        chainstate_f.write('name,address,registered_at,expire_block,zonefile_hash\n')
+        chainstate_f.write('name,address,zonefile_hash\n')
         name_zonefiles = open(name_zonefiles_txt_output_path, 'w')
         for name_str in name_entries:
             name_info = load_name_info(db, name_str, block)
@@ -3768,8 +3766,6 @@ def run_blockstackd():
             name = {}
             name['name'] = name_info['name']
             name['address'] = b58ToC32(str(name_info['address']))
-            name['expire_block'] = name_info['expire_block']
-            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
 
             has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
             if has_zonefile_hash:
@@ -3781,8 +3777,8 @@ def run_blockstackd():
                 # print 'missing zonefile for {}'.format(name)
                 name_zonefiles.write(name_info['value_hash'] + '\n')
                 name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
-            chainstate_f.write('{},{},{},{},{}\n'.format(
-                name['name'], name['address'], name['registered_at'], name['expire_block'], name['zonefile_hash']
+            chainstate_f.write('{},{},{}\n'.format(
+                name['name'], name['address'], name['zonefile_hash']
             ))
         name_zonefiles.flush()
         name_zonefiles.close()
