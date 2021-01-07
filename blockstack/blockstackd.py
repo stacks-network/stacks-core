@@ -3755,7 +3755,7 @@ def run_blockstackd():
         name_zonefiles_txt_output_path = os.path.join(output_dir, 'name_zonefiles.txt')
         name_zonefiles_txt_hash_output_path = name_zonefiles_txt_output_path + '.sha256'
         chainstate_f.write('-----BEGIN NAMES-----\n')
-        chainstate_f.write('name,address,registered_at,expire_block,zonefile_hash\n')
+        chainstate_f.write('name,address,zonefile_hash\n')
         name_zonefiles = open(name_zonefiles_txt_output_path, 'w')
         for name_str in name_entries:
             name_info = load_name_info(db, name_str, block)
@@ -3767,12 +3767,6 @@ def run_blockstackd():
             name['name'] = name_info['name']
             name['address'] = b58ToC32(str(name_info['address']))
 
-            name['expire_block'] = name_info['expire_block']
-            if name['expire_block'] != -1: # for special flag `-1` do not subtract the block height
-                name['expire_block'] = name['expire_block'] - block
-
-            name['registered_at'] = 0
-
             has_zonefile_hash = 'value_hash' in name_info and name_info['value_hash'] is not None
             if has_zonefile_hash:
                 name['zonefile_hash'] = name_info['value_hash']
@@ -3783,8 +3777,8 @@ def run_blockstackd():
                 # print 'missing zonefile for {}'.format(name)
                 name_zonefiles.write(name_info['value_hash'] + '\n')
                 name_zonefiles.write(name_info['zonefile'].replace('\n', '\\n') + '\n')
-            chainstate_f.write('{},{},{},{},{}\n'.format(
-                name['name'], name['address'], name['registered_at'], name['expire_block'], name['zonefile_hash']
+            chainstate_f.write('{},{},{}\n'.format(
+                name['name'], name['address'], name['zonefile_hash']
             ))
         name_zonefiles.flush()
         name_zonefiles.close()
