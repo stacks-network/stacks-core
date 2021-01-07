@@ -74,6 +74,8 @@ jobs:
           body: |
             :robot: This is an automated pull request created from reaching the threshold of BNS names registered under the `.miner` namespace.
 
+            **Export triggered at block height: `${{ github.event.client_payload.block_height }}`**
+
             This PR updates the chainstate file, chainstate consensus hash file, name_zonefile file, and name_zonefile consensus hash file to be used in the creation of the genesis block in the Stacks V2 network:
             * [chainstate.txt](${{ env.CHAINSTATE_URL }})
                 * Time created: `${{ env.CHAINSTATE_TIME_CREATED }}`
