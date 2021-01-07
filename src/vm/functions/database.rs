@@ -214,7 +214,7 @@ pub fn special_fetch_variable(
 
     env.global_context
         .database
-        .lookup_variable(contract, var_name)
+        .lookup_variable(contract, var_name, Some(data_types))
 }
 
 pub fn special_set_variable(
@@ -251,7 +251,7 @@ pub fn special_set_variable(
 
     env.global_context
         .database
-        .set_variable(contract, var_name, value)
+        .set_variable(contract, var_name, value, Some(data_types))
 }
 
 pub fn special_fetch_entry(
@@ -279,7 +279,7 @@ pub fn special_fetch_entry(
 
     env.global_context
         .database
-        .fetch_entry(contract, map_name, &key)
+        .fetch_entry(contract, map_name, &key, Some(data_types))
 }
 
 pub fn special_at_block(
@@ -343,7 +343,7 @@ pub fn special_set_entry(
 
     env.global_context
         .database
-        .set_entry(contract, map_name, key, value)
+        .set_entry(contract, map_name, key, value, Some(data_types))
 }
 
 pub fn special_insert_entry(
@@ -380,7 +380,7 @@ pub fn special_insert_entry(
 
     env.global_context
         .database
-        .insert_entry(contract, map_name, key, value)
+        .insert_entry(contract, map_name, key, value, Some(data_types))
 }
 
 pub fn special_delete_entry(
@@ -414,7 +414,7 @@ pub fn special_delete_entry(
 
     env.global_context
         .database
-        .delete_entry(contract, map_name, &key)
+        .delete_entry(contract, map_name, &key, data_types)
 }
 
 pub fn special_get_block_info(

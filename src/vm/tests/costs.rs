@@ -376,6 +376,7 @@ fn test_cost_contract_short_circuits() {
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(1),
+            None,
         )
         .unwrap();
         let value = format!(
@@ -391,6 +392,7 @@ fn test_cost_contract_short_circuits() {
             "confirmed-proposals",
             execute("{ confirmed-id: u0 }"),
             execute(&value),
+            None,
         )
         .unwrap();
         db.commit();
@@ -654,6 +656,7 @@ fn test_cost_voting_integration() {
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128),
+            None,
         )
         .unwrap();
 
@@ -673,6 +676,7 @@ fn test_cost_voting_integration() {
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
                 execute(&value),
+                None,
             )
             .unwrap();
         }
@@ -749,6 +753,7 @@ fn test_cost_voting_integration() {
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128 + good_proposals),
+            None,
         )
         .unwrap();
 
@@ -768,6 +773,7 @@ fn test_cost_voting_integration() {
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
                 execute(&value),
+                None,
             )
             .unwrap();
         }

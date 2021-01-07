@@ -3984,7 +3984,8 @@ impl StacksChainState {
             .as_transaction(|tx_connection| {
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
-                    let res = db.fetch_entry(&lockup_contract_id, "lockups", &block_height)?;
+                    let res =
+                        db.fetch_entry(&lockup_contract_id, "lockups", &block_height, None)?;
                     Ok(res)
                 })?;
 

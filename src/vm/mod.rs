@@ -281,8 +281,8 @@ fn eval_all(
 
                     global_context.add_memory(value.size() as u64)?;
 
-                    global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
+                    let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, Some(data_type))?;
                 },
                 DefineResult::Map(name, key_type, value_type) => {
                     runtime_cost(ClarityCostFunction::CreateMap, global_context,

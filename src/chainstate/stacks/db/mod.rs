@@ -1004,7 +1004,7 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                                db.insert_entry(&lockup_contract_id, "lockups", key, value, None)?;
                             }
                             Ok(())
                         })
@@ -1078,6 +1078,7 @@ impl StacksChainState {
                                     "namespaces",
                                     namespace,
                                     namespace_props,
+                                    None,
                                 )?;
                             }
                             Ok(())
@@ -1135,7 +1136,13 @@ impl StacksChainState {
                                     }
                                 };
 
-                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+                                db.set_nft_owner(
+                                    &bns_contract_id,
+                                    "names",
+                                    &fqn,
+                                    &owner_address,
+                                    None,
+                                )?;
 
                                 let registered_at = Value::UInt(entry.registered_at.into());
                                 let name_props = Value::Tuple(
@@ -1156,6 +1163,7 @@ impl StacksChainState {
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
+                                    None,
                                 )?;
 
                                 db.insert_entry(
@@ -1163,6 +1171,7 @@ impl StacksChainState {
                                     "owner-name",
                                     Value::Principal(owner_address),
                                     fqn,
+                                    None,
                                 )?;
                             }
                             Ok(())

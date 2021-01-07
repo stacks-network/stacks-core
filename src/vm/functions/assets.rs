@@ -297,6 +297,7 @@ pub fn special_mint_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            Some(expected_asset_type.clone()),
         ) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
@@ -311,6 +312,7 @@ pub fn special_mint_asset(
             asset_name,
             &asset,
             to_principal,
+            Some(expected_asset_type),
         )?;
 
         let asset_identifier = AssetIdentifier {
@@ -362,6 +364,7 @@ pub fn special_transfer_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            Some(expected_asset_type.clone()),
         ) {
             Ok(owner) => Ok(owner),
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
@@ -382,6 +385,7 @@ pub fn special_transfer_asset(
             asset_name,
             &asset,
             to_principal,
+            Some(expected_asset_type),
         )?;
 
         env.global_context.log_asset_transfer(
@@ -555,6 +559,7 @@ pub fn special_get_owner(
         &env.contract_context.contract_identifier,
         asset_name,
         &asset,
+        Some(expected_asset_type),
     ) {
         Ok(owner) => {
             Ok(Value::some(Value::Principal(owner))
@@ -683,6 +688,7 @@ pub fn special_burn_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            Some(expected_asset_type.clone()),
         ) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
@@ -702,6 +708,7 @@ pub fn special_burn_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            Some(expected_asset_type),
         )?;
 
         env.global_context.log_asset_transfer(

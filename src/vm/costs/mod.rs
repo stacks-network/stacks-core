@@ -344,7 +344,7 @@ fn load_cost_functions(
         .expect_u128();
     let cost_voting_contract = &STACKS_BOOT_COST_VOTE_CONTRACT;
     let confirmed_proposals_count = clarity_db
-        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count")
+        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count", None)
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         .expect_u128();
     debug!("Check cost voting contract";
@@ -371,6 +371,7 @@ fn load_cost_functions(
                     )])
                     .expect("BUG: failed to construct simple tuple"),
                 ),
+                None,
             )
             .expect("BUG: Failed querying confirmed-proposals")
             .expect_optional()

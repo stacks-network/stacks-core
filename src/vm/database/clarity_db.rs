@@ -838,11 +838,12 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
         value_type: TypeSignature,
-    ) {
+    ) -> DataVariableMetadata {
         let variable_data = DataVariableMetadata { value_type };
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        self.insert_metadata(contract_identifier, &key, &variable_data)
+        self.insert_metadata(contract_identifier, &key, &variable_data);
+        variable_data
     }
 
     pub fn load_variable(
@@ -861,8 +862,12 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
         value: Value,
+        variable_descriptor: Option<DataVariableMetadata>,
     ) -> Result<Value> {
-        let variable_descriptor = self.load_variable(contract_identifier, variable_name)?;
+        let variable_descriptor = match variable_descriptor {
+            Some(x) => x,
+            None => self.load_variable(contract_identifier, variable_name)?,
+        };
         if !variable_descriptor.value_type.admits(&value) {
             return Err(CheckErrors::TypeValueError(variable_descriptor.value_type, value).into());
         }
@@ -882,8 +887,12 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
+        variable_descriptor: Option<DataVariableMetadata>,
     ) -> Result<Value> {
-        let variable_descriptor = self.load_variable(contract_identifier, variable_name)?;
+        let variable_descriptor = match variable_descriptor {
+            Some(x) => x,
+            None => self.load_variable(contract_identifier, variable_name)?,
+        };
 
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
@@ -947,8 +956,12 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
         key_value: &Value,
+        map_descriptor: Option<DataMapMetadata>,
     ) -> Result<Value> {
-        let map_descriptor = self.load_map(contract_identifier, map_name)?;
+        let map_descriptor = match map_descriptor {
+            Some(x) => x,
+            None => self.load_map(contract_identifier, map_name)?,
+        };
         if !map_descriptor.key_type.admits(key_value) {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into(),
@@ -973,8 +986,16 @@ impl<'a> ClarityDatabase<'a> {
         map_name: &str,
         key: Value,
         value: Value,
+        map_descriptor: Option<DataMapMetadata>,
     ) -> Result<Value> {
-        self.inner_set_entry(contract_identifier, map_name, key, value, false)
+        self.inner_set_entry(
+            contract_identifier,
+            map_name,
+            key,
+            value,
+            false,
+            map_descriptor,
+        )
     }
 
     pub fn insert_entry(
@@ -983,8 +1004,16 @@ impl<'a> ClarityDatabase<'a> {
         map_name: &str,
         key: Value,
         value: Value,
+        map_descriptor: Option<DataMapMetadata>,
     ) -> Result<Value> {
-        self.inner_set_entry(contract_identifier, map_name, key, value, true)
+        self.inner_set_entry(
+            contract_identifier,
+            map_name,
+            key,
+            value,
+            true,
+            map_descriptor,
+        )
     }
 
     fn data_map_entry_exists(&mut self, key: &str, expected_value: &TypeSignature) -> Result<bool> {
@@ -1001,8 +1030,13 @@ impl<'a> ClarityDatabase<'a> {
         key_value: Value,
         value: Value,
         return_if_exists: bool,
+        map_descriptor: Option<DataMapMetadata>,
     ) -> Result<Value> {
-        let map_descriptor = self.load_map(contract_identifier, map_name)?;
+        let map_descriptor = match map_descriptor {
+            Some(x) => x,
+            None => self.load_map(contract_identifier, map_name)?,
+        };
+
         if !map_descriptor.key_type.admits(&key_value) {
             return Err(CheckErrors::TypeValueError(map_descriptor.key_type, key_value).into());
         }
@@ -1033,8 +1067,8 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
         key_value: &Value,
+        map_descriptor: DataMapMetadata,
     ) -> Result<Value> {
-        let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into(),
@@ -1235,10 +1269,14 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &str,
         asset: &Value,
+        key_type: Option<TypeSignature>,
     ) -> Result<PrincipalData> {
-        let descriptor = self.load_nft(contract_identifier, asset_name)?;
-        if !descriptor.key_type.admits(asset) {
-            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        let key_type = match key_type {
+            Some(x) => x,
+            None => self.load_nft(contract_identifier, asset_name)?.key_type,
+        };
+        if !key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(key_type, (*asset).clone()).into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(
@@ -1277,10 +1315,14 @@ impl<'a> ClarityDatabase<'a> {
         asset_name: &str,
         asset: &Value,
         principal: &PrincipalData,
+        key_type: Option<TypeSignature>,
     ) -> Result<()> {
-        let descriptor = self.load_nft(contract_identifier, asset_name)?;
-        if !descriptor.key_type.admits(asset) {
-            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        let key_type = match key_type {
+            Some(x) => x,
+            None => self.load_nft(contract_identifier, asset_name)?.key_type,
+        };
+        if !key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(key_type, (*asset).clone()).into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(
@@ -1301,10 +1343,14 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &str,
         asset: &Value,
+        key_type: Option<TypeSignature>,
     ) -> Result<()> {
-        let descriptor = self.load_nft(contract_identifier, asset_name)?;
-        if !descriptor.key_type.admits(asset) {
-            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into());
+        let key_type = match key_type {
+            Some(x) => x,
+            None => self.load_nft(contract_identifier, asset_name)?.key_type,
+        };
+        if !key_type.admits(asset) {
+            return Err(CheckErrors::TypeValueError(key_type, (*asset).clone()).into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(
