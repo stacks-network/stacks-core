@@ -2184,6 +2184,32 @@ impl PeerNetwork {
                     }
                 }
 
+                // prune this down to size
+                let pending_neighbor_list =
+                    if let Some(mut pending_neighbor_addrs) = walk.pending_neighbor_addrs.take() {
+                        if pending_neighbor_addrs.len() as u64
+                            > network.connection_opts.max_neighbors_of_neighbor
+                        {
+                            debug!(
+                                "{:?}: will handshake with {} neighbors out of {} reported by {:?}",
+                                &walk.local_peer,
+                                &network.connection_opts.max_neighbors_of_neighbor,
+                                pending_neighbor_addrs.len(),
+                                &walk.cur_neighbor.addr
+                            );
+                            pending_neighbor_addrs.shuffle(&mut thread_rng());
+                            pending_neighbor_addrs
+                                [0..(network.connection_opts.max_neighbors_of_neighbor as usize)]
+                                .to_vec()
+                        } else {
+                            pending_neighbor_addrs
+                        }
+                    } else {
+                        vec![]
+                    };
+
+                walk.pending_neighbor_addrs = Some(pending_neighbor_list);
+
                 test_debug!(
                     "{:?}: received Neighbors from {} {:?}: {:?}",
                     &walk.local_peer,
@@ -2840,13 +2866,7 @@ impl PeerNetwork {
                             self.walk_count
                         );
 
-                        if self.walk_count > self.connection_opts.num_initial_walks
-                            && self.prune_deadline < get_epoch_time_secs()
-                        {
-                            // clean up
-                            walk_result.do_prune = true;
-                            self.prune_deadline = get_epoch_time_secs() + PRUNE_FREQUENCY;
-                        }
+                        walk_result.do_prune = true;
                     }
                     None => {}
                 }
@@ -4574,6 +4594,9 @@ mod test {
 
         conf.connection_opts.num_clients = 256;
         conf.connection_opts.soft_num_clients = 128;
+
+        conf.connection_opts.max_http_clients = 1000;
+        conf.connection_opts.max_neighbors_of_neighbor = 256;
 
         conf.connection_opts.max_clients_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
         conf.connection_opts.soft_max_clients_per_host = peer_count as u64;
