@@ -403,9 +403,9 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 
 pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
-    write_count: 3_750,
+    write_count: 7_750,
     read_length: 100_000_000,
-    read_count: 3_750,
+    read_count: 7_750,
     runtime: 5_000_000_000,
 };
 
