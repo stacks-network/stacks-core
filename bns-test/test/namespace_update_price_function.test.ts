@@ -163,7 +163,7 @@ import {
         nonAlphaDiscount: 0,
       };
 
-      // Updating the price function should succeed
+      // Updating the price function should fail
       receipt = await bns.namespaceUpdatePriceFunction(cases[0].namespace, 
         priceFunctionUpdate2,
         {

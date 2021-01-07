@@ -551,7 +551,7 @@
     (asserts!
       (is-eq (get namespace-import namespace-props) tx-sender)
       (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
-    ;; The sender principal must match the namespace's import principal
+    ;; The namespace price function must still be editable
     (asserts!
       (get can-update-price-function namespace-props)
       (err ERR_NAMESPACE_OPERATION_UNAUTHORIZED))
