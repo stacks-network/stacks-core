@@ -373,18 +373,20 @@ lazy_static! {
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 4,
-        num_clients: 1000,
-        soft_num_neighbors: 4,
-        soft_num_clients: 1000,
-        max_neighbors_per_host: 10,
-        max_clients_per_host: 1000,
-        soft_max_neighbors_per_host: 10,
-        soft_max_neighbors_per_org: 100,
-        soft_max_clients_per_host: 1000,
-        walk_interval: 30,
-        inv_sync_interval: 45,
-        download_interval: 10,
+        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_clients: 1000,              // number of inbound p2p connections
+        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
+        soft_num_clients: 1000,         // soft limit on the number of inbound p2p connections
+        max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
+        max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
+        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
+        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
+        soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
+        max_http_clients: 1000,         // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 5,   // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
+        download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         max_inflight_attachments: 6,
