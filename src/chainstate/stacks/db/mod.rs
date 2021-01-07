@@ -2116,7 +2116,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "ac363507627a6dd5cf3da0b9e3a7c3f85d064e7f7a3d50248b78e4721584f558",
+            "146bb2f3c11d543c126067a4fb39091c0596b3257a3c0b6ef4b9861546ae56e9",
         );
     }
 
