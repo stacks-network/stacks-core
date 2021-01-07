@@ -874,3 +874,10 @@
         lease-started-at: lease-started-at,
         lease-ending-at: (if (is-eq (get lifetime namespace-props) u0) none (some (+ lease-started-at (get lifetime namespace-props))))
       }))))
+
+(define-read-only (get-namespace-properties (namespace (buff 20)))
+  (let (
+    (namespace-props (unwrap!
+      (map-get? namespaces namespace)
+      (err ERR_NAMESPACE_NOT_FOUND))))
+    (ok { namespace: namespace, properties: namespace-props })))
