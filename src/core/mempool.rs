@@ -657,17 +657,10 @@ impl MemPoolDB {
 
         // gather
         let mut tips = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let consensus_hash = ConsensusHash::from_column(&row, "consensus_hash")?;
-                    let block_hash = BlockHeaderHash::from_column(&row, "block_header_hash")?;
-                    tips.push((consensus_hash, block_hash));
-                }
-                Err(e) => {
-                    return Err(db_error::SqliteError(e));
-                }
-            };
+        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+            let consensus_hash = ConsensusHash::from_column(&row, "consensus_hash")?;
+            let block_hash = BlockHeaderHash::from_column(&row, "block_header_hash")?;
+            tips.push((consensus_hash, block_hash));
         }
 
         Ok(tips)

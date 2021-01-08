@@ -340,16 +340,9 @@ where
 
     // gather
     let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let next_row = T::from_column(&row, column_name)?;
-                row_data.push(next_row);
-            }
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
+    while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
+        let next_row = T::from_column(&row, column_name)?;
+        row_data.push(next_row);
     }
 
     Ok(row_data)
@@ -366,19 +359,12 @@ where
     let mut rows = stmt.query(sql_args)?;
 
     let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                if row_data.len() > 0 {
-                    return Err(Error::Overflow);
-                }
-                let i: i64 = row.get(0);
-                row_data.push(i);
-            }
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
+    while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
+        if row_data.len() > 0 {
+            return Err(Error::Overflow);
+        }
+        let i: i64 = row.get_unwrap(0);
+        row_data.push(i);
     }
 
     if row_data.len() == 0 {
@@ -553,23 +539,17 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         .query(&[&marf_value.to_hex() as &dyn ToSql])
         .map_err(Error::SqliteError)?;
     let mut value = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let value_str: String = row.get(0);
-                if value.is_some() {
-                    // should be impossible
-                    panic!(
-                        "FATAL: two or more values for {}",
-                        &to_hex(&marf_value.to_vec())
-                    );
-                }
-                value = Some(value_str);
-            }
-            Err(e) => {
-                panic!("FATAL: Failed to read row from Sqlite ({})", e);
-            }
-        };
+
+    while let Some(row) = rows.next().expect("FATAL: Failed to read row from Sqlite") {
+        let value_str: String = row.get_unwrap(0);
+        if value.is_some() {
+            // should be impossible
+            panic!(
+                "FATAL: two or more values for {}",
+                &to_hex(&marf_value.to_vec())
+            );
+        }
+        value = Some(value_str);
     }
 
     Ok(value)

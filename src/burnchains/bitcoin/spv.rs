@@ -392,25 +392,21 @@ impl SpvClient {
 
         // gather, but make sure we get _all_ headers
         let mut next_height = start_block;
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let height: u64 = u64::from_column(&row, "height")?;
-                    if height != next_height {
-                        break;
-                    }
-                    next_height += 1;
+        while let Some(row) = rows
+            .next()
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?
+        {
+            let height: u64 = u64::from_column(&row, "height")?;
+            if height != next_height {
+                break;
+            }
+            next_height += 1;
 
-                    let next_header = BlockHeader::from_row(&row)?;
-                    headers.push(LoneBlockHeader {
-                        header: next_header,
-                        tx_count: VarInt(0),
-                    });
-                }
-                Err(e) => {
-                    return Err(btc_error::DBError(db_error::SqliteError(e)));
-                }
-            };
+            let next_header = BlockHeader::from_row(&row)?;
+            headers.push(LoneBlockHeader {
+                header: next_header,
+                tx_count: VarInt(0),
+            });
         }
 
         Ok(headers)

@@ -914,16 +914,10 @@ impl StacksChainState {
 
         // gather
         let mut blobs = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let next_blob: Vec<u8> = row.get(0);
-                    blobs.push(next_blob);
-                }
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
+
+        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+            let next_blob: Vec<u8> = row.get_unwrap(0);
+            blobs.push(next_blob);
         }
 
         Ok(blobs)
@@ -1699,22 +1693,13 @@ impl StacksChainState {
 
         // gather
         let mut row_data: Vec<i64> = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let val_opt: Option<i64> = row.get(0);
-                    match val_opt {
-                        Some(val) => {
-                            row_data.push(val);
-                        }
-                        None => {}
-                    }
-                }
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
+        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+            let val_opt: Option<i64> = row.get_unwrap(0);
+            if let Some(val) = val_opt {
+                row_data.push(val);
+            }
         }
+
         Ok(row_data)
     }
 
@@ -3591,129 +3576,119 @@ impl StacksChainState {
                 .query(NO_PARAMS)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-            while let Some(row_res) = rows.next() {
-                match row_res {
-                    Ok(row) => {
-                        let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
+            while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+                let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
-                        debug!(
-                            "Consider block {}/{} whose parent is {}/{}",
-                            &candidate.consensus_hash,
-                            &candidate.anchored_block_hash,
+                debug!(
+                    "Consider block {}/{} whose parent is {}/{}",
+                    &candidate.consensus_hash,
+                    &candidate.anchored_block_hash,
+                    &candidate.parent_consensus_hash,
+                    &candidate.parent_anchored_block_hash
+                );
+
+                let can_attach = {
+                    if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
+                        // this block's parent is the boot code -- it's the first-ever block,
+                        // so it can be processed immediately
+                        true
+                    } else {
+                        // not the first-ever block.  Does this connect to a previously-accepted
+                        // block in the headers database?
+                        let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
+                        let hdr_args: &[&dyn ToSql] = &[
+                            &candidate.parent_anchored_block_hash,
                             &candidate.parent_consensus_hash,
-                            &candidate.parent_anchored_block_hash
-                        );
-
-                        let can_attach = {
-                            if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
-                                // this block's parent is the boot code -- it's the first-ever block,
-                                // so it can be processed immediately
-                                true
-                            } else {
-                                // not the first-ever block.  Does this connect to a previously-accepted
-                                // block in the headers database?
-                                let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
-                                let hdr_args: &[&dyn ToSql] = &[
+                        ];
+                        let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
+                            blocks_tx,
+                            &hdr_sql,
+                            hdr_args,
+                            || {
+                                format!(
+                                    "Stored the same block twice: {}/{}",
                                     &candidate.parent_anchored_block_hash,
+                                    &candidate.parent_consensus_hash
+                                )
+                            },
+                        )?;
+                        match hdr_row {
+                            Some(_) => {
+                                debug!(
+                                    "Have parent {}/{} for this block, will process",
                                     &candidate.parent_consensus_hash,
-                                ];
-                                let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
-                                    blocks_tx,
-                                    &hdr_sql,
-                                    hdr_args,
-                                    || {
-                                        format!(
-                                            "Stored the same block twice: {}/{}",
-                                            &candidate.parent_anchored_block_hash,
-                                            &candidate.parent_consensus_hash
-                                        )
-                                    },
-                                )?;
-                                match hdr_row {
-                                    Some(_) => {
-                                        debug!(
-                                            "Have parent {}/{} for this block, will process",
-                                            &candidate.parent_consensus_hash,
-                                            &candidate.parent_anchored_block_hash
-                                        );
-                                        true
-                                    }
-                                    None => {
-                                        // no parent processed for this block
-                                        debug!(
-                                            "No such parent {}/{} for block, cannot process",
-                                            &candidate.parent_consensus_hash,
-                                            &candidate.parent_anchored_block_hash
-                                        );
-                                        false
-                                    }
-                                }
+                                    &candidate.parent_anchored_block_hash
+                                );
+                                true
                             }
-                        };
-
-                        if can_attach {
-                            // load up the block data
-                            candidate.block_data = match StacksChainState::load_block_bytes(
-                                blocks_path,
-                                &candidate.consensus_hash,
-                                &candidate.anchored_block_hash,
-                            )? {
-                                Some(bytes) => {
-                                    if bytes.len() == 0 {
-                                        error!(
-                                            "CORRUPTION: No block data for {}/{}",
-                                            &candidate.consensus_hash,
-                                            &candidate.anchored_block_hash
-                                        );
-                                        panic!();
-                                    }
-                                    bytes
-                                }
-                                None => {
-                                    error!(
-                                        "CORRUPTION: No block data for {}/{}",
-                                        &candidate.consensus_hash, &candidate.anchored_block_hash
-                                    );
-                                    panic!();
-                                }
-                            };
-
-                            // find its microblock parent stream
-                            match StacksChainState::find_parent_microblock_stream(
-                                blocks_tx, &candidate,
-                            )? {
-                                Some(parent_staging_microblocks) => {
-                                    return Ok(Some((parent_staging_microblocks, candidate)));
-                                }
-                                None => {
-                                    // no microblock data yet, so we can't process this block
-                                    continue;
-                                }
-                            }
-                        } else {
-                            // this can happen if a PoX reorg happens
-                            // if this candidate is no longer on the main PoX fork, then delete it
-                            let sn_opt = SortitionDB::get_block_snapshot_consensus(
-                                sort_conn,
-                                &candidate.consensus_hash,
-                            )?;
-                            if sn_opt.is_none() {
-                                to_delete.push((
-                                    candidate.consensus_hash.clone(),
-                                    candidate.anchored_block_hash.clone(),
-                                ));
-                            } else if let Some(sn) = sn_opt {
-                                if !sn.pox_valid {
-                                    to_delete.push((
-                                        candidate.consensus_hash.clone(),
-                                        candidate.anchored_block_hash.clone(),
-                                    ));
-                                }
+                            None => {
+                                // no parent processed for this block
+                                debug!(
+                                    "No such parent {}/{} for block, cannot process",
+                                    &candidate.parent_consensus_hash,
+                                    &candidate.parent_anchored_block_hash
+                                );
+                                false
                             }
                         }
                     }
-                    Err(e) => {
-                        return Err(Error::DBError(db_error::SqliteError(e)));
+                };
+
+                if can_attach {
+                    // load up the block data
+                    candidate.block_data = match StacksChainState::load_block_bytes(
+                        blocks_path,
+                        &candidate.consensus_hash,
+                        &candidate.anchored_block_hash,
+                    )? {
+                        Some(bytes) => {
+                            if bytes.len() == 0 {
+                                error!(
+                                    "CORRUPTION: No block data for {}/{}",
+                                    &candidate.consensus_hash, &candidate.anchored_block_hash
+                                );
+                                panic!();
+                            }
+                            bytes
+                        }
+                        None => {
+                            error!(
+                                "CORRUPTION: No block data for {}/{}",
+                                &candidate.consensus_hash, &candidate.anchored_block_hash
+                            );
+                            panic!();
+                        }
+                    };
+
+                    // find its microblock parent stream
+                    match StacksChainState::find_parent_microblock_stream(blocks_tx, &candidate)? {
+                        Some(parent_staging_microblocks) => {
+                            return Ok(Some((parent_staging_microblocks, candidate)));
+                        }
+                        None => {
+                            // no microblock data yet, so we can't process this block
+                            continue;
+                        }
+                    }
+                } else {
+                    // this can happen if a PoX reorg happens
+                    // if this candidate is no longer on the main PoX fork, then delete it
+                    let sn_opt = SortitionDB::get_block_snapshot_consensus(
+                        sort_conn,
+                        &candidate.consensus_hash,
+                    )?;
+                    if sn_opt.is_none() {
+                        to_delete.push((
+                            candidate.consensus_hash.clone(),
+                            candidate.anchored_block_hash.clone(),
+                        ));
+                    } else if let Some(sn) = sn_opt {
+                        if !sn.pox_valid {
+                            to_delete.push((
+                                candidate.consensus_hash.clone(),
+                                candidate.anchored_block_hash.clone(),
+                            ));
+                        }
                     }
                 }
             }

@@ -109,7 +109,7 @@ fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<Burn
         &[sortition],
         |row| {
             let data_str: String = row.get_unwrap(0);
-            serde_json::from_str(&data_str).unwrap()
+            Ok(serde_json::from_str(&data_str).unwrap())
         },
     )
     .unwrap()
