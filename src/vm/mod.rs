@@ -281,8 +281,10 @@ fn eval_all(
 
                     global_context.add_memory(value.size() as u64)?;
 
-                    global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
+                    let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type)?;
+
+                    contract_context.meta_data_var.insert(name, data_type);
                 },
                 DefineResult::Map(name, key_type, value_type) => {
                     runtime_cost(ClarityCostFunction::CreateMap, global_context,
@@ -295,7 +297,9 @@ fn eval_all(
                     global_context.add_memory(value_type.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
+                    let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
+
+                    contract_context.meta_data_map.insert(name, data_type);
                 },
                 DefineResult::FungibleToken(name, total_supply) => {
                     runtime_cost(ClarityCostFunction::CreateFt, global_context, 0)?;
@@ -304,7 +308,9 @@ fn eval_all(
                     global_context.add_memory(TypeSignature::UIntType.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
+                    let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
+
+                    contract_context.meta_ft.insert(name, data_type);
                 },
                 DefineResult::NonFungibleAsset(name, asset_type) => {
                     runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size())?;
@@ -313,7 +319,9 @@ fn eval_all(
                     global_context.add_memory(asset_type.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
+                    let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
+
+                    contract_context.meta_nft.insert(name, data_type);
                 },
                 DefineResult::Trait(name, trait_type) => {
                     contract_context.defined_traits.insert(name, trait_type);

@@ -96,6 +96,7 @@ lazy_static! {
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
         ("bns", &BOOT_CODE_BNS),
     ];
+    pub static ref STACKS_BOOT_POX_CONTRACT: QualifiedContractIdentifier = boot_code_id("pox");
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
     pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting");

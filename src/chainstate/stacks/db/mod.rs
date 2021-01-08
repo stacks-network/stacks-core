@@ -636,8 +636,6 @@ pub struct ChainstateAccountLockup {
 pub struct ChainstateBNSNamespace {
     pub namespace_id: String,
     pub importer: String,
-    pub revealed_at: u64,
-    pub launched_at: u64,
     pub buckets: String,
     pub base: u64,
     pub coeff: u64,
@@ -650,8 +648,6 @@ pub struct ChainstateBNSNamespace {
 pub struct ChainstateBNSName {
     pub fully_qualified_name: String,
     pub owner: String,
-    pub registered_at: u64,
-    pub expired_at: u64,
     pub zonefile_hash: String,
 }
 
@@ -1004,7 +1000,12 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                                db.insert_entry_unknown_descriptor(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    value,
+                                )?;
                             }
                             Ok(())
                         })
@@ -1035,8 +1036,8 @@ impl StacksChainState {
                                     Value::Principal(address)
                                 };
 
-                                let revealed_at = Value::UInt(entry.revealed_at.into());
-                                let launched_at = Value::UInt(entry.launched_at.into());
+                                let revealed_at = Value::UInt(0);
+                                let launched_at = Value::UInt(0);
                                 let lifetime = Value::UInt(entry.lifetime.into());
                                 let price_function = {
                                     let base = Value::UInt(entry.base.into());
@@ -1068,12 +1069,13 @@ impl StacksChainState {
                                         ("launched-at".into(), Value::some(launched_at).unwrap()),
                                         ("lifetime".into(), lifetime),
                                         ("namespace-import".into(), importer),
+                                        ("can-update-price-function".into(), Value::Bool(true)),
                                         ("price-function".into(), Value::Tuple(price_function)),
                                     ])
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "namespaces",
                                     namespace,
@@ -1135,9 +1137,17 @@ impl StacksChainState {
                                     }
                                 };
 
-                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+                                let expected_asset_type =
+                                    db.get_nft_key_type(&bns_contract_id, "names")?;
+                                db.set_nft_owner(
+                                    &bns_contract_id,
+                                    "names",
+                                    &fqn,
+                                    &owner_address,
+                                    &expected_asset_type,
+                                )?;
 
-                                let registered_at = Value::UInt(entry.registered_at.into());
+                                let registered_at = Value::UInt(0);
                                 let name_props = Value::Tuple(
                                     TupleData::from_data(vec![
                                         (
@@ -1151,14 +1161,14 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
                                 )?;
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "owner-name",
                                     Value::Principal(owner_address),
@@ -2046,8 +2056,6 @@ pub mod test {
                     ChainstateBNSNamespace {
                         namespace_id: item.namespace_id,
                         importer: item.importer,
-                        revealed_at: item.reveal_block as u64,
-                        launched_at: item.ready_block as u64,
                         buckets: item.buckets,
                         base: item.base as u64,
                         coeff: item.coeff as u64,
@@ -2064,8 +2072,6 @@ pub mod test {
                         .map(|item| ChainstateBNSName {
                             fully_qualified_name: item.fully_qualified_name,
                             owner: item.owner,
-                            registered_at: item.registered_at as u64,
-                            expired_at: item.expire_block as u64,
                             zonefile_hash: item.zonefile_hash,
                         }),
                 )
@@ -2102,7 +2108,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "6714d6964f88ab1826089ff34a845b91ead7213f3f7f2825777ef2c3880b3454"
+            "54e300e1f626c3a952968204b63a272d308ba498824e72013a7788fcf4b316e4"
         );
     }
 
@@ -2136,12 +2142,10 @@ pub mod test {
                 }))
             })),
             get_bulk_initial_namespaces: Some(Box::new(|| {
-                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                Box::new(GenesisData::new(false).read_namespaces().map(|item| {
                     ChainstateBNSNamespace {
                         namespace_id: item.namespace_id,
                         importer: item.importer,
-                        revealed_at: item.reveal_block as u64,
-                        launched_at: item.ready_block as u64,
                         buckets: item.buckets,
                         base: item.base as u64,
                         coeff: item.coeff as u64,
@@ -2153,13 +2157,11 @@ pub mod test {
             })),
             get_bulk_initial_names: Some(Box::new(|| {
                 Box::new(
-                    GenesisData::new(true)
+                    GenesisData::new(false)
                         .read_names()
                         .map(|item| ChainstateBNSName {
                             fully_qualified_name: item.fully_qualified_name,
                             owner: item.owner,
-                            registered_at: item.registered_at as u64,
-                            expired_at: item.expire_block as u64,
                             zonefile_hash: item.zonefile_hash,
                         }),
                 )
@@ -2196,7 +2198,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "30f4472782b844e508bfebd8912f271270c1fd04393cd18e884f42dbb1a133f1"
+            "a2fcaeb9fcc41d54e91062d9a69d76c301155fabf87e7139bdb1ca9b6e3d9705"
         );
     }
 }
