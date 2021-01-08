@@ -1161,10 +1161,9 @@ class BlockstackDB(virtualchain.StateEngine):
     def perform_v2_upgrade_datafile_export( self, block_id, consensus_hash ):
         """
         Export a datafile used for the v2 upgrade. 
-        Does nothing if the `v2_migration_export` config option is not enabled.
         """
-        if not self.v2_migration_export:
-            return
+        # if not self.v2_migration_export:
+        #     return
 
         export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
         consensus_hash_file_path = os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt')
