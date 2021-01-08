@@ -976,7 +976,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
         let args: &[&dyn ToSql] = &[pubkey_hash, &minimum_block_height];
         block_conn
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: block header DB corrupted!")
             .is_some()
@@ -1820,7 +1820,7 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[&parent_index_block_hash, &child_info.parent_microblock_hash];
         let res = self
             .db()
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: staging blocks DB corrupted!")
             .is_some();
@@ -2329,7 +2329,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_microblock_hash = ?1 AND processed = 1 AND orphaned = 0";
         let args: &[&dyn ToSql] = &[index_microblock_hash];
         let res = conn
-            .query_row(&sql, args, |_r| ())
+            .query_row(&sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: block header DB corrupted!")
             .is_some();
@@ -2423,20 +2423,16 @@ impl StacksChainState {
         );
         let args = [index_block_hash as &dyn ToSql];
 
-        let row_data_opt = blocks_db
+        blocks_db
             .query_row(&sql, &args, |row| {
-                let anchored_block_hash = BlockHeaderHash::from_column(row, anchored_block_col)?;
-                let consensus_hash = ConsensusHash::from_column(row, consensus_hash_col)?;
+                let anchored_block_hash = BlockHeaderHash::from_column(row, anchored_block_col)
+                    .expect("Expected anchored_block_hash - database corrupted");
+                let consensus_hash = ConsensusHash::from_column(row, consensus_hash_col)
+                    .expect("Expected consensus_hash - database corrupted");
                 Ok((consensus_hash, anchored_block_hash))
             })
             .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match row_data_opt {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))
     }
 
     /// Given an index block hash, get its consensus hash and block hash if it exists
@@ -2474,21 +2470,18 @@ impl StacksChainState {
         let sql = format!("SELECT consensus_hash,anchored_block_hash,microblock_hash FROM staging_microblocks WHERE index_microblock_hash = ?1");
         let args = [index_microblock_hash as &dyn ToSql];
 
-        let row_data_opt = blocks_conn
+        blocks_conn
             .query_row(&sql, &args, |row| {
-                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")?;
+                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")
+                    .expect("Expected consensus_hash - database corrupted");
+                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")
+                    .expect("Expected anchored_block_hash - database corrupted");
+                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")
+                    .expect("Expected microblock_hash - database corrupted");
                 Ok((consensus_hash, anchored_block_hash, microblock_hash))
             })
             .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match row_data_opt {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))
     }
 
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.

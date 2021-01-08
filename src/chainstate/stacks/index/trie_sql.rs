@@ -343,7 +343,7 @@ pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(
             .query_row(
                 "SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1",
                 &[bhh],
-                |_row| (),
+                |_row| Ok(()),
             )
             .optional()?
             .is_some();
@@ -356,7 +356,7 @@ pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(
         .query_row(
             "SELECT 1 FROM block_extension_locks WHERE block_hash = ? LIMIT 1",
             &[bhh],
-            |_row| (),
+            |_row| Ok(()),
         )
         .optional()?
         .is_some();

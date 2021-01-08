@@ -216,7 +216,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
-        match conn.query_row(sql, args, |_| true) {
+        match conn.query_row(sql, args, |_| Ok(true)) {
             Ok(_) => Ok(true),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
             Err(e) => Err(Error::DBError(e.into())),
@@ -325,7 +325,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[block_id];
         Ok(conn
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
             .is_some())

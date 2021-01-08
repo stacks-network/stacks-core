@@ -1244,7 +1244,7 @@ impl<'a> SortitionHandleTx<'a> {
         let earliest_block_height = self.tx().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
             &[potential_ancestor],
-            |row| u64::from_row(row))??;
+            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
 
         let mut sn = self
             .get_block_snapshot_by_height(block_at_burn_height)?
@@ -2517,14 +2517,14 @@ impl SortitionDB {
         let transition_ops = self
             .conn()
             .query_row(sql_transition_ops, &[id], |row| {
-                BurnchainStateTransitionOps {
                 let accepted_ops: String = row.get_unwrap(0);
                 let consumed_leader_keys: String = row.get_unwrap(1);
+                Ok(BurnchainStateTransitionOps {
                     accepted_ops: serde_json::from_str(&accepted_ops)
                         .expect("CORRUPTION: DB stored bad transition ops"),
                     consumed_leader_keys: serde_json::from_str(&consumed_leader_keys)
                         .expect("CORRUPTION: DB stored bad transition ops"),
-                }
+                })
             })
             .optional()?
             .expect("CORRUPTION: DB stored BlockSnapshot, but not the transition ops");
@@ -2780,11 +2780,11 @@ impl SortitionDB {
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 0) FROM snapshots",
                 NO_PARAMS,
-                |row| u64::from_row(row),
+                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index?),
+            Some(arrival_index) => Ok(arrival_index),
             None => Ok(0),
         }
     }
@@ -2798,11 +2798,11 @@ impl SortitionDB {
             .query_row(
                 "SELECT arrival_index FROM snapshots WHERE sortition_id = ?",
                 &[sortition_id],
-                |row| u64::from_row(row),
+                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index?),
+            Some(arrival_index) => Ok(arrival_index),
             None => Err(db_error::NotFoundError),
         }
     }
