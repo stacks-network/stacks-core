@@ -39,10 +39,9 @@ use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
-#[cfg(test)]
 use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, STACKS_BOOT_COST_CONTRACT,
-    STACKS_BOOT_COST_VOTE_CONTRACT,
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, STACKS_BOOT_COST_CONTRACT,
+    STACKS_BOOT_COST_VOTE_CONTRACT, STACKS_BOOT_POX_CONTRACT,
 };
 
 use std::error;
@@ -293,8 +292,7 @@ impl ClarityInstance {
     }
 
     /// begin a genesis block with the default cost contract
-    ///  used in testing.
-    #[cfg(test)]
+    ///  used in testing + benchmarking
     pub fn begin_test_genesis_block<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -336,6 +334,20 @@ impl ClarityInstance {
                     &*STACKS_BOOT_COST_VOTE_CONTRACT,
                     &ast,
                     BOOT_CODE_COST_VOTING,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&*STACKS_BOOT_POX_CONTRACT, &*BOOT_CODE_POX_TESTNET)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &*STACKS_BOOT_POX_CONTRACT,
+                    &ast,
+                    &*BOOT_CODE_POX_TESTNET,
                     |_, _| false,
                 )
                 .unwrap();

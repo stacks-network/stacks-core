@@ -239,7 +239,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X3".into()),
+            magic_bytes: Some("X4".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -397,7 +397,16 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     write_count: 5_0_000,
     read_length: 1_000_000_000,
     read_count: 5_0_000,
-    runtime: 1_00_000_000,
+    // allow much more runtime in helium blocks than mainnet
+    runtime: 100_000_000_000,
+};
+
+pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
 };
 
 impl Config {
@@ -734,23 +743,27 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = match config_file.block_limit {
-            Some(opts) => ExecutionCost {
-                write_length: opts
-                    .write_length
-                    .unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
-                write_count: opts
-                    .write_count
-                    .unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
-                read_length: opts
-                    .read_length
-                    .unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
-                read_count: opts
-                    .read_count
-                    .unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
-                runtime: opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
-            },
-            None => HELIUM_BLOCK_LIMIT.clone(),
+        let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
+            MAINNET_BLOCK_LIMIT.clone()
+        } else {
+            match config_file.block_limit {
+                Some(opts) => ExecutionCost {
+                    write_length: opts
+                        .write_length
+                        .unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
+                    write_count: opts
+                        .write_count
+                        .unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
+                    read_length: opts
+                        .read_length
+                        .unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
+                    read_count: opts
+                        .read_count
+                        .unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
+                    runtime: opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
+                },
+                None => HELIUM_BLOCK_LIMIT.clone(),
+            }
         };
 
         Config {

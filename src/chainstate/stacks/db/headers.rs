@@ -135,7 +135,6 @@ impl StacksChainState {
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
-        let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
         let block_size_str = format!("{}", tip_info.anchored_block_size);
 
         let block_hash = header.block_hash();
@@ -162,7 +161,6 @@ impl StacksChainState {
             &burn_header_hash,
             &(burn_header_height as i64),
             &(burn_header_timestamp as i64),
-            &total_liquid_stx_str,
             &(block_height as i64),
             &index_root,
             anchored_block_cost,
@@ -187,13 +185,12 @@ impl StacksChainState {
                     burn_header_hash, \
                     burn_header_height, \
                     burn_header_timestamp, \
-                    total_liquid_ustx, \
                     block_height, \
                     index_root,
                     cost,
                     block_size,
                     parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

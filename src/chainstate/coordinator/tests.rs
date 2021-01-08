@@ -442,7 +442,7 @@ fn make_genesis_block_with_recipients(
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::regtest_genesis(0);
+    let parent_stacks_header = StacksHeaderInfo::regtest_genesis();
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 

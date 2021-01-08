@@ -199,13 +199,12 @@ pub fn special_fetch_variable(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
     let data_types = env
-        .global_context
-        .database
-        .load_variable(contract, var_name)?;
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::FetchVar,
         env,
@@ -214,7 +213,7 @@ pub fn special_fetch_variable(
 
     env.global_context
         .database
-        .lookup_variable(contract, var_name)
+        .lookup_variable(contract, var_name, data_types)
 }
 
 pub fn special_set_variable(
@@ -234,13 +233,12 @@ pub fn special_set_variable(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
     let data_types = env
-        .global_context
-        .database
-        .load_variable(contract, var_name)?;
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::SetVar,
         env,
@@ -251,7 +249,7 @@ pub fn special_set_variable(
 
     env.global_context
         .database
-        .set_variable(contract, var_name, value)
+        .set_variable(contract, var_name, value, data_types)
 }
 
 pub fn special_fetch_entry(
@@ -267,10 +265,12 @@ pub fn special_fetch_entry(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::FetchEntry,
         env,
@@ -279,7 +279,7 @@ pub fn special_fetch_entry(
 
     env.global_context
         .database
-        .fetch_entry(contract, map_name, &key)
+        .fetch_entry(contract, map_name, &key, data_types)
 }
 
 pub fn special_at_block(
@@ -328,10 +328,12 @@ pub fn special_set_entry(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
@@ -343,7 +345,7 @@ pub fn special_set_entry(
 
     env.global_context
         .database
-        .set_entry(contract, map_name, key, value)
+        .set_entry(contract, map_name, key, value, data_types)
 }
 
 pub fn special_insert_entry(
@@ -365,10 +367,12 @@ pub fn special_insert_entry(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
@@ -380,7 +384,7 @@ pub fn special_insert_entry(
 
     env.global_context
         .database
-        .insert_entry(contract, map_name, key, value)
+        .insert_entry(contract, map_name, key, value, data_types)
 }
 
 pub fn special_delete_entry(
@@ -400,10 +404,12 @@ pub fn special_delete_entry(
 
     let contract = &env.contract_context.contract_identifier;
 
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
@@ -414,7 +420,7 @@ pub fn special_delete_entry(
 
     env.global_context
         .database
-        .delete_entry(contract, map_name, &key)
+        .delete_entry(contract, map_name, &key, data_types)
 }
 
 pub fn special_get_block_info(

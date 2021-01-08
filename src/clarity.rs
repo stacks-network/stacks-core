@@ -397,9 +397,6 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
-    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-        0
-    }
 }
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
