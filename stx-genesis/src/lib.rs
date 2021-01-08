@@ -22,8 +22,6 @@ pub struct GenesisAccountLockup {
 pub struct GenesisNamespace {
     pub namespace_id: String,
     pub importer: String,
-    pub reveal_block: i64,
-    pub ready_block: i64,
     pub buckets: String,
     pub base: i64,
     pub coeff: i64,
@@ -35,8 +33,6 @@ pub struct GenesisNamespace {
 pub struct GenesisName {
     pub fully_qualified_name: String,
     pub owner: String,
-    pub registered_at: i64,
-    pub expire_block: i64,
     pub zonefile_hash: String,
 }
 
@@ -115,14 +111,12 @@ fn read_namespaces(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Gene
     let namespaces = iter_deflated_csv(deflate_bytes).map(|cols| GenesisNamespace {
         namespace_id: cols[0].to_string(),
         importer: cols[1].to_string(),
-        reveal_block: cols[2].parse::<i64>().unwrap(),
-        ready_block: cols[3].parse::<i64>().unwrap(),
-        buckets: cols[4].to_string(),
-        base: cols[5].parse::<i64>().unwrap(),
-        coeff: cols[6].parse::<i64>().unwrap(),
-        nonalpha_discount: cols[7].parse::<i64>().unwrap(),
-        no_vowel_discount: cols[8].parse::<i64>().unwrap(),
-        lifetime: cols[9].parse::<i64>().unwrap(),
+        buckets: cols[2].to_string(),
+        base: cols[3].parse::<i64>().unwrap(),
+        coeff: cols[4].parse::<i64>().unwrap(),
+        nonalpha_discount: cols[5].parse::<i64>().unwrap(),
+        no_vowel_discount: cols[6].parse::<i64>().unwrap(),
+        lifetime: cols[7].parse::<i64>().unwrap(),
     });
     return Box::new(namespaces);
 }
@@ -131,9 +125,7 @@ fn read_names(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisNa
     let names = iter_deflated_csv(deflate_bytes).map(|cols| GenesisName {
         fully_qualified_name: cols[0].to_string(),
         owner: cols[1].to_string(),
-        registered_at: cols[2].parse::<i64>().unwrap(),
-        expire_block: cols[3].parse::<i64>().unwrap(),
-        zonefile_hash: cols[4].to_string(),
+        zonefile_hash: cols[2].to_string(),
     });
     return Box::new(names);
 }
@@ -167,20 +159,20 @@ mod tests {
     #[test]
     fn test_namespaces_read() {
         for namespace in GenesisData::new(false).read_namespaces() {
-            assert!(namespace.ready_block > 0);
+            assert!(namespace.base > 0);
         }
         for namespace in GenesisData::new(true).read_namespaces() {
-            assert!(namespace.ready_block > 0);
+            assert!(namespace.base > 0);
         }
     }
 
     #[test]
     fn test_names_read() {
         for name in GenesisData::new(false).read_names() {
-            assert!(name.registered_at > 0);
+            assert!(name.owner.len() > 0);
         }
         for name in GenesisData::new(true).read_names() {
-            assert!(name.registered_at > 0);
+            assert!(name.owner.len() > 0);
         }
     }
 }

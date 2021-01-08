@@ -344,7 +344,7 @@ fn load_cost_functions(
         .expect_u128();
     let cost_voting_contract = &STACKS_BOOT_COST_VOTE_CONTRACT;
     let confirmed_proposals_count = clarity_db
-        .lookup_variable(&cost_voting_contract, "confirmed-proposal-count")
+        .lookup_variable_unknown_descriptor(&cost_voting_contract, "confirmed-proposal-count")
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         .expect_u128();
     debug!("Check cost voting contract";
@@ -361,7 +361,7 @@ fn load_cost_functions(
     for confirmed_proposal in fetch_start..fetch_end {
         // fetch the proposal data
         let entry = clarity_db
-            .fetch_entry(
+            .fetch_entry_unknown_descriptor(
                 &cost_voting_contract,
                 "confirmed-proposals",
                 &Value::from(
