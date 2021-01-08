@@ -42,13 +42,13 @@ use core::FIRST_STACKS_BLOCK_HASH;
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
-        let version: u8 = row.get("version");
-        let total_burn_str: String = row.get("total_burn");
-        let total_work_str: String = row.get("total_work");
+        let version: u8 = row.get_unwrap("version");
+        let total_burn_str: String = row.get_unwrap("total_burn");
+        let total_work_str: String = row.get_unwrap("total_work");
         let proof: VRFProof = VRFProof::from_column(row, "proof")?;
         let parent_block = BlockHeaderHash::from_column(row, "parent_block")?;
         let parent_microblock = BlockHeaderHash::from_column(row, "parent_microblock")?;
-        let parent_microblock_sequence: u16 = row.get("parent_microblock_sequence");
+        let parent_microblock_sequence: u16 = row.get_unwrap("parent_microblock_sequence");
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
         let state_index_root = TrieHash::from_column(row, "state_index_root")?;
         let microblock_pubkey_hash = Hash160::from_column(row, "microblock_pubkey_hash")?;
@@ -87,8 +87,8 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
 
 impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksMicroblockHeader, db_error> {
-        let version: u8 = row.get("version");
-        let sequence: u16 = row.get("sequence");
+        let version: u8 = row.get_unwrap("version");
+        let sequence: u16 = row.get_unwrap("sequence");
         let prev_block = BlockHeaderHash::from_column(row, "prev_block")?;
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
         let signature = MessageSignature::from_column(row, "signature")?;

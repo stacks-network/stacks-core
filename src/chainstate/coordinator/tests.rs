@@ -108,7 +108,7 @@ fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<Burn
         "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
         &[sortition],
         |row| {
-            let data_str: String = row.get(0);
+            let data_str: String = row.get_unwrap(0);
             serde_json::from_str(&data_str).unwrap()
         },
     )

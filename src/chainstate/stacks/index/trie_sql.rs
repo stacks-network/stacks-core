@@ -228,7 +228,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
 ) -> Result<Vec<(TrieHash, T)>, Error> {
     let mut s = conn.prepare("SELECT block_hash, data FROM marf_data WHERE unconfirmed = 0")?;
     let rows = s.query_and_then(NO_PARAMS, |row| {
-        let block_hash: T = row.get("block_hash");
+        let block_hash: T = row.get_unwrap("block_hash");
         let data = row
             .get_raw("data")
             .as_blob()

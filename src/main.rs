@@ -261,7 +261,7 @@ fn main() {
                 "SELECT value FROM __fork_storage WHERE value_hash = ?1",
                 args,
                 |row| {
-                    let s: String = row.get(0);
+                    let s: String = row.get_unwrap(0);
                     Ok(s)
                 },
             );

@@ -98,7 +98,7 @@ impl FromSql for Sha256dHash {
 
 impl FromColumn<Sha256dHash> for Sha256dHash {
     fn from_column(row: &Row, column_name: &str) -> Result<Sha256dHash, db_error> {
-        Ok(row.get::<_, Self>(column_name))
+        Ok(row.get_unwrap::<_, Self>(column_name))
     }
 }
 
@@ -111,12 +111,12 @@ impl ToSql for Sha256dHash {
 
 impl FromRow<BlockHeader> for BlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<BlockHeader, db_error> {
-        let version: u32 = row.get("version");
+        let version: u32 = row.get_unwrap("version");
         let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
         let merkle_root: Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
-        let time: u32 = row.get("time");
-        let bits: u32 = row.get("bits");
-        let nonce: u32 = row.get("nonce");
+        let time: u32 = row.get_unwrap("time");
+        let bits: u32 = row.get_unwrap("bits");
+        let nonce: u32 = row.get_unwrap("nonce");
 
         Ok(BlockHeader {
             version,

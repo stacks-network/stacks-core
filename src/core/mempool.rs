@@ -144,7 +144,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfo, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
-        let tx_bytes: Vec<u8> = row.get("tx");
+        let tx_bytes: Vec<u8> = row.get_unwrap("tx");
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(|_e| db_error::ParseError)?;
 

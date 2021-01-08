@@ -161,7 +161,7 @@ pub trait FromColumn<T> {
 
 impl FromRow<u64> for u64 {
     fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
-        let x: i64 = row.get(0);
+        let x: i64 = row.get_unwrap(0);
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -171,7 +171,7 @@ impl FromRow<u64> for u64 {
 
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
-        let x: i64 = row.get(column_name);
+        let x: i64 = row.get_unwrap(column_name);
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -181,14 +181,14 @@ impl FromColumn<u64> for u64 {
 
 impl FromRow<i64> for i64 {
     fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
-        let x: i64 = row.get(0);
+        let x: i64 = row.get_unwrap(0);
         Ok(x)
     }
 }
 
 impl FromColumn<i64> for i64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
-        let x: i64 = row.get(column_name);
+        let x: i64 = row.get_unwrap(column_name);
         Ok(x)
     }
 }
@@ -198,7 +198,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
         row: &'a Row,
         column_name: &str,
     ) -> Result<QualifiedContractIdentifier, Error> {
-        let value: String = row.get(column_name);
+        let value: String = row.get_unwrap(column_name);
         QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
@@ -230,7 +230,7 @@ macro_rules! impl_byte_array_from_column {
                 row: &rusqlite::Row,
                 column_name: &str,
             ) -> Result<Self, ::util::db::Error> {
-                Ok(row.get::<_, Self>(column_name))
+                Ok(row.get_unwrap::<_, Self>(column_name))
             }
         }
 
