@@ -5,17 +5,19 @@ use super::{
 use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
-    db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, TransactionPayload,
+    db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
 use stacks::net::StacksMessageCodec;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::execute;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::Value;
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::vm::{analysis, Value};
+use stacks::vm::{ast, execute};
 
-use stacks::vm::database::ClarityDeserializable;
+use stacks::vm::database::{
+    ClarityDeserializable, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
@@ -40,7 +42,12 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::vm::costs::ExecutionCost;
+use stacks::chainstate::stacks::index::MarfTrieId;
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks::vm::analysis::AnalysisDatabase;
+use stacks::vm::ast::ContractAST;
+use stacks::vm::clarity::ClarityInstance;
+use stacks::vm::costs::{ExecutionCost, LimitedCostTracker};
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1245,19 +1252,6 @@ fn size_check_integration_test() {
 #[test]
 #[ignore]
 fn max_block_integration_test() {
-    // TODO: set this
-    let block_limit = ExecutionCost {
-        write_length: 0,
-        write_count: 0,
-        read_length: 0,
-        read_count: 0,
-        runtime: 0,
-    };
-
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
     // TODO: make sure this is exactly the max cost
     let max_contract = format!(
         "(define-public (f) (begin {} (ok 1)))",
@@ -1267,10 +1261,24 @@ fn max_block_integration_test() {
             .join(" ")
     );
 
+    // TODO: set this
+    let block_limit = ExecutionCost {
+        write_length: 1000,
+        write_count: 1000,
+        read_length: 1000,
+        read_count: 1000,
+        runtime: 1002346,
+    };
+
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
     let private_key = StacksPrivateKey::new();
-    let addr: PrincipalData = to_addr(&private_key).into();
+    let addr = to_addr(&private_key);
 
     let tx = make_contract_publish(&private_key, 0, 1049230, "max", &max_contract);
+    let tx2 = make_contract_call(&private_key, 1, 1049230, &addr, "max", "f", &[]);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -1278,13 +1286,13 @@ fn max_block_integration_test() {
     conf.block_limit = block_limit;
 
     conf.initial_balances.push(InitialBalance {
-        address: addr.clone(),
+        address: addr.clone().into(),
         amount: 1049230,
     });
 
-    // conf.node.mine_microblocks = true;
-    // conf.node.wait_time_for_microblocks = 30000;
-    // conf.node.microblock_frequency = 1000;
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1318,22 +1326,19 @@ fn max_block_integration_test() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's query the miner's account nonce:
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.nonce, 1);
     assert_eq!(account.balance, 0);
 
-    // and our potential spenders:
     let account = get_account(&http_origin, &addr);
     assert_eq!(account.nonce, 0);
     assert_eq!(account.balance, 1049230);
 
     submit_tx(&http_origin, &tx);
+    // submit_tx(&http_origin, &tx2);
 
     sleep_ms(60_000);
 
-    // now let's mine some block, and then check the sender's nonce.
-    //  after mining a block, there should be _one_ transactions from the anchor block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(60_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
