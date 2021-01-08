@@ -39,10 +39,9 @@ use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
-#[cfg(test)]
 use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, STACKS_BOOT_COST_CONTRACT,
-    STACKS_BOOT_COST_VOTE_CONTRACT,
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, STACKS_BOOT_COST_CONTRACT,
+    STACKS_BOOT_COST_VOTE_CONTRACT, STACKS_BOOT_POX_CONTRACT,
 };
 
 use std::error;
@@ -293,8 +292,7 @@ impl ClarityInstance {
     }
 
     /// begin a genesis block with the default cost contract
-    ///  used in testing.
-    #[cfg(test)]
+    ///  used in testing + benchmarking
     pub fn begin_test_genesis_block<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -341,6 +339,20 @@ impl ClarityInstance {
                 .unwrap();
         });
 
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&*STACKS_BOOT_POX_CONTRACT, &*BOOT_CODE_POX_TESTNET)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &*STACKS_BOOT_POX_CONTRACT,
+                    &ast,
+                    &*BOOT_CODE_POX_TESTNET,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
         conn
     }
 
@@ -374,13 +386,23 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
-        let datastore = self.datastore.begin_read_only(Some(at_block));
+        self.read_only_connection_checked(at_block, header_db, burn_state_db)
+            .expect(&format!("BUG: failed to open block {}", at_block))
+    }
 
-        ClarityReadOnlyConnection {
+    pub fn read_only_connection_checked<'a>(
+        &'a mut self,
+        at_block: &StacksBlockId,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
+        let datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
+
+        Ok(ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
-        }
+        })
     }
 
     pub fn eval_read_only(

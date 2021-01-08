@@ -1004,7 +1004,12 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                                db.insert_entry_unknown_descriptor(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    value,
+                                )?;
                             }
                             Ok(())
                         })
@@ -1068,12 +1073,13 @@ impl StacksChainState {
                                         ("launched-at".into(), Value::some(launched_at).unwrap()),
                                         ("lifetime".into(), lifetime),
                                         ("namespace-import".into(), importer),
+                                        ("can-update-price-function".into(), Value::Bool(true)),
                                         ("price-function".into(), Value::Tuple(price_function)),
                                     ])
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "namespaces",
                                     namespace,
@@ -1135,7 +1141,15 @@ impl StacksChainState {
                                     }
                                 };
 
-                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+                                let expected_asset_type =
+                                    db.get_nft_key_type(&bns_contract_id, "names")?;
+                                db.set_nft_owner(
+                                    &bns_contract_id,
+                                    "names",
+                                    &fqn,
+                                    &owner_address,
+                                    &expected_asset_type,
+                                )?;
 
                                 let registered_at = Value::UInt(entry.registered_at.into());
                                 let name_props = Value::Tuple(
@@ -1151,14 +1165,14 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
                                 )?;
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "owner-name",
                                     Value::Principal(owner_address),
@@ -1631,30 +1645,32 @@ impl StacksChainState {
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
         to_do: F,
-    ) -> Option<R>
+    ) -> Result<Option<R>, Error>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
         if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
             if !unconfirmed.is_readable() {
-                return None;
+                return Ok(None);
             }
         }
 
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
-            let mut conn = unconfirmed_state.clarity_inst.read_only_connection(
-                &unconfirmed_state.unconfirmed_chain_tip,
-                self.db(),
-                burn_dbconn,
-            );
+            let mut conn = unconfirmed_state
+                .clarity_inst
+                .read_only_connection_checked(
+                    &unconfirmed_state.unconfirmed_chain_tip,
+                    self.db(),
+                    burn_dbconn,
+                )?;
             let result = to_do(&mut conn);
             Some(result)
         } else {
             None
         };
         self.unconfirmed_state = unconfirmed_state_opt;
-        res
+        Ok(res)
     }
 
     /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
@@ -1665,7 +1681,7 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         parent_tip: &StacksBlockId,
         to_do: F,
-    ) -> Option<R>
+    ) -> Result<Option<R>, Error>
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
@@ -1679,7 +1695,7 @@ impl StacksChainState {
         if unconfirmed {
             self.with_read_only_unconfirmed_clarity_tx(burn_dbconn, to_do)
         } else {
-            self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do)
+            Ok(self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do))
         }
     }
 
@@ -1718,8 +1734,6 @@ impl StacksChainState {
     }
 
     /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
-    /// This marks the unconfirmed chainstate as "dirty" so that no future queries against it can
-    /// happen.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -1730,8 +1744,6 @@ impl StacksChainState {
                 debug!("Unconfirmed state is not writable; cannot begin unconfirmed Clarity Tx");
                 return None;
             }
-
-            unconfirmed.set_dirty(true);
 
             Some(StacksChainState::chainstate_begin_unconfirmed(
                 conf,
@@ -2104,7 +2116,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "96b7696b43c286fd9b824d111e1662bd748400257b27467908088bc37d048d8e"
+            "146bb2f3c11d543c126067a4fb39091c0596b3257a3c0b6ef4b9861546ae56e9",
         );
     }
 

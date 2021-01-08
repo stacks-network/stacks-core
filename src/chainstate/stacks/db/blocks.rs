@@ -1216,12 +1216,12 @@ impl StacksChainState {
                         &microblock.block_hash(),
                     ),
                 )? {
-                    test_debug!("Microblock {} is not processed", &microblock.block_hash());
+                    debug!("Microblock {} is not processed", &microblock.block_hash());
                     return Ok(None);
                 }
             }
 
-            test_debug!(
+            debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
@@ -3984,7 +3984,11 @@ impl StacksChainState {
             .as_transaction(|tx_connection| {
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
-                    let res = db.fetch_entry(&lockup_contract_id, "lockups", &block_height)?;
+                    let res = db.fetch_entry_unknown_descriptor(
+                        &lockup_contract_id,
+                        "lockups",
+                        &block_height,
+                    )?;
                     Ok(res)
                 })?;
 
@@ -5100,6 +5104,12 @@ impl StacksChainState {
                             tx_size,
                         )
                     })
+                    .map_err(|_| {
+                        MemPoolRejection::NoSuchChainTip(
+                            current_consensus_hash.clone(),
+                            current_block.clone(),
+                        )
+                    })?
                     .expect("BUG: do not have unconfirmed state, despite being Some(..)")
                 } else {
                     Err(MemPoolRejection::BadNonces(mismatch_error))
