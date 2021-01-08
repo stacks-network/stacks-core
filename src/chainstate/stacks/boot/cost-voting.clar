@@ -21,7 +21,9 @@
 (define-constant ERR_UNREACHABLE             255)
 
 (define-constant VOTE_LENGTH u2016)
+(define-constant VETO_LENGTH u1008)
 (define-constant REQUIRED_PERCENT_STX_VOTE u20)
+(define-constant REQUIRED_VETOES u500)
 
 (define-constant MAX_CONFIRMED_PER_BLOCK u10)
 

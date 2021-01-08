@@ -60,11 +60,7 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-const BOOT_CODE_COST_VOTING_BODY: &'static str = std::include_str!("cost-voting.clar");
-const BOOT_CODE_COST_VOTING_TESTNET_CONSTS: &'static str =
-    std::include_str!("cost-voting-testnet.clar");
-const BOOT_CODE_COST_VOTING_MAINNET_CONSTS: &'static str =
-    std::include_str!("cost-voting-mainnet.clar");
+const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 
 lazy_static! {
@@ -74,19 +70,12 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    static ref BOOT_CODE_COST_VOTING_MAINNET: String = format!(
-        "{}\n{}",
-        BOOT_CODE_COST_VOTING_MAINNET_CONSTS, BOOT_CODE_COST_VOTING_BODY
-    );
-    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = format!(
-        "{}\n{}",
-        BOOT_CODE_COST_VOTING_TESTNET_CONSTS, BOOT_CODE_COST_VOTING_BODY
-    );
+    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", &BOOT_CODE_COST_VOTING_MAINNET),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
     ];
     pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
@@ -100,6 +89,20 @@ lazy_static! {
     pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
     pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting");
+}
+
+fn make_testnet_cost_voting() -> String {
+    BOOT_CODE_COST_VOTING_MAINNET
+        .replacen(
+            "(define-constant VETO_LENGTH u1008)",
+            "(define-constant VETO_LENGTH u50)",
+            1,
+        )
+        .replacen(
+            "(define-constant REQUIRED_VETOES u500)",
+            "(define-constant REQUIRED_VETOES u25)",
+            1,
+        )
 }
 
 pub fn boot_code_addr() -> StacksAddress {
