@@ -833,6 +833,10 @@ impl Config {
             _ => false,
         }
     }
+
+    pub fn is_node_event_driven() {
+        self.events_observers.len() > 0
+    }
 }
 
 impl std::default::Default for Config {
