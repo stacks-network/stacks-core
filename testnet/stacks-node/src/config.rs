@@ -834,7 +834,7 @@ impl Config {
         }
     }
 
-    pub fn is_node_event_driven() {
+    pub fn is_node_event_driven(&self) -> bool {
         self.events_observers.len() > 0
     }
 }
