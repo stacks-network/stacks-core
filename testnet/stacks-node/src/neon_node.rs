@@ -598,7 +598,7 @@ fn spawn_peer(
                 let _ = Relayer::setup_unconfirmed_state_readonly(&mut chainstate, &sortdb);
                 recv_unconfirmed_txs(&mut chainstate, unconfirmed_txs.clone());
 
-                let network_result = match this.run(
+                match this.run(
                     &sortdb,
                     &mut chainstate,
                     &mut mem_pool,
@@ -608,34 +608,36 @@ fn spawn_peer(
                     &handler_args,
                     &mut expected_attachments,
                 ) {
-                    Ok(res) => res,
+                    Ok(network_result) => {
+                        if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
+                            // p2p state-machine did a full pass. Notify anyone listening.
+                            sync_comms.notify_p2p_state_pass();
+                            num_p2p_state_machine_passes = network_result.num_state_machine_passes;
+                        }
+
+                        if num_inv_sync_passes < network_result.num_inv_sync_passes {
+                            // inv-sync state-machine did a full pass. Notify anyone listening.
+                            sync_comms.notify_inv_sync_pass();
+                            num_inv_sync_passes = network_result.num_inv_sync_passes;
+                        }
+
+                        if network_result.has_data_to_store() {
+                            results_with_data
+                                .push_back(RelayerDirective::HandleNetResult(network_result));
+                        }
+
+                        // only do this on the Ok() path, even if we're mining, because an error in
+                        // network dispatching is likely due to resource exhaustion
+                        if mblock_deadline < get_epoch_time_ms() {
+                            results_with_data.push_back(RelayerDirective::RunMicroblockTenure);
+                            mblock_deadline =
+                                get_epoch_time_ms() + (config.node.microblock_frequency as u128);
+                        }
+                    }
                     Err(e) => {
                         error!("P2P: Failed to process network dispatch: {:?}", &e);
-                        panic!();
                     }
                 };
-
-                if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                    // p2p state-machine did a full pass. Notify anyone listening.
-                    sync_comms.notify_p2p_state_pass();
-                    num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-                }
-
-                if num_inv_sync_passes < network_result.num_inv_sync_passes {
-                    // inv-sync state-machine did a full pass. Notify anyone listening.
-                    sync_comms.notify_inv_sync_pass();
-                    num_inv_sync_passes = network_result.num_inv_sync_passes;
-                }
-
-                if network_result.has_data_to_store() {
-                    results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
-                }
-
-                if mblock_deadline < get_epoch_time_ms() {
-                    results_with_data.push_back(RelayerDirective::RunMicroblockTenure);
-                    mblock_deadline =
-                        get_epoch_time_ms() + (config.node.microblock_frequency as u128);
-                }
 
                 while let Some(next_result) = results_with_data.pop_front() {
                     // have blocks, microblocks, and/or transactions (don't care about anything else),
@@ -1300,7 +1302,6 @@ impl InitializedNeonNode {
                     .expect("Bitcoin network unsupported");
 
             let chain_tip = ChainTip::genesis(
-                config.get_initial_liquid_ustx(),
                 &burnchain_params.first_block_hash,
                 burnchain_params.first_block_height.into(),
                 burnchain_params.first_block_timestamp.into(),

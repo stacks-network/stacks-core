@@ -372,7 +372,7 @@ fn test_cost_contract_short_circuits() {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
         let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
-        db.set_variable(
+        db.set_variable_unknown_descriptor(
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(1),
@@ -386,7 +386,7 @@ fn test_cost_contract_short_circuits() {
                  confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
-        db.set_entry(
+        db.set_entry_unknown_descriptor(
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposals",
             execute("{ confirmed-id: u0 }"),
@@ -650,7 +650,7 @@ fn test_cost_voting_integration() {
         let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
 
-        db.set_variable(
+        db.set_variable_unknown_descriptor(
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128),
@@ -668,7 +668,7 @@ fn test_cost_voting_integration() {
                      confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
-            db.set_entry(
+            db.set_entry_unknown_descriptor(
                 &STACKS_BOOT_COST_VOTE_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
@@ -745,7 +745,7 @@ fn test_cost_voting_integration() {
         db.begin();
 
         let good_proposals = good_cases.len() as u128;
-        db.set_variable(
+        db.set_variable_unknown_descriptor(
             &STACKS_BOOT_COST_VOTE_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128 + good_proposals),
@@ -763,7 +763,7 @@ fn test_cost_voting_integration() {
                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
-            db.set_entry(
+            db.set_entry_unknown_descriptor(
                 &STACKS_BOOT_COST_VOTE_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),

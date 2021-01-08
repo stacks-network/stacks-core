@@ -54,7 +54,6 @@ pub struct ChainTip {
 
 impl ChainTip {
     pub fn genesis(
-        initial_liquid_ustx: u128,
         first_burnchain_block_hash: &BurnchainHeaderHash,
         first_burnchain_block_height: u64,
         first_burnchain_block_timestamp: u64,
@@ -62,7 +61,6 @@ impl ChainTip {
         ChainTip {
             metadata: StacksHeaderInfo::genesis(
                 TrieHash([0u8; 32]),
-                initial_liquid_ustx,
                 first_burnchain_block_hash,
                 first_burnchain_block_height as u32,
                 first_burnchain_block_timestamp,
@@ -123,8 +121,6 @@ pub fn get_namespaces(
             .map(|item| ChainstateBNSNamespace {
                 namespace_id: item.namespace_id,
                 importer: item.importer,
-                revealed_at: item.reveal_block as u64,
-                launched_at: item.ready_block as u64,
                 buckets: item.buckets,
                 base: item.base as u64,
                 coeff: item.coeff as u64,
@@ -142,8 +138,6 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
             .map(|item| ChainstateBNSName {
                 fully_qualified_name: item.fully_qualified_name,
                 owner: item.owner,
-                registered_at: item.registered_at as u64,
-                expired_at: item.expire_block as u64,
                 zonefile_hash: item.zonefile_hash,
             }),
     )
@@ -605,12 +599,7 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(
-                self.config.get_initial_liquid_ustx(),
-                &BurnchainHeaderHash::zero(),
-                0,
-                0,
-            ),
+            true => ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),

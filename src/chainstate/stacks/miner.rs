@@ -539,7 +539,6 @@ impl StacksBlockBuilder {
             burn_header_hash: genesis_burn_header_hash.clone(),
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
-            total_liquid_ustx: 0,
             anchored_block_size: 0,
         };
 
@@ -761,23 +760,28 @@ impl StacksBlockBuilder {
     /// Finish building the anchored block.
     /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
     /// to disable this, in order to test mining invalid blocks)
-    pub fn mine_anchored_block<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>) -> StacksBlock {
+    pub fn mine_anchored_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         assert!(!self.anchored_done);
 
         // add miner payments
         if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) = self.miner_payouts {
             // grant in order by miner, then users
-            StacksChainState::process_matured_miner_rewards(
+            let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
                 miner_reward,
                 user_rewards,
                 parent_reward,
             )
             .expect("FATAL: failed to process miner rewards");
+
+            clarity_tx.increment_ustx_liquid_supply(matured_ustx);
         }
 
         // process unlocks
-        StacksChainState::process_stx_unlocks(clarity_tx).expect("FATAL: failed to unlock STX");
+        let (new_unlocked_ustx, _) =
+            StacksChainState::process_stx_unlocks(clarity_tx).expect("FATAL: failed to unlock STX");
+
+        clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
         // mark microblock public key as used
         StacksChainState::insert_microblock_pubkey_hash(

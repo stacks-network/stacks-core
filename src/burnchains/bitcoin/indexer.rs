@@ -193,7 +193,7 @@ impl BitcoinIndexerConfig {
                         btc_error::ConfigError("Invalid bitcoin:p2p_port value".to_string())
                     })?;
 
-                if peer_port <= 1024 || peer_port >= 65535 {
+                if peer_port <= 1024 || peer_port == 65535 {
                     return Err(btc_error::ConfigError("Invalid p2p_port".to_string()));
                 }
 
@@ -206,7 +206,7 @@ impl BitcoinIndexerConfig {
                         btc_error::ConfigError("Invalid bitcoin:port value".to_string())
                     })?;
 
-                if rpc_port <= 1024 || rpc_port >= 65535 {
+                if rpc_port <= 1024 || rpc_port == 65535 {
                     return Err(btc_error::ConfigError("Invalid rpc_port".to_string()));
                 }
 

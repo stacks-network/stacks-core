@@ -1790,9 +1790,6 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
             None
         }
-        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-            1592653589333333u128
-        }
     }
 
     struct DocBurnStateDB {}
@@ -1903,6 +1900,10 @@ mod test {
                         .get_stx_balance_snapshot_genesis(&docs_principal_id);
                     snapshot.set_balance(balance);
                     snapshot.save();
+                    e.global_context
+                        .database
+                        .increment_ustx_liquid_supply(100000)
+                        .unwrap();
                     Ok(())
                 },
             )
