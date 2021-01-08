@@ -1,0 +1,19 @@
+FROM rust:buster AS build
+
+WORKDIR /build
+
+RUN rustup override set nightly && \
+    rustup component add llvm-tools-preview && \
+    cargo install grcov
+
+ENV RUSTFLAGS="-Zinstrument-coverage" \
+    LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
+    
+COPY . .
+
+RUN cargo build && \
+    cargo test
+
+# Generate coverage report and upload it to codecov
+RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
+    bash -c "bash <(curl -s https://codecov.io/bash)"

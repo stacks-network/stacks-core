@@ -45,6 +45,16 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
 
+  # Run unit tests with code coverage
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run units tests (with coverage)
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+
   # Run net-tests
   nettest:
     runs-on: ubuntu-latest
