@@ -382,7 +382,7 @@ impl PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH,
             POX_PREPARE_WINDOW_LENGTH,
-            80,
+            6,
             25,
             5,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
