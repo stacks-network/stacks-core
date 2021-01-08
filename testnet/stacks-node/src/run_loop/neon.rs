@@ -14,7 +14,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
-use stacks::net::atlas::{Attachment, AtlasConfig};
+use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
@@ -162,7 +162,8 @@ impl RunLoop {
         }
 
         let mut atlas_config = AtlasConfig::default();
-        let genesis_attachments = GenesisData::new(USE_TEST_GENESIS_CHAINSTATE).read_name_zonefiles()
+        let genesis_attachments = GenesisData::new(USE_TEST_GENESIS_CHAINSTATE)
+            .read_name_zonefiles()
             .into_iter()
             .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
             .collect();
