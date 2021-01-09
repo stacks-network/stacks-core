@@ -205,11 +205,11 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
        log.warning('Invalid senders for {}'.format(txid))
        return None
         
-   # check if the v2 upgrade threshold block has already been reached.
+   # check if the v2 export threshold block has already been reached.
    # if so, then no more transactions will be considered
-   v2_block_id = db_state.get_v2_upgrade_threshold_block()
+   v2_block_id = db_state.get_v2_import_block_reached()
    if v2_block_id is not None:
-       log.warning("V2 upgrade threshold reached; ignoring transaction {}".format(data.encode('hex')))
+       log.warning("V2 export block height threshold reached; ignoring transaction {}".format(data.encode('hex')))
        return None
 
    # this virtualchain instance must give the 'raw_tx' hint
