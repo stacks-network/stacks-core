@@ -297,8 +297,11 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
+        let intended_burn_height =
+            LeaderBlockCommitOp::calculate_intended_height(data.burn_parent_modulus, block_height)?;
+
         // check if we've reached PoX disable
-        let (commit_outs, sunset_burn, burn_fee) = if block_height
+        let (commit_outs, sunset_burn, burn_fee) = if intended_burn_height
             >= burnchain.pox_constants.sunset_end
         {
             // should be only one burn output
@@ -308,7 +311,7 @@ impl LeaderBlockCommitOp {
             let BurnchainRecipient { address, amount } = outputs.remove(0);
             (vec![address], 0, amount)
         // check if we're in a prepare phase
-        } else if burnchain.is_in_prepare_phase(block_height) {
+        } else if burnchain.is_in_prepare_phase(intended_burn_height) {
             // should be only one burn output
             if !outputs[0].address.is_burn() {
                 return Err(op_error::BlockCommitBadOutputs);
@@ -645,6 +648,31 @@ impl LeaderBlockCommitOp {
         self.check_single_burn_output()
     }
 
+    fn calculate_intended_height(
+        parent_modulus: u8,
+        actual_block_height: u64,
+    ) -> Result<u64, op_error> {
+        let intended_modulus = (parent_modulus as u64 + 1) % BURN_BLOCK_MINED_AT_MODULUS;
+        let actual_modulus = actual_block_height % BURN_BLOCK_MINED_AT_MODULUS;
+        if actual_modulus != intended_modulus {
+            warn!("Invalid block commit: missed target block";
+                  "intended_modulus" => intended_modulus,
+                  "actual_modulus" => actual_modulus,
+                  "block_height" => actual_block_height);
+            let miss_distance = if actual_modulus > intended_modulus {
+                actual_modulus - intended_modulus
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
+            };
+            if miss_distance > actual_block_height {
+                return Err(op_error::BlockCommitBadModulus);
+            }
+            Ok(actual_block_height - miss_distance)
+        } else {
+            Ok(actual_block_height)
+        }
+    }
+
     pub fn check(
         &self,
         burnchain: &Burnchain,
@@ -665,27 +693,17 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitBadInput);
         }
 
-        let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
-        let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
-        if actual_modulus != intended_modulus {
-            warn!("Invalid block commit: missed target block";
-                  "intended_modulus" => intended_modulus,
-                  "actual_modulus" => actual_modulus,
-                  "block_height" => self.block_height);
+        let intended_height = LeaderBlockCommitOp::calculate_intended_height(
+            self.burn_parent_modulus,
+            self.block_height,
+        )?;
+        if intended_height != self.block_height {
             // This transaction "missed" its target burn block, the transaction
             //  is not valid, but we should allow this UTXO to "chain" to valid
             //  UTXOs to allow the miner windowing to work in the face of missed
             //  blocks.
-            let miss_distance = if actual_modulus > intended_modulus {
-                actual_modulus - intended_modulus
-            } else {
-                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
-            };
-            if miss_distance > self.block_height {
-                return Err(op_error::BlockCommitBadModulus);
-            }
             let intended_sortition = tx
-                .get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                .get_ancestor_block_hash(intended_height, &tx_tip)?
                 .ok_or_else(|| op_error::BlockCommitNoParent)?;
             let missed_data = MissedBlockCommit {
                 input: self.input.clone(),
@@ -939,6 +957,59 @@ mod tests {
         assert_eq!(op.commit_outs.len(), 1);
         assert!(op.commit_outs[0].is_burn());
         assert_eq!(op.burn_fee, 10);
+    }
+
+    #[test]
+    fn test_parse_late_prepare_commit() {
+        // tests that a commitment that should have landed in a prepare phase
+        //   can still be validly parsed, so that it may get later counted as
+        //   a "missed" block commit
+        let mut tx = BitcoinTransaction {
+            data_amt: 30,
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        };
+
+        // we'll miss by 3!
+        tx.data[76] = 4;
+
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
+
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
+            16843018,
+            &BurnchainHeaderHash([0; 32]),
+            &BurnchainTransaction::Bitcoin(tx),
+        )
+        .unwrap();
     }
 
     #[test]
