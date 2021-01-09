@@ -577,7 +577,7 @@
 
 ;; NAME_PREORDER
 ;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
-;; and it pays the registration fee to the namespace owner's designated address
+;; and it burns the registration fee.
 (define-public (name-preorder (hashed-salted-fqn (buff 20))
                               (stx-to-burn uint))
   (let 
