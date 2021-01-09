@@ -217,9 +217,9 @@ impl StacksHeaderInfo {
 
 impl FromRow<DBConfig> for DBConfig {
     fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
-        let version: String = row.get("version");
-        let mainnet_i64: i64 = row.get("mainnet");
-        let chain_id_i64: i64 = row.get("chain_id");
+        let version: String = row.get_unwrap("version");
+        let mainnet_i64: i64 = row.get_unwrap("mainnet");
+        let chain_id_i64: i64 = row.get_unwrap("chain_id");
 
         let mainnet = mainnet_i64 != 0;
         let chain_id = chain_id_i64 as u32;
@@ -241,7 +241,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        let anchored_block_size_str: String = row.get("block_size");
+        let anchored_block_size_str: String = row.get_unwrap("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;

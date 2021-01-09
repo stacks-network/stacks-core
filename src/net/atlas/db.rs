@@ -61,21 +61,21 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
 
 impl FromRow<Attachment> for Attachment {
     fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
-        let content: Vec<u8> = row.get("content");
+        let content: Vec<u8> = row.get_unwrap("content");
         Ok(Attachment { content })
     }
 }
 
 impl FromRow<AttachmentInstance> for AttachmentInstance {
     fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
-        let hex_content_hash: String = row.get("content_hash");
-        let attachment_index: u32 = row.get("attachment_index");
+        let hex_content_hash: String = row.get_unwrap("content_hash");
+        let attachment_index: u32 = row.get_unwrap("attachment_index");
         let block_height =
             u64::from_column(row, "block_height").map_err(|_| db_error::TypeError)?;
         let content_hash = Hash160::from_hex(&hex_content_hash).map_err(|_| db_error::TypeError)?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
-        let metadata: String = row.get("metadata");
+        let metadata: String = row.get_unwrap("metadata");
         let contract_id = QualifiedContractIdentifier::from_column(row, "contract_id")?;
 
         Ok(AttachmentInstance {
@@ -212,10 +212,11 @@ impl AtlasDB {
         let args = [&min as &dyn ToSql, &max as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(&args)?;
+
         match rows.next() {
-            Some(Ok(row)) => {
-                let min: i64 = row.get("min");
-                let max: i64 = row.get("max");
+            Ok(Some(row)) => {
+                let min: i64 = row.get_unwrap("min");
+                let max: i64 = row.get_unwrap("max");
                 Ok((min as u64, max as u64))
             }
             _ => Err(db_error::NotFoundError),

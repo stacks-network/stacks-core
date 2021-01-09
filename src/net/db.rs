@@ -73,7 +73,7 @@ impl PeerAddress {
 
 impl FromColumn<PeerAddress> for PeerAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
-        let addrbytes_bin: String = row.get(column_name);
+        let addrbytes_bin: String = row.get_unwrap(column_name);
         if addrbytes_bin.len() != 128 {
             error!("Unparsable peer address {}", addrbytes_bin);
             return Err(db_error::ParseError);
@@ -194,15 +194,15 @@ impl LocalPeer {
 
 impl FromRow<LocalPeer> for LocalPeer {
     fn from_row<'a>(row: &'a Row) -> Result<LocalPeer, db_error> {
-        let network_id: u32 = row.get("network_id");
-        let parent_network_id: u32 = row.get("parent_network_id");
-        let nonce_hex: String = row.get("nonce");
+        let network_id: u32 = row.get_unwrap("network_id");
+        let parent_network_id: u32 = row.get_unwrap("parent_network_id");
+        let nonce_hex: String = row.get_unwrap("nonce");
         let privkey = Secp256k1PrivateKey::from_column(row, "private_key")?;
         let privkey_expire = u64::from_column(row, "private_key_expire")?;
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
-        let port: u16 = row.get("port");
-        let services: u16 = row.get("services");
-        let data_url_str: String = row.get("data_url");
+        let port: u16 = row.get_unwrap("port");
+        let services: u16 = row.get_unwrap("services");
+        let data_url_str: String = row.get_unwrap("data_url");
 
         let nonce_bytes = hex_bytes(&nonce_hex).map_err(|_e| {
             error!("Unparseable local peer nonce {}", &nonce_hex);
@@ -236,10 +236,10 @@ impl FromRow<LocalPeer> for LocalPeer {
 
 impl FromRow<ASEntry4> for ASEntry4 {
     fn from_row<'a>(row: &'a Row) -> Result<ASEntry4, db_error> {
-        let prefix: u32 = row.get("prefix");
-        let mask: u8 = row.get("mask");
-        let asn: u32 = row.get("asn");
-        let org: u32 = row.get("org");
+        let prefix: u32 = row.get_unwrap("prefix");
+        let mask: u8 = row.get_unwrap("mask");
+        let asn: u32 = row.get_unwrap("asn");
+        let org: u32 = row.get_unwrap("org");
 
         Ok(ASEntry4 {
             prefix,
@@ -252,20 +252,20 @@ impl FromRow<ASEntry4> for ASEntry4 {
 
 impl FromRow<Neighbor> for Neighbor {
     fn from_row<'a>(row: &'a Row) -> Result<Neighbor, db_error> {
-        let peer_version: u32 = row.get("peer_version");
-        let network_id: u32 = row.get("network_id");
+        let peer_version: u32 = row.get_unwrap("peer_version");
+        let network_id: u32 = row.get_unwrap("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
-        let port: u16 = row.get("port");
+        let port: u16 = row.get_unwrap("port");
         let mut public_key: Secp256k1PublicKey =
             Secp256k1PublicKey::from_column(row, "public_key")?;
         let expire_block_height = u64::from_column(row, "expire_block_height")?;
         let last_contact_time = u64::from_column(row, "last_contact_time")?;
-        let asn: u32 = row.get("asn");
-        let org: u32 = row.get("org");
-        let allowed: i64 = row.get("allowed");
-        let denied: i64 = row.get("denied");
-        let in_degree: u32 = row.get("in_degree");
-        let out_degree: u32 = row.get("out_degree");
+        let asn: u32 = row.get_unwrap("asn");
+        let org: u32 = row.get_unwrap("org");
+        let allowed: i64 = row.get_unwrap("allowed");
+        let denied: i64 = row.get_unwrap("denied");
+        let in_degree: u32 = row.get_unwrap("in_degree");
+        let out_degree: u32 = row.get_unwrap("out_degree");
 
         public_key.set_compressed(true);
 
@@ -1105,7 +1105,7 @@ impl PeerDB {
         let rows_res_iter = stmt
             .query_and_then(NO_PARAMS, |row| {
                 let prefix = PeerAddress::from_column(row, "prefix")?;
-                let mask: u32 = row.get("mask");
+                let mask: u32 = row.get_unwrap("mask");
                 let res: Result<(PeerAddress, u32), db_error> = Ok((prefix, mask));
                 res
             })
