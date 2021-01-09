@@ -1,5 +1,9 @@
 FROM rust:alpine as build
 
+ARG STACKS_NODE_VERSION="No Version Info"
+ARG GIT_BRANCH='No Branch Info'
+ARG GIT_COMMIT='No Commit Info'
+
 WORKDIR /src
 
 COPY . .
@@ -18,4 +22,4 @@ FROM alpine
 
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "argon"]
+CMD ["stacks-node", "xenon"]

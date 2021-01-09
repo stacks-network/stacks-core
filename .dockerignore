@@ -3,6 +3,7 @@ target
 integration_tests/blockstack-consensus-data/
 integration_tests/test-out/
 api/data
+.git
 .venv
 .dockerignore
 testnet/index.html
