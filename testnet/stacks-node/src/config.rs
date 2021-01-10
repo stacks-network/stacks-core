@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::fs;
+use std::path::Path;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
@@ -13,6 +14,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use stacks::util::get_epoch_time_secs;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -832,6 +834,43 @@ impl Config {
             "mainnet" => true,
             _ => false,
         }
+    }
+
+    pub fn clean_working_dir(&self) {
+        let to_archive = fs::read_dir(&self.node.working_dir).unwrap()
+            .into_iter()
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap().path().file_name().unwrap().to_str().unwrap().to_string())
+            .filter(|dir| !dir.ends_with("archive"))
+            .collect::<Vec<String>>();
+
+        let archive_name = format!("{}-archive", get_epoch_time_secs());
+        let archive_path = format!("{}/{}", &self.node.working_dir, archive_name);
+        fs::create_dir(&archive_path).unwrap();
+
+        for dir in to_archive.iter() {
+            let src = format!("{}/{}", &self.node.working_dir, dir);
+            let dst = format!("{}/{}", archive_path, dir);
+            fs::rename(src, dst).unwrap();
+        }
+
+        let to_restore = [
+            "burnchain/spv-headers.dat",
+        ];
+
+        for file in to_restore.iter() {
+            let src = format!("{}/{}", archive_path, file);
+            let dst = format!("{}/{}", &self.node.working_dir, file);
+            // Create the parent directory
+            let parent_dir = Path::new(&dst).parent().unwrap();
+            fs::create_dir_all(&parent_dir).unwrap();
+            // Copy the file we'd like to keep
+            println!("{}", src);
+            println!("{}", dst);
+            if let Ok(_) = fs::copy(src, dst) {
+                info!("Will boot using previous {}", file);
+            }
+        }    
     }
 }
 
