@@ -156,6 +156,7 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        conf.clean_working_dir();
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round, None);
     } else {
