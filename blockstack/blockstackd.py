@@ -3754,6 +3754,9 @@ def run_blockstackd():
             namespace['lifetime'] = 0 if namespace_info['lifetime'] == NAMESPACE_LIFE_INFINITE else namespace_info['lifetime']
             if namespace_id in namespace_patches:
                 namespace.update(namespace_patches[namespace_id])
+            elif namespace_info['version'] == 1:
+                # update namespace version 1 params to adjust for btc to stx prices
+                namespace['coeff'] = namespace['coeff'] * MICROSTACKS_PER_SATOSHI_NUM / MICROSTACKS_PER_SATOSHI_DEN
             chainstate_f.write('{},{},{},{},{},{},{},{}\n'.format(
                 namespace['namespace_id'], namespace['address'],
                 namespace['buckets'], namespace['base'], namespace['coeff'], namespace['nonalpha_discount'], 
