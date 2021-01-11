@@ -3824,8 +3824,8 @@ def run_blockstackd():
             'not_distributed_88a422b7ccaa54e5d8225d5130dc562ffdc57cc54bf274f2b631061ae86d0dc0': 'SM1TP7CNY63KQY7DVRDVPNE1X73ND3PT8JX46971V',
             'not_distributed_8941f1658fc78107ad34cf4d8e96a920a5a3257384188fb21e701c5e6a4b81fb': 'SM2ZP9PPEHXGPAAMYRJNMPVET8WRKBSYY1AZ8SWHP',
             'not_distributed_d6d337469b6283046ed909a03a1f45d862d6c1361d5d0ee56ae660e25866b4c4': 'SM3TJ7J6DR9KFQXQGK9SY7M7AEJT33C8NV639J99C',
-            'Reserved_for_exchange_partner_1': 'SP2660ENGJMKZ2K8AT7EEPAJTEAHXF7RYB7C1S82G',
-            'Reserved_for_exchange_partner_2': 'SP2660ENGJMKZ2K8AT7EEPAJTEAHXF7RYB7C1S82G',
+            'Reserved_for_exchange_partner_1': 'SM17BKV3759FG8H6CSZP2NNE2SPV34MZD0YHHA6AT',
+            'Reserved_for_exchange_partner_2': 'SM23PYTSHF5EP1QJA0VVDEZPXCMJXFQQ2PF8W49BW',
         }
 
         print_status("Querying account addresses...")
