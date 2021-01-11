@@ -62,7 +62,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '3' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '4' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
@@ -309,7 +309,6 @@ fn bitcoind_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -540,7 +539,6 @@ fn stx_transfer_btc_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 

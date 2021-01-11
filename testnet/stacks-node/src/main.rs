@@ -116,8 +116,10 @@ fn main() {
             println!(
                 "{}",
                 &stacks::version_string(
-                    option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
-                    option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
+                    "stacks-node",
+                    option_env!("STACKS_NODE_VERSION")
+                        .or(option_env!("CARGO_PKG_VERSION"))
+                        .unwrap_or("0.0.0.0")
                 )
             );
             return;

@@ -145,7 +145,6 @@ pub struct StacksHeaderInfo {
     pub burn_header_hash: BurnchainHeaderHash,
     pub burn_header_height: u32,
     pub burn_header_timestamp: u64,
-    pub total_liquid_ustx: u128,
     pub anchored_block_size: u64,
 }
 
@@ -177,7 +176,7 @@ impl StacksHeaderInfo {
         self.anchored_header.index_block_hash(&self.consensus_hash)
     }
 
-    pub fn regtest_genesis(total_liquid_ustx: u128) -> StacksHeaderInfo {
+    pub fn regtest_genesis() -> StacksHeaderInfo {
         let burnchain_params = BurnchainParameters::bitcoin_regtest();
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
@@ -188,14 +187,12 @@ impl StacksHeaderInfo {
             burn_header_height: burnchain_params.first_block_height as u32,
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
-            total_liquid_ustx,
             anchored_block_size: 0,
         }
     }
 
     pub fn genesis(
         root_hash: TrieHash,
-        initial_liquid_ustx: u128,
         first_burnchain_block_hash: &BurnchainHeaderHash,
         first_burnchain_block_height: u32,
         first_burnchain_block_timestamp: u64,
@@ -209,7 +206,6 @@ impl StacksHeaderInfo {
             burn_header_height: first_burnchain_block_height,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
-            total_liquid_ustx: initial_liquid_ustx,
             anchored_block_size: 0,
         }
     }
@@ -221,9 +217,9 @@ impl StacksHeaderInfo {
 
 impl FromRow<DBConfig> for DBConfig {
     fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
-        let version: String = row.get("version");
-        let mainnet_i64: i64 = row.get("mainnet");
-        let chain_id_i64: i64 = row.get("chain_id");
+        let version: String = row.get_unwrap("version");
+        let mainnet_i64: i64 = row.get_unwrap("mainnet");
+        let chain_id_i64: i64 = row.get_unwrap("chain_id");
 
         let mainnet = mainnet_i64 != 0;
         let chain_id = chain_id_i64 as u32;
@@ -245,11 +241,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        let total_liquid_ustx_str: String = row.get("total_liquid_ustx");
-        let total_liquid_ustx = total_liquid_ustx_str
-            .parse::<u128>()
-            .map_err(|_| db_error::ParseError)?;
-        let anchored_block_size_str: String = row.get("block_size");
+        let anchored_block_size_str: String = row.get_unwrap("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
@@ -267,7 +259,6 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_hash: burn_header_hash,
             burn_header_height: burn_header_height,
             burn_header_timestamp: burn_header_timestamp,
-            total_liquid_ustx: total_liquid_ustx,
             anchored_block_size: anchored_block_size,
         })
     }
@@ -364,6 +355,17 @@ impl<'a> ClarityTx<'a> {
 
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
+    }
+
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) {
+        self.connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|db| {
+                    db.increment_ustx_liquid_supply(incr_by)
+                        .map_err(|e| e.into())
+                })
+            })
+            .expect("FATAL: `ust-liquid-supply` overflowed");
     }
 }
 
@@ -481,7 +483,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         burn_header_hash TEXT NOT NULL,              -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can have 2+ blocks per burn block if there's a PoX fork)
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
-        total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
         parent_block_id TEXT NOT NULL,               -- NOTE: this is the parent index_block_hash
 
         cost TEXT NOT NULL,
@@ -635,8 +636,6 @@ pub struct ChainstateAccountLockup {
 pub struct ChainstateBNSNamespace {
     pub namespace_id: String,
     pub importer: String,
-    pub revealed_at: u64,
-    pub launched_at: u64,
     pub buckets: String,
     pub base: u64,
     pub coeff: u64,
@@ -649,8 +648,6 @@ pub struct ChainstateBNSNamespace {
 pub struct ChainstateBNSName {
     pub fully_qualified_name: String,
     pub owner: String,
-    pub registered_at: u64,
-    pub expired_at: u64,
     pub zonefile_hash: String,
 }
 
@@ -1003,7 +1000,12 @@ impl StacksChainState {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
                                 let value = Value::list_from(schedule).unwrap();
-                                db.insert_entry(&lockup_contract_id, "lockups", key, value)?;
+                                db.insert_entry_unknown_descriptor(
+                                    &lockup_contract_id,
+                                    "lockups",
+                                    key,
+                                    value,
+                                )?;
                             }
                             Ok(())
                         })
@@ -1034,8 +1036,8 @@ impl StacksChainState {
                                     Value::Principal(address)
                                 };
 
-                                let revealed_at = Value::UInt(entry.revealed_at.into());
-                                let launched_at = Value::UInt(entry.launched_at.into());
+                                let revealed_at = Value::UInt(0);
+                                let launched_at = Value::UInt(0);
                                 let lifetime = Value::UInt(entry.lifetime.into());
                                 let price_function = {
                                     let base = Value::UInt(entry.base.into());
@@ -1067,12 +1069,13 @@ impl StacksChainState {
                                         ("launched-at".into(), Value::some(launched_at).unwrap()),
                                         ("lifetime".into(), lifetime),
                                         ("namespace-import".into(), importer),
+                                        ("can-update-price-function".into(), Value::Bool(true)),
                                         ("price-function".into(), Value::Tuple(price_function)),
                                     ])
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "namespaces",
                                     namespace,
@@ -1134,9 +1137,17 @@ impl StacksChainState {
                                     }
                                 };
 
-                                db.set_nft_owner(&bns_contract_id, "names", &fqn, &owner_address)?;
+                                let expected_asset_type =
+                                    db.get_nft_key_type(&bns_contract_id, "names")?;
+                                db.set_nft_owner(
+                                    &bns_contract_id,
+                                    "names",
+                                    &fqn,
+                                    &owner_address,
+                                    &expected_asset_type,
+                                )?;
 
-                                let registered_at = Value::UInt(entry.registered_at.into());
+                                let registered_at = Value::UInt(0);
                                 let name_props = Value::Tuple(
                                     TupleData::from_data(vec![
                                         (
@@ -1150,14 +1161,14 @@ impl StacksChainState {
                                     .unwrap(),
                                 );
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
                                 )?;
 
-                                db.insert_entry(
+                                db.insert_entry_unknown_descriptor(
                                     &bns_contract_id,
                                     "owner-name",
                                     Value::Principal(owner_address),
@@ -1191,6 +1202,16 @@ impl StacksChainState {
                 callback(&mut clarity_tx);
             }
 
+            clarity_tx
+                .connection()
+                .as_transaction(|tx| {
+                    tx.with_clarity_db(|db| {
+                        db.increment_ustx_liquid_supply(initial_liquid_ustx)
+                            .map_err(|e| e.into())
+                    })
+                })
+                .expect("FATAL: `ust-liquid-supply` overflowed");
+
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
@@ -1220,7 +1241,6 @@ impl StacksChainState {
 
             let first_tip_info = StacksHeaderInfo::genesis(
                 first_root_hash,
-                initial_liquid_ustx,
                 &boot_data.first_burnchain_block_hash,
                 boot_data.first_burnchain_block_height,
                 boot_data.first_burnchain_block_timestamp as u64,
@@ -1848,7 +1868,6 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
-        total_liquid_ustx: u128,
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
@@ -1892,7 +1911,6 @@ impl StacksChainState {
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
-            total_liquid_ustx,
             anchored_block_size: anchor_block_size,
         };
 
@@ -2038,8 +2056,6 @@ pub mod test {
                     ChainstateBNSNamespace {
                         namespace_id: item.namespace_id,
                         importer: item.importer,
-                        revealed_at: item.reveal_block as u64,
-                        launched_at: item.ready_block as u64,
                         buckets: item.buckets,
                         base: item.base as u64,
                         coeff: item.coeff as u64,
@@ -2056,8 +2072,6 @@ pub mod test {
                         .map(|item| ChainstateBNSName {
                             fully_qualified_name: item.fully_qualified_name,
                             owner: item.owner,
-                            registered_at: item.registered_at as u64,
-                            expired_at: item.expire_block as u64,
                             zonefile_hash: item.zonefile_hash,
                         }),
                 )
@@ -2093,8 +2107,8 @@ pub mod test {
         // If the genesis data changed, then this test will fail.
         // Just update the expected value
         assert_eq!(
-            format!("{}", genesis_root_hash),
-            "dd2213e2a0f506ec519672752f033ce2070fa279a579d983bcf2edefb35ce131"
+            genesis_root_hash.to_string(),
+            "54e300e1f626c3a952968204b63a272d308ba498824e72013a7788fcf4b316e4"
         );
     }
 
@@ -2128,12 +2142,10 @@ pub mod test {
                 }))
             })),
             get_bulk_initial_namespaces: Some(Box::new(|| {
-                Box::new(GenesisData::new(true).read_namespaces().map(|item| {
+                Box::new(GenesisData::new(false).read_namespaces().map(|item| {
                     ChainstateBNSNamespace {
                         namespace_id: item.namespace_id,
                         importer: item.importer,
-                        revealed_at: item.reveal_block as u64,
-                        launched_at: item.ready_block as u64,
                         buckets: item.buckets,
                         base: item.base as u64,
                         coeff: item.coeff as u64,
@@ -2145,13 +2157,11 @@ pub mod test {
             })),
             get_bulk_initial_names: Some(Box::new(|| {
                 Box::new(
-                    GenesisData::new(true)
+                    GenesisData::new(false)
                         .read_names()
                         .map(|item| ChainstateBNSName {
                             fully_qualified_name: item.fully_qualified_name,
                             owner: item.owner,
-                            registered_at: item.registered_at as u64,
-                            expired_at: item.expire_block as u64,
                             zonefile_hash: item.zonefile_hash,
                         }),
                 )
@@ -2188,7 +2198,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "30f4472782b844e508bfebd8912f271270c1fd04393cd18e884f42dbb1a133f1"
+            "a2fcaeb9fcc41d54e91062d9a69d76c301155fabf87e7139bdb1ca9b6e3d9705"
         );
     }
 }

@@ -27,7 +27,10 @@ use vm::costs::{
     cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
     ExecutionCost, LimitedCostTracker,
 };
-use vm::database::ClarityDatabase;
+use vm::database::{
+    ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
+    NonFungibleTokenMetadata,
+};
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::functions::handle_contract_call_special_cases;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression};
@@ -117,6 +120,11 @@ pub struct ContractContext {
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
     //  used for ensuring that they never are defined twice.
     pub persisted_names: HashSet<ClarityName>,
+    // track metadata for contract defined storage
+    pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
+    pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
+    pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
+    pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
 }
 
@@ -587,6 +595,11 @@ impl<'a> OwnedEnvironment<'a> {
             balance.amount_unlocked += amount;
             snapshot.set_balance(balance);
             snapshot.save();
+
+            env.global_context
+                .database
+                .increment_ustx_liquid_supply(amount)
+                .unwrap();
             Ok(())
         })
         .unwrap();
@@ -1431,6 +1444,10 @@ impl ContractContext {
             implemented_traits: HashSet::new(),
             persisted_names: HashSet::new(),
             data_size: 0,
+            meta_data_map: HashMap::new(),
+            meta_data_var: HashMap::new(),
+            meta_nft: HashMap::new(),
+            meta_ft: HashMap::new(),
         }
     }
 

@@ -175,20 +175,12 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     );
     let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
     let mut hash_opt = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let bhh = friendly_expect(
-                    StacksBlockId::from_column(&row, "block_hash"),
-                    "FATAL: could not parse block hash",
-                );
-                hash_opt = Some(bhh);
-                break;
-            }
-            Err(e) => {
-                panic!("FATAL: could not read block hash: {:?}", e);
-            }
-        }
+    while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
+        let bhh = friendly_expect(
+            StacksBlockId::from_column(&row, "block_hash"),
+            "FATAL: could not parse block hash",
+        );
+        hash_opt = Some(bhh);
     }
     match hash_opt {
         Some(bhh) => bhh,
@@ -203,21 +195,16 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
     );
     let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
     let mut row_opt = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let rowid = friendly_expect(
-                    u64::from_column(&row, "id"),
-                    "FATAL: could not parse row ID",
-                );
-                row_opt = Some(rowid);
-                break;
-            }
-            Err(e) => {
-                panic!("FATAL: could not read block hash: {:?}", e);
-            }
-        }
+
+    while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
+        let rowid = friendly_expect(
+            u64::from_column(&row, "id"),
+            "FATAL: could not parse row ID",
+        );
+        row_opt = Some(rowid);
+        break;
     }
+
     row_opt
 }
 
@@ -409,9 +396,6 @@ impl HeadersDB for CLIHeadersDB {
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
-    }
-    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
-        0
     }
 }
 

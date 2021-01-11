@@ -1234,7 +1234,7 @@ fn block_limit_runtime_test() {
 
     // use a shorter runtime limit. the current runtime limit
     //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-    conf.block_limit.runtime = 1_000_000;
+    conf.block_limit.runtime = 1_000_000_000;
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let num_rounds = 6;
@@ -1309,7 +1309,7 @@ fn block_limit_runtime_test() {
             match round {
                 2 => {
                     // Block #1 should have 3 txs -- coinbase + 2 contract calls...
-                    assert!(block.block.txs.len() == 3);
+                    assert_eq!(block.block.txs.len(), 3);
                 }
                 3 | 4 | 5 => {
                     // Block >= 2 should have 4 txs -- coinbase + 3 contract calls

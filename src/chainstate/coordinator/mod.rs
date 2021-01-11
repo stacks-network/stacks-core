@@ -211,12 +211,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
-        let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-            chainstate.db(),
-            block_id,
-        )?
-        .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
-        .total_liquid_ustx;
+        let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &burnchain.pox_constants,
@@ -224,15 +219,23 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             liquid_ustx,
         );
 
-        test_debug!("PoX reward cycle threshold: {}, participation: {}, liquid_ustx: {}, num registered addrs: {}", threshold, participation, liquid_ustx, registered_addrs.len());
-
         if !burnchain
             .pox_constants
             .enough_participation(participation, liquid_ustx)
         {
-            info!("PoX reward cycle did not have enough participation. Defaulting to burn. participation={}, liquid_ustx={}, burn_height={}",
-                  participation, liquid_ustx, current_burn_height);
+            info!("PoX reward cycle did not have enough participation. Defaulting to burn";
+                  "burn_height" => current_burn_height,
+                  "participation" => participation,
+                  "liquid_ustx" => liquid_ustx,
+                  "registered_addrs" => registered_addrs.len());
             return Ok(vec![]);
+        } else {
+            info!("PoX reward cycle threshold computed";
+                  "burn_height" => current_burn_height,
+                  "threshold" => threshold,
+                  "participation" => participation,
+                  "liquid_ustx" => liquid_ustx,
+                  "registered_addrs" => registered_addrs.len());
         }
 
         Ok(StacksChainState::make_reward_set(

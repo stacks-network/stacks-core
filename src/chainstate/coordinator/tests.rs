@@ -108,8 +108,8 @@ fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<Burn
         "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
         &[sortition],
         |row| {
-            let data_str: String = row.get(0);
-            serde_json::from_str(&data_str).unwrap()
+            let data_str: String = row.get_unwrap(0);
+            Ok(serde_json::from_str(&data_str).unwrap())
         },
     )
     .unwrap()
@@ -442,7 +442,7 @@ fn make_genesis_block_with_recipients(
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::regtest_genesis(0);
+    let parent_stacks_header = StacksHeaderInfo::regtest_genesis();
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 

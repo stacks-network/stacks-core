@@ -59,7 +59,7 @@ impl_byte_array_from_column!(MessageSignature);
 
 impl FromColumn<VRFPublicKey> for VRFPublicKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<VRFPublicKey, db_error> {
-        let pubkey_hex: String = row.get(column_name);
+        let pubkey_hex: String = row.get_unwrap(column_name);
         match VRFPublicKey::from_hex(&pubkey_hex) {
             Some(pubk) => Ok(pubk),
             None => Err(db_error::ParseError),
@@ -69,7 +69,7 @@ impl FromColumn<VRFPublicKey> for VRFPublicKey {
 
 impl<A: Address> FromColumn<A> for A {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<A, db_error> {
-        let address_str: String = row.get(column_name);
+        let address_str: String = row.get_unwrap(column_name);
         match A::from_string(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
