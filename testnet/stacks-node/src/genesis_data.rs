@@ -3,8 +3,8 @@
 // The production file can be used in tests by specifying the `prod-genesis-chainstate` feature
 // flag, .e.g. `cargo test --features prod-genesis-chainstate`
 
-#[cfg(any(not(test), feature = "prod-genesis-chainstate"))]
-pub const USE_TEST_GENESIS_CHAINSTATE: bool = false;
+// #[cfg(any(not(test), feature = "prod-genesis-chainstate"))]
+// pub const USE_TEST_GENESIS_CHAINSTATE: bool = false;
 
-#[cfg(all(test, not(feature = "prod-genesis-chainstate")))]
+// #[cfg(all(test, not(feature = "prod-genesis-chainstate")))]
 pub const USE_TEST_GENESIS_CHAINSTATE: bool = true;

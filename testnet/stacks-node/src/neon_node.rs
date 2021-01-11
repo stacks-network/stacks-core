@@ -778,7 +778,7 @@ fn spawn_miner_relayer(
                                 && burn_hash == mined_burn_hash
                             {
                                 // we won!
-                                info!("Won sortition!";
+                                debug!("Won sortition!";
                                       "stacks_header" => %block_header_hash,
                                       "burn_hash" => %mined_burn_hash,
                                 );
@@ -1145,7 +1145,7 @@ impl InitializedNeonNode {
                         .send(RelayerDirective::RegisterKey(burnchain_tip))
                         .is_ok() 
                 },
-                LeaderKeyRegistrationState::Pending => false,
+                LeaderKeyRegistrationState::Pending => true,
             }
         } else {
             warn!("Do not know the last burn block. As a miner, this is bad.");
@@ -1678,23 +1678,25 @@ impl InitializedNeonNode {
         );
 
         for op in key_registers.into_iter() {
-            if self.is_miner {
-                info!(
-                    "Received burnchain block #{} including key_register_op - {}",
-                    block_height, op.address
-                );
-            }
             if op.address == node_address {
+                if self.is_miner {
+                    info!(
+                        "Received burnchain block #{} including key_register_op - {}",
+                        block_height, op.address
+                    );
+                }    
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined
-                    self.leader_key_registration_state = LeaderKeyRegistrationState::Active(
-                        RegisteredKey {
-                            vrf_public_key: op.public_key,
-                            block_height: op.block_height as u64,
-                            op_vtxindex: op.vtxindex as u32,
-                        }
-                    );
+                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state {
+                        self.leader_key_registration_state = LeaderKeyRegistrationState::Active(
+                            RegisteredKey {
+                                vrf_public_key: op.public_key,
+                                block_height: op.block_height as u64,
+                                op_vtxindex: op.vtxindex as u32,
+                            }
+                        );    
+                    }
                 }
             }
         }
