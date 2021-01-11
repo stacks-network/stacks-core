@@ -716,7 +716,7 @@ impl BitcoinRegtestController {
         tx.output = vec![consensus_output];
         tx.output.push(payload.output.to_bitcoin_tx_out(output_amt));
 
-        self.finalize_tx(&mut tx, output_amt, utxos, signer, 1)?;
+        self.finalize_tx(&mut tx, output_amt, DUST_UTXO_LIMIT, utxos, signer, 1)?;
 
         increment_btc_ops_sent_counter();
 
