@@ -1976,7 +1976,7 @@ impl PeerNetwork {
                 break;
             }
 
-            test_debug!(
+            debug!(
                 "{:?}: inv state-machine for {:?} is in state {:?}",
                 &self.local_peer,
                 nk,
@@ -3511,7 +3511,7 @@ mod test {
 
         // should be stable; but got nacked (so this would be inappropriate)
         assert_eq!(
-            NodeStatus::Broken,
+            NodeStatus::Diverged,
             NeighborBlockStats::diagnose_nack(
                 &neighbor_key,
                 nack_no_block.clone(),
