@@ -669,7 +669,7 @@ impl NeighborBlockStats {
                     debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 } else {
                     debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash", _nk);
-                    diverged = true;
+                    broken = true;
                 }
             }
         } else if nack_data.error_code == NackErrorCodes::InvalidPoxFork {
@@ -3511,7 +3511,7 @@ mod test {
 
         // should be stable; but got nacked (so this would be inappropriate)
         assert_eq!(
-            NodeStatus::Diverged,
+            NodeStatus::Broken,
             NeighborBlockStats::diagnose_nack(
                 &neighbor_key,
                 nack_no_block.clone(),
