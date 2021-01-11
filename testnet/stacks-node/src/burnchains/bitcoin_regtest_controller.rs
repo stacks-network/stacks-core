@@ -658,7 +658,7 @@ impl BitcoinRegtestController {
         tx.output
             .push(payload.recipient.to_bitcoin_tx_out(DUST_UTXO_LIMIT));
 
-        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, utxos, signer, 1)?;
+        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, DUST_UTXO_LIMIT, utxos, signer, 1)?;
 
         increment_btc_ops_sent_counter();
 
