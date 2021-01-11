@@ -35,7 +35,7 @@ from ..scripts import *
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
 
-IMPORT_HEIGHT=665550
+IMPORT_HEIGHT=665750
 
 def get_virtual_chain_name():
     """
