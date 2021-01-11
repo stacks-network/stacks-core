@@ -85,6 +85,39 @@ is expired, or if there's never been such a stacker, then returns none."),
         ("get-pox-info", "Returns information about PoX status.")
     ];
 
+    let bns_descriptions = vec![
+        ("namespace-preorder", "Registers the salted hash of the namespace with BNS nodes, and burns the requisite amount of cryptocurrency. Additionally, this step proves to the BNS nodes that user has honored the BNS consensus rules by including a recent consensus hash in the transaction. Returns pre-order's expiration date (in blocks)."),
+        ("namespace-reveal", "Reveals the salt and the namespace ID (pafter a namespace preorder). It reveals how long names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace that determines how cheap or expensive names its will be."),
+        ("name-import", "Import name to a revealed namespace. Each imported name is given both an owner and some off-chain state."),
+        ("namespace-ready", "Launches the namespace and makes it available to the public. Once a namespace is launched, anyone can register a name in it if they pay the appropriate amount of cryptocurrency."),
+        ("name-preorder", "Preorders a name by telling all BNS nodes the salted hash of the BNS name. It pays the registration fee to the namespace owner's designated address."),
+        ("name-register", "Reveals the salt and the name to all BNS nodes, and assigns the name an initial public key hash and zone file hash."),
+        ("name-update", "Changes the name's zone file hash. You would send one of these transactions if you wanted to change the name's zone file contents. For example, you would do this if you want to deploy your own Gaia hub and want other people to read from it."),
+        ("name-transfer", "Changes the name's public key hash. You would send one of these transactions if you wanted to:
+* Change your private key
+* Send the name to someone else
+
+When transferring a name, you have the option to also clear the name's zone file hash (i.e. set it to null). This is useful for when you send the name to someone else, so the recipient's name does not resolve to your zone file."),
+        ("name-revoke", "Makes a name unresolvable. The BNS consensus rules stipulate that once a name is revoked, no one can change its public key hash or its zone file hash.  The name's zone file hash is set to null to prevent it from resolving. You should only do this if your private key is compromised, or if you want to render your name unusable for whatever reason."),
+        ("name-renewal", "Depending in the namespace rules, a name can expire. For example, names in the .id namespace expire after 2 years. You need to send a name reveal every so often to keep your name.
+
+You will pay the registration cost of your name to the namespace's designated burn address when you renew it.
+When a name expires, it enters a month-long \"grace period\" (5000 blocks). 
+
+It will stop resolving in the grace period, and all of the above operations will cease to be honored by the BNS consensus rules.
+You may, however, send a NAME_RENEWAL during this grace period to preserve your name.
+If your name is in a namespace where names do not expire, then you never need to use this transaction."),
+        ("get-namespace-price", "Get the price for a namespace."),
+        ("get-name-price", "Get the price for a name."),
+        ("can-namespace-be-registered", "Returns true if the provided namespace is available."),
+        ("is-name-lease-expired", "Return true if the provided name lease is expired."),
+        ("can-name-be-registered", "Returns true if the provided name can be registered."),
+        ("name-resolve", "Get name registration details."),
+        ("get-namespace-properties", "Get namespace properties."),
+        ("can-receive-name", "Returns true if the provided name can be received. That is, if it is not curretly owned, a previous lease is expired, and the name wasn't revoked."),
+        ("get-name", "Returns a response with the username that belongs to the user if any, otherwise an error ERROR_NOT_FOUND is returned.")
+    ];
+
     let pox_skip_display = vec![
         "set-burnchain-parameters",
         "minimal-can-stack-stx",
@@ -92,13 +125,29 @@ is expired, or if there's never been such a stacker, then returns none."),
         "get-reward-set-pox-address",
     ];
 
-    HashMap::from_iter(vec![(
-        "pox",
-        ContractSupportDocs {
-            descriptions: HashMap::from_iter(pox_descriptions.into_iter()),
-            skip_func_display: HashSet::from_iter(pox_skip_display.into_iter()),
-        },
-    )])
+    let bns_skip_display = vec![
+        "namespace-update-function-price",
+        "namespace-revoke-function-price-edition",
+        "check-name-ops-preconditions",
+        "is-name-in-grace-period",
+    ];
+
+    HashMap::from_iter(vec![
+        (
+            "pox",
+            ContractSupportDocs {
+                descriptions: HashMap::from_iter(pox_descriptions.into_iter()),
+                skip_func_display: HashSet::from_iter(pox_skip_display.into_iter()),
+            },
+        ),
+        (
+            "bns",
+            ContractSupportDocs {
+                descriptions: HashMap::from_iter(bns_descriptions.into_iter()),
+                skip_func_display: HashSet::from_iter(bns_skip_display.into_iter()),
+            },
+        ),
+    ])
 }
 
 fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
