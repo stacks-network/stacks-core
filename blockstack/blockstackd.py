@@ -1434,7 +1434,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             'txid': account_state['txid'],
         }
         # if block height is after the migration export threshold, return a lock height that will force the wallet to error when sending a tx
-        if result['block_id'] >= 665750:
+        if result['block_id'] >= virtualchain_hooks.IMPORT_HEIGHT:
             print log.warning('[v2-upgrade] Forcing lock_transfer_block_id to 9999999 to prevent wallet txs')
             result['lock_transfer_block_id'] = 9999999
         return result
