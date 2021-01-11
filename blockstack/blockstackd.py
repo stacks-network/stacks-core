@@ -1423,7 +1423,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         """
         Make an account state presentable to external consumers
         """
-        return {
+        result = {
             'address': account_state['address'],
             'type': account_state['type'],
             'credit_value': '{}'.format(account_state['credit_value']),
@@ -1433,6 +1433,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             'vtxindex': account_state['vtxindex'],
             'txid': account_state['txid'],
         }
+        return result
 
 
     def rpc_get_account_record(self, address, token_type, **con_info):
@@ -1451,10 +1452,16 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
         db = get_db_state(self.working_dir)
         account = db.get_account(address, token_type)
+        last_block = db.lastblock
         db.close()
 
         if account is None:
             return {'error': 'No such account', 'http_status': 404}
+
+        # if block height is after the migration export threshold, return a lock height that will force the wallet to error when sending a tx
+        if last_block >= virtualchain_hooks.IMPORT_HEIGHT:
+            print log.warning('[v2-upgrade] Forcing lock_transfer_block_id to 9999999 to prevent wallet txs')
+            account['lock_transfer_block_id'] = 9999999
 
         state = self.export_account_state(account)
         return self.success_response({'account': state})
