@@ -688,7 +688,7 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let output_amt = 2 * (self.config.burnchain.burnchain_op_tx_fee + DUST_UTXO_LIMIT);
+        let output_amt = 2 * (self.config.burnchain.satoshis_per_pox_output + DUST_UTXO_LIMIT);
         let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, 1)?;
 
         // Serialize the payload
@@ -835,10 +835,6 @@ impl BitcoinRegtestController {
         // spend UTXOs in decreasing order
         utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
         utxos.reverse();
-
-        // RBF
-        let tx_fee = self.config.burnchain.burnchain_op_tx_fee
-            + ((attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000);
 
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
