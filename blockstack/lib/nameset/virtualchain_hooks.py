@@ -208,8 +208,8 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    # check if the v2 export threshold block has already been reached.
    # if so, then no more transactions will be considered
    v2_block_id = db_state.get_v2_import_block_reached()
-   if v2_block_id is not None:
-       log.warning("V2 export block height threshold reached; ignoring transaction {}".format(data.encode('hex')))
+   if block_id > 665750:
+       log.warning("V2 export block height threshold (665750) reached; ignoring transaction {}".format(data.encode('hex')))
        return None
 
    # this virtualchain instance must give the 'raw_tx' hint
