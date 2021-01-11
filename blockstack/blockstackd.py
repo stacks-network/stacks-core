@@ -3755,7 +3755,7 @@ def run_blockstackd():
             if namespace_id in namespace_patches:
                 namespace.update(namespace_patches[namespace_id])
             # adjust price coeff for version 1 (and version 2 that are more than a year old)
-            elif namespace_info['version'] == 1 or namespace_info['ready_block'] < 611400:
+            elif namespace_info['version'] == 1 or (namespace_info['version'] == 2 and namespace_info['ready_block'] < 611400):
                 # update namespace version 1 params to adjust for btc to stx prices
                 namespace['coeff'] = int(math.floor(namespace['coeff'] * (650 / 15.)))
             chainstate_f.write('{},{},{},{},{},{},{},{}\n'.format(
