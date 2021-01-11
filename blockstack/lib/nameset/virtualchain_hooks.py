@@ -35,6 +35,8 @@ from ..scripts import *
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
 
+IMPORT_HEIGHT=665550
+
 def get_virtual_chain_name():
     """
     (required by virtualchain state engine)
@@ -204,12 +206,11 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    if not check_tx_sender_types(senders, block_id):
        log.warning('Invalid senders for {}'.format(txid))
        return None
-        
+
    # check if the v2 export threshold block has already been reached.
    # if so, then no more transactions will be considered
-   v2_block_id = db_state.get_v2_import_block_reached()
-   if v2_block_id is not None:
-       log.warning("V2 export block height threshold reached; ignoring transaction {}".format(data.encode('hex')))
+   if block_id >= IMPORT_HEIGHT:
+       log.warning("V2 export block height threshold ({}) reached; ignoring transaction {} @ {}".format(IMPORT_HEIGHT, data.encode('hex'), block_id))
        return None
 
    # this virtualchain instance must give the 'raw_tx' hint
@@ -587,15 +588,15 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         # check if the ID threshold block has already been reached
         threshold_block_id = db_state.get_v2_upgrade_threshold_block()
         if threshold_block_id is not None:
-            import_block = db_state.get_v2_import_block_reached()
-            if import_block is None:
-                # check if the required number of blocks have been mined since threshold crossed
-                if (block_height - threshold_block_id == v2_upgrade_signal_import_threshold):
-                    # emit parsable log entry and export datafile
-                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
+            if block_height == IMPORT_HEIGHT:
+                import_block = db_state.get_v2_import_block_reached()
+                if import_block is None:
                     db_state.set_v2_import_block_reached(block_height)
-                    db_state.perform_v2_upgrade_datafile_export(block_height, consensus_hash)
-                    log.warn('[v2-upgrade] migration datafile export successful')
+
+                # emit parsable log entry and export datafile
+                log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
+                db_state.perform_v2_upgrade_datafile_export(block_height, consensus_hash)
+                log.warn('[v2-upgrade] migration datafile export successful')
 
         else:
             # check if threshold is reached at current block height
