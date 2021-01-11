@@ -531,9 +531,9 @@ impl Config {
                         })
                         .unwrap_or(default_burnchain_config.magic_bytes),
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    burnchain_op_tx_fee: burnchain
-                        .burnchain_op_tx_fee
-                        .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
+                    satoshis_per_block_commit_output: burnchain
+                        .satoshis_per_block_commit_output
+                        .unwrap_or(default_burnchain_config.satoshis_per_block_commit_output),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
                     poll_time_secs: burnchain
                         .poll_time_secs
@@ -880,7 +880,7 @@ pub struct BurnchainConfig {
     pub spv_headers_path: String,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: u64,
+    pub satoshis_per_block_commit_output: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
 }
@@ -904,7 +904,7 @@ impl BurnchainConfig {
             spv_headers_path: "./spv-headers.dat".to_string(),
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
-            burnchain_op_tx_fee: MINIMUM_DUST_FEE,
+            satoshis_per_block_commit_output: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
         }
@@ -954,7 +954,7 @@ pub struct BurnchainConfigFile {
     pub spv_headers_path: Option<String>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: Option<u64>,
+    pub satoshis_per_block_commit_output: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
 }
