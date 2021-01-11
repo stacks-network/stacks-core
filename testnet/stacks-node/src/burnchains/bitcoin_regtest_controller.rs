@@ -743,14 +743,7 @@ impl BitcoinRegtestController {
         };
 
         let number_of_transfers = payload.commit_outs.len() as u64;
-        let value_per_transfer = {
-            let minimum_per_transfer =
-                cmp::max(payload.burn_fee / number_of_transfers, DUST_UTXO_LIMIT);
-            cmp::max(
-                minimum_per_transfer,
-                self.config.burnchain.satoshis_per_block_commit_output,
-            )
-        };
+        let value_per_transfer = payload.burn_fee / number_of_transfers;
 
         let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
             * self.config.burnchain.satoshis_per_byte

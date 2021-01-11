@@ -20,7 +20,9 @@ pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
 pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
-const MINIMUM_DUST_FEE: u64 = 5500;
+const DEFAULT_SATS_PER_VB: u64 = 50;
+const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
+const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -531,9 +533,6 @@ impl Config {
                         })
                         .unwrap_or(default_burnchain_config.magic_bytes),
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    satoshis_per_block_commit_output: burnchain
-                        .satoshis_per_block_commit_output
-                        .unwrap_or(default_burnchain_config.satoshis_per_block_commit_output),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
                     poll_time_secs: burnchain
                         .poll_time_secs
@@ -889,7 +888,6 @@ pub struct BurnchainConfig {
     pub spv_headers_path: String,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
-    pub satoshis_per_block_commit_output: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
     pub satoshis_per_byte: u64,
@@ -916,12 +914,11 @@ impl BurnchainConfig {
             spv_headers_path: "./spv-headers.dat".to_string(),
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
-            satoshis_per_block_commit_output: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
-            satoshis_per_byte: 50,
-            leader_key_tx_estimated_size: 290,
-            block_commit_tx_estimated_size: 350,
+            satoshis_per_byte: DEFAULT_SATS_PER_VB,
+            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
+            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
         }
     }
 
@@ -969,7 +966,6 @@ pub struct BurnchainConfigFile {
     pub spv_headers_path: Option<String>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
-    pub satoshis_per_block_commit_output: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
     pub satoshis_per_byte: Option<u64>,
