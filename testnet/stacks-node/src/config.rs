@@ -373,9 +373,9 @@ lazy_static! {
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_neighbors: 32,              // number of neighbors whose inventories we track
         num_clients: 1000,              // number of inbound p2p connections
-        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
+        soft_num_neighbors: 32,         // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 1000,         // soft limit on the number of inbound p2p connections
         max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
         max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
@@ -383,7 +383,7 @@ lazy_static! {
         soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
         soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
         max_http_clients: 1000,         // maximum number of HTTP connections
-        max_neighbors_of_neighbor: 5,   // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
