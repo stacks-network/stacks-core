@@ -538,6 +538,16 @@ impl Config {
                     poll_time_secs: burnchain
                         .poll_time_secs
                         .unwrap_or(default_burnchain_config.poll_time_secs),
+                    satoshis_per_byte: burnchain
+                        .satoshis_per_byte
+                        .unwrap_or(default_burnchain_config.satoshis_per_byte),
+                    leader_key_tx_estimated_size: burnchain
+                        .leader_key_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
+                    block_commit_tx_estimated_size: burnchain
+                        .block_commit_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+
                 }
             }
             None => default_burnchain_config,
@@ -883,6 +893,9 @@ pub struct BurnchainConfig {
     pub satoshis_per_block_commit_output: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
+    pub satoshis_per_byte: u64,
+    pub leader_key_tx_estimated_size: u64,
+    pub block_commit_tx_estimated_size: u64,
 }
 
 impl BurnchainConfig {
@@ -907,6 +920,9 @@ impl BurnchainConfig {
             satoshis_per_block_commit_output: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
+            satoshis_per_byte: 50,
+            leader_key_tx_estimated_size: 290,
+            block_commit_tx_estimated_size: 350,        
         }
     }
 
@@ -957,6 +973,9 @@ pub struct BurnchainConfigFile {
     pub satoshis_per_block_commit_output: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
+    pub satoshis_per_byte: Option<u64>,
+    pub leader_key_tx_estimated_size: Option<u64>,
+    pub block_commit_tx_estimated_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
