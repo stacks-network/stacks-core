@@ -547,7 +547,6 @@ impl Config {
                     block_commit_tx_estimated_size: burnchain
                         .block_commit_tx_estimated_size
                         .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
-
                 }
             }
             None => default_burnchain_config,
@@ -922,7 +921,7 @@ impl BurnchainConfig {
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: 50,
             leader_key_tx_estimated_size: 290,
-            block_commit_tx_estimated_size: 350,        
+            block_commit_tx_estimated_size: 350,
         }
     }
 
