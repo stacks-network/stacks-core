@@ -1149,14 +1149,14 @@ impl InitializedNeonNode {
                     self.relay_channel
                         .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                         .is_ok()
-                },
+                }
                 LeaderKeyRegistrationState::None => {
                     warn!("Skipped tenure because no active VRF key. Trying to register one.");
                     self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
                     self.relay_channel
                         .send(RelayerDirective::RegisterKey(burnchain_tip))
-                        .is_ok() 
-                },
+                        .is_ok()
+                }
                 LeaderKeyRegistrationState::Pending => true,
             }
         } else {
@@ -1699,14 +1699,14 @@ impl InitializedNeonNode {
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined
-                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state {
-                        self.leader_key_registration_state = LeaderKeyRegistrationState::Active(
-                            RegisteredKey {
+                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state
+                    {
+                        self.leader_key_registration_state =
+                            LeaderKeyRegistrationState::Active(RegisteredKey {
                                 vrf_public_key: op.public_key,
                                 block_height: op.block_height as u64,
                                 op_vtxindex: op.vtxindex as u32,
-                            }
-                        );
+                            });
                     }
                 }
             }
