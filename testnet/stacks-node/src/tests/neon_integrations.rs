@@ -361,6 +361,7 @@ fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account 
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client
         .get(&path)
+        .timeout(Duration::from_secs(300))
         .send()
         .unwrap()
         .json::<AccountEntryResponse>()
