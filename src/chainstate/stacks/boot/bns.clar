@@ -879,7 +879,9 @@
           (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION)))))))
 
 (define-read-only (get-name (owner principal))
-  (ok (map-get? owner-name owner)))
+  (match (map-get? owner-name owner)
+    name (ok name)
+    (err ERR_NAME_NOT_FOUND)))
 
 (define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name owner)))
