@@ -228,7 +228,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
 ) -> Result<Vec<(TrieHash, T)>, Error> {
     let mut s = conn.prepare("SELECT block_hash, data FROM marf_data WHERE unconfirmed = 0")?;
     let rows = s.query_and_then(NO_PARAMS, |row| {
-        let block_hash: T = row.get("block_hash");
+        let block_hash: T = row.get_unwrap("block_hash");
         let data = row
             .get_raw("data")
             .as_blob()
@@ -343,7 +343,7 @@ pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(
             .query_row(
                 "SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1",
                 &[bhh],
-                |_row| (),
+                |_row| Ok(()),
             )
             .optional()?
             .is_some();
@@ -356,7 +356,7 @@ pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(
         .query_row(
             "SELECT 1 FROM block_extension_locks WHERE block_hash = ? LIMIT 1",
             &[bhh],
-            |_row| (),
+            |_row| Ok(()),
         )
         .optional()?
         .is_some();

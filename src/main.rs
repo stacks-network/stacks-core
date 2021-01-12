@@ -261,7 +261,7 @@ fn main() {
                 "SELECT value FROM __fork_storage WHERE value_hash = ?1",
                 args,
                 |row| {
-                    let s: String = row.get(0);
+                    let s: String = row.get_unwrap(0);
                     Ok(s)
                 },
             );
@@ -322,7 +322,7 @@ fn main() {
             println!("{}, {}", cur_burn, cur_tip);
             let (next_burn, next_tip) = match
                 conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
-                               &[&cur_tip as &dyn rusqlite::types::ToSql, &cur_burn], |row| (row.get(0), row.get(1))) {
+                               &[&cur_tip as &dyn rusqlite::types::ToSql, &cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
