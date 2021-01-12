@@ -60,6 +60,8 @@ pub struct BitcoinRegtestController {
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
     last_utxos: Vec<UTXO>,
+    last_tx_len: u64,
+    min_relay_fee: u64, // satoshis/byte
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -119,6 +121,8 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config,
             last_utxos: vec![],
+            last_tx_len: 0,
+            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
@@ -154,6 +158,8 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config: None,
             last_utxos: vec![],
+            last_tx_len: 0,
+            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
@@ -748,7 +754,8 @@ impl BitcoinRegtestController {
         let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
             * self.config.burnchain.satoshis_per_byte
             * attempt;
-        let rbf_fee = btc_miner_fee * attempt.saturating_sub(1);
+
+        let rbf_fee = (attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000;
         let budget_for_outputs = value_per_transfer * number_of_transfers + sunset_fee;
 
         let total_required = btc_miner_fee + budget_for_outputs + rbf_fee;
@@ -820,6 +827,7 @@ impl BitcoinRegtestController {
                 }
             };
             self.last_utxos = new_utxos.clone();
+            self.last_tx_len = 0;
             new_utxos
         };
 
@@ -920,6 +928,8 @@ impl BitcoinRegtestController {
         // remember how long the transaction is, in case we need to RBF
         let tx_bytes = SerializedTx::new(tx.clone());
         debug!("Send transaction: {:?}", tx_bytes.to_hex());
+
+        self.last_tx_len = tx_bytes.bytes.len() as u64;
 
         Some(())
     }
