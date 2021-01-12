@@ -962,7 +962,7 @@ impl NeighborBlockStats {
             Ok(false)
         } else {
             self.state = InvWorkState::Done;
-            stats.scans += 1;
+            self.scans += 1;
             Ok(true)
         }
     }
