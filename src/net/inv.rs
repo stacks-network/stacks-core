@@ -586,6 +586,11 @@ impl NeighborBlockStats {
         self.pox_inv = None;
         self.blocks_inv = None;
         self.state = InvWorkState::GetPoxInvBegin;
+
+        debug!(
+            "Reset {:?} PoX scan height to {}",
+            &self.nk, self.pox_reward_cycle
+        );
     }
 
     pub fn reset_block_scan(&mut self, block_reward_cycle: u64) {
@@ -594,31 +599,27 @@ impl NeighborBlockStats {
         self.pox_inv = None;
         self.blocks_inv = None;
         self.state = InvWorkState::GetBlocksInvBegin;
+
+        debug!(
+            "Reset {:?} block scan height to {}",
+            &self.nk, self.block_reward_cycle
+        );
     }
 
     /// Get a random starting height for a block scan.
-    /// Choose randomly, but bias later reward cycles.
-    /// reward cycle I is picked with probability I / (nun_reward_cycles + 1)
     pub fn get_block_scan_start(&self) -> u64 {
         if self.scans == 0 {
             // do a full rescan at first
             debug!("Do a full block scan on peer {:?}", &self.nk);
             return 0;
+        } else {
+            let start_at = self.scans % (self.inv.num_reward_cycles.saturating_sub(1) + 1);
+            debug!(
+                "Start full block scan on peer {:?} at reward cycle {}",
+                &self.nk, start_at
+            );
+            return start_at;
         }
-
-        // 1 + 2 + ... + n == ((n * (n + 1)) / 2
-        // don't worry too much about multiplicative overflow -- this is only a risk when
-        // `self.inv.num_reward_cycles` is in the low billions (like, 2**31).
-        let sample = thread_rng().gen::<u64>()
-            % ((self.inv.num_reward_cycles * (self.inv.num_reward_cycles + 1)) / 2);
-        let mut cntr = 0;
-        for i in 0..self.inv.num_reward_cycles {
-            if cntr >= sample {
-                return i;
-            }
-            cntr += i;
-        }
-        return self.inv.num_reward_cycles - 1;
     }
 
     /// Determine what to do with a NACK response.
@@ -630,6 +631,7 @@ impl NeighborBlockStats {
         preamble_burn_stable_block_height: u64,
         preamble_burn_block_hash: &BurnchainHeaderHash,
         preamble_burn_stable_block_hash: &BurnchainHeaderHash,
+        always_allowed: bool,
     ) -> NodeStatus {
         let mut diverged = false;
         let mut unstable = false;
@@ -669,7 +671,14 @@ impl NeighborBlockStats {
                     debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 } else {
                     debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash", _nk);
-                    broken = true;
+
+                    // if this peer is always allowed, then this isn't a "broken" condition -- it's
+                    // a diverged condition.  we trust that it has the correct PoX view.
+                    if always_allowed {
+                        diverged = true;
+                    } else {
+                        broken = true;
+                    }
                 }
             }
         } else if nack_data.error_code == NackErrorCodes::InvalidPoxFork {
@@ -701,6 +710,7 @@ impl NeighborBlockStats {
         chain_view: &BurnchainView,
         preamble: &Preamble,
         nack_data: NackData,
+        always_allowed: bool,
     ) {
         let preamble_burn_block_height = preamble.burn_block_height;
         let preamble_burn_stable_block_height = preamble.burn_stable_block_height;
@@ -715,6 +725,7 @@ impl NeighborBlockStats {
             preamble_burn_stable_block_height,
             preamble_burn_block_hash,
             preamble_burn_stable_block_hash,
+            always_allowed,
         );
     }
 
@@ -806,7 +817,19 @@ impl NeighborBlockStats {
                     }
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetPoxInv at reward cycle {}: NACK code {}", &self.nk, self.target_pox_reward_cycle, nack_data.error_code);
-                        self.handle_nack(&network.chain_view, &message.preamble, nack_data);
+                        let always_allowed = PeerDB::is_peer_always_allowed(
+                            &network.peerdb.conn(),
+                            self.nk.network_id,
+                            &self.nk.addrbytes,
+                            self.nk.port,
+                        )
+                        .unwrap_or(false);
+                        self.handle_nack(
+                            &network.chain_view,
+                            &message.preamble,
+                            nack_data,
+                            always_allowed,
+                        );
                     }
                     _ => {
                         // unexpected reply
@@ -894,7 +917,19 @@ impl NeighborBlockStats {
                     }
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetBlocksInv at reward cycle {}: NACK code {}", &self.nk, self.target_block_reward_cycle, nack_data.error_code);
-                        self.handle_nack(&network.chain_view, &message.preamble, nack_data);
+                        let always_allowed = PeerDB::is_peer_always_allowed(
+                            &network.peerdb.conn(),
+                            self.nk.network_id,
+                            &self.nk.addrbytes,
+                            self.nk.port,
+                        )
+                        .unwrap_or(false);
+                        self.handle_nack(
+                            &network.chain_view,
+                            &message.preamble,
+                            nack_data,
+                            always_allowed,
+                        );
                     }
                     _ => {
                         // unexpected reply
@@ -927,7 +962,7 @@ impl NeighborBlockStats {
             Ok(false)
         } else {
             self.state = InvWorkState::Done;
-            self.scans += 1;
+            stats.scans += 1;
             Ok(true)
         }
     }
@@ -988,14 +1023,9 @@ impl InvState {
 
         let mut added = 0;
         for peer in peers.iter() {
-            if self.block_stats.len() >= max_neighbors {
-                // don't go crazy
-                break;
-            }
-
             if let Some(stats) = self.block_stats.get_mut(peer) {
                 stats.reset_pox_scan(0);
-            } else {
+            } else if self.block_stats.len() < max_neighbors {
                 self.block_stats.insert(
                     peer.clone(),
                     NeighborBlockStats::new(peer.clone(), self.first_block_height),
@@ -1057,7 +1087,6 @@ impl InvState {
                     "Peer {:?} has node status {:?}; culling...",
                     nk, &stats.status
                 );
-                // self.sync_peers.remove(nk);
                 bad_peers.insert(nk.clone());
             }
         }
@@ -1948,7 +1977,9 @@ impl PeerNetwork {
 
         assert_eq!(stats.state, InvWorkState::Done);
 
-        if stats.target_block_reward_cycle < (self.pox_id.len() as u64) - 1 {
+        if stats.target_block_reward_cycle < (self.pox_id.len() as u64) - 1
+            && stats.block_reward_cycle < (self.pox_id.len() as u64)
+        {
             // ask for more blocks
             stats.block_reward_cycle += 1;
             stats.reset_block_scan(stats.block_reward_cycle);
@@ -1976,13 +2007,6 @@ impl PeerNetwork {
                 break;
             }
 
-            debug!(
-                "{:?}: inv state-machine for {:?} is in state {:?}",
-                &self.local_peer,
-                nk,
-                &stats.state
-            );
-
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
                     .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout)
@@ -1992,7 +2016,10 @@ impl PeerNetwork {
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetBlocksInvFinish => self.inv_getblocksinv_try_finish(nk, stats)?,
-                InvWorkState::Done => false,
+                InvWorkState::Done => {
+                    stats.done = true;
+                    false
+                }
             };
             if !again {
                 break;
@@ -2084,6 +2111,18 @@ impl PeerNetwork {
             }
 
             for (nk, stats) in inv_state.block_stats.iter_mut() {
+                debug!(
+                    "{:?}: inv state-machine for {:?} is in state {:?}, at PoX {},target={}; blocks {},target={}; status {:?}, done={}",
+                    &network.local_peer,
+                    nk,
+                    &stats.state,
+                    stats.pox_reward_cycle,
+                    stats.target_pox_reward_cycle,
+                    stats.block_reward_cycle,
+                    stats.target_block_reward_cycle,
+                    stats.status,
+                    stats.done
+                );
                 if !stats.done {
                     let done =
                         match network.inv_sync_run(sortdb, nk, stats, inv_state.request_timeout) {
@@ -2172,15 +2211,36 @@ impl PeerNetwork {
                 let mut random_neighbor_list: Vec<_> = new_sync_peers.into_iter().collect();
                 random_neighbor_list.shuffle(&mut thread_rng());
 
-                let good_sync_peers: HashSet<_> = random_neighbor_list[0..cmp::min(
-                    random_neighbor_list.len(),
-                    network.connection_opts.num_neighbors as usize,
-                )]
-                    .to_vec()
-                    .into_iter()
-                    .collect();
+                // always pick permanently-allowed peers
+                let mut good_sync_peers_set = HashSet::new();
+                let mut random_sync_peers_list = vec![];
+                for nk in random_neighbor_list.into_iter() {
+                    if PeerDB::is_peer_always_allowed(
+                        &network.peerdb.conn(),
+                        nk.network_id,
+                        &nk.addrbytes,
+                        nk.port,
+                    )
+                    .unwrap_or(false)
+                        && good_sync_peers_set.len()
+                            < (network.connection_opts.num_neighbors as usize)
+                    {
+                        good_sync_peers_set.insert(nk);
+                    } else {
+                        random_sync_peers_list.push(nk);
+                    }
+                }
+
+                let num_good_peers = good_sync_peers_set.len();
+                for i in 0..cmp::min(
+                    random_sync_peers_list.len(),
+                    (network.connection_opts.num_neighbors as usize).saturating_sub(num_good_peers),
+                ) {
+                    good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                }
+
                 inv_state.reset_sync_peers(
-                    good_sync_peers,
+                    good_sync_peers_set,
                     network.connection_opts.num_neighbors as usize,
                 );
 
@@ -3519,7 +3579,22 @@ mod test {
                 12346,
                 12340,
                 &BurnchainHeaderHash([0x11; 32]),
-                &BurnchainHeaderHash([0x22; 32])
+                &BurnchainHeaderHash([0x22; 32]),
+                false
+            )
+        );
+
+        assert_eq!(
+            NodeStatus::Diverged,
+            NeighborBlockStats::diagnose_nack(
+                &neighbor_key,
+                nack_no_block.clone(),
+                &burnchain_view,
+                12346,
+                12340,
+                &BurnchainHeaderHash([0x11; 32]),
+                &BurnchainHeaderHash([0x22; 32]),
+                true
             )
         );
 
@@ -3533,7 +3608,8 @@ mod test {
                 12345,
                 12339,
                 &ch_12345.clone(),
-                &ch_12339.clone()
+                &ch_12339.clone(),
+                false
             )
         );
 
@@ -3547,7 +3623,8 @@ mod test {
                 12346,
                 12340,
                 &BurnchainHeaderHash([0x12; 32]),
-                &BurnchainHeaderHash([0x23; 32])
+                &BurnchainHeaderHash([0x23; 32]),
+                false
             )
         );
     }
