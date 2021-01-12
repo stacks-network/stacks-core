@@ -1852,6 +1852,50 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Is the network connected to always-allowed peers?
+    fn count_connected_always_allowed_peers(&self) -> Result<u64, net_error> {
+        let allowed_peers =
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        let mut count = 0;
+        for allowed in allowed_peers {
+            if self.events.contains_key(&allowed.addr) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// Instantiate the neighbor walk to an always-allowed node
+    fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
+        let allowed_peers =
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        for allowed in allowed_peers {
+            if !self.events.contains_key(&allowed.addr) {
+                debug!(
+                    "Will (re-)connect to always-allowed peer {:?}",
+                    &allowed.addr
+                );
+                let w = NeighborWalk::new(
+                    self.local_peer.clone(),
+                    self.chain_view.clone(),
+                    &allowed,
+                    true,
+                    self.walk_pingbacks.clone(),
+                    &self.connection_opts,
+                );
+
+                debug!(
+                    "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
+                    &self.local_peer, &allowed
+                );
+                self.walk = Some(w);
+                return Ok(());
+            }
+        }
+
+        return Err(net_error::NotFoundError);
+    }
+
     /// Instantiate a neighbor walk, but use an inbound neighbor instead of a neighbor from our
     /// peer DB.  This helps a public node discover other public nodes, by asking a private node
     /// for its neighbors (which can include other public nodes).
@@ -2700,6 +2744,13 @@ impl PeerNetwork {
             }
         }
 
+        let num_always_connected = self.count_connected_always_allowed_peers().unwrap_or(1);
+        if num_always_connected == 0 {
+            // force a reset
+            debug!("{:?}: not connected to any always-allowed peers; forcing a walk reset to try and fix this", &self.local_peer);
+            self.walk = None;
+        }
+
         if self.walk.is_none() {
             // alternate between starting walks from inbound and outbound neighbors.
             // fall back to pingbacks-only walks if no options exist.
@@ -2707,20 +2758,27 @@ impl PeerNetwork {
                 "{:?}: Begin walk attempt {}",
                 &self.local_peer, self.walk_attempts
             );
-            let walk_res =
-                if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                    self.instantiate_walk()
-                } else {
-                    if self.connection_opts.disable_inbound_walks {
-                        debug!(
-                            "{:?}: disabled inbound neighbor walks for testing",
-                            &self.local_peer
-                        );
+
+            // always ensure we're connected to always-allowed outbound peers
+            let walk_res = match self.instantiate_walk_to_always_allowed() {
+                Ok(x) => Ok(x),
+                Err(net_error::NotFoundError) => {
+                    if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
                         self.instantiate_walk()
                     } else {
-                        self.instantiate_walk_from_inbound()
+                        if self.connection_opts.disable_inbound_walks {
+                            debug!(
+                                "{:?}: disabled inbound neighbor walks for testing",
+                                &self.local_peer
+                            );
+                            self.instantiate_walk()
+                        } else {
+                            self.instantiate_walk_from_inbound()
+                        }
                     }
-                };
+                }
+                Err(e) => Err(e),
+            };
 
             self.walk_attempts += 1;
 
