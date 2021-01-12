@@ -3066,9 +3066,6 @@ impl StacksChainState {
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
     /// block: the actual block data for this anchored Stacks block
     /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
-    ///
-    /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
-    /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -4405,7 +4402,7 @@ impl StacksChainState {
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
                 total_coinbase,
-            ) // TODO: calculate total compute budget and scale up
+            )
             .expect("FATAL: parsed and processed a block without a coinbase");
 
             receipts.extend(microblock_txs_receipts.into_iter());
@@ -9162,8 +9159,8 @@ pub mod test {
         );
     }
 
-    // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
+    // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
-    // TODO: process_next_staging_block
-    // TODO: test resource limits -- shouldn't be able to load microblock streams that are too big
+    // TODO(test): process_next_staging_block
+    // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
 }
