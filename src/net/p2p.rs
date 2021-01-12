@@ -1432,6 +1432,7 @@ impl PeerNetwork {
                 nk_remove.push(neighbor_key.clone());
             }
         }
+
         for nk in nk_remove.into_iter() {
             // remove event state
             self.events.remove(&nk);
@@ -2958,7 +2959,32 @@ impl PeerNetwork {
                         }
 
                         if !inv_throttled {
-                            self.num_inv_sync_passes += 1;
+                            // only count an inv_sync as passing if there's an always-allowed node
+                            // in our inv state
+                            let always_allowed: HashSet<_> = PeerDB::get_always_allowed_peers(
+                                &self.peerdb.conn(),
+                                self.local_peer.network_id,
+                            )
+                            .unwrap_or(vec![])
+                            .into_iter()
+                            .map(|neighbor| neighbor.addr)
+                            .collect();
+
+                            let mut have_always_allowed = false;
+                            if let Some(ref inv_state) = self.inv_state {
+                                for nk in inv_state.block_stats.keys() {
+                                    if always_allowed.contains(&nk) {
+                                        have_always_allowed = true;
+                                    }
+                                }
+                            }
+
+                            if have_always_allowed {
+                                debug!("{:?}: synchronized inventories with at least one always-allowed peer", &self.local_peer);
+                                self.num_inv_sync_passes += 1;
+                            } else {
+                                debug!("{:?}: did NOT synchronize inventories with at least one always-allowed peer", &self.local_peer);
+                            }
                             debug!(
                                 "{:?}: Finished full inventory state-machine pass ({})",
                                 &self.local_peer, self.num_inv_sync_passes
