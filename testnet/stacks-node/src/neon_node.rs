@@ -994,10 +994,7 @@ impl InitializedNeonNode {
 
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
-        let mut initial_neighbors = vec![];
-        if let Some(ref bootstrap_node) = &config.node.bootstrap_node {
-            initial_neighbors.push(bootstrap_node.clone());
-        }
+        let initial_neighbors = config.node.bootstrap_node.clone();
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
@@ -1041,7 +1038,27 @@ impl InitializedNeonNode {
             &vec![],
             Some(&initial_neighbors),
         )
+        .map_err(|e| {
+            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_path(), &e);
+            panic!();
+        })
         .unwrap();
+
+        {
+            // bootstrap nodes *always* allowed
+            let mut tx = peerdb.tx_begin().unwrap();
+            for initial_neighbor in initial_neighbors.iter() {
+                PeerDB::set_allow_peer(
+                    &mut tx,
+                    initial_neighbor.addr.network_id,
+                    &initial_neighbor.addr.addrbytes,
+                    initial_neighbor.addr.port,
+                    -1,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         println!("DENY NEIGHBORS {:?}", &config.node.deny_nodes);
         {
