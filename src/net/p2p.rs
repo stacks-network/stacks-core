@@ -3031,15 +3031,6 @@ impl PeerNetwork {
                     // did one pass
                     did_cycle = true;
                     do_prune = true;
-                    /*
-                    do_prune = match self.walk {
-                        Some(ref mut walk) => {
-                            walk.do_prune = false;
-                            true
-                        }
-                        None => true
-                    };
-                    */
 
                     // restart
                     self.work_state = PeerNetworkWorkState::GetPublicIP;
