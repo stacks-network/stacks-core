@@ -695,7 +695,7 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let output_amt = 2 * (self.config.burnchain.satoshis_per_pox_output + DUST_UTXO_LIMIT);
+        let output_amt = 2 * DUST_UTXO_LIMIT;
         let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, 1)?;
 
         // Serialize the payload
