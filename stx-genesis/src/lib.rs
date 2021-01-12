@@ -108,24 +108,32 @@ fn read_lockups(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Genesis
 }
 
 fn read_namespaces(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisNamespace>> {
-    let namespaces = iter_deflated_csv(deflate_bytes).map(|cols| GenesisNamespace {
-        namespace_id: cols[0].to_string(),
-        importer: cols[1].to_string(),
-        buckets: cols[2].to_string(),
-        base: cols[3].parse::<i64>().unwrap(),
-        coeff: cols[4].parse::<i64>().unwrap(),
-        nonalpha_discount: cols[5].parse::<i64>().unwrap(),
-        no_vowel_discount: cols[6].parse::<i64>().unwrap(),
-        lifetime: cols[7].parse::<i64>().unwrap(),
+    let namespaces = iter_deflated_csv(deflate_bytes).map(|cols| {
+        let bucket_index = if cols.len() >= 10 { 4 } else { 2 };
+
+        GenesisNamespace {
+            namespace_id: cols[0].to_string(),
+            importer: cols[1].to_string(),
+            buckets: cols[bucket_index].to_string(),
+            base: cols[bucket_index + 1].parse::<i64>().unwrap(),
+            coeff: cols[bucket_index + 2].parse::<i64>().unwrap(),
+            nonalpha_discount: cols[bucket_index + 3].parse::<i64>().unwrap(),
+            no_vowel_discount: cols[bucket_index + 4].parse::<i64>().unwrap(),
+            lifetime: cols[bucket_index + 5].parse::<i64>().unwrap(),
+        }
     });
     return Box::new(namespaces);
 }
 
 fn read_names(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisName>> {
-    let names = iter_deflated_csv(deflate_bytes).map(|cols| GenesisName {
-        fully_qualified_name: cols[0].to_string(),
-        owner: cols[1].to_string(),
-        zonefile_hash: cols[2].to_string(),
+    let names = iter_deflated_csv(deflate_bytes).map(|cols| {
+        let zonefile_hash_index = if cols.len() >= 5 { 4 } else { 2 };
+
+        GenesisName {
+            fully_qualified_name: cols[0].to_string(),
+            owner: cols[1].to_string(),
+            zonefile_hash: cols[zonefile_hash_index].to_string(),
+        }
     });
     return Box::new(names);
 }
