@@ -2897,13 +2897,6 @@ impl PeerNetwork {
         download_backpressure: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
-        if self.peers.len() == 0 {
-            // don't do anything; just go straight to the neighbor walk so we can get some new
-            // neighbors
-            debug!("No peers, so no work to do");
-            return Ok(false);
-        }
-
         // do some Actual Work(tm)
         let mut do_prune = false;
         let mut did_cycle = false;
@@ -2971,10 +2964,15 @@ impl PeerNetwork {
                             .collect();
 
                             let mut have_always_allowed = false;
-                            if let Some(ref inv_state) = self.inv_state {
-                                for nk in inv_state.block_stats.keys() {
-                                    if always_allowed.contains(&nk) {
-                                        have_always_allowed = true;
+
+                            if always_allowed.len() == 0 {
+                                have_always_allowed = true;
+                            } else {
+                                if let Some(ref inv_state) = self.inv_state {
+                                    for nk in inv_state.block_stats.keys() {
+                                        if always_allowed.contains(&nk) {
+                                            have_always_allowed = true;
+                                        }
                                     }
                                 }
                             }

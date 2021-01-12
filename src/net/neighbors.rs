@@ -1853,16 +1853,18 @@ impl PeerNetwork {
     }
 
     /// Is the network connected to always-allowed peers?
-    fn count_connected_always_allowed_peers(&self) -> Result<u64, net_error> {
+    /// Returns (count, total)
+    fn count_connected_always_allowed_peers(&self) -> Result<(u64, u64), net_error> {
         let allowed_peers =
             PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        let num_allowed_peers = allowed_peers.len();
         let mut count = 0;
         for allowed in allowed_peers {
             if self.events.contains_key(&allowed.addr) {
                 count += 1;
             }
         }
-        Ok(count)
+        Ok((count, num_allowed_peers as u64))
     }
 
     /// Instantiate the neighbor walk to an always-allowed node
@@ -2744,8 +2746,10 @@ impl PeerNetwork {
             }
         }
 
-        let num_always_connected = self.count_connected_always_allowed_peers().unwrap_or(1);
-        if num_always_connected == 0 {
+        let (num_always_connected, total_always_connected) = self
+            .count_connected_always_allowed_peers()
+            .unwrap_or((0, 0));
+        if num_always_connected == 0 && total_always_connected > 0 {
             // force a reset
             debug!("{:?}: not connected to any always-allowed peers; forcing a walk reset to try and fix this", &self.local_peer);
             self.walk = None;
