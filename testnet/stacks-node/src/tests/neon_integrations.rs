@@ -3,7 +3,7 @@ use super::{
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
 use stacks::burnchains::{Address, Burnchain, PoxConstants};
-use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
@@ -11,12 +11,13 @@ use stacks::chainstate::stacks::{
 use stacks::core;
 use stacks::net::StacksMessageCodec;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use stacks::vm::{analysis, Value};
 use stacks::vm::{ast, execute};
 
 use stacks::vm::database::{
-    ClarityDeserializable, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDeserializable, HeadersDB, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB,
 };
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -36,8 +37,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{env, thread};
+use std::{env, fs, thread};
 
+use crate::config::MAINNET_BLOCK_LIMIT;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
@@ -1252,42 +1254,32 @@ fn size_check_integration_test() {
 #[test]
 #[ignore]
 fn max_block_integration_test() {
-    // TODO: make sure this is exactly the max cost
-    let max_contract = format!(
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let max_contract_src = format!(
         "(define-public (f) (begin {} (ok 1)))",
-        (0..100)
+        (0..48000)
             .map(|_| "(< 1 2)".to_string())
             .collect::<Vec<String>>()
             .join(" ")
     );
 
-    // TODO: set this
-    let block_limit = ExecutionCost {
-        write_length: 1000,
-        write_count: 1000,
-        read_length: 1000,
-        read_count: 1000,
-        runtime: 1002346,
-    };
+    let spender_sk = StacksPrivateKey::new();
+    let addr = to_addr(&spender_sk);
 
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let private_key = StacksPrivateKey::new();
-    let addr = to_addr(&private_key);
-
-    let tx = make_contract_publish(&private_key, 0, 1049230, "max", &max_contract);
-    let tx2 = make_contract_call(&private_key, 1, 1049230, &addr, "max", "f", &[]);
+    let tx = make_contract_publish(&spender_sk, 0, 8080158, "max", &max_contract_src);
+    let tx2 = make_contract_call(&spender_sk, 1, 8080158, &addr, "max", "f", &[]);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     // Set block limit
-    conf.block_limit = block_limit;
+    conf.block_limit = MAINNET_BLOCK_LIMIT;
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
-        amount: 1049230,
+        amount: 10000000,
     });
 
     conf.node.mine_microblocks = true;
@@ -1332,16 +1324,19 @@ fn max_block_integration_test() {
 
     let account = get_account(&http_origin, &addr);
     assert_eq!(account.nonce, 0);
-    assert_eq!(account.balance, 1049230);
+    assert_eq!(account.balance, 10000000);
 
     submit_tx(&http_origin, &tx);
+    dbg!("tx submitted");
     // submit_tx(&http_origin, &tx2);
 
     sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    dbg!("mined 1 block after");
     sleep_ms(60_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    dbg!("mined 2 blocks after");
 
     let res = get_account(&http_origin, &addr);
     assert_eq!(res.nonce, 1);

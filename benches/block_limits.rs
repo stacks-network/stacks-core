@@ -313,10 +313,17 @@ fn smart_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) -> E
     let contract_id =
         QualifiedContractIdentifier::new(StandardPrincipalData(0, as_hash160(0)), "test".into());
 
-    let mut smart_contract = "".to_string();
-    for i in 0..scaling {
-        smart_contract.push_str(&format!("(define-public (foo-{}) (ok (+ u2 u3)))\n", i));
-    }
+    // let mut smart_contract = "".to_string();
+    // for i in 0..scaling {
+    //     smart_contract.push_str(&format!("(define-public (foo-{}) (ok (+ u2 u3)))\n", i));
+    // }
+    let smart_contract = format!(
+        "(define-public (f) (begin {} (ok 1)))",
+        (0..48000)
+            .map(|_| "(< 1 2)".to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
 
     let last_mint_block = blocks.len() - 2;
     let last_block = blocks.len() - 1;
