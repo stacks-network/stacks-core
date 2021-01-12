@@ -225,10 +225,16 @@ impl Keychain {
         }
     }
 
-    pub fn origin_address(&self) -> Option<StacksAddress> {
-        match self.get_transaction_auth() {
-            // Note: testnet hard-coded
-            Some(auth) => Some(auth.origin().address_testnet()),
+    pub fn origin_address(&self, is_mainnet: bool) -> Option<StacksAddress> {
+        match self.get_transaction_auth() {    
+            Some(auth) => {
+                let address = if is_mainnet {
+                    auth.origin().address_mainnet()
+                } else {
+                    auth.origin().address_testnet()
+                };
+                Some(address)
+            },
             None => None,
         }
     }
