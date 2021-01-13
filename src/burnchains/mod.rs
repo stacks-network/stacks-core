@@ -380,11 +380,11 @@ impl PoxConstants {
 
     pub fn mainnet_default() -> PoxConstants {
         PoxConstants::new(
-            30, // 40 reward slots; 10 prepare-phase slots
-            10,
-            6,
-            3333333333333333,
-            1,
+            POX_REWARD_CYCLE_LENGTH,
+            POX_PREPARE_WINDOW_LENGTH,
+            80,
+            25,
+            5,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
