@@ -380,7 +380,7 @@ fn test_simple_if_functions() {
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
-            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_free());
+            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .functions

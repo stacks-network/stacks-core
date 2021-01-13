@@ -76,6 +76,7 @@ net-test/mnt/bitcoin-*
 net-test/mnt/chainstate-*
 net-test/mnt/*.log
 net-test/mnt/archive/*
+*.log
 
 # Code Coverage files
 *.profraw

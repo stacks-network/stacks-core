@@ -3747,6 +3747,7 @@ impl StacksChainState {
         operations: Vec<StackStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
+        let mainnet = clarity_tx.config.mainnet;
         let mut cost_so_far = clarity_tx.cost_so_far();
         for stack_stx_op in operations.into_iter() {
             let StackStxOp {
@@ -3762,7 +3763,7 @@ impl StacksChainState {
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.into(),
-                    &QualifiedContractIdentifier::boot_contract("pox"),
+                    &boot_code_id("pox", mainnet),
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
@@ -3943,7 +3944,8 @@ impl StacksChainState {
     pub fn process_stx_unlocks<'a>(
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
-        let lockup_contract_id = boot::boot_code_id("lockup");
+        let mainnet = clarity_tx.config.mainnet;
+        let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
