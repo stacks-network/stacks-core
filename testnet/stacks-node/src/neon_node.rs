@@ -957,7 +957,7 @@ fn spawn_miner_relayer(
 }
 
 enum LeaderKeyRegistrationState {
-    None,
+    Inactive,
     Pending,
     Active(RegisteredKey),
 }
@@ -1128,7 +1128,7 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::None,
+            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
         }
     }
 
@@ -1150,7 +1150,7 @@ impl InitializedNeonNode {
                         .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                         .is_ok()
                 }
-                LeaderKeyRegistrationState::None => {
+                LeaderKeyRegistrationState::Inactive => {
                     warn!("Skipped tenure because no active VRF key. Trying to register one.");
                     self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
                     self.relay_channel
