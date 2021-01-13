@@ -877,15 +877,15 @@ impl BlockDownloader {
     }
 
     /// Set a hint that we should re-scan for blocks
-    pub fn hint_download_rescan(&mut self) -> () {
+    pub fn hint_download_rescan(&mut self, target_height: u64) -> () {
         if self.empty_block_download_passes > 0 {
             self.empty_block_download_passes = 0;
-            self.next_block_sortition_height = 0;
+            self.next_block_sortition_height = target_height;
         }
 
         if self.empty_microblock_download_passes > 0 {
             self.empty_microblock_download_passes = 0;
-            self.next_microblock_sortition_height = 0;
+            self.next_microblock_sortition_height = target_height;
         }
 
         debug!("Awaken downloader to restart scanning");
@@ -962,9 +962,9 @@ impl PeerNetwork {
     }
 
     /// Pass a hint to the downloader to re-scan
-    pub fn hint_download_rescan(&mut self) -> () {
+    pub fn hint_download_rescan(&mut self, target_height: u64) -> () {
         match self.block_downloader {
-            Some(ref mut dl) => dl.hint_download_rescan(),
+            Some(ref mut dl) => dl.hint_download_rescan(target_height),
             None => {}
         }
     }
@@ -1526,12 +1526,13 @@ impl PeerNetwork {
                         }
 
                         debug!(
-                            "{:?}: will request anchored block for sortition {}: {}/{} ({})",
+                            "{:?}: will request anchored block for sortition {}: {}/{} ({}) from {:?}",
                             &network.local_peer,
                             height,
                             &requests.front().as_ref().unwrap().consensus_hash,
                             &requests.front().as_ref().unwrap().anchor_block_hash,
-                            &index_block_hash
+                            &index_block_hash,
+                            requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
                         );
 
                         downloader.blocks_to_try.insert(height, requests);
@@ -1592,8 +1593,10 @@ impl PeerNetwork {
                             }
                         }
 
-                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({})", 
-                               &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash);
+                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
+                               &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
+                                requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                               );
 
                         downloader
                             .microblocks_to_try
@@ -3068,6 +3071,7 @@ pub mod test {
                         peer_configs[i].connection_opts.max_clients_per_host = 1;
                         peer_configs[i].connection_opts.num_clients = 1;
                         peer_configs[i].connection_opts.idle_timeout = 1;
+                        peer_configs[i].connection_opts.max_http_clients = 1;
                     }
 
                     for n in neighbors.drain(..) {
