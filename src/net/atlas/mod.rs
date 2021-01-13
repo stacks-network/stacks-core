@@ -33,9 +33,9 @@ pub struct AtlasConfig {
 }
 
 impl AtlasConfig {
-    pub fn default() -> AtlasConfig {
+    pub fn default(mainnet: bool) -> AtlasConfig {
         let mut contracts = HashSet::new();
-        contracts.insert(boot_code_id("bns"));
+        contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {
             contracts,
             attachments_max_size: 1_048_576,

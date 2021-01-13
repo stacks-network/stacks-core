@@ -108,6 +108,7 @@ pub struct GlobalContext<'a> {
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
+    pub mainnet: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -444,7 +445,7 @@ impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -456,26 +457,27 @@ impl<'a> OwnedEnvironment<'a> {
             .expect("FAIL: problem instantiating cost tracking");
 
         OwnedEnvironment {
-            context: GlobalContext::new(database, cost_track),
+            context: GlobalContext::new(false, database, cost_track),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
     }
 
-    pub fn new_free(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(mainnet, database, LimitedCostTracker::new_free()),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
     }
 
     pub fn new_cost_limited(
+        mainnet: bool,
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database, cost_tracker),
+            context: GlobalContext::new(mainnet, database, cost_tracker),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -1264,13 +1266,18 @@ impl<'a, 'b> Environment<'a, 'b> {
 
 impl<'a> GlobalContext<'a> {
     // Instantiate a new Global Context
-    pub fn new(database: ClarityDatabase, cost_track: LimitedCostTracker) -> GlobalContext {
+    pub fn new(
+        mainnet: bool,
+        database: ClarityDatabase,
+        cost_track: LimitedCostTracker,
+    ) -> GlobalContext {
         GlobalContext {
             database,
             cost_track,
             read_only: Vec::new(),
             asset_maps: Vec::new(),
             event_batches: Vec::new(),
+            mainnet,
         }
     }
 
