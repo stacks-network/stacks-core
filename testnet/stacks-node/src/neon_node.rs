@@ -1136,7 +1136,7 @@ impl InitializedNeonNode {
 
         let is_miner = miner;
 
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
             config: config.clone(),
             relay_channel: relay_send,

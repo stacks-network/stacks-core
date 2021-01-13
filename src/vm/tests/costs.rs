@@ -29,7 +29,7 @@ use vm::tests::{
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::boot::{STACKS_BOOT_COST_CONTRACT, STACKS_BOOT_COST_VOTE_CONTRACT};
+use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
@@ -44,6 +44,11 @@ use chainstate::stacks::StacksBlockHeader;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use vm::costs::cost_functions::ClarityCostFunction;
+
+lazy_static! {
+    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
+        boot_code_id("cost-voting", false);
+}
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use vm::functions::NativeFunctions::*;
@@ -179,7 +184,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -245,7 +250,7 @@ fn test_all() {
 #[test]
 fn test_cost_contract_short_circuits() {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -274,7 +279,7 @@ fn test_cost_contract_short_circuits() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -373,7 +378,7 @@ fn test_cost_contract_short_circuits() {
         let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         db.begin();
         db.set_variable_unknown_descriptor(
-            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            &COST_VOTING_TESTNET_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(1),
         )
@@ -387,7 +392,7 @@ fn test_cost_contract_short_circuits() {
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
         db.set_entry_unknown_descriptor(
-            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            &COST_VOTING_TESTNET_CONTRACT,
             "confirmed-proposals",
             execute("{ confirmed-id: u0 }"),
             execute(&value),
@@ -449,7 +454,7 @@ fn test_cost_contract_short_circuits() {
 #[test]
 fn test_cost_voting_integration() {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -482,7 +487,7 @@ fn test_cost_voting_integration() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -605,7 +610,7 @@ fn test_cost_voting_integration() {
         ),
         // "boot cost" function doesn't exist
         (
-            (*STACKS_BOOT_COST_CONTRACT).clone().into(),
+            boot_code_id("costs", false).into(),
             "non-existent-func",
             cost_definer.clone().into(),
             "cost-definition",
@@ -651,7 +656,7 @@ fn test_cost_voting_integration() {
         db.begin();
 
         db.set_variable_unknown_descriptor(
-            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            &COST_VOTING_TESTNET_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128),
         )
@@ -669,7 +674,7 @@ fn test_cost_voting_integration() {
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
             db.set_entry_unknown_descriptor(
-                &STACKS_BOOT_COST_VOTE_CONTRACT,
+                &COST_VOTING_TESTNET_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
                 execute(&value),
@@ -703,7 +708,8 @@ fn test_cost_voting_integration() {
         );
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             assert_eq!(
-                &referenced_function.contract_id, &*STACKS_BOOT_COST_CONTRACT,
+                &referenced_function.contract_id,
+                &boot_code_id("costs", false),
                 "All cost functions should still point to the boot costs"
             );
             assert_eq!(
@@ -725,7 +731,7 @@ fn test_cost_voting_integration() {
             "cost-definition",
         ),
         (
-            (*STACKS_BOOT_COST_CONTRACT).clone(),
+            boot_code_id("costs", false),
             "cost_le",
             cost_definer.clone(),
             "cost-definition-le",
@@ -746,7 +752,7 @@ fn test_cost_voting_integration() {
 
         let good_proposals = good_cases.len() as u128;
         db.set_variable_unknown_descriptor(
-            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            &COST_VOTING_TESTNET_CONTRACT,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128 + good_proposals),
         )
@@ -764,7 +770,7 @@ fn test_cost_voting_integration() {
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
             db.set_entry_unknown_descriptor(
-                &STACKS_BOOT_COST_VOTE_CONTRACT,
+                &COST_VOTING_TESTNET_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
                 execute(&value),
@@ -817,7 +823,8 @@ fn test_cost_voting_integration() {
                 assert_eq!(&referenced_function.function_name, "cost-definition-le");
             } else {
                 assert_eq!(
-                    &referenced_function.contract_id, &*STACKS_BOOT_COST_CONTRACT,
+                    &referenced_function.contract_id,
+                    &boot_code_id("costs", false),
                     "Cost function should still point to the boot costs"
                 );
                 assert_eq!(

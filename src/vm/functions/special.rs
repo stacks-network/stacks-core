@@ -82,7 +82,7 @@ fn handle_pox_api_contract_call(
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
-            boot_code_id("pox"),
+            boot_code_id("pox", global_context.mainnet),
             function_name,
             value
         );
@@ -143,7 +143,7 @@ pub fn handle_contract_call_special_cases(
     function_name: &str,
     result: &Value,
 ) -> Result<()> {
-    if *contract_id == boot_code_id("pox") {
+    if *contract_id == boot_code_id("pox", global_context.mainnet) {
         return handle_pox_api_contract_call(global_context, sender, function_name, result);
     }
     // TODO: insert more special cases here, as needed
