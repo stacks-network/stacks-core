@@ -976,7 +976,10 @@ impl InitializedNeonNode {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
-            info!("Will bootstrap from peers {}", VecDisplay(&initial_neighbors));
+            info!(
+                "Will bootstrap from peers {}",
+                VecDisplay(&initial_neighbors)
+            );
         } else {
             warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
