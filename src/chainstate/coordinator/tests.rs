@@ -255,11 +255,7 @@ pub fn setup_states(
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
-            let contract = QualifiedContractIdentifier::parse(&format!(
-                "{}.pox",
-                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
-            ))
-            .expect("Failed to construct boot code contract address");
+            let contract = boot::boot_code_id("pox", false);
             let sender = PrincipalData::from(contract.clone());
 
             clarity_tx.connection().as_transaction(|conn| {
@@ -987,6 +983,7 @@ fn missed_block_commits() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -1147,6 +1144,7 @@ fn test_simple_setup() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -1444,6 +1442,7 @@ fn test_sortition_with_reward_set() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -1676,6 +1675,7 @@ fn test_sortition_with_burner_reward_set() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -1936,6 +1936,7 @@ fn test_pox_btc_ops() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -2232,6 +2233,7 @@ fn test_stx_transfer_btc_ops() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -2457,6 +2459,7 @@ fn test_initial_coinbase_reward_distributions() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -2720,6 +2723,7 @@ fn test_sortition_with_sunset() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
+                        false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
@@ -3543,6 +3547,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
             &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
             |conn| {
                 conn.with_readonly_clarity_env(
+                    false,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     LimitedCostTracker::new_free(),
                     |env| env.eval_raw(eval),

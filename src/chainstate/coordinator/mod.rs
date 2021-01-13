@@ -31,7 +31,7 @@ use chainstate::burn::{
 };
 use chainstate::stacks::{
     boot::{
-        boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+        boot_code_id,
     },
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
@@ -351,7 +351,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             reward_set_provider,
             notifier: (),
             attachments_tx,
-            atlas_config: AtlasConfig::default(),
+            atlas_config: AtlasConfig::default(false),
         }
     }
 }
