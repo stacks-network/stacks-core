@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           token: ${{ secrets.GH_TOKEN }}
-          ref: master
+          ref: next
 
       - name: Update files
         run: |
@@ -102,7 +102,7 @@ jobs:
                     * [Verify the MD5 hash with this script](${{ env.MD5_VERIFY_SCRIPT_URL }})
                 * [Download file](${{ env.NAME_ZONEFILES_HASH_DOWNLOAD_LINK }})
 
-            Once merged, a new tag will need to be created. This can be done one of two ways:
+            Once these changes are eventually merged into the `master` branch, a new tag will need to be created. This can be done one of two ways:
             * Trigger this [Github workflow](https://github.com/blockstack/stacks-blockchain/actions?query=workflow%3Astacks-blockchain) from the `master` branch by selecting "Run Workflow", passing in the desired tag to be created as an argument
             * Create the new tag from the `master` branch locally and push it up
           assignees: jcnelson,kantai,lgalabru,diwakergupta
