@@ -161,7 +161,7 @@ pub trait FromColumn<T> {
 
 impl FromRow<u64> for u64 {
     fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
-        let x: i64 = row.get(0);
+        let x: i64 = row.get_unwrap(0);
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -171,7 +171,7 @@ impl FromRow<u64> for u64 {
 
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
-        let x: i64 = row.get(column_name);
+        let x: i64 = row.get_unwrap(column_name);
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -181,14 +181,14 @@ impl FromColumn<u64> for u64 {
 
 impl FromRow<i64> for i64 {
     fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
-        let x: i64 = row.get(0);
+        let x: i64 = row.get_unwrap(0);
         Ok(x)
     }
 }
 
 impl FromColumn<i64> for i64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
-        let x: i64 = row.get(column_name);
+        let x: i64 = row.get_unwrap(column_name);
         Ok(x)
     }
 }
@@ -198,7 +198,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
         row: &'a Row,
         column_name: &str,
     ) -> Result<QualifiedContractIdentifier, Error> {
-        let value: String = row.get(column_name);
+        let value: String = row.get_unwrap(column_name);
         QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
@@ -230,7 +230,7 @@ macro_rules! impl_byte_array_from_column {
                 row: &rusqlite::Row,
                 column_name: &str,
             ) -> Result<Self, ::util::db::Error> {
-                Ok(row.get::<_, Self>(column_name))
+                Ok(row.get_unwrap::<_, Self>(column_name))
             }
         }
 
@@ -340,16 +340,9 @@ where
 
     // gather
     let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let next_row = T::from_column(&row, column_name)?;
-                row_data.push(next_row);
-            }
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
+    while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
+        let next_row = T::from_column(&row, column_name)?;
+        row_data.push(next_row);
     }
 
     Ok(row_data)
@@ -366,19 +359,12 @@ where
     let mut rows = stmt.query(sql_args)?;
 
     let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                if row_data.len() > 0 {
-                    return Err(Error::Overflow);
-                }
-                let i: i64 = row.get(0);
-                row_data.push(i);
-            }
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
+    while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
+        if row_data.len() > 0 {
+            return Err(Error::Overflow);
+        }
+        let i: i64 = row.get_unwrap(0);
+        row_data.push(i);
     }
 
     if row_data.len() == 0 {
@@ -553,23 +539,17 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         .query(&[&marf_value.to_hex() as &dyn ToSql])
         .map_err(Error::SqliteError)?;
     let mut value = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let value_str: String = row.get(0);
-                if value.is_some() {
-                    // should be impossible
-                    panic!(
-                        "FATAL: two or more values for {}",
-                        &to_hex(&marf_value.to_vec())
-                    );
-                }
-                value = Some(value_str);
-            }
-            Err(e) => {
-                panic!("FATAL: Failed to read row from Sqlite ({})", e);
-            }
-        };
+
+    while let Some(row) = rows.next().expect("FATAL: Failed to read row from Sqlite") {
+        let value_str: String = row.get_unwrap(0);
+        if value.is_some() {
+            // should be impossible
+            panic!(
+                "FATAL: two or more values for {}",
+                &to_hex(&marf_value.to_vec())
+            );
+        }
+        value = Some(value_str);
     }
 
     Ok(value)
