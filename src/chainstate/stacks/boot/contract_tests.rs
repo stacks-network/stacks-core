@@ -16,6 +16,9 @@ use std::convert::TryInto;
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::boot::{
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+};
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::MarfTrieId;
@@ -38,10 +41,8 @@ use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
-use vm::types::Value::Response;
 
-const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
-const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+use vm::types::Value::Response;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
