@@ -70,7 +70,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
 
-    let miner_account = keychain.origin_address().unwrap();
+    let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
 }

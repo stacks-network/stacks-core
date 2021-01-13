@@ -1298,7 +1298,7 @@ impl InitializedNeonNode {
                        &stacks_tip.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
 
             let coinbase_nonce = {
-                let principal = keychain.origin_address().unwrap().into();
+                let principal = keychain.origin_address(config.is_mainnet()).unwrap().into();
                 let account = chain_state
                     .with_read_only_clarity_tx(
                         &burn_db.index_conn(),
