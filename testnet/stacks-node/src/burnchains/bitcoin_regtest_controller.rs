@@ -752,7 +752,7 @@ impl BitcoinRegtestController {
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         if value_per_transfer < DUST_UTXO_LIMIT {
             warn!("Unable to submit a LeaderBlockCommit, consider increasing your burn_fee_cap");
-            return None
+            return None;
         }
 
         let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
