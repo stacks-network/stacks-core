@@ -652,6 +652,9 @@ fn spawn_peer(
                     }
                     Err(e) => {
                         error!("P2P: Failed to process network dispatch: {:?}", &e);
+                        if config.is_node_event_driven() {
+                            panic!();
+                        }
                     }
                 };
 
