@@ -48,6 +48,9 @@ extern crate chrono;
 extern crate slog_json;
 extern crate slog_term;
 
+#[cfg(unix)]
+extern crate libc;
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]

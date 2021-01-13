@@ -27,11 +27,11 @@ use std::time::{Duration, SystemTime};
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
 }
-
 struct TermFormat<D: Decorator> {
     decorator: D,
     pretty_print: bool,
     debug: bool,
+    isatty: bool,
 }
 
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
@@ -71,10 +71,16 @@ fn pretty_print_msg_header(
     rd: &mut dyn RecordDecorator,
     record: &Record,
     debug: bool,
+    isatty: bool,
 ) -> io::Result<bool> {
     rd.start_timestamp()?;
     let now: DateTime<Utc> = Utc::now();
-    write!(rd, "\x1b[0;90m{}", now.format("%b %e %T%.6f"))?;
+    write!(
+        rd,
+        "{}{}",
+        color_if_atty("\x1b[0;90m", isatty),
+        now.format("%b %e %T%.6f")
+    )?;
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
@@ -82,10 +88,28 @@ fn pretty_print_msg_header(
 
     match record.level() {
         Level::Critical | Level::Error => {
-            write!(rd, "\x1b[0;91m{}\x1b[0m", record.level().as_short_str())
+            write!(
+                rd,
+                "{}{}{}",
+                color_if_atty("\x1b[0;91m", isatty),
+                record.level().as_short_str(),
+                color_if_atty("\x1b[0m", isatty)
+            )
         }
-        Level::Warning => write!(rd, "\x1b[0;33m{}\x1b[0m", record.level().as_short_str()),
-        Level::Info => write!(rd, "\x1b[0;94m{}\x1b[0m", record.level().as_short_str()),
+        Level::Warning => write!(
+            rd,
+            "{}{}{}",
+            color_if_atty("\x1b[0;33m", isatty),
+            record.level().as_short_str(),
+            color_if_atty("\x1b[0m", isatty)
+        ),
+        Level::Info => write!(
+            rd,
+            "{}{}{}",
+            color_if_atty("\x1b[0;94m", isatty),
+            record.level().as_short_str(),
+            color_if_atty("\x1b[0m", isatty)
+        ),
         _ => write!(rd, "{}", record.level().as_short_str()),
     }?;
 
@@ -99,10 +123,12 @@ fn pretty_print_msg_header(
         write!(rd, " ")?;
         write!(
             rd,
-            "\x1b[0;90m({:?}, {}:{})\x1b[0m",
+            "{}({:?}, {}:{}){}",
+            color_if_atty("\x1b[0;90m", isatty),
             thread::current().id(),
             record.file(),
-            record.line()
+            record.line(),
+            color_if_atty("\x1b[0m", isatty)
         )?;
     }
 
@@ -119,18 +145,19 @@ impl<D: Decorator> Drain for TermFormat<D> {
 }
 
 impl<D: Decorator> TermFormat<D> {
-    pub fn new(decorator: D, pretty_print: bool, debug: bool) -> TermFormat<D> {
+    pub fn new(decorator: D, pretty_print: bool, debug: bool, isatty: bool) -> TermFormat<D> {
         TermFormat {
             decorator,
             pretty_print,
             debug,
+            isatty,
         }
     }
 
     fn format_full(&self, record: &Record, values: &OwnedKVList) -> io::Result<()> {
         self.decorator.with_record(record, values, |decorator| {
             let comma_needed = if self.pretty_print {
-                pretty_print_msg_header(decorator, record, self.debug)
+                pretty_print_msg_header(decorator, record, self.debug, self.isatty)
             } else {
                 print_msg_header(decorator, record)
             }?;
@@ -185,20 +212,11 @@ fn make_logger() -> Logger {
     if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
-        // let logger = if env::var("PRETTY_PRINT") == Ok("1".into()) {
-        //     let decorator = slog_term::TermDecorator::new().build();
-        //     let drain = TermFormat::new(decorator, true);
-        //     Logger::root(drain.fuse(), o!())
-        // } else {
-        //     let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
-        //     let drain = TermFormat::new(decorator, false);
-        //     Logger::root(drain.fuse(), o!())
-        // };
-
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
         let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
-        let drain = TermFormat::new(decorator, pretty_print, debug);
+        let atty = isatty(Stream::Stderr);
+        let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
     }
@@ -209,9 +227,10 @@ fn make_logger() -> Logger {
     if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
+        let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-        let drain = TermFormat::new(plain, false, false);
-
+        let atty = isatty(Stream::Stdout);
+        let drain = TermFormat::new(plain, false, debug, isatty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
     }
@@ -285,4 +304,32 @@ macro_rules! fatal {
             slog_crit!($crate::util::log::LOGGER, $($arg)*)
         }
     })
+}
+
+fn color_if_atty(color: &str, isatty: bool) -> &str {
+    if isatty {
+        color
+    } else {
+        ""
+    }
+}
+
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+#[cfg(all(unix))]
+fn isatty(stream: Stream) -> bool {
+    extern crate libc;
+    let fd = match stream {
+        Stream::Stdout => libc::STDOUT_FILENO,
+        Stream::Stderr => libc::STDERR_FILENO,
+    };
+    unsafe { libc::isatty(fd) != 0 }
+}
+
+#[cfg(not(unix))]
+fn isatty(stream: Stream) -> bool {
+    false
 }
