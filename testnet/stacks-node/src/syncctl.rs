@@ -115,6 +115,8 @@ pub struct PoxSyncWatchdog {
     relayer_comms: PoxSyncWatchdogComms,
     /// what was the last burnchain height?
     last_burnchain_height: u64,
+    /// should this sync watchdog always download? used in integration tests.
+    unconditionally_download: bool,
 }
 
 const PER_SAMPLE_WAIT_MS: u64 = 1000;
@@ -127,6 +129,7 @@ impl PoxSyncWatchdog {
         burnchain_poll_time: u64,
         download_timeout: u64,
         max_samples: u64,
+        unconditionally_download: bool,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -139,6 +142,7 @@ impl PoxSyncWatchdog {
         };
 
         Ok(PoxSyncWatchdog {
+            unconditionally_download,
             new_attachable_blocks: VecDeque::new(),
             new_processed_blocks: VecDeque::new(),
             last_attachable_query: 0,
@@ -383,6 +387,14 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
+            return PoxSyncWatchdog::infer_initial_burnchain_block_download(
+                burnchain,
+                burnchain_tip,
+                burnchain_height,
+            );
+        }
+
+        if self.unconditionally_download {
             return PoxSyncWatchdog::infer_initial_burnchain_block_download(
                 burnchain,
                 burnchain_tip,
