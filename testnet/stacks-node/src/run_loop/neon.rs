@@ -247,6 +247,7 @@ impl RunLoop {
             self.config.burnchain.poll_time_secs,
             self.config.connection_options.timeout,
             self.config.node.pox_sync_sample_secs,
+            self.config.node.pox_sync_sample_secs == 0,
         )
         .unwrap();
 
