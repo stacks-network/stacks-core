@@ -314,20 +314,6 @@ export class BNSClient extends Client {
     return res;
   }
 
-  // (get-name (owner principal)
-  async getName(owner: string): Promise<Receipt> {
-    const args = [`'${owner}`];
-    const query = this.createQuery({
-      atChaintip: true,
-      method: {
-        name: "get-name",
-        args: args
-      }
-    });
-    const res = await this.submitQuery(query);
-    return res;
-  }
-
     // (resolve-principal (owner principal)
     async resolvePrincipal(owner: string): Promise<Receipt> {
       const args = [`'${owner}`];

@@ -98,10 +98,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
   it("should fail if no matching pre-order can be found", async () => {
     await mineBlocks(bns, 20);
 
-    var receipt = await bns.getName(cases[0].nameOwner)
-    expect(receipt.result).include('2013');
-
-    receipt = await bns.resolvePrincipal(cases[0].nameOwner)
+    var receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('2013');
 
     receipt = await bns.nameRegister(
@@ -266,9 +263,6 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
     expect(receipt.result).include('0x30303030');
     expect(receipt.success).eq(true);
 
-    receipt = await bns.getName(cases[0].nameOwner)
-    expect(receipt.result).include('0x626f62');
-
     receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('0x626f62');
 
@@ -336,9 +330,6 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
 
     // should succeed once 'bob.blockstack' is expired
     await mineBlocks(bns, cases[0].renewalRule + 5000);
-
-    receipt = await bns.getName(cases[0].nameOwner)
-    expect(receipt.result).include('0x626f62');
 
     receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('2008');
