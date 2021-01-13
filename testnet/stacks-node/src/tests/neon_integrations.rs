@@ -1350,7 +1350,6 @@ fn cost_voting_integration() {
         make_contract_publish(&spender_sk, 2, 1000, "voter", power_vote_src),
     ];
 
-    // okay, let's push that stacking transaction!
     for tx in transactions.into_iter() {
         submit_tx(&http_origin, &tx);
     }
@@ -1431,7 +1430,40 @@ fn cost_voting_integration() {
 
     submit_tx(&http_origin, &confirm_proposal);
 
-    for _i in 0..60 {
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "confirm-miners" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                assert_eq!(parsed.to_string(), "(err 13)");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
+
+    for _i in 0..58 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
