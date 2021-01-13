@@ -217,9 +217,9 @@ impl StacksHeaderInfo {
 
 impl FromRow<DBConfig> for DBConfig {
     fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
-        let version: String = row.get("version");
-        let mainnet_i64: i64 = row.get("mainnet");
-        let chain_id_i64: i64 = row.get("chain_id");
+        let version: String = row.get_unwrap("version");
+        let mainnet_i64: i64 = row.get_unwrap("mainnet");
+        let chain_id_i64: i64 = row.get_unwrap("chain_id");
 
         let mainnet = mainnet_i64 != 0;
         let chain_id = chain_id_i64 as u32;
@@ -241,7 +241,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        let anchored_block_size_str: String = row.get("block_size");
+        let anchored_block_size_str: String = row.get_unwrap("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
@@ -462,7 +462,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     CREATE TABLE block_headers(
         version INTEGER NOT NULL,
         total_burn TEXT NOT NULL,       -- converted to/from u64
-        total_work TEXT NOT NULL,       -- converted to/from u64 -- TODO: rename to total_length
+        total_work TEXT NOT NULL,       -- converted to/from u64
         proof TEXT NOT NULL,
         parent_block TEXT NOT NULL,             -- hash of parent Stacks block
         parent_microblock TEXT NOT NULL,
@@ -850,7 +850,8 @@ impl StacksChainState {
             TransactionVersion::Testnet
         };
 
-        let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
+        let boot_code_address = boot_code_addr(mainnet);
+
         let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
                 signer: boot_code_address.bytes.clone(),
@@ -886,8 +887,7 @@ impl StacksChainState {
             };
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
-                    "Instantiate boot code contract '{}.{}' ({} bytes)...",
-                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+                    "Instantiate boot code contract '{}' ({} bytes)...",
                     boot_code_name,
                     boot_code_contract.len()
                 );
@@ -994,7 +994,7 @@ impl StacksChainState {
                         };
                     }
 
-                    let lockup_contract_id = boot_code_id("lockup");
+                    let lockup_contract_id = boot_code_id("lockup", mainnet);
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
@@ -1013,7 +1013,7 @@ impl StacksChainState {
                 }
 
                 // BNS Namespace
-                let bns_contract_id = boot_code_id("bns");
+                let bns_contract_id = boot_code_id("bns", mainnet);
                 if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
                     info!("Initializing chain with namespaces");
                     clarity
@@ -1376,7 +1376,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -2016,7 +2016,7 @@ pub mod test {
 
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()),
+                boot_code_test_addr().into(),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
             let contract_res =
@@ -2108,7 +2108,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "54e300e1f626c3a952968204b63a272d308ba498824e72013a7788fcf4b316e4"
+            "8b03c434921ffb9476a9ae93bfc6ebfd01e6e9778173676c320e9162a137b8f9"
         );
     }
 
@@ -2116,7 +2116,7 @@ pub mod test {
     #[ignore]
     fn test_chainstate_full_genesis_consistency() {
         // Test root hash for the final chainstate data set
-        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
         // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],

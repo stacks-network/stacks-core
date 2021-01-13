@@ -175,20 +175,12 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     );
     let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
     let mut hash_opt = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let bhh = friendly_expect(
-                    StacksBlockId::from_column(&row, "block_hash"),
-                    "FATAL: could not parse block hash",
-                );
-                hash_opt = Some(bhh);
-                break;
-            }
-            Err(e) => {
-                panic!("FATAL: could not read block hash: {:?}", e);
-            }
-        }
+    while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
+        let bhh = friendly_expect(
+            StacksBlockId::from_column(&row, "block_hash"),
+            "FATAL: could not parse block hash",
+        );
+        hash_opt = Some(bhh);
     }
     match hash_opt {
         Some(bhh) => bhh,
@@ -203,21 +195,16 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
     );
     let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
     let mut row_opt = None;
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let rowid = friendly_expect(
-                    u64::from_column(&row, "id"),
-                    "FATAL: could not parse row ID",
-                );
-                row_opt = Some(rowid);
-                break;
-            }
-            Err(e) => {
-                panic!("FATAL: could not read block hash: {:?}", e);
-            }
-        }
+
+    while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
+        let rowid = friendly_expect(
+            u64::from_column(&row, "id"),
+            "FATAL: could not parse row ID",
+        );
+        row_opt = Some(rowid);
+        break;
     }
+
     row_opt
 }
 
@@ -613,6 +600,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "repl" => {
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_cost_limited(
+                false,
                 marf.as_clarity_db(),
                 LimitedCostTracker::new_free(),
             );
@@ -685,6 +673,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_cost_limited(
+                false,
                 marf.as_clarity_db(),
                 LimitedCostTracker::new_free(),
             );
@@ -723,8 +712,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -753,8 +745,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -803,8 +798,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -864,6 +862,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         let result = {
                             let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                             let mut vm_env = OwnedEnvironment::new_cost_limited(
+                                false,
                                 db,
                                 LimitedCostTracker::new_free(),
                             );
@@ -943,8 +942,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env.execute_transaction(
                         Value::Principal(sender),
                         contract_identifier,

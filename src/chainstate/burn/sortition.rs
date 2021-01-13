@@ -566,6 +566,4 @@ mod test {
         assert!(!snapshot_no_burns.sortition);
         assert_eq!(snapshot_no_transactions.total_burn, 0);
     }
-
-    // TODO: make snapshot with sortition
 }

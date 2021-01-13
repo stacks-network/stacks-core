@@ -275,9 +275,9 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let microblock_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "microblock_hash")?;
         let parent_hash: BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_hash")?;
-        let sequence: u16 = row.get("sequence");
-        let processed_i64: i64 = row.get("processed");
-        let orphaned_i64: i64 = row.get("orphaned");
+        let sequence: u16 = row.get_unwrap("sequence");
+        let processed_i64: i64 = row.get_unwrap("processed");
+        let orphaned_i64: i64 = row.get_unwrap("orphaned");
         let block_data: Vec<u8> = vec![];
 
         let processed = processed_i64 != 0;
@@ -307,12 +307,12 @@ impl FromRow<StagingBlock> for StagingBlock {
             ConsensusHash::from_column(row, "parent_consensus_hash")?;
         let parent_microblock_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "parent_microblock_hash")?;
-        let parent_microblock_seq: u16 = row.get("parent_microblock_seq");
+        let parent_microblock_seq: u16 = row.get_unwrap("parent_microblock_seq");
         let microblock_pubkey_hash: Hash160 = Hash160::from_column(row, "microblock_pubkey_hash")?;
         let height = u64::from_column(row, "height")?;
-        let attachable_i64: i64 = row.get("attachable");
-        let processed_i64: i64 = row.get("processed");
-        let orphaned_i64: i64 = row.get("orphaned");
+        let attachable_i64: i64 = row.get_unwrap("attachable");
+        let processed_i64: i64 = row.get_unwrap("processed");
+        let orphaned_i64: i64 = row.get_unwrap("orphaned");
         let commit_burn = u64::from_column(row, "commit_burn")?;
         let sortition_burn = u64::from_column(row, "sortition_burn")?;
         let block_data: Vec<u8> = vec![];
@@ -347,7 +347,7 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
         let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
         let address: StacksAddress = StacksAddress::from_column(row, "address")?;
         let burn_amount = u64::from_column(row, "burn_amount")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
 
         Ok(StagingUserBurnSupport {
             anchored_block_hash,
@@ -914,16 +914,10 @@ impl StacksChainState {
 
         // gather
         let mut blobs = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let next_blob: Vec<u8> = row.get(0);
-                    blobs.push(next_blob);
-                }
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
+
+        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+            let next_blob: Vec<u8> = row.get_unwrap(0);
+            blobs.push(next_blob);
         }
 
         Ok(blobs)
@@ -976,7 +970,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
         let args: &[&dyn ToSql] = &[pubkey_hash, &minimum_block_height];
         block_conn
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: block header DB corrupted!")
             .is_some()
@@ -1699,22 +1693,13 @@ impl StacksChainState {
 
         // gather
         let mut row_data: Vec<i64> = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let val_opt: Option<i64> = row.get(0);
-                    match val_opt {
-                        Some(val) => {
-                            row_data.push(val);
-                        }
-                        None => {}
-                    }
-                }
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
+        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+            let val_opt: Option<i64> = row.get_unwrap(0);
+            if let Some(val) = val_opt {
+                row_data.push(val);
+            }
         }
+
         Ok(row_data)
     }
 
@@ -1820,7 +1805,7 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[&parent_index_block_hash, &child_info.parent_microblock_hash];
         let res = self
             .db()
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: staging blocks DB corrupted!")
             .is_some();
@@ -2329,7 +2314,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_microblock_hash = ?1 AND processed = 1 AND orphaned = 0";
         let args: &[&dyn ToSql] = &[index_microblock_hash];
         let res = conn
-            .query_row(&sql, args, |_r| ())
+            .query_row(&sql, args, |_r| Ok(()))
             .optional()
             .expect("DB CORRUPTION: block header DB corrupted!")
             .is_some();
@@ -2423,20 +2408,16 @@ impl StacksChainState {
         );
         let args = [index_block_hash as &dyn ToSql];
 
-        let row_data_opt = blocks_db
+        blocks_db
             .query_row(&sql, &args, |row| {
-                let anchored_block_hash = BlockHeaderHash::from_column(row, anchored_block_col)?;
-                let consensus_hash = ConsensusHash::from_column(row, consensus_hash_col)?;
+                let anchored_block_hash = BlockHeaderHash::from_column(row, anchored_block_col)
+                    .expect("Expected anchored_block_hash - database corrupted");
+                let consensus_hash = ConsensusHash::from_column(row, consensus_hash_col)
+                    .expect("Expected consensus_hash - database corrupted");
                 Ok((consensus_hash, anchored_block_hash))
             })
             .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match row_data_opt {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))
     }
 
     /// Given an index block hash, get its consensus hash and block hash if it exists
@@ -2474,21 +2455,18 @@ impl StacksChainState {
         let sql = format!("SELECT consensus_hash,anchored_block_hash,microblock_hash FROM staging_microblocks WHERE index_microblock_hash = ?1");
         let args = [index_microblock_hash as &dyn ToSql];
 
-        let row_data_opt = blocks_conn
+        blocks_conn
             .query_row(&sql, &args, |row| {
-                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")?;
+                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")
+                    .expect("Expected consensus_hash - database corrupted");
+                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")
+                    .expect("Expected anchored_block_hash - database corrupted");
+                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")
+                    .expect("Expected microblock_hash - database corrupted");
                 Ok((consensus_hash, anchored_block_hash, microblock_hash))
             })
             .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match row_data_opt {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))
     }
 
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
@@ -3088,9 +3066,6 @@ impl StacksChainState {
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
     /// block: the actual block data for this anchored Stacks block
     /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
-    ///
-    /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
-    /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -3598,129 +3573,119 @@ impl StacksChainState {
                 .query(NO_PARAMS)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-            while let Some(row_res) = rows.next() {
-                match row_res {
-                    Ok(row) => {
-                        let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
+            while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
+                let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
-                        debug!(
-                            "Consider block {}/{} whose parent is {}/{}",
-                            &candidate.consensus_hash,
-                            &candidate.anchored_block_hash,
+                debug!(
+                    "Consider block {}/{} whose parent is {}/{}",
+                    &candidate.consensus_hash,
+                    &candidate.anchored_block_hash,
+                    &candidate.parent_consensus_hash,
+                    &candidate.parent_anchored_block_hash
+                );
+
+                let can_attach = {
+                    if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
+                        // this block's parent is the boot code -- it's the first-ever block,
+                        // so it can be processed immediately
+                        true
+                    } else {
+                        // not the first-ever block.  Does this connect to a previously-accepted
+                        // block in the headers database?
+                        let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
+                        let hdr_args: &[&dyn ToSql] = &[
+                            &candidate.parent_anchored_block_hash,
                             &candidate.parent_consensus_hash,
-                            &candidate.parent_anchored_block_hash
-                        );
-
-                        let can_attach = {
-                            if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
-                                // this block's parent is the boot code -- it's the first-ever block,
-                                // so it can be processed immediately
-                                true
-                            } else {
-                                // not the first-ever block.  Does this connect to a previously-accepted
-                                // block in the headers database?
-                                let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
-                                let hdr_args: &[&dyn ToSql] = &[
+                        ];
+                        let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
+                            blocks_tx,
+                            &hdr_sql,
+                            hdr_args,
+                            || {
+                                format!(
+                                    "Stored the same block twice: {}/{}",
                                     &candidate.parent_anchored_block_hash,
+                                    &candidate.parent_consensus_hash
+                                )
+                            },
+                        )?;
+                        match hdr_row {
+                            Some(_) => {
+                                debug!(
+                                    "Have parent {}/{} for this block, will process",
                                     &candidate.parent_consensus_hash,
-                                ];
-                                let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
-                                    blocks_tx,
-                                    &hdr_sql,
-                                    hdr_args,
-                                    || {
-                                        format!(
-                                            "Stored the same block twice: {}/{}",
-                                            &candidate.parent_anchored_block_hash,
-                                            &candidate.parent_consensus_hash
-                                        )
-                                    },
-                                )?;
-                                match hdr_row {
-                                    Some(_) => {
-                                        debug!(
-                                            "Have parent {}/{} for this block, will process",
-                                            &candidate.parent_consensus_hash,
-                                            &candidate.parent_anchored_block_hash
-                                        );
-                                        true
-                                    }
-                                    None => {
-                                        // no parent processed for this block
-                                        debug!(
-                                            "No such parent {}/{} for block, cannot process",
-                                            &candidate.parent_consensus_hash,
-                                            &candidate.parent_anchored_block_hash
-                                        );
-                                        false
-                                    }
-                                }
+                                    &candidate.parent_anchored_block_hash
+                                );
+                                true
                             }
-                        };
-
-                        if can_attach {
-                            // load up the block data
-                            candidate.block_data = match StacksChainState::load_block_bytes(
-                                blocks_path,
-                                &candidate.consensus_hash,
-                                &candidate.anchored_block_hash,
-                            )? {
-                                Some(bytes) => {
-                                    if bytes.len() == 0 {
-                                        error!(
-                                            "CORRUPTION: No block data for {}/{}",
-                                            &candidate.consensus_hash,
-                                            &candidate.anchored_block_hash
-                                        );
-                                        panic!();
-                                    }
-                                    bytes
-                                }
-                                None => {
-                                    error!(
-                                        "CORRUPTION: No block data for {}/{}",
-                                        &candidate.consensus_hash, &candidate.anchored_block_hash
-                                    );
-                                    panic!();
-                                }
-                            };
-
-                            // find its microblock parent stream
-                            match StacksChainState::find_parent_microblock_stream(
-                                blocks_tx, &candidate,
-                            )? {
-                                Some(parent_staging_microblocks) => {
-                                    return Ok(Some((parent_staging_microblocks, candidate)));
-                                }
-                                None => {
-                                    // no microblock data yet, so we can't process this block
-                                    continue;
-                                }
-                            }
-                        } else {
-                            // this can happen if a PoX reorg happens
-                            // if this candidate is no longer on the main PoX fork, then delete it
-                            let sn_opt = SortitionDB::get_block_snapshot_consensus(
-                                sort_conn,
-                                &candidate.consensus_hash,
-                            )?;
-                            if sn_opt.is_none() {
-                                to_delete.push((
-                                    candidate.consensus_hash.clone(),
-                                    candidate.anchored_block_hash.clone(),
-                                ));
-                            } else if let Some(sn) = sn_opt {
-                                if !sn.pox_valid {
-                                    to_delete.push((
-                                        candidate.consensus_hash.clone(),
-                                        candidate.anchored_block_hash.clone(),
-                                    ));
-                                }
+                            None => {
+                                // no parent processed for this block
+                                debug!(
+                                    "No such parent {}/{} for block, cannot process",
+                                    &candidate.parent_consensus_hash,
+                                    &candidate.parent_anchored_block_hash
+                                );
+                                false
                             }
                         }
                     }
-                    Err(e) => {
-                        return Err(Error::DBError(db_error::SqliteError(e)));
+                };
+
+                if can_attach {
+                    // load up the block data
+                    candidate.block_data = match StacksChainState::load_block_bytes(
+                        blocks_path,
+                        &candidate.consensus_hash,
+                        &candidate.anchored_block_hash,
+                    )? {
+                        Some(bytes) => {
+                            if bytes.len() == 0 {
+                                error!(
+                                    "CORRUPTION: No block data for {}/{}",
+                                    &candidate.consensus_hash, &candidate.anchored_block_hash
+                                );
+                                panic!();
+                            }
+                            bytes
+                        }
+                        None => {
+                            error!(
+                                "CORRUPTION: No block data for {}/{}",
+                                &candidate.consensus_hash, &candidate.anchored_block_hash
+                            );
+                            panic!();
+                        }
+                    };
+
+                    // find its microblock parent stream
+                    match StacksChainState::find_parent_microblock_stream(blocks_tx, &candidate)? {
+                        Some(parent_staging_microblocks) => {
+                            return Ok(Some((parent_staging_microblocks, candidate)));
+                        }
+                        None => {
+                            // no microblock data yet, so we can't process this block
+                            continue;
+                        }
+                    }
+                } else {
+                    // this can happen if a PoX reorg happens
+                    // if this candidate is no longer on the main PoX fork, then delete it
+                    let sn_opt = SortitionDB::get_block_snapshot_consensus(
+                        sort_conn,
+                        &candidate.consensus_hash,
+                    )?;
+                    if sn_opt.is_none() {
+                        to_delete.push((
+                            candidate.consensus_hash.clone(),
+                            candidate.anchored_block_hash.clone(),
+                        ));
+                    } else if let Some(sn) = sn_opt {
+                        if !sn.pox_valid {
+                            to_delete.push((
+                                candidate.consensus_hash.clone(),
+                                candidate.anchored_block_hash.clone(),
+                            ));
+                        }
                     }
                 }
             }
@@ -3782,6 +3747,7 @@ impl StacksChainState {
         operations: Vec<StackStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
+        let mainnet = clarity_tx.config.mainnet;
         let mut cost_so_far = clarity_tx.cost_so_far();
         for stack_stx_op in operations.into_iter() {
             let StackStxOp {
@@ -3797,7 +3763,7 @@ impl StacksChainState {
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.into(),
-                    &QualifiedContractIdentifier::boot_contract("pox"),
+                    &boot_code_id("pox", mainnet),
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
@@ -3978,7 +3944,8 @@ impl StacksChainState {
     pub fn process_stx_unlocks<'a>(
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
-        let lockup_contract_id = boot::boot_code_id("lockup");
+        let mainnet = clarity_tx.config.mainnet;
+        let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -4437,7 +4404,7 @@ impl StacksChainState {
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
                 total_coinbase,
-            ) // TODO: calculate total compute budget and scale up
+            )
             .expect("FATAL: parsed and processed a block without a coinbase");
 
             receipts.extend(microblock_txs_receipts.into_iter());
@@ -9194,8 +9161,8 @@ pub mod test {
         );
     }
 
-    // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
+    // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
-    // TODO: process_next_staging_block
-    // TODO: test resource limits -- shouldn't be able to load microblock streams that are too big
+    // TODO(test): process_next_staging_block
+    // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
 }

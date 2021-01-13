@@ -112,7 +112,7 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<Stack
     conn.query_row(
         "SELECT * FROM block_headers WHERE index_block_hash = ?",
         [id_bhh].iter(),
-        |x| StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database"),
+        |x| Ok(StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database")),
     )
     .optional()
     .expect("Unexpected SQL failure querying block header table")
@@ -122,7 +122,7 @@ fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentS
     conn.query_row(
         "SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
         [id_bhh].iter(),
-        |x| MinerPaymentSchedule::from_row(x).expect("Bad payment info in database"),
+        |x| Ok(MinerPaymentSchedule::from_row(x).expect("Bad payment info in database")),
     )
     .optional()
     .expect("Unexpected SQL failure querying payment table")
