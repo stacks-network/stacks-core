@@ -883,6 +883,13 @@
     name (ok name)
     (err ERR_NAME_NOT_FOUND)))
 
+(define-read-only (get-resolvable-name (owner principal))
+  (match (map-get? owner-name owner)
+    name (match (name-resolve (get namespace name) (get name name))
+      resolved-name (ok name)
+      error (err error))
+    (err ERR_NAME_NOT_FOUND)))
+
 (define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name owner)))
     (if (is-none current-owned-name)
