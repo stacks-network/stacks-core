@@ -16,6 +16,9 @@ use std::convert::TryInto;
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::boot::{
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+};
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::MarfTrieId;
@@ -38,23 +41,12 @@ use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
+
 use vm::types::Value::Response;
-
-const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
-const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
-const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
-const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
-
-const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
 lazy_static! {
-    static ref BOOT_CODE_POX_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
-    static ref BOOT_CODE_POX_TESTNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH
@@ -1195,7 +1187,7 @@ fn test_vote_fail() {
 
     let fork_start = sim.height;
 
-    for _ in 0..1000 {
+    for i in 0..25 {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
@@ -1247,7 +1239,7 @@ fn test_vote_fail() {
 
     // let's fork, and overcome the veto
     sim.execute_block_as_fork(fork_start, |_| {});
-    for _ in 0..1100 {
+    for _ in 0..125 {
         sim.execute_next_block(|_| {});
     }
 
