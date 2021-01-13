@@ -462,7 +462,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     CREATE TABLE block_headers(
         version INTEGER NOT NULL,
         total_burn TEXT NOT NULL,       -- converted to/from u64
-        total_work TEXT NOT NULL,       -- converted to/from u64 -- TODO: rename to total_length
+        total_work TEXT NOT NULL,       -- converted to/from u64
         proof TEXT NOT NULL,
         parent_block TEXT NOT NULL,             -- hash of parent Stacks block
         parent_microblock TEXT NOT NULL,
@@ -2116,7 +2116,7 @@ pub mod test {
     #[ignore]
     fn test_chainstate_full_genesis_consistency() {
         // Test root hash for the final chainstate data set
-        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
         // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
