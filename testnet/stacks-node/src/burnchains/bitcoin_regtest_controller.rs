@@ -752,8 +752,7 @@ impl BitcoinRegtestController {
         let value_per_transfer = payload.burn_fee / number_of_transfers;
 
         let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
-            * self.config.burnchain.satoshis_per_byte
-            * attempt;
+            * self.config.burnchain.satoshis_per_byte;
 
         let rbf_fee = (attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000;
         let budget_for_outputs = value_per_transfer * number_of_transfers + sunset_fee;
