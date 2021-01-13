@@ -77,12 +77,7 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
-    let server_version = stacks::version_string(
-        option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
-        option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0"),
-    );
-
-    info!("{}", server_version);
+    info!("{}", version());
 
     let config_file = match subcommand.as_str() {
         "mocknet" => {
@@ -122,12 +117,7 @@ fn main() {
         "version" => {
             println!(
                 "{}",
-                &stacks::version_string(
-                    "stacks-node",
-                    option_env!("STACKS_NODE_VERSION")
-                        .or(option_env!("CARGO_PKG_VERSION"))
-                        .unwrap_or("0.0.0.0")
-                )
+                &version()
             );
             return;
         }
@@ -161,6 +151,15 @@ fn main() {
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
+}
+
+fn version() -> String {
+    &stacks::version_string(
+        "stacks-node",
+        option_env!("STACKS_NODE_VERSION")
+            .or(option_env!("CARGO_PKG_VERSION"))
+            .unwrap_or("0.0.0.0")
+    )
 }
 
 fn print_help() {

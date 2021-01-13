@@ -158,7 +158,7 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 next_pox.extend_with_present_block();
             } else {
-                debug!(
+                info!(
                     "Begin reward-cycle sortition with absent anchor block={:?}",
                     &next_pox_info.selected_anchor_block()
                 );

@@ -20,7 +20,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{miner::StacksMicroblockBuilder, StacksBlockBuilder};
@@ -778,6 +778,8 @@ fn spawn_miner_relayer(
                                 && burn_hash == mined_burn_hash
                             {
                                 // we won!
+                                let reward_block_height = mined_block.header.total_work.work + MINER_REWARD_MATURITY;
+                                info!("Won sortition! Mining reward will be received in {} blocks (block #{})", MINER_REWARD_MATURITY, reward_block_height);
                                 debug!("Won sortition!";
                                       "stacks_header" => %block_header_hash,
                                       "burn_hash" => %mined_burn_hash,
