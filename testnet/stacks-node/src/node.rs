@@ -440,7 +440,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(false);
         let atlasdb =
             AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
 

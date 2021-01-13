@@ -12,10 +12,10 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
+use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::AtlasConfig;
-use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
@@ -173,11 +173,7 @@ impl RunLoop {
         let pox_rejection_fraction = burnchain_config.pox_constants.pox_rejection_fraction as u128;
 
         let boot_block = Box::new(move |clarity_tx: &mut ClarityTx| {
-            let contract = QualifiedContractIdentifier::parse(&format!(
-                "{}.pox",
-                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
-            ))
-            .expect("Failed to construct boot code contract address");
+            let contract = boot::boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(first_block_height),
@@ -225,7 +221,7 @@ impl RunLoop {
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
 
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
 
         thread::Builder::new()

@@ -850,7 +850,8 @@ impl StacksChainState {
             TransactionVersion::Testnet
         };
 
-        let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
+        let boot_code_address = boot_code_addr(mainnet);
+
         let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
                 signer: boot_code_address.bytes.clone(),
@@ -886,8 +887,7 @@ impl StacksChainState {
             };
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
-                    "Instantiate boot code contract '{}.{}' ({} bytes)...",
-                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+                    "Instantiate boot code contract '{}' ({} bytes)...",
                     boot_code_name,
                     boot_code_contract.len()
                 );
@@ -993,7 +993,7 @@ impl StacksChainState {
                         };
                     }
 
-                    let lockup_contract_id = boot_code_id("lockup");
+                    let lockup_contract_id = boot_code_id("lockup", mainnet);
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
@@ -1012,7 +1012,7 @@ impl StacksChainState {
                 }
 
                 // BNS Namespace
-                let bns_contract_id = boot_code_id("bns");
+                let bns_contract_id = boot_code_id("bns", mainnet);
                 if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
                     info!("Initializing chain with namespaces");
                     clarity
@@ -1376,7 +1376,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -2016,7 +2016,7 @@ pub mod test {
 
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()),
+                boot_code_test_addr().into(),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
             let contract_res =
