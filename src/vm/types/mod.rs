@@ -1064,7 +1064,6 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
-
     pub fn version(&self) -> u8 {
         match self {
             PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,

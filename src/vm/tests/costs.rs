@@ -29,7 +29,7 @@ use vm::tests::{
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::boot::{boot_code_id};
+use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
@@ -46,7 +46,8 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use vm::costs::cost_functions::ClarityCostFunction;
 
 lazy_static! {
-    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier = boot_code_id("cost-voting", false);
+    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
+        boot_code_id("cost-voting", false);
 }
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
@@ -707,7 +708,8 @@ fn test_cost_voting_integration() {
         );
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             assert_eq!(
-                &referenced_function.contract_id, &boot_code_id("costs", false),
+                &referenced_function.contract_id,
+                &boot_code_id("costs", false),
                 "All cost functions should still point to the boot costs"
             );
             assert_eq!(
@@ -821,7 +823,8 @@ fn test_cost_voting_integration() {
                 assert_eq!(&referenced_function.function_name, "cost-definition-le");
             } else {
                 assert_eq!(
-                    &referenced_function.contract_id, &boot_code_id("costs", false),
+                    &referenced_function.contract_id,
+                    &boot_code_id("costs", false),
                     "Cost function should still point to the boot costs"
                 );
                 assert_eq!(
