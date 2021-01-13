@@ -749,10 +749,13 @@ impl BitcoinRegtestController {
 
         let number_of_transfers = payload.commit_outs.len() as u64;
         let value_per_transfer = payload.burn_fee / number_of_transfers;
+        if value_per_transfer < DUST_UTXO_LIMIT {
+            warn!("Unable to submit a LeaderBlockCommit, consider increasing your burn_fee_cap");
+            return None;
+        }
 
         let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
-            * self.config.burnchain.satoshis_per_byte
-            * attempt;
+            * self.config.burnchain.satoshis_per_byte;
 
         let rbf_fee = (attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000;
         let budget_for_outputs = value_per_transfer * number_of_transfers + sunset_fee;

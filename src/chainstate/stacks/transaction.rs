@@ -31,7 +31,6 @@ use chainstate::stacks::*;
 use core::*;
 
 use net::StacksPublicKeyBuffer;
-use net::MAX_MESSAGE_LEN;
 
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
@@ -72,7 +71,7 @@ impl StacksMessageCodec for TransactionContractCall {
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
@@ -4890,6 +4889,6 @@ mod test {
         }
     }
 
-    // TODO: test with different tx versions
-    // TODO: test error values for signing and verifying
+    // TODO(test): test with different tx versions
+    // TODO(test): test error values for signing and verifying
 }

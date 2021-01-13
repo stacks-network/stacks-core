@@ -941,7 +941,7 @@ fn spawn_miner_relayer(
 }
 
 enum LeaderKeyRegistrationState {
-    None,
+    Inactive,
     Pending,
     Active(RegisteredKey),
 }
@@ -1022,7 +1022,27 @@ impl InitializedNeonNode {
             &vec![],
             Some(&initial_neighbors),
         )
+        .map_err(|e| {
+            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_path(), &e);
+            panic!();
+        })
         .unwrap();
+
+        {
+            // bootstrap nodes *always* allowed
+            let mut tx = peerdb.tx_begin().unwrap();
+            for initial_neighbor in initial_neighbors.iter() {
+                PeerDB::set_allow_peer(
+                    &mut tx,
+                    initial_neighbor.addr.network_id,
+                    &initial_neighbor.addr.addrbytes,
+                    initial_neighbor.addr.port,
+                    -1,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         if !config.node.deny_nodes.is_empty() {
             warn!("Will ignore nodes {:?}", &config.node.deny_nodes);
@@ -1116,7 +1136,7 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::None,
+            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
         }
     }
 
@@ -1138,7 +1158,7 @@ impl InitializedNeonNode {
                         .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                         .is_ok()
                 }
-                LeaderKeyRegistrationState::None => {
+                LeaderKeyRegistrationState::Inactive => {
                     warn!("Skipped tenure because no active VRF key. Trying to register one.");
                     self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
                     self.relay_channel

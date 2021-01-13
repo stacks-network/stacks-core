@@ -1655,8 +1655,8 @@ fn atlas_integration_test() {
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
     );
-    conf_follower_node.node.set_bootstrap_node(
-        Some(bootstrap_node_url),
+    conf_follower_node.node.set_bootstrap_nodes(
+        bootstrap_node_url,
         conf_follower_node.burnchain.chain_id,
         conf_follower_node.burnchain.peer_version,
     );

@@ -373,7 +373,7 @@ query_miner_power() {
 
 query_stacks_mempool() {
    local PREDICATE="$1"
-   local COLUMNS="accept_time AS time,txid,origin_address AS origin,origin_nonce AS nonce,sponsor_address AS sponsor,sponsor_nonce,estimated_fee,fee_rate,length"
+   local COLUMNS="accept_time AS time,txid,origin_address AS origin,origin_nonce AS nonce,sponsor_address AS sponsor,sponsor_nonce,estimated_fee,tx_fee,length"
    sqlite3 -header "$STACKS_MEMPOOL_DB" "SELECT $COLUMNS from mempool $PREDICATE"
 }
 

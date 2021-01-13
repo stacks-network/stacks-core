@@ -2574,13 +2574,4 @@ pub mod tests {
             prev_snapshot = snapshot;
         }
     }
-
-    // TODO: test VRF key duplication check
-    // TODO; test that all but the first of the block commits committing to the same key are
-    // dropped
-    // TODO: test that we can get the histories of all Stacks block headers from different fork segments
-    // TODO: test top-level sync with a burn chain reorg
-    // -- make sure the chain can switch from fork A to fork B back to fork A safely.
-    // TODO: test that only relevant user burns get stored in a burn distribution, and that they're
-    // all present in the DB
 }
