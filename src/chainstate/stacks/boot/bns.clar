@@ -883,7 +883,7 @@
     name (ok name)
     (err ERR_NAME_NOT_FOUND)))
 
-(define-read-only (get-resolvable-name (owner principal))
+(define-read-only (resolve-principal (owner principal))
   (match (map-get? owner-name owner)
     name (match (name-resolve (get namespace name) (get name name))
       resolved-name (ok name)

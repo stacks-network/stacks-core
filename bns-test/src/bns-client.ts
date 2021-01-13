@@ -328,13 +328,13 @@ export class BNSClient extends Client {
     return res;
   }
 
-    // (get-resolvable-name (owner principal)
-    async getResolvableName(owner: string): Promise<Receipt> {
+    // (resolve-principal (owner principal)
+    async resolvePrincipal(owner: string): Promise<Receipt> {
       const args = [`'${owner}`];
       const query = this.createQuery({
         atChaintip: true,
         method: {
-          name: "get-resolvable-name",
+          name: "resolve-principal",
           args: args
         }
       });

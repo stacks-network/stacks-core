@@ -101,7 +101,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
     var receipt = await bns.getName(cases[0].nameOwner)
     expect(receipt.result).include('2013');
 
-    receipt = await bns.getResolvableName(cases[0].nameOwner)
+    receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('2013');
 
     receipt = await bns.nameRegister(
@@ -269,7 +269,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
     receipt = await bns.getName(cases[0].nameOwner)
     expect(receipt.result).include('0x626f62');
 
-    receipt = await bns.getResolvableName(cases[0].nameOwner)
+    receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('0x626f62');
 
     // should fail registering twice
@@ -340,7 +340,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
     receipt = await bns.getName(cases[0].nameOwner)
     expect(receipt.result).include('0x626f62');
 
-    receipt = await bns.getResolvableName(cases[0].nameOwner)
+    receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('2008');
 
     receipt = await bns.namePreorder(
