@@ -333,6 +333,8 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
+    pub max_neighbors_of_neighbor: u64,
+    pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
     pub num_initial_walks: u64,
     pub walk_retry_count: u64,
@@ -403,6 +405,8 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10, // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10, // how many inbound connections we can have per IP address, before we start pruning them,
+            max_neighbors_of_neighbor: 10,
+            max_http_clients: 10,
             neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, // how long to wait for a neighbor request
             num_initial_walks: NUM_INITIAL_WALKS,
             walk_retry_count: WALK_RETRY_COUNT,
@@ -423,8 +427,8 @@ impl std::default::Default for ConnectionOptions {
                 write_length: 0,
                 write_count: 0,
                 read_length: 100000,
-                read_count: 10,
-                runtime: 10000000,
+                read_count: 30,
+                runtime: 1_000_000_000,
             },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
             max_block_push_bandwidth: 0, // infinite upload bandwidth allowed

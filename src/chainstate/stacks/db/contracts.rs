@@ -75,7 +75,7 @@ impl StacksChainState {
     ) -> Result<Option<Value>, Error> {
         clarity_tx
             .with_clarity_db_readonly(|ref mut db| {
-                match db.lookup_variable(contract_id, data_var) {
+                match db.lookup_variable_unknown_descriptor(contract_id, data_var) {
                     Ok(c) => Ok(Some(c)),
                     Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
                         Ok(None)

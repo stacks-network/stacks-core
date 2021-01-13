@@ -121,7 +121,7 @@ impl FromRow<SortitionId> for SortitionId {
 impl FromRow<MissedBlockCommit> for MissedBlockCommit {
     fn from_row<'a>(row: &'a Row) -> Result<MissedBlockCommit, db_error> {
         let intended_sortition = SortitionId::from_column(row, "intended_sortition_id")?;
-        let input_json: String = row.get("input");
+        let input_json: String = row.get_unwrap("input");
         let input =
             serde_json::from_str(&input_json).map_err(|e| db_error::SerializationError(e))?;
         let txid = Txid::from_column(row, "txid")?;
@@ -142,8 +142,8 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let ops_hash = OpsHash::from_column(row, "ops_hash")?;
-        let total_burn_str: String = row.get("total_burn");
-        let sortition: bool = row.get("sortition");
+        let total_burn_str: String = row.get_unwrap("total_burn");
+        let sortition: bool = row.get_unwrap("sortition");
         let sortition_hash = SortitionHash::from_column(row, "sortition_hash")?;
         let winning_block_txid = Txid::from_column(row, "winning_block_txid")?;
         let winning_stacks_block_hash =
@@ -152,7 +152,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let num_sortitions = u64::from_column(row, "num_sortitions")?;
 
         // information we learn about the stacks block this snapshot committedto
-        let stacks_block_accepted: bool = row.get("stacks_block_accepted");
+        let stacks_block_accepted: bool = row.get_unwrap("stacks_block_accepted");
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let arrival_index = u64::from_column(row, "arrival_index")?;
 
@@ -166,9 +166,9 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
         // identifiers derived from PoX forking state
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
-        let pox_valid = row.get("pox_valid");
+        let pox_valid = row.get_unwrap("pox_valid");
 
-        let accumulated_coinbase_ustx_str: String = row.get("accumulated_coinbase_ustx");
+        let accumulated_coinbase_ustx_str: String = row.get_unwrap("accumulated_coinbase_ustx");
         let accumulated_coinbase_ustx = accumulated_coinbase_ustx_str
             .parse::<u128>()
             .expect("DB CORRUPTION: failed to parse stored value");
@@ -211,12 +211,12 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
     fn from_row<'a>(row: &'a Row) -> Result<LeaderKeyRegisterOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
-        let memo_hex: String = row.get("memo");
+        let memo_hex: String = row.get_unwrap("memo");
         let address = StacksAddress::from_column(row, "address")?;
 
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
@@ -242,22 +242,22 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
 impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
     fn from_row<'a>(row: &'a Row) -> Result<LeaderBlockCommitOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let new_seed = VRFSeed::from_column(row, "new_seed")?;
-        let parent_block_ptr: u32 = row.get("parent_block_ptr");
-        let parent_vtxindex: u16 = row.get("parent_vtxindex");
-        let key_block_ptr: u32 = row.get("key_block_ptr");
-        let key_vtxindex: u16 = row.get("key_vtxindex");
-        let memo_hex: String = row.get("memo");
-        let burn_fee_str: String = row.get("burn_fee");
-        let input_json: String = row.get("input");
-        let apparent_sender_json: String = row.get("apparent_sender");
-        let sunset_burn_str: String = row.get("sunset_burn");
+        let parent_block_ptr: u32 = row.get_unwrap("parent_block_ptr");
+        let parent_vtxindex: u16 = row.get_unwrap("parent_vtxindex");
+        let key_block_ptr: u32 = row.get_unwrap("key_block_ptr");
+        let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
+        let memo_hex: String = row.get_unwrap("memo");
+        let burn_fee_str: String = row.get_unwrap("burn_fee");
+        let input_json: String = row.get_unwrap("input");
+        let apparent_sender_json: String = row.get_unwrap("apparent_sender");
+        let sunset_burn_str: String = row.get_unwrap("sunset_burn");
 
-        let commit_outs = serde_json::from_value(row.get("commit_outs"))
+        let commit_outs = serde_json::from_value(row.get_unwrap("commit_outs"))
             .expect("Unparseable value stored to database");
 
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
@@ -278,7 +278,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .parse::<u64>()
             .expect("DB Corruption: Sunset burn is not parseable as u64");
 
-        let burn_parent_modulus: u8 = row.get("burn_parent_modulus");
+        let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
@@ -307,18 +307,18 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
     fn from_row<'a>(row: &'a Row) -> Result<UserBurnSupportOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let address = StacksAddress::from_column(row, "address")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
-        let key_block_ptr: u32 = row.get("key_block_ptr");
-        let key_vtxindex: u16 = row.get("key_vtxindex");
+        let key_block_ptr: u32 = row.get_unwrap("key_block_ptr");
+        let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
         let block_header_hash_160 = Hash160::from_column(row, "block_header_hash_160")?;
 
-        let burn_fee_str: String = row.get("burn_fee");
+        let burn_fee_str: String = row.get_unwrap("burn_fee");
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
@@ -345,16 +345,16 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
 impl FromRow<StackStxOp> for StackStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let reward_addr = StacksAddress::from_column(row, "reward_addr")?;
-        let stacked_ustx_str: String = row.get("stacked_ustx");
+        let stacked_ustx_str: String = row.get_unwrap("stacked_ustx");
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
-        let num_cycles = row.get("num_cycles");
+        let num_cycles = row.get_unwrap("num_cycles");
 
         Ok(StackStxOp {
             txid,
@@ -372,16 +372,16 @@ impl FromRow<StackStxOp> for StackStxOp {
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let recipient = StacksAddress::from_column(row, "recipient_addr")?;
-        let transfered_ustx_str: String = row.get("transfered_ustx");
+        let transfered_ustx_str: String = row.get_unwrap("transfered_ustx");
         let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
-        let memo_hex: String = row.get("memo");
+        let memo_hex: String = row.get_unwrap("memo");
         let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
 
         Ok(TransferStxOp {
@@ -1244,7 +1244,7 @@ impl<'a> SortitionHandleTx<'a> {
         let earliest_block_height = self.tx().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
             &[potential_ancestor],
-            |row| u64::from_row(row))??;
+            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
 
         let mut sn = self
             .get_block_snapshot_by_height(block_at_burn_height)?
@@ -2517,14 +2517,14 @@ impl SortitionDB {
         let transition_ops = self
             .conn()
             .query_row(sql_transition_ops, &[id], |row| {
-                let accepted_ops: String = row.get(0);
-                let consumed_leader_keys: String = row.get(1);
-                BurnchainStateTransitionOps {
+                let accepted_ops: String = row.get_unwrap(0);
+                let consumed_leader_keys: String = row.get_unwrap(1);
+                Ok(BurnchainStateTransitionOps {
                     accepted_ops: serde_json::from_str(&accepted_ops)
                         .expect("CORRUPTION: DB stored bad transition ops"),
                     consumed_leader_keys: serde_json::from_str(&consumed_leader_keys)
                         .expect("CORRUPTION: DB stored bad transition ops"),
-                }
+                })
             })
             .optional()?
             .expect("CORRUPTION: DB stored BlockSnapshot, but not the transition ops");
@@ -2780,11 +2780,11 @@ impl SortitionDB {
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 0) FROM snapshots",
                 NO_PARAMS,
-                |row| u64::from_row(row),
+                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index?),
+            Some(arrival_index) => Ok(arrival_index),
             None => Ok(0),
         }
     }
@@ -2798,11 +2798,11 @@ impl SortitionDB {
             .query_row(
                 "SELECT arrival_index FROM snapshots WHERE sortition_id = ?",
                 &[sortition_id],
-                |row| u64::from_row(row),
+                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index?),
+            Some(arrival_index) => Ok(arrival_index),
             None => Err(db_error::NotFoundError),
         }
     }

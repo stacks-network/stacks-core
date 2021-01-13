@@ -739,6 +739,4 @@ pub mod tests {
             );
         }
     }
-
-    // TODO: make VRF keys expire
 }

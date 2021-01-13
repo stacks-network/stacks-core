@@ -187,8 +187,10 @@ impl RPCPeerInfoData {
         };
 
         let server_version = version_string(
-            option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
-            option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0"),
+            "stacks-node",
+            option_env!("STACKS_NODE_VERSION")
+                .or(option_env!("CARGO_PKG_VERSION"))
+                .unwrap_or("0.0.0.0"),
         );
         let stacks_tip_consensus_hash = burnchain_tip.canonical_stacks_tip_consensus_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
@@ -234,14 +236,14 @@ impl RPCPoxInfoData {
         tip: &StacksBlockId,
         _options: &ConnectionOptions,
     ) -> Result<RPCPoxInfoData, net_error> {
-        let contract_identifier = boot::boot_code_id("pox");
+        let mainnet = chainstate.mainnet;
+        let contract_identifier = boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
-
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
                     env.execute_contract(&contract_identifier, function, &vec![], true)
                 })
             })
@@ -311,7 +313,7 @@ impl RPCPoxInfoData {
             - ((burnchain_tip.block_height - first_burnchain_block_height) % reward_cycle_length);
 
         Ok(RPCPoxInfoData {
-            contract_id: boot::boot_code_id("pox").to_string(),
+            contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             first_burnchain_block_height,
             min_amount_ustx,
             prepare_cycle_length,
@@ -1133,12 +1135,13 @@ impl ConversationHttp {
             .iter()
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
-
+        let mainnet = chainstate.mainnet;
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
                         LimitedCostTracker::new_mid_block(
+                            mainnet,
                             options.read_only_call_limit.clone(),
                             clarity_db,
                         )
@@ -1147,7 +1150,7 @@ impl ConversationHttp {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
-                clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
                     env.execute_contract(&contract_identifier, function.as_str(), &args, true)
                 })
             });

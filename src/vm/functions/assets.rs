@@ -197,6 +197,10 @@ pub fn special_stx_burn(
         burner_snapshot.debit(amount);
         burner_snapshot.save();
 
+        env.global_context
+            .database
+            .decrement_ustx_liquid_supply(amount)?;
+
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
 
@@ -225,16 +229,24 @@ pub fn special_mint_token(
             return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
+        let ft_info = env
+            .contract_context
+            .meta_ft
+            .get(token_name)
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+
         env.global_context.database.checked_increase_token_supply(
             &env.contract_context.contract_identifier,
             token_name,
             amount,
+            ft_info,
         )?;
 
         let to_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             to_principal,
+            Some(ft_info),
         )?;
 
         let final_to_bal = to_bal.checked_add(amount).expect("STX overflow");
@@ -273,10 +285,12 @@ pub fn special_mint_asset(
     let asset = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
 
-    let expected_asset_type = env
-        .global_context
-        .database
-        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+    let nft_metadata = env
+        .contract_context
+        .meta_nft
+        .get(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+    let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
         ClarityCostFunction::NftMint,
@@ -285,7 +299,7 @@ pub fn special_mint_asset(
     )?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
     if let Value::Principal(ref to_principal) = to {
@@ -293,6 +307,7 @@ pub fn special_mint_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            expected_asset_type,
         ) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
@@ -307,6 +322,7 @@ pub fn special_mint_asset(
             asset_name,
             &asset,
             to_principal,
+            expected_asset_type,
         )?;
 
         let asset_identifier = AssetIdentifier {
@@ -334,10 +350,12 @@ pub fn special_transfer_asset(
     let from = eval(&args[2], env, context)?;
     let to = eval(&args[3], env, context)?;
 
-    let expected_asset_type = env
-        .global_context
-        .database
-        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+    let nft_metadata = env
+        .contract_context
+        .meta_nft
+        .get(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+    let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
         ClarityCostFunction::NftTransfer,
@@ -346,7 +364,7 @@ pub fn special_transfer_asset(
     )?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
     if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
@@ -358,6 +376,7 @@ pub fn special_transfer_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
@@ -378,6 +397,7 @@ pub fn special_transfer_asset(
             asset_name,
             &asset,
             to_principal,
+            expected_asset_type,
         )?;
 
         env.global_context.log_asset_transfer(
@@ -433,10 +453,17 @@ pub fn special_transfer_token(
             return clarity_ecode!(TransferTokenErrorCodes::SENDER_IS_RECIPIENT);
         }
 
+        let ft_info = env
+            .contract_context
+            .meta_ft
+            .get(token_name)
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+
         let from_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             from_principal,
+            Some(ft_info),
         )?;
 
         if from_bal < amount {
@@ -449,6 +476,7 @@ pub fn special_transfer_token(
             &env.contract_context.contract_identifier,
             token_name,
             to_principal,
+            Some(ft_info),
         )?;
 
         let final_to_bal = to_bal
@@ -511,10 +539,17 @@ pub fn special_get_balance(
     let owner = eval(&args[1], env, context)?;
 
     if let Value::Principal(ref principal) = owner {
+        let ft_info = env
+            .contract_context
+            .meta_ft
+            .get(token_name)
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+
         let balance = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
             token_name,
             principal,
+            Some(ft_info),
         )?;
         Ok(Value::UInt(balance))
     } else {
@@ -532,10 +567,13 @@ pub fn special_get_owner(
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
-    let expected_asset_type = env
-        .global_context
-        .database
-        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+
+    let nft_metadata = env
+        .contract_context
+        .meta_nft
+        .get(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+    let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
         ClarityCostFunction::NftOwner,
@@ -544,13 +582,14 @@ pub fn special_get_owner(
     )?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
     match env.global_context.database.get_nft_owner(
         &env.contract_context.contract_identifier,
         asset_name,
         &asset,
+        expected_asset_type,
     ) {
         Ok(owner) => {
             Ok(Value::some(Value::Principal(owner))
@@ -602,6 +641,7 @@ pub fn special_burn_token(
             &env.contract_context.contract_identifier,
             token_name,
             burner,
+            None,
         )?;
 
         if amount > burner_bal {
@@ -659,10 +699,12 @@ pub fn special_burn_asset(
     let asset = eval(&args[1], env, context)?;
     let sender = eval(&args[2], env, context)?;
 
-    let expected_asset_type = env
-        .global_context
-        .database
-        .get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+    let nft_metadata = env
+        .contract_context
+        .meta_nft
+        .get(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+    let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
         ClarityCostFunction::NftBurn,
@@ -671,7 +713,7 @@ pub fn special_burn_asset(
     )?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into());
+        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
     if let Value::Principal(ref sender_principal) = sender {
@@ -679,6 +721,7 @@ pub fn special_burn_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            expected_asset_type,
         ) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
@@ -698,6 +741,7 @@ pub fn special_burn_asset(
             &env.contract_context.contract_identifier,
             asset_name,
             &asset,
+            expected_asset_type,
         )?;
 
         env.global_context.log_asset_transfer(

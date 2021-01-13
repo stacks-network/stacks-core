@@ -2291,27 +2291,23 @@ pub mod test {
             .unwrap();
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
-            let atlasdb = AtlasDB::connect(AtlasConfig::default(), &atlasdb_path, true).unwrap();
+            let atlasdb =
+                AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 if conf.setup_code.len() > 0 {
                     clarity_tx.connection().as_transaction(|clarity| {
-                        let boot_code_address = StacksAddress::from_string(
-                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string(),
-                        )
-                        .unwrap();
+                        let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
-                            principal: PrincipalData::Standard(StandardPrincipalData::from(
-                                boot_code_address.clone(),
-                            )),
+                            principal: boot_code_addr.to_account_principal(),
                             nonce: 0,
                             stx_balance: STXBalance::zero(),
                         };
 
                         let boot_code_auth = TransactionAuth::Standard(
                             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: boot_code_address.bytes.clone(),
+                                signer: boot_code_addr.bytes.clone(),
                                 hash_mode: SinglesigHashMode::P2PKH,
                                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                                 nonce: 0,
@@ -2322,7 +2318,7 @@ pub mod test {
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
-                            &STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string(),
+                            &boot_code_addr.to_string(),
                             &conf.test_name,
                             conf.setup_code.len()
                         );

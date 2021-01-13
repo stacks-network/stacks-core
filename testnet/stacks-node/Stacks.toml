@@ -23,7 +23,7 @@ rpc_bind = "127.0.0.1:20443"
 # password = "secret"
 # timeout = 30
 # local_mining_public_key = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77"
-# burnchain_op_tx_fee = 1000
+# satoshis_per_byte = 50
 # commit_anchor_block_within = 3000
 
 ## Settings for public testnet, relying on a remote bitcoind server
@@ -33,7 +33,7 @@ rpc_bind = "127.0.0.1:20443"
 # chain = "bitcoin"
 # mode = "argon"
 # peer_host = "argon.blockstack.org"
-# burnchain_op_tx_fee = 1000
+# satoshis_per_byte = 50
 # commit_anchor_block_within = 10000
 # rpc_port = 3000
 # peer_port = 18444
