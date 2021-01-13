@@ -333,6 +333,7 @@ describe("BNS Test Suite - NAME_REGISTER", () => {
 
     receipt = await bns.resolvePrincipal(cases[0].nameOwner)
     expect(receipt.result).include('2008');
+    expect(receipt.result).include('0x626f62');
 
     receipt = await bns.namePreorder(
       cases[0].namespace,

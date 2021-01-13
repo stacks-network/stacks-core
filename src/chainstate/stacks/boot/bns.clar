@@ -882,8 +882,8 @@
   (match (map-get? owner-name owner)
     name (match (name-resolve (get namespace name) (get name name))
       resolved-name (ok name)
-      error (err error))
-    (err ERR_NAME_NOT_FOUND)))
+      error (err {code: error, name: (some name)}))
+    (err {code: ERR_NAME_NOT_FOUND, name: none})))
 
 (define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name owner)))
