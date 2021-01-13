@@ -14,9 +14,9 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::net::atlas::AtlasConfig;
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
-use stacks::net::atlas::AtlasConfig;
 use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
