@@ -229,7 +229,7 @@ fn make_logger() -> Logger {
     } else {
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-        let atty = isatty(Stream::Stdout);
+        let isatty = isatty(Stream::Stdout);
         let drain = TermFormat::new(plain, false, debug, isatty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
