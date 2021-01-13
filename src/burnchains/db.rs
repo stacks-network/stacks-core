@@ -104,7 +104,7 @@ impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {
 
 impl FromRow<BlockstackOperationType> for BlockstackOperationType {
     fn from_row(row: &Row) -> Result<BlockstackOperationType, DBError> {
-        let serialized = row.get::<_, String>("op");
+        let serialized = row.get_unwrap::<_, String>("op");
         let deserialized = serde_json::from_str(&serialized)
             .expect("CORRUPTION: db store un-deserializable block op");
 

@@ -25,7 +25,6 @@ use std::{cmp, fmt};
 use regex::Regex;
 
 use address::c32;
-use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS;
 use util::hash;
 
 use vm::errors::{
@@ -100,16 +99,6 @@ impl QualifiedContractIdentifier {
         Self {
             issuer: StandardPrincipalData::transient(),
             name,
-        }
-    }
-
-    pub fn boot_contract(contract_name: &str) -> QualifiedContractIdentifier {
-        QualifiedContractIdentifier {
-            issuer: STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone().into(),
-            name: contract_name
-                .to_string()
-                .try_into()
-                .expect("BUG: Bad contract name supplied for a boot contract"),
         }
     }
 
@@ -1255,11 +1244,15 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(base: TupleData, updates: TupleData) -> Result<TupleData> {
-        let mut base = base;
-        for (name, value) in updates.data_map.into_iter() {
+    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> Result<TupleData> {
+        let TupleData {
+            data_map,
+            mut type_signature,
+        } = updates;
+        for (name, value) in data_map.into_iter() {
             base.data_map.insert(name, value);
         }
+        base.type_signature.shallow_merge(&mut type_signature);
         Ok(base)
     }
 }

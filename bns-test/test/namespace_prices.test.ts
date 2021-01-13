@@ -37,7 +37,7 @@ import {
       namespace: "blockstack",
       version: 1,
       salt: "0000",
-      value: 96,
+      value: 640000000,
       namespaceOwner: alice,
       nameOwner: bob,
       priceFunction: {
@@ -54,7 +54,7 @@ import {
       namespace: "id",
       version: 1,
       salt: "0000",
-      value: 9600,
+      value: 64000000000,
       namespaceOwner: alice,
       nameOwner: bob,
       priceFunction: {
@@ -72,19 +72,19 @@ import {
     beforeEach(async () => {
       const allocations = [{
           principal: alice,
-          amount: 10_000_000_000
+          amount: 10_000_000_000_000_000
         },
         {
           principal: bob,
-          amount: 10_000_000
+          amount: 10_000_000_000_000
         },
         {
           principal: charlie,
-          amount: 10_000_000
+          amount: 10_000_000_000_000
         },
         {
           principal: dave,
-          amount: 10_000_000
+          amount: 10_000_000_000_000
         },
       ]
       const binFile = getDefaultBinaryFilePath();
@@ -97,42 +97,42 @@ import {
     it("Testing namespace prices", async () => {
         var receipt = await bns.getNamespacePrice("a");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u96000)`);
+        expect(receipt.result).include(`(ok u640000000000)`);
       
         var receipt = await bns.getNamespacePrice("1");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u96000)`);
+        expect(receipt.result).include(`(ok u640000000000)`);
 
         var receipt = await bns.getNamespacePrice("ab");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u9600)`);
+        expect(receipt.result).include(`(ok u64000000000)`);
 
         var receipt = await bns.getNamespacePrice("abc");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u9600)`);
+        expect(receipt.result).include(`(ok u64000000000)`);
 
         var receipt = await bns.getNamespacePrice("abcd");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u960)`);
+        expect(receipt.result).include(`(ok u6400000000)`);
 
         var receipt = await bns.getNamespacePrice("abcde");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u960)`);
+        expect(receipt.result).include(`(ok u6400000000)`);
 
         var receipt = await bns.getNamespacePrice("abcdef");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u960)`);
+        expect(receipt.result).include(`(ok u6400000000)`);
 
         var receipt = await bns.getNamespacePrice("abcdefg");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u960)`);
+        expect(receipt.result).include(`(ok u6400000000)`);
 
         var receipt = await bns.getNamespacePrice("abcdefgh");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u96)`);
+        expect(receipt.result).include(`(ok u640000000)`);
 
         var receipt = await bns.getNamespacePrice("abcdefghi");
         expect(receipt.success).eq(true);
-        expect(receipt.result).include(`(ok u96)`);
+        expect(receipt.result).include(`(ok u640000000)`);
     });
   });

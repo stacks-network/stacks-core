@@ -51,15 +51,15 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
         let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
 
-        let coinbase_text: String = row.get("coinbase");
-        let tx_fees_anchored_text: String = row.get("tx_fees_anchored");
-        let tx_fees_streamed_text: String = row.get("tx_fees_streamed");
-        let burns_text: String = row.get("stx_burns");
+        let coinbase_text: String = row.get_unwrap("coinbase");
+        let tx_fees_anchored_text: String = row.get_unwrap("tx_fees_anchored");
+        let tx_fees_streamed_text: String = row.get_unwrap("tx_fees_streamed");
+        let burns_text: String = row.get_unwrap("stx_burns");
         let burnchain_commit_burn = u64::from_column(row, "burnchain_commit_burn")?;
         let burnchain_sortition_burn = u64::from_column(row, "burnchain_sortition_burn")?;
-        let miner: bool = row.get("miner");
+        let miner: bool = row.get_unwrap("miner");
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
-        let vtxindex: u32 = row.get("vtxindex");
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
 
         let coinbase = coinbase_text
             .parse::<u128>()
@@ -162,7 +162,7 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .with_clarity_db_readonly(|ref mut db| {
-                let ft_balance = db.get_ft_balance(contract_id, token_name, principal)?;
+                let ft_balance = db.get_ft_balance(contract_id, token_name, principal, None)?;
                 Ok(ft_balance)
             })
             .map_err(Error::ClarityError)
@@ -177,7 +177,9 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .with_clarity_db_readonly(|ref mut db| {
-                let nft_owner = db.get_nft_owner(contract_id, token_name, token_value)?;
+                let expected_asset_type = db.get_nft_key_type(contract_id, token_name)?;
+                let nft_owner =
+                    db.get_nft_owner(contract_id, token_name, token_value, &expected_asset_type)?;
                 Ok(nft_owner)
             })
             .map_err(Error::ClarityError)
@@ -835,7 +837,6 @@ mod test {
             Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0,
         );
         new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
-        new_tip.total_liquid_ustx = parent_header_info.total_liquid_ustx + block_reward.coinbase;
 
         block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
@@ -860,7 +861,6 @@ mod test {
             new_tip.microblock_tail.clone(),
             &block_reward,
             &user_burns,
-            new_tip.total_liquid_ustx,
             &ExecutionCost::zero(),
             123,
         )
@@ -901,7 +901,7 @@ mod test {
             let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
-                &StacksHeaderInfo::regtest_genesis(0),
+                &StacksHeaderInfo::regtest_genesis(),
                 0,
             )
             .unwrap();
@@ -910,7 +910,7 @@ mod test {
 
         let parent_tip = advance_tip(
             &mut chainstate,
-            &StacksHeaderInfo::regtest_genesis(0),
+            &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
             &mut user_supports,
         );
@@ -957,14 +957,14 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::regtest_genesis(0);
+        let initial_tip = StacksHeaderInfo::regtest_genesis();
 
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
         let parent_tip = advance_tip(
             &mut chainstate,
-            &StacksHeaderInfo::regtest_genesis(0),
+            &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
             &mut user_supports,
         );

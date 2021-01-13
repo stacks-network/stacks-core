@@ -414,7 +414,7 @@ wait_node() {
          ;;
    esac
    local CNT=0
-   for CNT in $(seq 1 120); do
+   for CNT in $(seq 1 360); do
       curl -sLf "http://$RPC_HOST:$RPC_PORT/v2/info" >/dev/null 2>&1
       if [ $? -eq 0 ]; then
          return 0

@@ -62,12 +62,12 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '3' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '4' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 1;
 
-    let miner_account = keychain.origin_address().unwrap();
+    let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
 }
@@ -309,7 +309,6 @@ fn bitcoind_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -540,7 +539,6 @@ fn stx_transfer_btc_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -1657,8 +1655,8 @@ fn atlas_integration_test() {
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
     );
-    conf_follower_node.node.set_bootstrap_node(
-        Some(bootstrap_node_url),
+    conf_follower_node.node.set_bootstrap_nodes(
+        bootstrap_node_url,
         conf_follower_node.burnchain.chain_id,
         conf_follower_node.burnchain.peer_version,
     );

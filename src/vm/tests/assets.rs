@@ -177,7 +177,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         .initialize_contract(second_contract_id.clone(), contract_second)
         .unwrap();
 
-    owned_env.stx_faucet(&(p1_principal.clone().into()), u128::max_value() - 1);
+    owned_env.stx_faucet(&(p1_principal.clone().into()), u128::max_value() - 1500);
     owned_env.stx_faucet(&p2_principal, 1000);
 
     // test 1: send 0
@@ -273,18 +273,19 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     // test 5: overflow
-
-    assert_eq!(
-        execute_transaction(
-            owned_env,
-            p2.clone(),
-            &token_contract_id,
-            "xfer-stx",
-            &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
-        )
-        .unwrap_err(),
-        RuntimeErrorType::ArithmeticOverflow.into()
-    );
+    //  NOTE: this tested behavior is no longer reachable: the total liquid ustx supply
+    //    will overflow before such an overflowing transfer is allowed.
+    // assert_eq!(
+    //     execute_transaction(
+    //         owned_env,
+    //         p2.clone(),
+    //         &token_contract_id,
+    //         "xfer-stx",
+    //         &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
+    //     )
+    //     .unwrap_err(),
+    //     RuntimeErrorType::ArithmeticOverflow.into()
+    // );
 
     // test 6: check balance
 

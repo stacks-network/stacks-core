@@ -42,13 +42,13 @@ use core::FIRST_STACKS_BLOCK_HASH;
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
-        let version: u8 = row.get("version");
-        let total_burn_str: String = row.get("total_burn");
-        let total_work_str: String = row.get("total_work");
+        let version: u8 = row.get_unwrap("version");
+        let total_burn_str: String = row.get_unwrap("total_burn");
+        let total_work_str: String = row.get_unwrap("total_work");
         let proof: VRFProof = VRFProof::from_column(row, "proof")?;
         let parent_block = BlockHeaderHash::from_column(row, "parent_block")?;
         let parent_microblock = BlockHeaderHash::from_column(row, "parent_microblock")?;
-        let parent_microblock_sequence: u16 = row.get("parent_microblock_sequence");
+        let parent_microblock_sequence: u16 = row.get_unwrap("parent_microblock_sequence");
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
         let state_index_root = TrieHash::from_column(row, "state_index_root")?;
         let microblock_pubkey_hash = Hash160::from_column(row, "microblock_pubkey_hash")?;
@@ -87,8 +87,8 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
 
 impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksMicroblockHeader, db_error> {
-        let version: u8 = row.get("version");
-        let sequence: u16 = row.get("sequence");
+        let version: u8 = row.get_unwrap("version");
+        let sequence: u16 = row.get_unwrap("sequence");
         let prev_block = BlockHeaderHash::from_column(row, "prev_block")?;
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
         let signature = MessageSignature::from_column(row, "signature")?;
@@ -135,7 +135,6 @@ impl StacksChainState {
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
-        let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
         let block_size_str = format!("{}", tip_info.anchored_block_size);
 
         let block_hash = header.block_hash();
@@ -162,7 +161,6 @@ impl StacksChainState {
             &burn_header_hash,
             &(burn_header_height as i64),
             &(burn_header_timestamp as i64),
-            &total_liquid_stx_str,
             &(block_height as i64),
             &index_root,
             anchored_block_cost,
@@ -187,13 +185,12 @@ impl StacksChainState {
                     burn_header_hash, \
                     burn_header_height, \
                     burn_header_timestamp, \
-                    total_liquid_ustx, \
                     block_height, \
                     index_root,
                     cost,
                     block_size,
                     parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -216,7 +213,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
-        match conn.query_row(sql, args, |_| true) {
+        match conn.query_row(sql, args, |_| Ok(true)) {
             Ok(_) => Ok(true),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
             Err(e) => Err(Error::DBError(e.into())),
@@ -325,7 +322,7 @@ impl StacksChainState {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[block_id];
         Ok(conn
-            .query_row(sql, args, |_r| ())
+            .query_row(sql, args, |_r| Ok(()))
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
             .is_some())

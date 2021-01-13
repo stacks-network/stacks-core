@@ -1,0 +1,27 @@
+name: stacks-bitcoin-integration-tests
+
+# Only run on PRs
+on:
+  pull_request:
+
+jobs:
+  # Run sampled genesis tests
+  sampled-genesis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: All integration tests with sampled genesis
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+  atlas-test:
+    # disable this job/test for now, since we haven't seen this pass
+    #  on github actions in a while
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: All integration tests with sampled genesis
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.atlas-test .
