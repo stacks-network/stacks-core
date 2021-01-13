@@ -43,7 +43,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
+use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
@@ -974,10 +974,9 @@ impl InitializedNeonNode {
 
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
-        let mut initial_neighbors = vec![];
-        if let Some(ref bootstrap_node) = &config.node.bootstrap_node {
-            info!("Will bootstrap from peer {}", bootstrap_node);
-            initial_neighbors.push(bootstrap_node.clone());
+        let initial_neighbors = config.node.bootstrap_node.clone();
+        if initial_neighbors.len() > 0 {
+            info!("Will bootstrap from peers {}", VecDisplay(&initial_neighbors));
         } else {
             warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
