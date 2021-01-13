@@ -849,7 +849,6 @@ impl StacksChainState {
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
 
-                // TODO: cost is not empty, but we need to figure out how to charge for it
                 let receipt = StacksTransactionReceipt::from_stx_transfer(
                     tx.clone(),
                     events,
@@ -1134,13 +1133,6 @@ impl StacksChainState {
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
-        // pay fee borne by runtime costs.
-        // NOTE: the fee must be paid _after_ we run the payload, because we will (eventually) be
-        // debiting the account a fee equal to its transaction's runtime cost (which can only be
-        // determined by running the code).  Hence, we need to refresh the payer account after the
-        // transaction body runs.
-        // TODO: this field is the fee *rate*, not the absolute fee.  This code is broken until we have
-        // the true block reward system built.
         let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
         let fee = tx.get_tx_fee();
         StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;

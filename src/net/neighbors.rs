@@ -1852,6 +1852,52 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Is the network connected to always-allowed peers?
+    /// Returns (count, total)
+    fn count_connected_always_allowed_peers(&self) -> Result<(u64, u64), net_error> {
+        let allowed_peers =
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        let num_allowed_peers = allowed_peers.len();
+        let mut count = 0;
+        for allowed in allowed_peers {
+            if self.events.contains_key(&allowed.addr) {
+                count += 1;
+            }
+        }
+        Ok((count, num_allowed_peers as u64))
+    }
+
+    /// Instantiate the neighbor walk to an always-allowed node
+    fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
+        let allowed_peers =
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        for allowed in allowed_peers {
+            if !self.events.contains_key(&allowed.addr) {
+                debug!(
+                    "Will (re-)connect to always-allowed peer {:?}",
+                    &allowed.addr
+                );
+                let w = NeighborWalk::new(
+                    self.local_peer.clone(),
+                    self.chain_view.clone(),
+                    &allowed,
+                    true,
+                    self.walk_pingbacks.clone(),
+                    &self.connection_opts,
+                );
+
+                debug!(
+                    "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
+                    &self.local_peer, &allowed
+                );
+                self.walk = Some(w);
+                return Ok(());
+            }
+        }
+
+        return Err(net_error::NotFoundError);
+    }
+
     /// Instantiate a neighbor walk, but use an inbound neighbor instead of a neighbor from our
     /// peer DB.  This helps a public node discover other public nodes, by asking a private node
     /// for its neighbors (which can include other public nodes).
@@ -2183,6 +2229,32 @@ impl PeerNetwork {
                         ));
                     }
                 }
+
+                // prune this down to size
+                let pending_neighbor_list =
+                    if let Some(mut pending_neighbor_addrs) = walk.pending_neighbor_addrs.take() {
+                        if pending_neighbor_addrs.len() as u64
+                            > network.connection_opts.max_neighbors_of_neighbor
+                        {
+                            debug!(
+                                "{:?}: will handshake with {} neighbors out of {} reported by {:?}",
+                                &walk.local_peer,
+                                &network.connection_opts.max_neighbors_of_neighbor,
+                                pending_neighbor_addrs.len(),
+                                &walk.cur_neighbor.addr
+                            );
+                            pending_neighbor_addrs.shuffle(&mut thread_rng());
+                            pending_neighbor_addrs
+                                [0..(network.connection_opts.max_neighbors_of_neighbor as usize)]
+                                .to_vec()
+                        } else {
+                            pending_neighbor_addrs
+                        }
+                    } else {
+                        vec![]
+                    };
+
+                walk.pending_neighbor_addrs = Some(pending_neighbor_list);
 
                 test_debug!(
                     "{:?}: received Neighbors from {} {:?}: {:?}",
@@ -2674,6 +2746,15 @@ impl PeerNetwork {
             }
         }
 
+        let (num_always_connected, total_always_connected) = self
+            .count_connected_always_allowed_peers()
+            .unwrap_or((0, 0));
+        if num_always_connected == 0 && total_always_connected > 0 {
+            // force a reset
+            debug!("{:?}: not connected to any always-allowed peers; forcing a walk reset to try and fix this", &self.local_peer);
+            self.walk = None;
+        }
+
         if self.walk.is_none() {
             // alternate between starting walks from inbound and outbound neighbors.
             // fall back to pingbacks-only walks if no options exist.
@@ -2681,20 +2762,27 @@ impl PeerNetwork {
                 "{:?}: Begin walk attempt {}",
                 &self.local_peer, self.walk_attempts
             );
-            let walk_res =
-                if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                    self.instantiate_walk()
-                } else {
-                    if self.connection_opts.disable_inbound_walks {
-                        debug!(
-                            "{:?}: disabled inbound neighbor walks for testing",
-                            &self.local_peer
-                        );
+
+            // always ensure we're connected to always-allowed outbound peers
+            let walk_res = match self.instantiate_walk_to_always_allowed() {
+                Ok(x) => Ok(x),
+                Err(net_error::NotFoundError) => {
+                    if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
                         self.instantiate_walk()
                     } else {
-                        self.instantiate_walk_from_inbound()
+                        if self.connection_opts.disable_inbound_walks {
+                            debug!(
+                                "{:?}: disabled inbound neighbor walks for testing",
+                                &self.local_peer
+                            );
+                            self.instantiate_walk()
+                        } else {
+                            self.instantiate_walk_from_inbound()
+                        }
                     }
-                };
+                }
+                Err(e) => Err(e),
+            };
 
             self.walk_attempts += 1;
 
@@ -2840,13 +2928,7 @@ impl PeerNetwork {
                             self.walk_count
                         );
 
-                        if self.walk_count > self.connection_opts.num_initial_walks
-                            && self.prune_deadline < get_epoch_time_secs()
-                        {
-                            // clean up
-                            walk_result.do_prune = true;
-                            self.prune_deadline = get_epoch_time_secs() + PRUNE_FREQUENCY;
-                        }
+                        walk_result.do_prune = true;
                     }
                     None => {}
                 }
@@ -4574,6 +4656,9 @@ mod test {
 
         conf.connection_opts.num_clients = 256;
         conf.connection_opts.soft_num_clients = 128;
+
+        conf.connection_opts.max_http_clients = 1000;
+        conf.connection_opts.max_neighbors_of_neighbor = 256;
 
         conf.connection_opts.max_clients_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
         conf.connection_opts.soft_max_clients_per_host = peer_count as u64;

@@ -376,10 +376,7 @@ impl Node {
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
 
-        let mut initial_neighbors = vec![];
-        if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {
-            initial_neighbors.push(bootstrap_node.clone());
-        }
+        let initial_neighbors = self.config.node.bootstrap_node.clone();
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
