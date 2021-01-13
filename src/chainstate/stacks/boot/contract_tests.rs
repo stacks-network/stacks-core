@@ -60,7 +60,8 @@ lazy_static! {
         &FIRST_STACKS_BLOCK_HASH
     );
     static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
-    static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("cost-voting", false);
+    static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("cost-voting", false);
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)

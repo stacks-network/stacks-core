@@ -2297,13 +2297,13 @@ pub mod test {
             .unwrap();
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
-            let atlasdb = AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
+            let atlasdb =
+                AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 if conf.setup_code.len() > 0 {
                     clarity_tx.connection().as_transaction(|clarity| {
-                        
                         let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
                             principal: boot_code_addr.to_account_principal(),

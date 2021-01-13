@@ -639,7 +639,6 @@ impl LimitedCostTracker {
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
-        
         let boot_costs_id = boot_code_id("costs", self.mainnet);
 
         clarity_db.begin();

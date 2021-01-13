@@ -19,7 +19,10 @@ use blockstack_lib::{
         Value,
     },
 };
-use chainstate::{burn::VRFSeed, stacks::{StacksAddress, boot::boot_code_id}};
+use chainstate::{
+    burn::VRFSeed,
+    stacks::{boot::boot_code_id, StacksAddress},
+};
 
 use std::fs;
 use std::process;

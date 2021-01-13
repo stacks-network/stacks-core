@@ -39,8 +39,8 @@ use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
-use chainstate::stacks::boot::{boot_code_id,
-    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+use chainstate::stacks::boot::{
+    boot_code_id, BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
 
 use std::error;

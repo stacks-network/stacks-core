@@ -4219,7 +4219,7 @@ impl PeerNetwork {
         }) {
             Ok(_) => {}
             Err(e) => {
-                error!("Atlas: updating attachment inventory failed {}", e);
+                warn!("Atlas: updating attachment inventory failed {}", e);
             }
         }
 

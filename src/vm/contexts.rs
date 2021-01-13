@@ -1266,7 +1266,11 @@ impl<'a, 'b> Environment<'a, 'b> {
 
 impl<'a> GlobalContext<'a> {
     // Instantiate a new Global Context
-    pub fn new(mainnet: bool, database: ClarityDatabase, cost_track: LimitedCostTracker) -> GlobalContext {
+    pub fn new(
+        mainnet: bool,
+        database: ClarityDatabase,
+        cost_track: LimitedCostTracker,
+    ) -> GlobalContext {
         GlobalContext {
             database,
             cost_track,

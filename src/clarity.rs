@@ -712,8 +712,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(false, db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -742,8 +745,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(false, db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -792,8 +798,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(false, db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env
                         .get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -933,8 +942,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env =
-                        OwnedEnvironment::new_cost_limited(false, db, LimitedCostTracker::new_free());
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
                     vm_env.execute_transaction(
                         Value::Principal(sender),
                         contract_identifier,

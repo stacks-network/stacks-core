@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::fs;
-use std::path::Path;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::Path;
 
 use rand::RngCore;
 
@@ -9,12 +9,12 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use stacks::util::get_epoch_time_secs;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -845,10 +845,19 @@ impl Config {
     }
 
     pub fn clean_working_dir(&self) {
-        let to_archive = fs::read_dir(&self.node.working_dir).unwrap()
+        let to_archive = fs::read_dir(&self.node.working_dir)
+            .unwrap()
             .into_iter()
             .filter(|r| r.is_ok())
-            .map(|r| r.unwrap().path().file_name().unwrap().to_str().unwrap().to_string())
+            .map(|r| {
+                r.unwrap()
+                    .path()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
             .filter(|dir| !dir.ends_with("archive"))
             .collect::<Vec<String>>();
 
@@ -862,9 +871,7 @@ impl Config {
             fs::rename(src, dst).unwrap();
         }
 
-        let to_restore = [
-            "burnchain/spv-headers.dat",
-        ];
+        let to_restore = ["burnchain/spv-headers.dat"];
 
         for file in to_restore.iter() {
             let src = format!("{}/{}", archive_path, file);
@@ -873,12 +880,10 @@ impl Config {
             let parent_dir = Path::new(&dst).parent().unwrap();
             fs::create_dir_all(&parent_dir).unwrap();
             // Copy the file we'd like to keep
-            println!("{}", src);
-            println!("{}", dst);
             if let Ok(_) = fs::copy(src, dst) {
                 info!("Will boot using previous {}", file);
             }
-        }    
+        }
     }
 }
 
@@ -957,7 +962,7 @@ impl BurnchainConfig {
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
-            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,        
+            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
         }
     }
 

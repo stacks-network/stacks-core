@@ -290,7 +290,7 @@ impl StacksChainState {
         let threshold = threshold_precise + ceil_amount;
         info!(
             "PoX participation threshold is {}, from {} + {} ({})",
-            threshold, threshold_precise, ceil_amount, scale_by, 
+            threshold, threshold_precise, ceil_amount, scale_by,
         );
         (threshold, participation)
     }
@@ -793,9 +793,13 @@ pub mod test {
         function_name: &str,
         args: Vec<Value>,
     ) -> StacksTransaction {
-        let payload =
-            TransactionPayload::new_contract_call(boot_code_test_addr(), "pox", function_name, args)
-                .unwrap();
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox",
+            function_name,
+            args,
+        )
+        .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
