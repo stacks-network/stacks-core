@@ -15,4 +15,4 @@ peer_port = 18333
 username = "<USERNAME>"
 password = "<PASSWORD>"
 satoshis_per_byte = 50
-burn_fee_cap: 20000
+burn_fee_cap = 20000
