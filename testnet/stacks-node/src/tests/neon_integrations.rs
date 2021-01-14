@@ -787,6 +787,7 @@ fn microblock_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 5_000;
 
     test_observer::spawn();
 
