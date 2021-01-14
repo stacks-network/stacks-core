@@ -501,7 +501,7 @@ impl Config {
                     if node.use_test_genesis_chainstate == Some(true) {
                         panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
                     }
-                    if let Some(balances) = config_file.ustx_balance {
+                    if let Some(ref balances) = config_file.ustx_balance {
                         if balances.len() > 0 {
                             panic!(
                                 "Attempted to run mainnet node with specified `initial_balances`"
