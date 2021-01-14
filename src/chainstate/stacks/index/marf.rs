@@ -325,7 +325,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         if !is_parent_sentinel {
             debug!("Extending off of existing node {}", chain_tip);
         } else {
-            info!("First-ever block {}", next_chain_tip; "block" => %next_chain_tip);
+            debug!("First-ever block {}", next_chain_tip; "block" => %next_chain_tip);
         }
 
         self.storage.open_block(chain_tip)?;
@@ -1174,14 +1174,26 @@ impl<T: MarfTrieId> MARF<T> {
         let (cur_block_hash, cur_block_id) = conn.get_cur_block_and_id();
 
         let last = keys.len() - 1;
-
+        let mut progress = 0;
+        let eta_enabled = keys.len() > 10_000;
         let mut result = keys[0..last]
             .iter()
+            .enumerate()
             .zip(values[0..last].iter())
-            .try_for_each(|(key, value)| {
+            .try_for_each(|((index, key), value)| {
                 let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
                 let path = TriePath::from_key(key);
 
+                if eta_enabled {
+                    let updated_progress = 100 * index / last;
+                    if updated_progress > progress {
+                        progress = updated_progress;
+                        info!(
+                            "Batching insertions in MARF: {}% ({} out of {})",
+                            progress, index, last
+                        );
+                    }
+                }
                 MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)
             });
 

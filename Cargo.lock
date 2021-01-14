@@ -251,11 +251,13 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "chrono",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
  "integer-sqrt",
  "lazy_static",
+ "libc",
  "mio",
  "percent-encoding",
  "prometheus",
@@ -1153,9 +1155,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.72"
+version = "0.2.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9f8082297d534141b30c8d39e9b1773713ab50fdbe4ff30f750d063b3bfd701"
+checksum = "89203f3fba0a3795506acaad8ebce3c80c0af93f994d5a1d7a0b1eeb23271929"
 
 [[package]]
 name = "libflate"

@@ -2141,7 +2141,7 @@ impl PeerNetwork {
                                 true
                             }
                             Err(e) => {
-                                info!(
+                                debug!(
                                     "{:?}: remote neighbor inv_sync_run finished with error {:?}",
                                     &network.local_peer, &e
                                 );

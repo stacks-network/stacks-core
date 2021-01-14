@@ -1273,9 +1273,11 @@ impl Burnchain {
             return Ok(burn_chain_tip);
         }
 
+        let total = sync_height - self.first_block_height;
+        let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Node will fetch burnchain blocks {}-{}...",
-            start_block, end_block
+            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            progress, start_block, end_block, sync_height
         );
 
         // synchronize

@@ -1544,6 +1544,7 @@ impl HttpRequestType {
                 parser,
             )? {
                 Some(request) => {
+                    info!("Handle {} {}", verb, decoded_path);
                     return Ok(request);
                 }
                 None => {

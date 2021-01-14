@@ -1640,6 +1640,12 @@ impl Neighbor {
     }
 }
 
+impl fmt::Display for Neighbor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}@{}", self.public_key.to_hex(), self.addr)
+    }
+}
+
 pub const NUM_NEIGHBORS: usize = 32;
 
 // maximum number of unconfirmed microblocks can get streamed to us

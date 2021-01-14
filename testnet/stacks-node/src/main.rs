@@ -77,6 +77,8 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
+    info!("{}", version());
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -109,19 +111,11 @@ fn main() {
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
-            println!("==> {}", config_path);
+            info!("Loading config at path {}", config_path);
             ConfigFile::from_path(&config_path)
         }
         "version" => {
-            println!(
-                "{}",
-                &stacks::version_string(
-                    "stacks-node",
-                    option_env!("STACKS_NODE_VERSION")
-                        .or(option_env!("CARGO_PKG_VERSION"))
-                        .unwrap_or("0.0.0.0")
-                )
-            );
+            println!("{}", &version());
             return;
         }
         _ => {
@@ -154,6 +148,15 @@ fn main() {
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
+}
+
+fn version() -> String {
+    stacks::version_string(
+        "stacks-node",
+        option_env!("STACKS_NODE_VERSION")
+            .or(option_env!("CARGO_PKG_VERSION"))
+            .unwrap_or("0.0.0.0"),
+    )
 }
 
 fn print_help() {

@@ -152,7 +152,7 @@ impl<'a> SortitionHandleTx<'a> {
         let mut next_pox = parent_pox;
         if let Some(ref next_pox_info) = next_pox_info {
             if next_pox_info.is_reward_info_known() {
-                info!(
+                debug!(
                     "Begin reward-cycle sortition with present anchor block={:?}",
                     &next_pox_info.selected_anchor_block()
                 );

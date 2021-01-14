@@ -163,7 +163,7 @@ impl LocalPeer {
         let services = ServiceFlags::RELAY;
 
         info!(
-            "Peer's public key: {}",
+            "Will be authenticating p2p messages with public key: {}",
             Secp256k1PublicKey::from_private(&pkey).to_hex()
         );
 
