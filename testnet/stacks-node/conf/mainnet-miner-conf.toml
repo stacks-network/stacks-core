@@ -14,5 +14,5 @@ rpc_port = 8332
 peer_port = 8333
 username = "<USERNAME>"
 password = "<PASSWORD>"
-satoshis_per_byte = 50
+satoshis_per_byte = 100
 burn_fee_cap = 20000
