@@ -53,6 +53,9 @@ jobs:
 
   # Run net-tests
   nettest:
+    # disable this job/test for now, since we haven't seen this pass
+    #  on github actions in a while, and the failures can take > 4 hours
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
