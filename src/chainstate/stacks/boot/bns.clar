@@ -878,6 +878,13 @@
           (> block-height (+ lifetime lease-started-at)) 
           (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION)))))))
 
+(define-read-only (resolve-principal (owner principal))
+  (match (map-get? owner-name owner)
+    name (match (name-resolve (get namespace name) (get name name))
+      resolved-name (ok name)
+      error (err {code: error, name: (some name)}))
+    (err {code: ERR_NAME_NOT_FOUND, name: none})))
+
 (define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name owner)))
     (if (is-none current-owned-name)

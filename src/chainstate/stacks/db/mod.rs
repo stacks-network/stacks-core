@@ -2108,12 +2108,11 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "8b03c434921ffb9476a9ae93bfc6ebfd01e6e9778173676c320e9162a137b8f9"
+            "c8cfd391ad889c2afd563223ba10f02b2d046346d4d4c998ad32167f8d0072f3"
         );
     }
 
     #[test]
-    #[ignore]
     fn test_chainstate_full_genesis_consistency() {
         // Test root hash for the final chainstate data set
         // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
@@ -2198,7 +2197,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "a2fcaeb9fcc41d54e91062d9a69d76c301155fabf87e7139bdb1ca9b6e3d9705"
+            "01913a865d57a627cdc207de8fc7337eb2bebe5e1539f525a3c6a35a74d5f1de"
         );
     }
 }
