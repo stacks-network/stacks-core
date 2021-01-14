@@ -742,6 +742,8 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
+    let mut failed_to_mine_in_block: Option<BurnchainHeaderHash> = None;
+
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state = None;
     let mut miner_tip = None;
@@ -889,6 +891,18 @@ fn spawn_miner_relayer(
                         "height" => last_burn_block.block_height,
                         "burn_header_hash" => %burn_header_hash
                     );
+
+                    let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                        .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
+                        .burn_header_hash;
+                    if failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
+                        warn!(
+                            "Previously failed to mine in block, not attempting again until burnchain advances";
+                            "burn_header_hash" => %burn_chain_tip
+                        );
+                        continue;
+                    }
+
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
@@ -912,6 +926,8 @@ fn spawn_miner_relayer(
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
+                    } else {
+                        failed_to_mine_in_block = Some(burn_chain_tip);
                     }
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
                 }
