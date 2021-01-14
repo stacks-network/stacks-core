@@ -154,7 +154,7 @@ fn main() {
 }
 
 fn version() -> String {
-    &stacks::version_string(
+    stacks::version_string(
         "stacks-node",
         option_env!("STACKS_NODE_VERSION")
             .or(option_env!("CARGO_PKG_VERSION"))
