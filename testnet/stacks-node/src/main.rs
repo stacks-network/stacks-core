@@ -115,10 +115,7 @@ fn main() {
             ConfigFile::from_path(&config_path)
         }
         "version" => {
-            println!(
-                "{}",
-                &version()
-            );
+            println!("{}", &version());
             return;
         }
         _ => {
@@ -158,7 +155,7 @@ fn version() -> String {
         "stacks-node",
         option_env!("STACKS_NODE_VERSION")
             .or(option_env!("CARGO_PKG_VERSION"))
-            .unwrap_or("0.0.0.0")
+            .unwrap_or("0.0.0.0"),
     )
 }
 
