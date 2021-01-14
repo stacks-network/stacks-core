@@ -14,11 +14,12 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
-use stacks::net::atlas::AtlasConfig;
+use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
+use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 
@@ -159,6 +160,14 @@ impl RunLoop {
         for observer in self.config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
+
+        let mut atlas_config = AtlasConfig::default(false);
+        let genesis_attachments = GenesisData::new(USE_TEST_GENESIS_CHAINSTATE)
+            .read_name_zonefiles()
+            .into_iter()
+            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
+            .collect();
+        atlas_config.genesis_attachments = Some(genesis_attachments);
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
