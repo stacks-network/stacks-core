@@ -78,7 +78,7 @@ fn pretty_print_msg_header(
     write!(
         rd,
         "{}{}",
-        color_if_atty("\x1b[0;90m", isatty),
+        color_if_tty("\x1b[0;90m", isatty),
         now.format("%b %e %T%.6f")
     )?;
     rd.start_whitespace()?;
@@ -91,24 +91,24 @@ fn pretty_print_msg_header(
             write!(
                 rd,
                 "{}{}{}",
-                color_if_atty("\x1b[0;91m", isatty),
+                color_if_tty("\x1b[0;91m", isatty),
                 record.level().as_short_str(),
-                color_if_atty("\x1b[0m", isatty)
+                color_if_tty("\x1b[0m", isatty)
             )
         }
         Level::Warning => write!(
             rd,
             "{}{}{}",
-            color_if_atty("\x1b[0;33m", isatty),
+            color_if_tty("\x1b[0;33m", isatty),
             record.level().as_short_str(),
-            color_if_atty("\x1b[0m", isatty)
+            color_if_tty("\x1b[0m", isatty)
         ),
         Level::Info => write!(
             rd,
             "{}{}{}",
-            color_if_atty("\x1b[0;94m", isatty),
+            color_if_tty("\x1b[0;94m", isatty),
             record.level().as_short_str(),
-            color_if_atty("\x1b[0m", isatty)
+            color_if_tty("\x1b[0m", isatty)
         ),
         _ => write!(rd, "{}", record.level().as_short_str()),
     }?;
@@ -124,11 +124,11 @@ fn pretty_print_msg_header(
         write!(
             rd,
             "{}({:?}, {}:{}){}",
-            color_if_atty("\x1b[0;90m", isatty),
+            color_if_tty("\x1b[0;90m", isatty),
             thread::current().id(),
             record.file(),
             record.line(),
-            color_if_atty("\x1b[0m", isatty)
+            color_if_tty("\x1b[0m", isatty)
         )?;
     }
 
@@ -306,7 +306,7 @@ macro_rules! fatal {
     })
 }
 
-fn color_if_atty(color: &str, isatty: bool) -> &str {
+fn color_if_tty(color: &str, isatty: bool) -> &str {
     if isatty {
         color
     } else {
