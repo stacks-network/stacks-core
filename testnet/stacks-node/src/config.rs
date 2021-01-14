@@ -1043,7 +1043,7 @@ impl NodeConfig {
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
-            wait_time_for_microblocks: 120_000,
+            wait_time_for_microblocks: 60_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
