@@ -241,7 +241,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X4".into()),
+            magic_bytes: Some("X5".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -286,7 +286,7 @@ impl ConfigFile {
             peer_host: Some("bitcoin.blockstack.com".to_string()),
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            magic_bytes: Some("R5".to_string()),
+            magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
 
@@ -484,6 +484,7 @@ impl Config {
                         burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
                     }
                 }
+
                 let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
 
                 if &burnchain_mode == "mainnet" {
