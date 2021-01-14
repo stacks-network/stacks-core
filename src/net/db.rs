@@ -844,7 +844,7 @@ impl PeerDB {
         conn: &DBConn,
         network_id: u32,
     ) -> Result<Vec<Neighbor>, db_error> {
-        let sql = "SELECT * FROM frontier WHERE allowed < 0 AND network_id = ?1";
+        let sql = "SELECT * FROM frontier WHERE allowed < 0 AND network_id = ?1 ORDER BY RANDOM()";
         let allow_rows = query_rows::<Neighbor, _>(conn, sql, &[&network_id])?;
         Ok(allow_rows)
     }
