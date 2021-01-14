@@ -307,8 +307,8 @@ impl StacksChainState {
         };
         let threshold = threshold_precise + ceil_amount;
         info!(
-            "PoX participation threshold is {}, from {}",
-            threshold, threshold_precise
+            "PoX participation threshold is {}, from {} + {} ({})",
+            threshold, threshold_precise, ceil_amount, scale_by,
         );
         (threshold, participation)
     }

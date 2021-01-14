@@ -1613,7 +1613,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         match self.data.cur_block_id {
             Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr),
             None => {
-                error!("Not found (no file is open)");
+                debug!("Not found (no file is open)");
                 Err(Error::NotFoundError)
             }
         }

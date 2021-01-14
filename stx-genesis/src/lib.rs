@@ -1,7 +1,7 @@
-use std::io::prelude::*;
 use std::io::{self, BufReader};
+use std::io::{prelude::*, Cursor, Lines};
 
-use libflate::deflate;
+use libflate::deflate::{self, Decoder};
 
 pub struct GenesisAccountBalance {
     /// A STX or BTC address (BTC addresses should be converted to STX when used).
@@ -34,6 +34,11 @@ pub struct GenesisName {
     pub fully_qualified_name: String,
     pub owner: String,
     pub zonefile_hash: String,
+}
+
+pub struct GenesisZonefile {
+    pub zonefile_hash: String,
+    pub zonefile_content: String,
 }
 
 pub static GENESIS_CHAINSTATE_HASH: &str =
@@ -77,6 +82,44 @@ impl GenesisData {
             include_bytes!(concat!(env!("OUT_DIR"), "/names.gz"))
         })
     }
+    pub fn read_name_zonefiles(&self) -> Box<dyn Iterator<Item = GenesisZonefile>> {
+        read_deflated_zonefiles(if self.use_test_chainstate_data {
+            include_bytes!(concat!(env!("OUT_DIR"), "/name_zonefiles-test.gz"))
+        } else {
+            include_bytes!(concat!(env!("OUT_DIR"), "/name_zonefiles.gz"))
+        })
+    }
+}
+
+struct LinePairReader {
+    val: Lines<BufReader<Decoder<Cursor<&'static [u8]>>>>,
+}
+
+impl Iterator for LinePairReader {
+    type Item = [String; 2];
+    fn next(&mut self) -> Option<Self::Item> {
+        if let (Some(l1), Some(l2)) = (self.val.next(), self.val.next()) {
+            Some([l1.unwrap(), l2.unwrap()])
+        } else {
+            None
+        }
+    }
+}
+
+fn read_deflated_zonefiles(
+    deflate_bytes: &'static [u8],
+) -> Box<dyn Iterator<Item = GenesisZonefile>> {
+    let cursor = io::Cursor::new(deflate_bytes);
+    let deflate_decoder = deflate::Decoder::new(cursor);
+    let buff_reader = BufReader::new(deflate_decoder);
+    let pairs = LinePairReader {
+        val: buff_reader.lines(),
+    };
+    let pair_iter = pairs.into_iter().map(|pair| GenesisZonefile {
+        zonefile_hash: pair[0].to_owned(),
+        zonefile_content: pair[1].replace("\\n", "\n"),
+    });
+    return Box::new(pair_iter);
 }
 
 fn iter_deflated_csv(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Vec<String>>> {
@@ -173,6 +216,16 @@ mod tests {
         }
         for name in GenesisData::new(true).read_names() {
             assert!(name.owner.len() > 0);
+        }
+    }
+
+    #[test]
+    fn test_name_zonefiles_read() {
+        for zonefile in GenesisData::new(false).read_name_zonefiles() {
+            assert_eq!(zonefile.zonefile_hash.len(), 40);
+        }
+        for zonefile in GenesisData::new(true).read_name_zonefiles() {
+            assert_eq!(zonefile.zonefile_hash.len(), 40);
         }
     }
 }

@@ -283,12 +283,20 @@ impl ConfigFile {
             mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
             peer_port: Some(8333),
-            peer_host: Some("bitcoind.blockstack.org".to_string()),
+            peer_host: Some("bitcoin.blockstack.com".to_string()),
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            magic_bytes: Some("R5".to_string()),
             ..BurnchainConfigFile::default()
         };
 
+        let bootstrap_nodes = [
+            "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459d36b@seed-0.mainnet.stacks.co:20444",
+            "02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444",
+            "03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"].join(",");
+
         let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@mainnet.blockstack.org:20444".to_string()),
+            bootstrap_node: Some(bootstrap_nodes),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -477,6 +485,33 @@ impl Config {
                     }
                 }
                 let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
+
+                if &burnchain_mode == "mainnet" {
+                    // check magic bytes and set if not defined
+                    let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = mainnet_magic.clone();
+                    }
+                    if burnchain.magic_bytes != mainnet_magic {
+                        panic!(
+                            "Attempted to run mainnet node with bad magic bytes '{}'",
+                            burnchain.magic_bytes.as_ref().unwrap()
+                        );
+                    }
+                    if node.use_test_genesis_chainstate == Some(true) {
+                        panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
+                    }
+                    if let Some(ref balances) = config_file.ustx_balance {
+                        if balances.len() > 0 {
+                            panic!(
+                                "Attempted to run mainnet node with specified `initial_balances`"
+                            );
+                        }
+                    }
+                    if config_file.block_limit.is_some() {
+                        panic!("Attempted to run mainnet node with a specified `block_limit`");
+                    }
+                }
 
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
@@ -1033,10 +1068,10 @@ impl NodeConfig {
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
-            mine_microblocks: false,
-            microblock_frequency: 5000,
+            mine_microblocks: true,
+            microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
-            wait_time_for_microblocks: 5000,
+            wait_time_for_microblocks: 60_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
