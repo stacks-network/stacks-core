@@ -2108,7 +2108,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "54e300e1f626c3a952968204b63a272d308ba498824e72013a7788fcf4b316e4"
+            "beb536eb6e37350d9745c7578ff295142e5fef2bcd0aad8beff3b8ce287ca0e4"
         );
     }
 
@@ -2198,7 +2198,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "a2fcaeb9fcc41d54e91062d9a69d76c301155fabf87e7139bdb1ca9b6e3d9705"
+            "01913a865d57a627cdc207de8fc7337eb2bebe5e1539f525a3c6a35a74d5f1de"
         );
     }
 }

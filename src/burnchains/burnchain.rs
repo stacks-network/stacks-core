@@ -98,6 +98,8 @@ impl BurnchainStateTransitionOps {
 
 use core::MINING_COMMITMENT_WINDOW;
 
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
         BurnchainStateTransition {
@@ -1347,6 +1349,7 @@ impl Burnchain {
             })
             .unwrap();
 
+        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
@@ -1357,6 +1360,19 @@ impl Burnchain {
 
                         if burnchain_block.block_height() == 0 {
                             continue;
+                        }
+
+                        if is_mainnet {
+                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
+                                      "block_height" => last_processed.block_height);
+                                continue;
+                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
+                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+                                       "block_height" => last_processed.block_height);
+                                continue;
+                            }
                         }
 
                         let insert_start = get_epoch_time_ms();

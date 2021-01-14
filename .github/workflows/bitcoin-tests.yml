@@ -1,6 +1,7 @@
 name: stacks-bitcoin-integration-tests
 
-# Only run on PRs
+# Only run when:
+#   - PRs are opened
 on:
   pull_request:
 

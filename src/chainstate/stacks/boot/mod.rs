@@ -58,28 +58,46 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-pub const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
+const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 
 lazy_static! {
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
+    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
         ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
     ];
+}
+
+fn make_testnet_cost_voting() -> String {
+    BOOT_CODE_COST_VOTING_MAINNET
+        .replacen(
+            "(define-constant VETO_LENGTH u1008)",
+            "(define-constant VETO_LENGTH u50)",
+            1,
+        )
+        .replacen(
+            "(define-constant REQUIRED_VETOES u500)",
+            "(define-constant REQUIRED_VETOES u25)",
+            1,
+        )
 }
 
 #[cfg(test)]

@@ -314,6 +314,20 @@ export class BNSClient extends Client {
     return res;
   }
 
+    // (resolve-principal (owner principal)
+    async resolvePrincipal(owner: string): Promise<Receipt> {
+      const args = [`'${owner}`];
+      const query = this.createQuery({
+        atChaintip: true,
+        method: {
+          name: "resolve-principal",
+          args: args
+        }
+      });
+      const res = await this.submitQuery(query);
+      return res;
+    }
+
   // (get-name-price (namespace (buff 20))
   //                      (name (buff 48))
   async getNamePrice(namespace: string,

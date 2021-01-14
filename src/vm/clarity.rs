@@ -40,7 +40,8 @@ use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
 use chainstate::stacks::boot::{
-    boot_code_id, BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    boot_code_id, BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET,
 };
 
 use std::error;
@@ -333,13 +334,16 @@ impl ClarityInstance {
 
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("cost-voting", false), BOOT_CODE_COST_VOTING)
+                .analyze_smart_contract(
+                    &boot_code_id("cost-voting", false),
+                    &*BOOT_CODE_COST_VOTING,
+                )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("cost-voting", false),
                     &ast,
-                    BOOT_CODE_COST_VOTING,
+                    &*BOOT_CODE_COST_VOTING,
                     |_, _| false,
                 )
                 .unwrap();

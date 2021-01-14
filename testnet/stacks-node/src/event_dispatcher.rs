@@ -188,6 +188,7 @@ impl EventObserver {
             "raw_result": format!("0x{}", &raw_result),
             "raw_tx": format!("0x{}", &raw_tx),
             "contract_abi": contract_interface_json,
+            "execution_cost": receipt.execution_cost,
         })
     }
 
