@@ -785,6 +785,9 @@ impl Config {
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
                     force_disconnect_interval: opts.force_disconnect_interval,
+                    max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
+                    }),
                     ..ConnectionOptions::default()
                 }
             }
@@ -1173,6 +1176,7 @@ pub struct ConnectionOptionsFile {
     pub private_key_lifetime: Option<u64>,
     pub num_neighbors: Option<u64>,
     pub num_clients: Option<u64>,
+    pub max_http_clients: Option<u64>,
     pub soft_num_neighbors: Option<u64>,
     pub soft_num_clients: Option<u64>,
     pub max_neighbors_per_host: Option<u64>,
