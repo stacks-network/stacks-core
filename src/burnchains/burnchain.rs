@@ -79,7 +79,8 @@ use util::vrf::VRFPublicKey;
 
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION;
+use core::PEER_VERSION_TESTNET;
+use core::PEER_VERSION_MAINNET;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -421,18 +422,21 @@ impl Burnchain {
         chain_name: &str,
         network_name: &str,
     ) -> Result<Burnchain, burnchain_error> {
-        let (params, pox_constants) = match (chain_name, network_name) {
+        let (params, pox_constants, peer_version) = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => (
                 BurnchainParameters::bitcoin_mainnet(),
                 PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
             ),
             ("bitcoin", "testnet") => (
                 BurnchainParameters::bitcoin_testnet(),
                 PoxConstants::testnet_default(),
+                PEER_VERSION_TESTNET,
             ),
             ("bitcoin", "regtest") => (
                 BurnchainParameters::bitcoin_regtest(),
                 PoxConstants::regtest_default(),
+                PEER_VERSION_TESTNET,
             ),
             (_, _) => {
                 return Err(burnchain_error::UnsupportedBurnchain);
@@ -440,7 +444,7 @@ impl Burnchain {
         };
 
         Ok(Burnchain {
-            peer_version: PEER_VERSION,
+            peer_version,
             network_id: params.network_id,
             chain_name: params.chain_name.clone(),
             network_name: params.network_name.clone(),

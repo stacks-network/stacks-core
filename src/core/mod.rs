@@ -27,8 +27,13 @@ pub use self::mempool::MemPoolDB;
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
-// p2p network version
-pub const PEER_VERSION: u32 = 0x18000000; // 24.0.0.0
+// chain id
+pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
+
+// peer version
+pub const MAINNET_PEER_VERSION: u32 = 0x18000000; // 24.0.0.0
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::PEER_VERSION;
+use core::TESTNET_PEER_VERSION;
 
 use net::asn::ASEntry4;
 use net::db::PeerDB;
@@ -976,8 +976,9 @@ impl NeighborWalk {
         );
         for (naddr, mut rh) in unresolved_handshake_neighbors.drain() {
             if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
+
                 self.result.add_dead(NeighborKey::from_neighbor_address(
-                    PEER_VERSION,
+                    network.peer_version,
                     self.local_peer.network_id,
                     &naddr,
                 ));
@@ -1081,7 +1082,7 @@ impl NeighborWalk {
                                 &self.local_peer, naddr, &e
                             );
                             self.result.add_dead(NeighborKey::from_neighbor_address(
-                                PEER_VERSION,
+                                network.peer_version,
                                 self.local_peer.network_id,
                                 &naddr,
                             ));
@@ -4673,7 +4674,7 @@ mod test {
         conf.connection_opts.disable_block_download = true;
 
         let j = i as u32;
-        conf.burnchain.peer_version = PEER_VERSION | (j << 16) | (j << 8) | j; // different non-major versions for each peer
+        conf.burnchain.peer_version = TESTNET_PEER_VERSION | (j << 16) | (j << 8) | j; // different non-major versions for each peer
         conf
     }
 

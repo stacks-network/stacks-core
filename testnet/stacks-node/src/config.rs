@@ -13,12 +13,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-
-pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
-pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
+use stacks::core::{MAINNET_CHAIN_ID, TESTNET_CHAIN_ID, MAINNET_PEER_VERSION, TESTNET_PEER_VERSION};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
