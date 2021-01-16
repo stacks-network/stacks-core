@@ -984,7 +984,10 @@ impl Relayer {
         bad_neighbors.append(&mut new_bad_neighbors);
 
         if new_blocks.len() > 0 {
-            info!("Processing newly received Stacks blocks: {}", new_blocks.len());
+            info!(
+                "Processing newly received Stacks blocks: {}",
+                new_blocks.len()
+            );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
                     return Err(net_error::CoordinatorClosed);

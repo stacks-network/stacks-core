@@ -6,6 +6,9 @@ use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::core::{
+    MAINNET_CHAIN_ID, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, TESTNET_CHAIN_ID,
+};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
@@ -13,7 +16,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use stacks::core::{MAINNET_CHAIN_ID, TESTNET_CHAIN_ID, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;

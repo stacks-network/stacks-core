@@ -976,7 +976,6 @@ impl NeighborWalk {
         );
         for (naddr, mut rh) in unresolved_handshake_neighbors.drain() {
             if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
-
                 self.result.add_dead(NeighborKey::from_neighbor_address(
                     network.peer_version,
                     self.local_peer.network_id,

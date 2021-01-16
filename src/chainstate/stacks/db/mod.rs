@@ -922,7 +922,7 @@ impl StacksChainState {
                 warn!(
                     "Seeding {} balances coming from the config",
                     boot_data.initial_balances.len()
-                );    
+                );
             }
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {

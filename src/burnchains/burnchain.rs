@@ -79,8 +79,8 @@ use util::vrf::VRFPublicKey;
 
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION_TESTNET;
 use core::PEER_VERSION_MAINNET;
+use core::PEER_VERSION_TESTNET;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
