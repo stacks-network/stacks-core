@@ -7,7 +7,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    MAINNET_CHAIN_ID, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, TESTNET_CHAIN_ID,
+    CHAIN_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, CHAIN_ID_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -514,9 +514,9 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
-                        MAINNET_CHAIN_ID
+                        CHAIN_ID_MAINNET
                     } else {
-                        TESTNET_CHAIN_ID
+                        CHAIN_ID_TESTNET
                     },
                     peer_version: if &burnchain_mode == "mainnet" {
                         PEER_VERSION_MAINNET
@@ -944,7 +944,7 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
-            chain_id: TESTNET_CHAIN_ID,
+            chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,

@@ -23,7 +23,7 @@ use stacks::vm::database::ClarityDeserializable;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, config::TESTNET_CHAIN_ID, neon,
+    config::EventObserverConfig, config::InitialBalance, config::CHAIN_ID_TESTNET, neon,
     operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
     ConfigFile, Keychain,
 };
@@ -886,7 +886,7 @@ fn microblock_integration_test() {
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
-            StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
+            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path()).unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
