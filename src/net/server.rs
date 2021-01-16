@@ -194,7 +194,10 @@ impl HttpPeer {
             && (self.peers.len() as u64) + 1 > self.connection_opts.max_http_clients
         {
             // inbound
-            debug!("HTTP: too many inbound peers total");
+            debug!(
+                "HTTP: too many inbound peers total (max is {})",
+                self.connection_opts.max_http_clients
+            );
             return Err(net_error::TooManyPeers);
         }
 

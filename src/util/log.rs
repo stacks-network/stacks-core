@@ -87,15 +87,13 @@ fn pretty_print_msg_header(
     rd.start_level()?;
 
     match record.level() {
-        Level::Critical | Level::Error => {
-            write!(
-                rd,
-                "{}{}{}",
-                color_if_tty("\x1b[0;91m", isatty),
-                record.level().as_short_str(),
-                color_if_tty("\x1b[0m", isatty)
-            )
-        }
+        Level::Critical | Level::Error => write!(
+            rd,
+            "{}{}{}",
+            color_if_tty("\x1b[0;91m", isatty),
+            record.level().as_short_str(),
+            color_if_tty("\x1b[0m", isatty)
+        ),
         Level::Warning => write!(
             rd,
             "{}{}{}",

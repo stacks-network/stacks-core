@@ -241,7 +241,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X4".into()),
+            magic_bytes: Some("X5".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -286,7 +286,7 @@ impl ConfigFile {
             peer_host: Some("bitcoin.blockstack.com".to_string()),
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            magic_bytes: Some("R5".to_string()),
+            magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
 
@@ -484,6 +484,7 @@ impl Config {
                         burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
                     }
                 }
+
                 let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
 
                 if &burnchain_mode == "mainnet" {
@@ -784,6 +785,9 @@ impl Config {
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
                     force_disconnect_interval: opts.force_disconnect_interval,
+                    max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
+                    }),
                     ..ConnectionOptions::default()
                 }
             }
@@ -1172,6 +1176,7 @@ pub struct ConnectionOptionsFile {
     pub private_key_lifetime: Option<u64>,
     pub num_neighbors: Option<u64>,
     pub num_clients: Option<u64>,
+    pub max_http_clients: Option<u64>,
     pub soft_num_neighbors: Option<u64>,
     pub soft_num_clients: Option<u64>,
     pub max_neighbors_per_host: Option<u64>,
