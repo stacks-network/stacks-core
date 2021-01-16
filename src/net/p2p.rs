@@ -2194,7 +2194,7 @@ impl PeerNetwork {
                 Ok(message) => match message.payload {
                     StacksMessageType::NatPunchReply(data) => {
                         // peer offers us our public IP address.
-                        info!(
+                        debug!(
                             "{:?}: learned that my IP address is {:?}",
                             &self.local_peer, &data.addrbytes
                         );
@@ -2920,7 +2920,7 @@ impl PeerNetwork {
                                 }
                             }
                             Err(e) => {
-                                info!("Failed to query public IP ({:?}; skipping", &e);
+                                info!("Failed to query public IP ({:?}) skipping", &e);
                                 self.work_state = PeerNetworkWorkState::BlockInvSync;
                             }
                         }

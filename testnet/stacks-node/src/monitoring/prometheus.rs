@@ -44,8 +44,8 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
 }
 
 async fn accept(addr: String, stream: TcpStream) -> http_types::Result<()> {
-    info!(
-        "Prometheus monitoring: starting new connection from {}",
+    debug!(
+        "Handle Prometheus polling ({})",
         stream.peer_addr()?
     );
     async_h1::accept(&addr, stream.clone(), |_| async {
