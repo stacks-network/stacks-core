@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::TESTNET_PEER_VERSION;
+use core::PEER_VERSION_TESTNET;
 
 use net::asn::ASEntry4;
 use net::db::PeerDB;
@@ -4674,7 +4674,7 @@ mod test {
         conf.connection_opts.disable_block_download = true;
 
         let j = i as u32;
-        conf.burnchain.peer_version = TESTNET_PEER_VERSION | (j << 16) | (j << 8) | j; // different non-major versions for each peer
+        conf.burnchain.peer_version = PEER_VERSION_TESTNET | (j << 16) | (j << 8) | j; // different non-major versions for each peer
         conf
     }
 

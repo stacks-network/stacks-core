@@ -13,7 +13,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use stacks::core::{MAINNET_CHAIN_ID, TESTNET_CHAIN_ID, MAINNET_PEER_VERSION, TESTNET_PEER_VERSION};
+use stacks::core::{MAINNET_CHAIN_ID, TESTNET_CHAIN_ID, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
@@ -517,9 +517,9 @@ impl Config {
                         TESTNET_CHAIN_ID
                     },
                     peer_version: if &burnchain_mode == "mainnet" {
-                        MAINNET_PEER_VERSION
+                        PEER_VERSION_MAINNET
                     } else {
-                        TESTNET_PEER_VERSION
+                        PEER_VERSION_TESTNET
                     },
                     mode: burnchain_mode.clone(),
                     burn_fee_cap: burnchain
@@ -943,7 +943,7 @@ impl BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
             chain_id: TESTNET_CHAIN_ID,
-            peer_version: TESTNET_PEER_VERSION,
+            peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),

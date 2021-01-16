@@ -28,12 +28,12 @@ pub use self::mempool::MemPoolDB;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
+pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
+pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
 
 // peer version
-pub const MAINNET_PEER_VERSION: u32 = 0x18000000; // 24.0.0.0
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
+pub const PEER_VERSION_MAINNET: u32 = 0x18000000; // 24.0.0.0
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade01;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
