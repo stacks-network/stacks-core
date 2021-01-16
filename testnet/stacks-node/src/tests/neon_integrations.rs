@@ -8,8 +8,10 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
@@ -18,14 +20,11 @@ use stacks::{
     vm::costs::ExecutionCost,
 };
 
-use stacks::vm::database::ClarityDeserializable;
-
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, config::CHAIN_ID_TESTNET, neon,
-    operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
+    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
+    BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
 };
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,

@@ -15,6 +15,7 @@ use stacks::chainstate::stacks::{
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::hex_bytes;
 use stacks::util::strings::StacksString;
@@ -22,7 +23,6 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
-use super::config::CHAIN_ID_TESTNET;
 use super::Config;
 use crate::helium::RunLoop;
 use rand::RngCore;

@@ -30,7 +30,7 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use blockstack_lib::core::{CHAIN_ID_TESTNET, CHAIN_ID_MAINNET};
+use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::util::{
     hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
