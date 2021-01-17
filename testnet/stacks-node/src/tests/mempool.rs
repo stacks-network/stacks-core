@@ -351,6 +351,49 @@ fn mempool_setup_chainstate() {
                     false
                 });
 
+                // sender == recipient
+                let contract_princ = PrincipalData::from(contract_addr.clone());
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
+                    r == contract_princ
+                } else {
+                    false
+                });
+
+                // send amount must be positive
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::TransferAmountMustBePositive = e {
+                    true
+                } else {
+                    false
+                });
+
+                // not enough funds
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
+                    true
+                } else {
+                    false
+                });
+
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
