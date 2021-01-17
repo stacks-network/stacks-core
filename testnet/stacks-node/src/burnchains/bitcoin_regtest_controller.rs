@@ -436,6 +436,13 @@ impl BitcoinRegtestController {
 
     pub fn get_utxos(
         &self,
+        _public_key: &Secp256k1PublicKey,
+        _total_required: u64,
+    ) -> Option<Vec<UTXO>> {
+        return Some(vec![]);
+    }
+    pub fn get_utxos_old(
+        &self,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
     ) -> Option<Vec<UTXO>> {

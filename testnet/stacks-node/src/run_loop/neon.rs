@@ -124,7 +124,8 @@ impl RunLoop {
             let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
                 error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                false
+                //                false
+                true
             } else {
                 info!("UTXOs found - will run as a Miner node");
                 true

@@ -249,7 +249,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             txs: txs,
         };
 
-        debug!(
+        info!(
             "\n\nMiner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)\n",
             microblock.block_hash(),
             microblock.header.sequence,
@@ -662,7 +662,9 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            debug!("Include tx {}", tx.txid());
+            info!("Include tx";
+                  "tx" => %tx.txid(),
+                  "origin" => %tx.origin_address());
 
             // save
             self.txs.push(tx.clone());

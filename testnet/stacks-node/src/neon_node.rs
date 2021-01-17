@@ -972,7 +972,7 @@ enum LeaderKeyRegistrationState {
 impl InitializedNeonNode {
     fn new(
         config: Config,
-        keychain: Keychain,
+        mut keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
         miner: bool,
@@ -1112,6 +1112,8 @@ impl InitializedNeonNode {
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
+        let vrf_public_key = keychain.rotate_vrf_keypair(1);
+
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
         spawn_miner_relayer(
             config.is_mainnet(),
@@ -1119,7 +1121,7 @@ impl InitializedNeonNode {
             relayer,
             local_peer,
             config.clone(),
-            keychain,
+            keychain.clone(),
             config.get_burn_db_file_path(),
             config.get_chainstate_path(),
             relay_recv,
@@ -1161,7 +1163,11 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
+            leader_key_registration_state: LeaderKeyRegistrationState::Active(RegisteredKey {
+                block_height: 1,
+                op_vtxindex: 1,
+                vrf_public_key,
+            }),
         }
     }
 
