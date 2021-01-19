@@ -60,7 +60,6 @@ pub struct BitcoinRegtestController {
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
     last_utxos: Vec<UTXO>,
-    min_relay_fee: u64, // satoshis/byte
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -120,7 +119,6 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config,
             last_utxos: vec![],
-            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
@@ -156,7 +154,6 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config: None,
             last_utxos: vec![],
-            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
