@@ -21,4 +21,4 @@ FROM debian:stretch-slim
 RUN apt update && apt install -y netcat
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "xenon"]
+CMD ["stacks-node", "mainnet"]
