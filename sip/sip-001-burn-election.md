@@ -924,7 +924,7 @@ Where `op = [` and:
 * `key_block` is the burn block height of the miner's VRF key registration
 * `key_txoff` is the vtxindex for this miner's VRF key registration
 * `burn_parent_modulus` is the burn block height at which this leader block commit
-  was created modulo `BURN_COMMITMENT_WINDOW` (=6). That is, if the block commit is
+  was created modulo `BURN_COMMITMENT_WINDOW` (=5). That is, if the block commit is
   included in the intended burn block then this value should be equal to:
   `(commit_burn_height - 1) % 6`. This field is used to link burn commitments from
   the same miner together even if a commitment was included in a late burn block.
