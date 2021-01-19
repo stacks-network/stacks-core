@@ -86,13 +86,31 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
     tx_fee: u64,
     anchor_mode: TransactionAnchorMode,
 ) -> Vec<u8> {
+    serialize_sign_standard_single_sig_tx_anchor_mode_version(
+        payload,
+        sender,
+        nonce,
+        tx_fee,
+        anchor_mode,
+        TransactionVersion::Testnet,
+    )
+}
+
+pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
     let mut spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
     spending_condition.set_tx_fee(tx_fee);
     let auth = TransactionAuth::Standard(spending_condition);
-    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
     unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
     unsigned_tx.chain_id = CHAIN_ID_TESTNET;

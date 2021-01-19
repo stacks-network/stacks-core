@@ -251,6 +251,10 @@ impl ClarityInstance {
         f(self.datastore.get_marf())
     }
 
+    pub fn is_mainnet(&self) -> bool {
+        self.mainnet
+    }
+
     pub fn begin_block<'a>(
         &'a mut self,
         current: &StacksBlockId,
