@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate serde_derive;
 
+use std::collections::VecDeque;
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::thread::{self, sleep};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, sleep};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::collections::VecDeque;
 
 use async_h1::client;
 use async_std::net::{TcpListener, TcpStream};
@@ -105,14 +105,17 @@ async fn main() -> http_types::Result<()> {
             let delay = {
                 let mut block_height = block_height_writer.lock().unwrap();
                 let block_time = conf.get_block_time_at_height(*block_height - num_blocks);
-                println!("Generating block {} (block_time: {}ms)", block_height, block_time);
+                println!(
+                    "Generating block {} (block_time: {}ms)",
+                    block_height, block_time
+                );
                 *block_height += 1;
                 block_time
             };
             async_std::task::block_on(async {
                 generate_blocks(1, miner_address.clone(), &conf).await;
             });
-            
+
             thread::sleep(Duration::from_millis(delay));
         }
     });
@@ -139,7 +142,8 @@ async fn main() -> http_types::Result<()> {
             println!("will buffer request from {}", stream.peer_addr()?);
             async_h1::accept(&addr, stream.clone(), |_| async {
                 Ok(Response::new(StatusCode::Ok))
-            }).await?;
+            })
+            .await?;
             // Enqueue request
             buffered_requests.push_back((addr, stream));
         } else {
@@ -408,27 +412,27 @@ impl ConfigFile {
     pub fn should_ignore_transactions(&self, block_height: u64) -> bool {
         match self.get_blocks_config_at_height(block_height) {
             Some(conf) => conf.ignore_txs,
-            None => false
+            None => false,
         }
     }
 
     pub fn get_block_time_at_height(&self, block_height: u64) -> u64 {
         match self.get_blocks_config_at_height(block_height) {
             Some(conf) => conf.block_time,
-            None => self.network.block_time
+            None => self.network.block_time,
         }
     }
 
     pub fn get_blocks_config_at_height(&self, block_height: u64) -> Option<&BlocksRangeConfig> {
         if self.blocks.len() == 0 {
-            return None
+            return None;
         }
-        
+
         let mut cursor = 0;
         for block in self.blocks.iter() {
-            if block_height >= cursor && block_height < (cursor+block.count) {
+            if block_height >= cursor && block_height < (cursor + block.count) {
                 return Some(block);
-            } 
+            }
             cursor += block.count;
         }
         return None;
