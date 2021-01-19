@@ -185,21 +185,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
-name = "bitcoin-neon-controller"
-version = "0.1.0"
-dependencies = [
- "async-h1",
- "async-std",
- "base64 0.12.3",
- "http-types",
- "rand 0.7.2",
- "serde",
- "serde_derive",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1675,6 +1660,21 @@ name = "protobuf"
 version = "2.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d883f78645c21b7281d21305181aa1f4dd9e9363e7cf2566c93121552cff003e"
+
+[[package]]
+name = "puppet-chain"
+version = "0.1.0"
+dependencies = [
+ "async-h1",
+ "async-std",
+ "base64 0.12.3",
+ "http-types",
+ "rand 0.7.2",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "toml",
+]
 
 [[package]]
 name = "quick-error"

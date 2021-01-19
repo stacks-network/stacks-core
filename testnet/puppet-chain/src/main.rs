@@ -5,8 +5,10 @@ use std::env;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::thread::{self, sleep};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::VecDeque;
 
 use async_h1::client;
 use async_std::net::{TcpListener, TcpStream};
@@ -32,8 +34,8 @@ async fn main() -> http_types::Result<()> {
     // Generating block
     // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
+    let block_time = Duration::from_millis(config.network.block_time);
     let mut num_blocks = 0;
-    let block_time = Duration::from_millis(config.neon.block_time);
 
     if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
@@ -55,11 +57,11 @@ async fn main() -> http_types::Result<()> {
                 Ok(val) => match val.parse::<u64>() {
                     Ok(val) => val,
                     Err(err) => {
-                        println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.neon.genesis_timestamp);
-                        config.neon.genesis_timestamp
+                        println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.network.genesis_timestamp);
+                        config.network.genesis_timestamp
                     }
                 },
-                _ => config.neon.genesis_timestamp,
+                _ => config.network.genesis_timestamp,
             }
         };
 
@@ -71,12 +73,12 @@ async fn main() -> http_types::Result<()> {
         let num_blocks_for_miner = 150 + num_blocks_required;
         let num_blocks_for_faucet = 150;
 
-        // Generate blocks for the neon faucet
-        let faucet_address = config.neon.faucet_address.clone();
+        // Generate blocks for the network faucet
+        let faucet_address = config.network.faucet_address.clone();
         generate_blocks(num_blocks_for_faucet, faucet_address, &config).await;
 
-        // Generate blocks for the neon miner
-        let miner_address = config.neon.miner_address.clone();
+        // Generate blocks for the network miner
+        let miner_address = config.network.miner_address.clone();
         generate_blocks(num_blocks_for_miner, miner_address, &config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
@@ -92,38 +94,72 @@ async fn main() -> http_types::Result<()> {
 
     // Start a loop in a separate thread, generating new blocks
     // on a given frequence (coming from config).
+    let boot_height = num_blocks;
+    let block_height_reader = Arc::new(Mutex::new(num_blocks));
+    let block_height_writer = block_height_reader.clone();
     let conf = config.clone();
     thread::spawn(move || {
-        let miner_address = conf.neon.miner_address.clone();
+        let miner_address = conf.network.miner_address.clone();
 
         loop {
-            println!("Generating block {}", num_blocks);
+            let delay = {
+                let mut block_height = block_height_writer.lock().unwrap();
+                let block_time = conf.get_block_time_at_height(*block_height - num_blocks);
+                println!("Generating block {} (block_time: {}ms)", block_height, block_time);
+                *block_height += 1;
+                block_time
+            };
             async_std::task::block_on(async {
                 generate_blocks(1, miner_address.clone(), &conf).await;
             });
-            thread::sleep(block_time);
-            num_blocks += 1;
+            
+            thread::sleep(Duration::from_millis(delay));
         }
     });
 
     // Open up a TCP connection and create a URL.
-    let bind_addr = config.neon.rpc_bind.clone();
+    let bind_addr = config.network.rpc_bind.clone();
     let listener = TcpListener::bind(bind_addr).await?;
     let addr = format!("http://{}", listener.local_addr()?);
     println!("Listening on {}", addr);
 
     // For each incoming TCP connection, spawn a task and call `accept`.
     let mut incoming = listener.incoming();
+    let mut buffered_requests = VecDeque::new();
     while let Some(stream) = incoming.next().await {
+        let block_height = block_height_reader.lock().unwrap();
+        let effective_block_height = *block_height - boot_height;
+        let should_ignore_txs = config.should_ignore_transactions(effective_block_height);
+
         let stream = stream?;
         let addr = addr.clone();
-        let config = config.clone();
 
-        task::spawn(async move {
-            if let Err(err) = accept(addr, stream, &config).await {
-                eprintln!("{}", err);
+        if should_ignore_txs {
+            // Returns ok
+            println!("will buffer request from {}", stream.peer_addr()?);
+            async_h1::accept(&addr, stream.clone(), |_| async {
+                Ok(Response::new(StatusCode::Ok))
+            }).await?;
+            // Enqueue request
+            buffered_requests.push_back((addr, stream));
+        } else {
+            // Dequeue all the requests we've been buffering
+            while let Some((addr, stream)) = buffered_requests.pop_front() {
+                let config = config.clone();
+                task::spawn(async move {
+                    if let Err(err) = accept(addr, stream, &config).await {
+                        eprintln!("{}", err);
+                    }
+                });
             }
-        });
+            // Then handle the request
+            let config = config.clone();
+            task::spawn(async move {
+                if let Err(err) = accept(addr, stream, &config).await {
+                    eprintln!("{}", err);
+                }
+            });
+        }
     }
     Ok(())
 }
@@ -161,7 +197,7 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
 
                 println!("{:?}", rpc_req);
 
-                let authorized_methods = &config.neon.whitelisted_rpc_calls;
+                let authorized_methods = &config.network.whitelisted_rpc_calls;
 
                 // Guard: unauthorized method
                 if !authorized_methods.contains(&rpc_req.method) {
@@ -169,7 +205,7 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                 }
 
                 // Forward the request
-                let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
+                let stream = TcpStream::connect(config.network.bitcoind_rpc_host.clone()).await?;
                 let body = serde_json::to_vec(&rpc_req).unwrap();
                 let req = build_request(&config, body);
                 let response = match client::connect(stream.clone(), req).await {
@@ -203,12 +239,12 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
         backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
         let duration = Duration::from_millis((backoff * 1_000.0) as u64);
 
-        let stream = match TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await {
+        let stream = match TcpStream::connect(config.network.bitcoind_rpc_host.clone()).await {
             Ok(stream) => stream,
             Err(e) => {
                 println!(
                     "Error while trying to connect to {}: {:?}",
-                    config.neon.bitcoind_rpc_host, e
+                    config.network.bitcoind_rpc_host, e
                 );
                 sleep(duration);
                 continue;
@@ -270,7 +306,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
 }
 
 async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile) {
-    let rpc_addr = config.neon.bitcoind_rpc_host.clone();
+    let rpc_addr = config.network.bitcoind_rpc_host.clone();
 
     let rpc_req = RPCRequest::generate_next_block_req(blocks_count, address);
 
@@ -299,13 +335,13 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 }
 
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {
-    let url = Url::parse(&format!("http://{}/", config.neon.bitcoind_rpc_host)).unwrap();
+    let url = Url::parse(&format!("http://{}/", config.network.bitcoind_rpc_host)).unwrap();
     let mut req = Request::new(Method::Post, url);
-    req.append_header("Authorization", config.neon.authorization_token())
+    req.append_header("Authorization", config.network.authorization_token())
         .unwrap();
     req.append_header("Content-Type", "application/json")
         .unwrap();
-    req.append_header("Host", format!("{}", config.neon.bitcoind_rpc_host))
+    req.append_header("Host", format!("{}", config.network.bitcoind_rpc_host))
         .unwrap();
     req.set_body(body);
     req
@@ -355,7 +391,9 @@ impl RPCRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigFile {
     /// Regtest node
-    neon: RegtestConfig,
+    network: NetworkConfig,
+    /// List of blocks config
+    blocks: Vec<BlocksRangeConfig>,
 }
 
 impl ConfigFile {
@@ -366,10 +404,39 @@ impl ConfigFile {
         config_reader.read_to_end(&mut config).unwrap();
         toml::from_slice(&config[..]).unwrap()
     }
+
+    pub fn should_ignore_transactions(&self, block_height: u64) -> bool {
+        match self.get_blocks_config_at_height(block_height) {
+            Some(conf) => conf.ignore_txs,
+            None => false
+        }
+    }
+
+    pub fn get_block_time_at_height(&self, block_height: u64) -> u64 {
+        match self.get_blocks_config_at_height(block_height) {
+            Some(conf) => conf.block_time,
+            None => self.network.block_time
+        }
+    }
+
+    pub fn get_blocks_config_at_height(&self, block_height: u64) -> Option<&BlocksRangeConfig> {
+        if self.blocks.len() == 0 {
+            return None
+        }
+        
+        let mut cursor = 0;
+        for block in self.blocks.iter() {
+            if block_height >= cursor && block_height < (cursor+block.count) {
+                return Some(block);
+            } 
+            cursor += block.count;
+        }
+        return None;
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RegtestConfig {
+pub struct NetworkConfig {
     /// Proxy's port
     rpc_bind: String,
     /// Duration between blocks
@@ -390,7 +457,7 @@ pub struct RegtestConfig {
     whitelisted_rpc_calls: Vec<String>,
 }
 
-impl RegtestConfig {
+impl NetworkConfig {
     pub fn authorization_token(&self) -> String {
         let token = encode(format!(
             "{}:{}",
@@ -398,4 +465,14 @@ impl RegtestConfig {
         ));
         format!("Basic {}", token)
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlocksRangeConfig {
+    /// Number of blocks to mine
+    count: u64,
+    /// Delay between blocks
+    block_time: u64,
+    /// Should transaction be included in next block
+    ignore_txs: bool,
 }

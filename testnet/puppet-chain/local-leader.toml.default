@@ -1,4 +1,4 @@
-[neon]
+[network]
 rpc_bind = "0.0.0.0:28443"
 block_time = 30000
 miner_address = "mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy"
@@ -15,6 +15,31 @@ whitelisted_rpc_calls = [
     "scantxoutset",
     "getrawmempool",
 ]
+
+[[blocks]]
+count = 1
+block_time = 10000
+ignore_txs = false
+
+[[blocks]]
+count = 1
+block_time = 20000
+ignore_txs = false
+
+[[blocks]]
+count = 10
+block_time = 10000
+ignore_txs = true
+
+[[blocks]]
+count = 1
+block_time = 1000
+ignore_txs = false
+
+[[blocks]]
+count = 2
+block_time = 1000
+ignore_txs = false
 
 # Faucet:
 # Private Key          cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3
