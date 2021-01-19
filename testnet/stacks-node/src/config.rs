@@ -21,8 +21,8 @@ pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
 pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
+const LEADER_KEY_TX_ESTIM_SIZE: u64 = 291;
+const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 352;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
