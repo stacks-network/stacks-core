@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-use crate::config::TESTNET_CHAIN_ID;
+use stacks::core::CHAIN_ID_TESTNET;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
@@ -55,7 +55,7 @@ pub fn make_bad_stacks_transfer(
     let auth = TransactionAuth::Standard(spending_condition);
 
     let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-    unsigned_tx.chain_id = TESTNET_CHAIN_ID;
+    unsigned_tx.chain_id = CHAIN_ID_TESTNET;
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
@@ -196,7 +196,7 @@ fn mempool_setup_chainstate() {
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
-            let _mempool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &chainstate_path).unwrap();
+            let _mempool = MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
 
             if round == 3 {
                 let block_header = chain_tip.metadata.clone();

@@ -110,11 +110,11 @@ impl<'a> Tenure {
 
     #[cfg(test)]
     pub fn open_chainstate(&self) -> StacksChainState {
-        use super::config::TESTNET_CHAIN_ID;
+        use stacks::core::CHAIN_ID_TESTNET;
 
         let (chain_state, _) = StacksChainState::open_with_block_limit(
             false,
-            TESTNET_CHAIN_ID,
+            CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path(),
             self.config.block_limit.clone(),
         )

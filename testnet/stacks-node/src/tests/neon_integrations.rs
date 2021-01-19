@@ -8,8 +8,10 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 use stacks::core;
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
@@ -18,14 +20,11 @@ use stacks::{
     vm::costs::ExecutionCost,
 };
 
-use stacks::vm::database::ClarityDeserializable;
-
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, config::TESTNET_CHAIN_ID, neon,
-    operations::BurnchainOpSigner, BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
+    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
+    BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
 };
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
@@ -65,7 +64,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
         .burnchain
         .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '4' as u8]);
+    assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '5' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
@@ -886,7 +885,7 @@ fn microblock_integration_test() {
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
-            StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
+            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path()).unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)

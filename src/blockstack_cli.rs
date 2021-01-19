@@ -30,6 +30,7 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::util::{
     hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
@@ -49,9 +50,6 @@ use blockstack_lib::address::b58;
 use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-
-const TESTNET_CHAIN_ID: u32 = 0x80000000;
-const MAINNET_CHAIN_ID: u32 = 0x00000001;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -756,9 +754,9 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
     };
 
     let chain_id = if tx_version == TransactionVersion::Testnet {
-        TESTNET_CHAIN_ID
+        CHAIN_ID_TESTNET
     } else {
-        MAINNET_CHAIN_ID
+        CHAIN_ID_MAINNET
     };
 
     if let Some((method, args)) = argv.split_first() {
