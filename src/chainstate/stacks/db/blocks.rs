@@ -149,6 +149,7 @@ pub enum MemPoolRejection {
         principal: PrincipalData,
         is_origin: bool,
     },
+    BadTransactionVersion,
     TransferRecipientIsSender(PrincipalData),
     TransferAmountMustBePositive,
     DBError(db_error),
@@ -180,6 +181,7 @@ impl MemPoolRejection {
                     }),
                 ),
             ),
+            BadTransactionVersion => ("BadTransactionVersion", None),
             FailedToValidate(e) => (
                 "SignatureValidation",
                 Some(json!({"message": e.to_string()})),
@@ -5006,7 +5008,13 @@ impl StacksChainState {
     /// This runs checks for the validity of a transaction that
     ///   can be performed just by inspecting the transaction itself (i.e., without
     ///   consulting chain state).
-    fn can_admit_mempool_semantic(tx: &StacksTransaction) -> Result<(), MemPoolRejection> {
+    fn can_admit_mempool_semantic(
+        tx: &StacksTransaction,
+        is_mainnet: bool,
+    ) -> Result<(), MemPoolRejection> {
+        if is_mainnet != tx.is_mainnet() {
+            return Err(MemPoolRejection::BadTransactionVersion);
+        }
         match tx.payload {
             TransactionPayload::TokenTransfer(ref recipient, amount, ref _memo) => {
                 let origin = PrincipalData::from(tx.origin_address());
@@ -5015,6 +5023,9 @@ impl StacksChainState {
                 }
                 if amount == 0 {
                     return Err(MemPoolRejection::TransferAmountMustBePositive);
+                }
+                if !StacksChainState::is_valid_address_version(is_mainnet, recipient.version()) {
+                    return Err(MemPoolRejection::BadAddressVersionByte);
                 }
                 Ok(())
             }
@@ -5032,7 +5043,8 @@ impl StacksChainState {
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
-        StacksChainState::can_admit_mempool_semantic(tx)?;
+        let is_mainnet = self.clarity_state.is_mainnet();
+        StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
 
         let conf = self.config();
         let staging_height =
