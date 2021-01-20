@@ -16,7 +16,7 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::{burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType}, chainstate::burn::ConsensusHash};
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
@@ -51,6 +51,11 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 #[cfg(test)]
 use stacks::{burnchains::BurnchainHeaderHash, chainstate::burn::Opcodes};
 
+enum LeaderBlockCommitState {
+    Inactive,
+    Pending((u64, ConsensusHash)),
+}
+
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
@@ -62,6 +67,7 @@ pub struct BitcoinRegtestController {
     last_utxos: Vec<UTXO>,
     last_tx_len: u64,
     min_relay_fee: u64, // satoshis/byte
+    leader_block_commit_state: LeaderBlockCommitState,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -123,6 +129,7 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
+            leader_block_commit_state: LeaderBlockCommitState::Inactive,
         }
     }
 
@@ -160,6 +167,7 @@ impl BitcoinRegtestController {
             last_utxos: vec![],
             last_tx_len: 0,
             min_relay_fee: 1024, // TODO: learn from bitcoind
+            leader_block_commit_state: LeaderBlockCommitState::Inactive,
         }
     }
 

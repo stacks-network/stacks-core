@@ -104,10 +104,13 @@ async fn main() -> http_types::Result<()> {
         loop {
             let delay = {
                 let mut block_height = block_height_writer.lock().unwrap();
-                let block_time = conf.get_block_time_at_height(*block_height - num_blocks);
+                let effective_height = *block_height - num_blocks;
+                let block_time = conf.get_block_time_at_height(effective_height);
+                let will_ignore = conf.should_ignore_transactions(effective_height);
+
                 println!(
-                    "Generating block {} (block_time: {}ms)",
-                    block_height, block_time
+                    "Generating block {} (block_time: {}ms, ignoring: {})",
+                    block_height, block_time, will_ignore
                 );
                 *block_height += 1;
                 block_time
