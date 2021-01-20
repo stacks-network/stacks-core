@@ -27,6 +27,7 @@ debug() {
    fi
 }
 
+# Prints out the list of mempool transactions with acceptance times later than a given time.
 # args:
 # $1 mempool path
 # $2 minimum accept time
@@ -38,6 +39,7 @@ get_mempool_txs() {
    sqlite3 "$mempool_path" "SELECT HEX(tx) FROM mempool WHERE accept_time >= $min_accept_time"
 }
 
+# POSTs a transaction to a given node
 # args
 # $1 target host:port
 # $2 tx
@@ -49,6 +51,7 @@ post_tx() {
    ( echo "$tx" | xxd -r -p | curl -sf -m 3 -X POST -H 'content-type: application/octet-stream' --data-binary @- "http://$target_hostport/v2/transactions" >/dev/null || log "WARN: failed to propagate to $target_hostport" ) || true
 }
 
+# Prints out a list of a node's neighbors as newline-separated "host:port" strings
 # args
 # $1 local peer host:port
 # prints newline-separated lists of "host:port"
@@ -59,6 +62,7 @@ list_outbound_neighbors() {
    ( curl -sf -m 3 "http://$local_hostport/v2/neighbors" | jq -r '.outbound[] | "\(.ip):\(.port)"' ) || true
 }
 
+# Deduces the RPC port for a peer.  Meant to be used in a pipeline -- it reads the host:p2p_port from stdin, and writes host:rpc_port to stdout.
 # args
 # reads stdin to get the next hostport
 to_rpc_host() {
@@ -71,18 +75,15 @@ to_rpc_host() {
    done
 }
 
+# Reads a list of transactions to broadcast from a file, and pushes each transaction to the given node's neighbors.
 # args
-# $1 local peer host:port
-# $2 local mempool path
-# $3 last sent
-antientropy_pass() {
-   local mempool_path="$1"
+# $1 path to file with transactions
+# $2 local peer host:port
+antientropy_push() {
+   local tx_file="$1"
    local local_peer="$2"
-   local last_sent="$3"
 
-   # do this sequentially so we don't hold open the DB
-   get_mempool_txs "$mempool_path" "$last_sent" > "/tmp/last_mempool_scan.txs.$$"
-   cat "/tmp/last_mempool_scan.txs.$$" | ( \
+   cat "$tx_file" | ( \
       local tx=""
       local host=""
       while read -r tx; do
@@ -96,6 +97,22 @@ antientropy_pass() {
    )
 }
 
+# Grabs a list of transactions from the given mempool that arrived later than a given last_sent time, and pushes them all to the node's neighbors.
+# args
+# $1 local peer host:port
+# $2 local mempool path
+# $3 last sent
+antientropy_pass() {
+   local mempool_path="$1"
+   local local_peer="$2"
+   local last_sent="$3"
+
+   # do this sequentially so we don't hold open the DB
+   get_mempool_txs "$mempool_path" "$last_sent" > "/tmp/last_mempool_scan.txs.$$"
+   antientropy_push "/tmp/last_mempool_scan.tx.$$" "$local_peer"
+}
+
+# Obtain the last-sent time (stored to disk)
 get_last_scan_time() {
    if [ -f "/tmp/last_mempool_scan.time.$$" ]; then
       cat "/tmp/last_mempool_scan.time.$$"
@@ -104,12 +121,14 @@ get_last_scan_time() {
    fi
 }
 
+# Save the last-sent time (stored to disk)
 # args
 # $1 last scan time
 save_last_scan_time() {
    echo "$1" > "/tmp/last_mempool_scan.time.$$"
 }
 
+# Daemon mode main loop
 # args
 # $1 mempool DB path
 # $2 local peer host:port
@@ -140,25 +159,72 @@ main() {
 }
 
 usage() {
-   log "Usage: $0 PATH_TO_MEMPOOL LOCAL_PEER_HOST:PORT"
+   log "Usage: $0 MODE [ARGS...]"
+   log "MODE can be the following:"
+   log "      $0 daemon PATH_TO_MEMPOOL LOCAL_PEER_HOST:PORT"
+   log "      $0 push PATH_TO_TX_FILE LOCAL_PEER_HOST:PORT"
+   log ""
+   log "In daemon mode, this program simply loops forever and re-sends transactions from the given"
+   log "mempool every 5 minutes to the given node's neighbors."
+   log "Example:"
+   log "      $ $0 daemon /path/to/mempool.db localhost:20443"
+   log ""
+   log "In push mode, this program reads a list of hex-encoded newline-separated transactions from"
+   log "a file, and pushes them to a given node's neighbors."
+   log "Example:"
+   log "      $ sqlite3 -noheader /path/to/mempool.db \\"
+   log "          'SELECT HEX(tx) FROM mempool ORDER BY accept_time DESC LIMIT 10' \\"
+   log "           > /tmp/txs.dat"
+   log "      $ $0 push /tmp/txs.dat localhost:20443"
+   log ""
    exit 1
 }
 
 set +u
-mempool_path="$1"
-local_hostport="$2"
+mode="$1"
 set -u
 
-if [ -z "$mempool_path" ] || [ -z "$local_hostport" ]; then
-   usage
-fi
+case "$mode" in
+   daemon)
+      set +u
+      mempool_path="$2"
+      local_hostport="$3"
+      set -u
 
-if ! [ -f "$mempool_path" ]; then 
-   log "No such file or directory: $mempool_path"
-   exit 1
-fi
+      if [ -z "$mempool_path" ] || [ -z "$local_hostport" ]; then
+         usage
+      fi
 
-main "$mempool_path" "$local_hostport"
+      if ! [ -f "$mempool_path" ]; then 
+         log "No such file or directory: $mempool_path"
+         exit 1
+      fi
+
+      main "$mempool_path" "$local_hostport"
+      ;;
+
+   push)
+      set +u
+      tx_path="$2"
+      local_hostport="$3"
+      set -u
+
+      if [ -z "$tx_path" ] || [ -z "$local_hostport" ]; then
+         usage
+      fi
+      
+      if ! [ -f "$tx_path" ]; then 
+         log "No such file or directory: $tx_path"
+         exit 1
+      fi
+
+      antientropy_push "$tx_path" "$local_hostport"
+      ;;
+
+   *)
+      usage
+      ;;
+esac
 
 # testing
 # get_mempool_txs "$1" "$2"
