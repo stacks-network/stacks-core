@@ -27,8 +27,11 @@ extern crate rusqlite;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
+use blockstack_lib::{
+    burnchains::{db::BurnchainBlockData, PoxConstants},
+    chainstate::burn::db::sortdb::SortitionDB,
+};
 
 use std::env;
 use std::fs;
@@ -186,6 +189,57 @@ fn main() {
 
         println!("{:#?}", &block);
         process::exit(0);
+    }
+
+    if argv[1] == "evaluate-pox-anchor" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} evaluate-pox-anchor <path to burnchain/db/bitcoin/mainnet/sortition.db> <height> (last-height)", argv[0]);
+            process::exit(1);
+        }
+        let start_height: u64 = argv[3].parse().expect("Failed to parse <height> argument");
+        let end_height: u64 = argv
+            .get(4)
+            .map(|x| x.parse().expect("Failed to parse <end-height> argument"))
+            .unwrap_or(start_height);
+
+        let sort_db =
+            SortitionDB::open(&argv[2], false).expect(&format!("Failed to open {}", argv[2]));
+        let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+        let sort_conn = sort_db.index_handle(&chain_tip);
+
+        let mut results = vec![];
+
+        for eval_height in start_height..(1 + end_height) {
+            if (sort_conn.context.first_block_height + 100) >= eval_height {
+                eprintln!("Block height too low to evaluate");
+                process::exit(1);
+            }
+
+            let eval_tip = SortitionDB::get_ancestor_snapshot(&sort_conn, eval_height, &chain_tip)
+                .expect("Failed to get chain tip to evaluate at")
+                .expect("Failed to get chain tip to evaluate at");
+
+            let pox_consts = PoxConstants::mainnet_default();
+
+            let result = sort_conn
+                .get_chosen_pox_anchor_check_position(
+                    &eval_tip.burn_header_hash,
+                    &pox_consts,
+                    false,
+                )
+                .expect("Failed to compute PoX cycle");
+
+            match result {
+                Some((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                None => results.push((eval_height, false, 0)),
+            };
+        }
+
+        println!("Block height, Would select anchor");
+        for r in results.iter() {
+            println!("{}, {}, {}", &r.0, &r.1, &r.2);
+        }
     }
 
     if argv[1] == "decode-microblocks" {

@@ -1749,6 +1749,19 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
+            Ok(Some((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn get_chosen_pox_anchor_check_position(
+        &self,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+        check_position: bool,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u32)>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
                 .ok_or_else(|| {
@@ -1766,7 +1779,9 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Err(CoordinatorError::NotPrepareEndBlock);
+            if check_position {
+                return Err(CoordinatorError::NotPrepareEndBlock);
+            }
         }
 
         if effective_height == 0 {
@@ -1847,7 +1862,11 @@ impl<'a> SortitionHandleConn<'a> {
                         .expect("BUG: cannot find chosen PoX candidate's sortition");
                 assert!(
                     result
-                        .replace((sn.consensus_hash, sn.winning_stacks_block_hash))
+                        .replace((
+                            sn.consensus_hash,
+                            sn.winning_stacks_block_hash,
+                            confirmed_by
+                        ))
                         .is_none(),
                     "BUG: multiple anchor blocks received more confirmations than anchor_threshold"
                 );
