@@ -239,6 +239,8 @@ pub fn get_loglevel() -> slog::Level {
         slog::Level::Trace
     } else if env::var("STACKS_LOG_DEBUG") == Ok("1".into()) {
         slog::Level::Debug
+    } else if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) {
+        slog::Level::Debug
     } else {
         slog::Level::Info
     }
