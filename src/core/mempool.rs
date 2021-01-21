@@ -55,6 +55,9 @@ use core::FIRST_STACKS_BLOCK_HASH;
 
 use rusqlite::Error as SqliteError;
 
+use chainstate::stacks::TransactionPayload;
+use vm::types::PrincipalData;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
@@ -76,7 +79,6 @@ impl MemPoolAdmitter {
         self.cur_consensus_hash = cur_consensus_hash.clone();
         self.cur_block = cur_block.clone();
     }
-
     pub fn will_admit_tx(
         &mut self,
         chainstate: &mut StacksChainState,
