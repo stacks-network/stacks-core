@@ -1008,12 +1008,24 @@ fn microblock_integration_test() {
     );
     eprintln!("{:?}", &path);
 
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
+    let res = loop {
+        let res = match client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<AccountEntryResponse>()
+        {
+            Ok(x) => x,
+            Err(_) => {
+                eprintln!("Failed to query {}; will try again", &path);
+                sleep_ms(1000);
+                continue;
+            }
+        };
+
+        break res;
+    };
+
     eprintln!("{:#?}", res);
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
