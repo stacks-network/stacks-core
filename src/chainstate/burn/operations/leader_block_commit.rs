@@ -1454,6 +1454,10 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000001260",
         )
         .unwrap();
+        let block_127_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000001270",
+        )
+        .unwrap();
 
         let block_header_hashes = [
             block_122_hash.clone(),
@@ -1461,10 +1465,11 @@ mod tests {
             block_124_hash.clone(),
             block_125_hash.clone(), // prepare phase
             block_126_hash.clone(), // prepare phase
+            block_127_hash.clone(), // commit after missed block
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 5000, BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 10000),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1503,7 +1508,7 @@ mod tests {
             )
             .unwrap(),
             vtxindex: 456,
-            block_height: 124,
+            block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
             burn_header_hash: block_124_hash.clone(),
         };
 
@@ -1532,7 +1537,7 @@ mod tests {
             )
             .unwrap(),
             vtxindex: 457,
-            block_height: 124,
+            block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
             burn_header_hash: block_124_hash.clone(),
         };
 
@@ -1549,9 +1554,9 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            parent_block_ptr: 0,
+            parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 0,
             parent_vtxindex: 0,
-            key_block_ptr: 124,
+            key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
             key_vtxindex: 456,
             memo: vec![0x80],
             commit_outs: vec![],
@@ -1573,9 +1578,51 @@ mod tests {
             )
             .unwrap(),
             vtxindex: 444,
-            block_height: 125,
+            block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
+        };
+
+        // consumes leader_key_1
+        let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
+                    .unwrap(),
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_bytes(
+                &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333")
+                    .unwrap(),
+            )
+            .unwrap(),
+            parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
+            parent_vtxindex: 0,
+            key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
+            key_vtxindex: 456,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 444,
+            block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 127,
+            burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: block_127_hash.clone(),
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -1595,6 +1642,10 @@ mod tests {
             )],
             // 126
             vec![],
+            // 127
+            vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit_2.clone(),
+            )],
         ];
 
         let tip_index_root = {
@@ -1750,9 +1801,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: 1,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 1,
                     parent_vtxindex: 444,
-                    key_block_ptr: 2,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 2,
                     key_vtxindex: 400,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -1802,9 +1853,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: 125,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
                     parent_vtxindex: 445,
-                    key_block_ptr: 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     commit_outs: vec![],
                     memo: vec![0x80],
@@ -1854,9 +1905,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 126,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 126,
                     parent_vtxindex: 444,
-                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -1906,9 +1957,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
                     parent_vtxindex: 444,
-                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -1958,9 +2009,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
                     parent_vtxindex: 444,
-                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -1985,10 +2036,72 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 126,
-                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125)
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitBadInput),
+            },
+            CheckFixture {
+                // reject -- missed block commit
+                op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
+                    block_header_hash: BlockHeaderHash::from_bytes(
+                        &hex_bytes(
+                            "2222222222222222222222222222222222222222222222222222222222222222",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    new_seed: VRFSeed::from_bytes(
+                        &hex_bytes(
+                            "3333333333333333333333333333333333333333333333333333333333333333",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
+                    parent_vtxindex: 444,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
+                    key_vtxindex: 457,
+                    memo: vec![0x80],
+                    commit_outs: vec![],
+
+                    burn_fee: 12345,
+                    input: (Txid([0; 32]), 0),
+                    apparent_sender: BurnchainSigner {
+                        public_keys: vec![StacksPublicKey::from_hex(
+                            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                        )
+                        .unwrap()],
+                        num_sigs: 1,
+                        hash_mode: AddressHashMode::SerializeP2PKH,
+                    },
+
+                    txid: Txid::from_bytes_be(
+                        &hex_bytes(
+                            "3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    vtxindex: 445,
+                    block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 127,
+                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125)
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
+                    burn_header_hash: block_126_hash.clone(),
+                },
+                res: Err(op_error::MissedBlockCommit(MissedBlockCommit{input: (Txid([0; 32]), 0),
+                     intended_sortition: SortitionId([0; 32]),
+                      txid:Txid::from_bytes_be(
+                        &hex_bytes(
+                            "3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap() })),
             },
             CheckFixture {
                 // accept -- consumes leader_key_2
@@ -2008,9 +2121,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 125,
                     parent_vtxindex: 444,
-                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -2035,7 +2148,9 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 126,
-                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125)
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -2058,9 +2173,9 @@ mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    parent_block_ptr: 0,
+                    parent_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 0,
                     parent_vtxindex: 0,
-                    key_block_ptr: (BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124) as u32,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -2085,7 +2200,9 @@ mod tests {
                     .unwrap(),
                     vtxindex: 445,
                     block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 126,
-                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125)
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
@@ -2110,7 +2227,7 @@ mod tests {
                     .unwrap(),
                     parent_block_ptr: 0,
                     parent_vtxindex: 0,
-                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 124,
+                    key_block_ptr: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32 + 124,
                     key_vtxindex: 456,
                     memo: vec![0x80],
                     commit_outs: vec![],
@@ -2135,7 +2252,9 @@ mod tests {
                     .unwrap(),
                     vtxindex: 444,
                     block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 126,
-                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                    burn_parent_modulus: ((BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + 125)
+                        % BURN_BLOCK_MINED_AT_MODULUS)
+                        as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Ok(()),
