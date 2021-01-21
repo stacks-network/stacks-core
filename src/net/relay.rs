@@ -1278,7 +1278,9 @@ impl Relayer {
         let receipts = ProcessedNetReceipts { mempool_txs_added };
 
         // finally, refresh the unconfirmed chainstate, if need be
-        Relayer::refresh_unconfirmed(chainstate, sortdb);
+        if network_result.has_microblocks() {
+            Relayer::refresh_unconfirmed(chainstate, sortdb);
+        }
 
         Ok(receipts)
     }
