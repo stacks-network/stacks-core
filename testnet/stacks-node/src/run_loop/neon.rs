@@ -272,7 +272,7 @@ impl RunLoop {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
@@ -281,7 +281,7 @@ impl RunLoop {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
@@ -373,6 +373,12 @@ impl RunLoop {
                     "Synchronized burnchain up to block height {} (chain tip height is {})",
                     block_height, burnchain_height
                 );
+            } else if ibd {
+                // drive block processing after we reach the burnchain tip.
+                // we may have downloaded all the blocks already,
+                // so we can't rely on the relayer alone to
+                // drive it.
+                coordinator_senders.announce_new_stacks_block();
             }
 
             if block_height >= burnchain_height && !ibd {
