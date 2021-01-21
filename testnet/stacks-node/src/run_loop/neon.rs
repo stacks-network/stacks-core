@@ -234,7 +234,7 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let stacks_tip_to_boot_to = if mainnet {
+        let mut stacks_tip_to_boot_to = if mainnet {
             self.get_seed_stacks_height()
         } else {
             0
@@ -471,6 +471,10 @@ impl RunLoop {
                         stacks_tip_to_boot_to
                     );
                 } else {
+                    // once we've synced to the chain tip once, don't apply this check again.
+                    //  this prevents a possible corner case in the event of a PoX fork.
+                    stacks_tip_to_boot_to = 0;
+
                     // at tip, and not downloading. proceed to mine.
                     debug!(
                         "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
