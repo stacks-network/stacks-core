@@ -56,6 +56,7 @@ pub struct UnconfirmedState {
 
     readonly: bool,
     dirty: bool,
+    num_mblocks_added: u64,
 }
 
 impl UnconfirmedState {
@@ -81,6 +82,7 @@ impl UnconfirmedState {
 
             readonly: false,
             dirty: false,
+            num_mblocks_added: 0,
         })
     }
 
@@ -108,6 +110,7 @@ impl UnconfirmedState {
 
             readonly: true,
             dirty: false,
+            num_mblocks_added: 0,
         })
     }
 
@@ -141,10 +144,11 @@ impl UnconfirmedState {
         let mut total_burns = 0;
         let mut all_receipts = vec![];
         let mut mined_txs = UnconfirmedTxMap::new();
-        let new_cost;
+        let mut new_cost = ExecutionCost::zero();
         let mut new_bytes = 0;
+        let mut num_new_mblocks = 0;
 
-        {
+        if mblocks.len() > 0 {
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
                 chainstate.db(),
@@ -191,6 +195,7 @@ impl UnconfirmedState {
 
                 total_fees += stx_fees;
                 total_burns += stx_burns;
+                num_new_mblocks += 1;
                 all_receipts.append(&mut receipts);
 
                 last_mblock = Some(mblock_header);
@@ -223,6 +228,7 @@ impl UnconfirmedState {
         self.mined_txs.extend(mined_txs);
         self.cost_so_far = new_cost;
         self.bytes_so_far += new_bytes;
+        self.num_mblocks_added += num_new_mblocks;
 
         Ok((total_fees, total_burns, all_receipts))
     }
