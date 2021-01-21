@@ -6,6 +6,8 @@ use crate::{
 };
 use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -16,8 +18,6 @@ use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
-use stacks::{burnchains::bitcoin::address::BitcoinAddress, net::Neighbor};
-use stacks::{burnchains::bitcoin::address::BitcoinAddressType, net::StacksHttp};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
