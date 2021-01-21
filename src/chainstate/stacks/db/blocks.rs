@@ -1190,7 +1190,7 @@ impl StacksChainState {
                         parent_consensus_hash, parent_anchored_block_hash, &mblock_hash,
                     )),
                     None => {
-                        debug!(
+                        test_debug!(
                             "No such microblock (processed={}): {}/{}-{} ({})",
                             processed_only,
                             parent_consensus_hash,
@@ -1215,7 +1215,7 @@ impl StacksChainState {
                 }
             }
 
-            debug!(
+            test_debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
