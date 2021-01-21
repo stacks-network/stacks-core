@@ -973,10 +973,9 @@ impl InitializedNeonNode {
             .expect("Error while instantiating sortition db");
 
         let view = {
-            let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
-            ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
+            SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
         };
 
         // create a new peerdb
@@ -1681,7 +1680,7 @@ impl InitializedNeonNode {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.apparent_sender.to_address(network),
+                    op.apparent_sender.to_bitcoin_address(network),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
@@ -1690,7 +1689,7 @@ impl InitializedNeonNode {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.apparent_sender.to_address(network),
+                        op.apparent_sender.to_bitcoin_address(network),
                         &op.block_header_hash
                     );
                 }
