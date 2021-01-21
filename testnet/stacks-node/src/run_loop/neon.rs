@@ -462,8 +462,8 @@ impl RunLoop {
             if block_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
                     SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
-                        .expect("Failed to get canonical sortition tip")
-                        .canonical_stacks_tip_height;
+                        .map(|snapshot| snapshot.canonical_stacks_tip_height)
+                        .unwrap_or(0);
                 if canonical_stacks_tip_height < stacks_tip_to_boot_to {
                     info!(
                         "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
