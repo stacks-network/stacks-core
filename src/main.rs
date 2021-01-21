@@ -231,12 +231,12 @@ fn main() {
                 .expect("Failed to compute PoX cycle");
 
             match result {
-                Some((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
-                None => results.push((eval_height, false, 0)),
+                Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
             };
         }
 
-        println!("Block height, Would select anchor");
+        println!("Block height, Would select anchor, Anchor agreement");
         for r in results.iter() {
             println!("{}, {}, {}", &r.0, &r.1, &r.2);
         }
