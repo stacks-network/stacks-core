@@ -292,8 +292,16 @@ impl ConfigFile {
             "02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444",
             "03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"].join(",");
 
+        let height_hint_nodes = [
+            "seed-0.mainnet.stacks.co:20443",
+            "seed-1.mainnet.stacks.co:20443",
+            "seed-2.mainnet.stacks.co:20443",
+        ]
+        .join(",");
+
         let node = NodeConfigFile {
             bootstrap_node: Some(bootstrap_nodes),
+            height_hint_nodes: Some(height_hint_nodes),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -421,7 +429,7 @@ pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
-        let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
+        let (mut node, bootstrap_node, height_hint_nodes, deny_nodes) = match config_file.node {
             Some(node) => {
                 let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
                 let node_config = NodeConfig {
@@ -437,6 +445,7 @@ impl Config {
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                     p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
                     bootstrap_node: vec![],
+                    height_hint_nodes: vec![],
                     deny_nodes: vec![],
                     data_url: match node.data_url {
                         Some(data_url) => data_url,
@@ -467,9 +476,14 @@ impl Config {
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
                 };
-                (node_config, node.bootstrap_node, node.deny_nodes)
+                (
+                    node_config,
+                    node.bootstrap_node,
+                    node.height_hint_nodes,
+                    node.deny_nodes,
+                )
             }
-            None => (default_node_config, None, None),
+            None => (default_node_config, None, None, None),
         };
 
         let default_burnchain_config = BurnchainConfig::default();
@@ -601,8 +615,30 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
+        if let Some(height_hint_node) = height_hint_nodes {
+            node.set_height_hint_nodes(height_hint_node);
+        } else {
+            if burnchain.mode == "mainnet" {
+                node.set_height_hint_nodes(
+                    ConfigFile::mainnet()
+                        .node
+                        .unwrap()
+                        .height_hint_nodes
+                        .unwrap(),
+                );
+            }
+        }
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        } else {
+            if burnchain.mode == "mainnet" {
+                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
@@ -1028,6 +1064,7 @@ pub struct NodeConfig {
     pub p2p_address: String,
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Vec<Neighbor>,
+    pub height_hint_nodes: Vec<SocketAddr>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
@@ -1066,6 +1103,7 @@ impl NodeConfig {
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: vec![],
+            height_hint_nodes: vec![],
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
@@ -1112,6 +1150,11 @@ impl NodeConfig {
         }
     }
 
+    pub fn add_height_hint_node(&mut self, hostport: &str) {
+        let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
+        self.height_hint_nodes.push(sockaddr);
+    }
+
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_node.split("@").collect();
         if parts.len() != 2 {
@@ -1138,6 +1181,15 @@ impl NodeConfig {
         for part in parts.into_iter() {
             if part.len() > 0 {
                 self.add_bootstrap_node(&part, chain_id, peer_version);
+            }
+        }
+    }
+
+    pub fn set_height_hint_nodes(&mut self, nodes: String) {
+        let parts: Vec<&str> = nodes.split(",").collect();
+        for part in parts.into_iter() {
+            if part.len() > 0 {
+                self.add_height_hint_node(&part);
             }
         }
     }
@@ -1219,6 +1271,7 @@ pub struct NodeConfigFile {
     pub p2p_address: Option<String>,
     pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
+    pub height_hint_nodes: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,

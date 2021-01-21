@@ -4,8 +4,8 @@ use crate::{
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::address::BitcoinAddressType;
+use async_std::net::TcpStream;
+use http_types::{Method, Request, Url};
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -16,6 +16,8 @@ use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
+use stacks::{burnchains::bitcoin::address::BitcoinAddress, net::Neighbor};
+use stacks::{burnchains::bitcoin::address::BitcoinAddressType, net::StacksHttp};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
@@ -87,6 +89,82 @@ impl RunLoop {
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
 
+    fn get_seed_stacks_height(&self) -> u64 {
+        info!("Fetching block heights from height hint peers...");
+        let max_height = async_std::task::block_on(async {
+            let mut max_height = None;
+            for neighbor in self.config.node.height_hint_nodes.iter() {
+                if let Some(height) = RunLoop::get_neighbor_stacks_height(neighbor).await {
+                    match max_height {
+                        None => {
+                            max_height.replace(height);
+                        }
+                        Some(prior) => {
+                            if prior < height {
+                                max_height.replace(height);
+                            }
+                        }
+                    }
+                }
+            }
+            max_height
+        });
+
+        if let Some(height) = max_height {
+            info!("Bootstrap peers have Stacks height = {}", height);
+            return height;
+        } else {
+            panic!("Failed to obtain Stacks height from bootstrap neighbors");
+        }
+    }
+
+    async fn get_neighbor_stacks_height(neighbor: &std::net::SocketAddr) -> Option<u64> {
+        let stream = TcpStream::connect(neighbor)
+            .await
+            .map_err(|e| {
+                error!("{:?}", e);
+                e
+            })
+            .ok()?;
+        let tcp_peer_addr = stream
+            .peer_addr()
+            .map_err(|e| {
+                error!("{:?}", e);
+                e
+            })
+            .ok()?;
+        let url = Url::parse(&format!("http://{}/v2/info", tcp_peer_addr))
+            .map_err(|e| {
+                error!("{:?}", e);
+                e
+            })
+            .ok()?;
+        let req = Request::new(Method::Get, url);
+        let res = async_h1::connect(stream, req)
+            .await
+            .map_err(|e| {
+                error!("{:?}", e);
+                e
+            })
+            .ok()?;
+        let output = res
+            .body_string()
+            .await
+            .map_err(|e| {
+                error!("{:?}", e);
+                e
+            })
+            .ok()?;
+        let info_json: serde_json::Value =
+            serde_json::from_str(&output).expect("Failed to parse response from bootstrap peer");
+        let stacks_height = info_json
+            .get("stacks_tip_height")
+            .expect("Failed to get `stacks_tip_height` from bootstrap peer")
+            .as_u64()
+            .expect("Failed to get `stacks_tip_height` from bootstrap peer");
+        Some(stacks_height)
+    }
+
     /// Starts the testnet runloop.
     ///
     /// This function will block by looping infinitely.
@@ -155,6 +233,12 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+
+        let stacks_tip_to_boot_to = if mainnet {
+            self.get_seed_stacks_height()
+        } else {
+            0
+        };
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -376,15 +460,27 @@ impl RunLoop {
             }
 
             if block_height >= burnchain_height && !ibd {
-                // at tip, and not downloading. proceed to mine.
-                debug!(
-                    "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                    block_height
-                );
-                if !node.relayer_issue_tenure() {
-                    // relayer hung up, exit.
-                    error!("Block relayer and miner hung up, exiting.");
-                    return;
+                let canonical_stacks_tip_height =
+                    SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                        .expect("Failed to get canonical sortition tip")
+                        .canonical_stacks_tip_height;
+                if canonical_stacks_tip_height < stacks_tip_to_boot_to {
+                    info!(
+                        "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
+                        canonical_stacks_tip_height,
+                        stacks_tip_to_boot_to
+                    );
+                } else {
+                    // at tip, and not downloading. proceed to mine.
+                    debug!(
+                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                        block_height
+                    );
+                    if !node.relayer_issue_tenure() {
+                        // relayer hung up, exit.
+                        error!("Block relayer and miner hung up, exiting.");
+                        return;
+                    }
                 }
             }
         }
