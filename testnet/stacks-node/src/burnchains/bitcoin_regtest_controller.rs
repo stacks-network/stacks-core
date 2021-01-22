@@ -689,7 +689,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_stack_stacks_tx(
         &mut self,
-        _payload: TransferStxOp,
+        _payload: StackStxOp,
         _signer: &mut BurnchainOpSigner,
         _utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
