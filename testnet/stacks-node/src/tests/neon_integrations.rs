@@ -518,10 +518,8 @@ fn stx_stack_btc_integration_test() {
         amount: spender_bal,
     });
 
-    test_observer::spawn();
-
     conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        endpoint: format!("localhost:50303"),
         events_keys: vec![EventKeyType::AnyEvent],
     });
 
@@ -616,36 +614,10 @@ fn stx_stack_btc_integration_test() {
         spender_bal as u128
     );
 
-    test_observer::clear();
-
     // this block should process the stack-stx op
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 0);
-
-    // let's check that the event observer received the transaction
-
-    let mut blocks = test_observer::get_blocks();
-
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    let events = block.get("events").unwrap().as_array().unwrap();
-    eprintln!("Transactions in block: {}", transactions.len());
-    let mut txid = None;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            assert_eq!(tx.get("status").unwrap().as_str().unwrap(), "success");
-            txid = Some(tx.get("txid").unwrap().as_str().unwrap().to_string());
-        } else {
-            continue;
-        }
-    }
-    let txid = txid.unwrap();
-    eprintln!("StackStxOp accepted in {}", txid);
-    info!("Event receipts: {:?}", events);
 }
 
 #[test]
