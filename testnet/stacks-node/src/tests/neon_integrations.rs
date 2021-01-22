@@ -38,10 +38,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use crate::config::MAINNET_BLOCK_LIMIT;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::stacks::boot::boot_code_id;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1557,6 +1559,107 @@ fn cost_voting_integration() {
     assert!(tested, "Should have found a contract call tx");
 
     assert!(exec_cost.exceeds(&new_exec_cost));
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn near_full_block_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // cost = {
+    //   "write_length":350981,
+    //   "write_count":932,
+    //   "read_length":3711941,
+    //   "read_count":3721,
+    //   "runtime":4960871000
+    // }
+    let max_contract_src = format!(
+        "(define-public (f) (begin {} (ok 1))) (begin (f))",
+        (0..310)
+            .map(|_| format!(
+                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+                boot_code_id("cost-voting", false),
+                boot_code_id("costs", false),
+                boot_code_id("costs", false),
+            ))
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    let spender_sk = StacksPrivateKey::new();
+    let addr = to_addr(&spender_sk);
+
+    let tx = make_contract_publish(&spender_sk, 0, 58450, "max", &max_contract_src);
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    // Set block limit
+    conf.block_limit = MAINNET_BLOCK_LIMIT;
+
+    conf.initial_balances.push(InitialBalance {
+        address: addr.clone().into(),
+        amount: 10000000,
+    });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
+
+    let account = get_account(&http_origin, &addr);
+    assert_eq!(account.nonce, 0);
+    assert_eq!(account.balance, 10000000);
+
+    submit_tx(&http_origin, &tx);
+    sleep_ms(60_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let res = get_account(&http_origin, &addr);
+    assert_eq!(res.nonce, 1);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
