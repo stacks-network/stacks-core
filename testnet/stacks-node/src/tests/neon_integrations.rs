@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
-use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::burn::{operations::StackStxOp, ConsensusHash};
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
     StacksPublicKey, StacksTransaction, TransactionPayload,
@@ -491,6 +491,128 @@ fn liquid_ustx_integration() {
         }
     }
     assert!(tested, "Should have found a contract call tx");
+}
+
+#[test]
+#[ignore]
+fn stx_stack_btc_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
+    let _spender_btc_addr = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Regtest,
+        BitcoinAddressType::PublicKeyHash,
+        &spender_stx_addr.bytes.0,
+    )
+    .unwrap();
+    let spender_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, None));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the spender's account:
+    assert_eq!(
+        get_balance(&http_origin, &spender_addr),
+        spender_bal as u128
+    );
+
+    // okay, let's send a pre-stx op.
+    let pre_stx_op = PreStxOp {
+        output: spender_stx_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::PreStx(pre_stx_op),
+            &mut miner_signer,
+            1
+        ),
+        "Pre-stx operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's fire off our stack-stx op.
+    let stack_stx_op = StackStxOp {
+        sender: spender_stx_addr.clone(),
+        reward_addr: spender_stx_addr.clone(),
+        stacked_ustx: spender_bal as u128,
+        num_cycles: 12,
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
+
+    assert!(
+        btc_regtest_controller.submit_operation(
+            BlockstackOperationType::StackStx(stack_stx_op),
+            &mut spender_signer,
+            1
+        ),
+        "Transfer operation should submit successfully"
+    );
+    // should be elected in the same block as the transfer, so balances should be unchanged.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    assert_eq!(
+        get_balance(&http_origin, &spender_addr),
+        spender_bal as u128
+    );
+
+    // this block should process the transfer
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&http_origin, &spender_addr), 0);
 }
 
 #[test]
