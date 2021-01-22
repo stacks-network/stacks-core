@@ -4,8 +4,6 @@ use crate::{
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
-use async_std::net::TcpStream;
-use http_types::{Method, Request, Url};
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -89,89 +87,13 @@ impl RunLoop {
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
 
-    fn get_seed_stacks_height(&self) -> u64 {
-        info!("Fetching block heights from height hint peers...");
-        let max_height = async_std::task::block_on(async {
-            let mut max_height = None;
-            for neighbor in self.config.node.height_hint_nodes.iter() {
-                if let Some(height) = RunLoop::get_neighbor_stacks_height(neighbor).await {
-                    match max_height {
-                        None => {
-                            max_height.replace(height);
-                        }
-                        Some(prior) => {
-                            if prior < height {
-                                max_height.replace(height);
-                            }
-                        }
-                    }
-                }
-            }
-            max_height
-        });
-
-        if let Some(height) = max_height {
-            info!("Bootstrap peers have Stacks height = {}", height);
-            return height;
-        } else {
-            panic!("Failed to obtain Stacks height from bootstrap neighbors");
-        }
-    }
-
-    async fn get_neighbor_stacks_height(neighbor: &std::net::SocketAddr) -> Option<u64> {
-        let stream = TcpStream::connect(neighbor)
-            .await
-            .map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
-            .ok()?;
-        let tcp_peer_addr = stream
-            .peer_addr()
-            .map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
-            .ok()?;
-        let url = Url::parse(&format!("http://{}/v2/info", tcp_peer_addr))
-            .map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
-            .ok()?;
-        let req = Request::new(Method::Get, url);
-        let res = async_h1::connect(stream, req)
-            .await
-            .map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
-            .ok()?;
-        let output = res
-            .body_string()
-            .await
-            .map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
-            .ok()?;
-        let info_json: serde_json::Value =
-            serde_json::from_str(&output).expect("Failed to parse response from bootstrap peer");
-        let stacks_height = info_json
-            .get("stacks_tip_height")
-            .expect("Failed to get `stacks_tip_height` from bootstrap peer")
-            .as_u64()
-            .expect("Failed to get `stacks_tip_height` from bootstrap peer");
-        Some(stacks_height)
-    }
-
     /// Starts the testnet runloop.
     ///
     /// This function will block by looping infinitely.
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
+    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -233,12 +155,6 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-
-        let mut stacks_tip_to_boot_to = if mainnet {
-            self.get_seed_stacks_height()
-        } else {
-            0
-        };
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -464,16 +380,16 @@ impl RunLoop {
                     SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
                         .map(|snapshot| snapshot.canonical_stacks_tip_height)
                         .unwrap_or(0);
-                if canonical_stacks_tip_height < stacks_tip_to_boot_to {
+                if canonical_stacks_tip_height < mine_start {
                     info!(
                         "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
                         canonical_stacks_tip_height,
-                        stacks_tip_to_boot_to
+                        mine_start
                     );
                 } else {
                     // once we've synced to the chain tip once, don't apply this check again.
                     //  this prevents a possible corner case in the event of a PoX fork.
-                    stacks_tip_to_boot_to = 0;
+                    mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
                     debug!(
