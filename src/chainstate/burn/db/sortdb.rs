@@ -4319,6 +4319,7 @@ pub mod tests {
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.sortition_id = SortitionId(next_hash.0.clone());
+            sn.parent_sortition_id = sn_parent.sortition_id.clone();
             sn.burn_header_hash = next_hash;
             sn.block_height += 1;
             sn.num_sortitions += 1;
@@ -5446,6 +5447,7 @@ pub mod tests {
                 0,
                 i + 1,
             ]);
+            next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
             next_snapshot.consensus_hash = ConsensusHash([
                 0,
                 0,
@@ -5587,6 +5589,7 @@ pub mod tests {
                 next_snapshot.num_sortitions = initial_num_sortitions + (j - i) as u64;
                 next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
                 next_snapshot.sortition_id = SortitionId(block_hash.clone());
+                next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([
                     1,
@@ -5672,6 +5675,7 @@ pub mod tests {
                 next_snapshot.num_sortitions = last_snapshot.num_sortitions + 1;
                 next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash.clone();
                 next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
+                next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([
                     2,
@@ -5732,6 +5736,7 @@ pub mod tests {
             next_snapshot.num_sortitions += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
+            next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
             next_snapshot.consensus_hash =
                 ConsensusHash(Hash160::from_data(&next_snapshot.consensus_hash.0).0);
