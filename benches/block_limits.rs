@@ -7,7 +7,6 @@ use blockstack_lib::{
     chainstate::{
         self,
         burn::BlockHeaderHash,
-        stacks::boot,
         stacks::{index::MarfTrieId, StacksBlockId},
     },
     vm::clarity::ClarityInstance,
@@ -87,7 +86,7 @@ fn transfer_test(buildup_count: u32, scaling: u32, genesis_size: u32) -> Executi
     let start = Instant::now();
 
     let marf = setup_chain_state(genesis_size);
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
     let blocks: Vec<_> = (0..(buildup_count + 1))
         .into_iter()
         .map(|i| StacksBlockId(as_hash(i)))
@@ -169,7 +168,7 @@ fn setup_chain_state(scaling: u32) -> MarfedKV {
 
     if fs::metadata(&pre_initialized_path).is_err() {
         let marf = MarfedKV::open(&pre_initialized_path, None).unwrap();
-        let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let mut conn = clarity_instance.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId(as_hash(0)),
@@ -212,7 +211,7 @@ fn test_via_raw_contract(
 
     let marf = setup_chain_state(genesis_size);
 
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
     let blocks: Vec<_> = (0..(buildup_count + 1))
         .into_iter()
         .map(|i| StacksBlockId(as_hash(i)))
@@ -305,7 +304,7 @@ fn smart_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) -> E
 
     let marf = setup_chain_state(genesis_size);
 
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
     let blocks: Vec<_> = (0..(buildup_count + 1))
         .into_iter()
         .map(|i| StacksBlockId(as_hash(i)))
@@ -391,7 +390,7 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32, scaling: u32) -> Execut
     let start = Instant::now();
     let marf = setup_chain_state(genesis_size);
 
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
     let blocks: Vec<_> = (0..(buildup_count + 1))
         .into_iter()
         .map(|i| StacksBlockId(as_hash(i)))
@@ -463,7 +462,7 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32, scaling: u32) -> Execut
             let result = tx
                 .run_contract_call(
                     stacker,
-                    &*boot_code_id("pox", false),
+                    &boot_code_id("pox", false),
                     "stack-stx",
                     &[
                         Value::UInt(stacker_balance),
