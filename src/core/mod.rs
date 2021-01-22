@@ -28,7 +28,7 @@ pub use self::mempool::MemPoolDB;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // p2p network version
-pub const PEER_VERSION: u32 = 0x17000000; // 23.0.0.0
+pub const PEER_VERSION: u32 = 0x18000000; // 24.0.0.0
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
@@ -49,15 +49,17 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
 #[cfg(not(test))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
+pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
+
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 
 // TODO: TO BE SET BY STACKS_V1_MINER_THRESHOLD
-pub const BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT: u64 = 661389;
-pub const BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP: u32 = 1607986994;
+pub const BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT: u64 = 666050;
+pub const BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP: u32 = 1610643248;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
-    "0000000000000000000351332d33cb67e4baa9bbe7808dc7c46517eb0b396e4b";
+    "0000000000000000000ab248c8e35c574514d052a83dbc12669e19bc43df486e";
 pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
 
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1902511;

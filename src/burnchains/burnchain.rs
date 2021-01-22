@@ -98,6 +98,8 @@ impl BurnchainStateTransitionOps {
 
 use core::MINING_COMMITMENT_WINDOW;
 
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
         BurnchainStateTransition {
@@ -1273,9 +1275,11 @@ impl Burnchain {
             return Ok(burn_chain_tip);
         }
 
+        let total = sync_height - self.first_block_height;
+        let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Node will fetch burnchain blocks {}-{}...",
-            start_block, end_block
+            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            progress, start_block, end_block, sync_height
         );
 
         // synchronize
@@ -1345,6 +1349,7 @@ impl Burnchain {
             })
             .unwrap();
 
+        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
@@ -1355,6 +1360,19 @@ impl Burnchain {
 
                         if burnchain_block.block_height() == 0 {
                             continue;
+                        }
+
+                        if is_mainnet {
+                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
+                                      "block_height" => last_processed.block_height);
+                                continue;
+                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
+                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+                                       "block_height" => last_processed.block_height);
+                                continue;
+                            }
                         }
 
                         let insert_start = get_epoch_time_ms();
@@ -2572,13 +2590,4 @@ pub mod tests {
             prev_snapshot = snapshot;
         }
     }
-
-    // TODO: test VRF key duplication check
-    // TODO; test that all but the first of the block commits committing to the same key are
-    // dropped
-    // TODO: test that we can get the histories of all Stacks block headers from different fork segments
-    // TODO: test top-level sync with a burn chain reorg
-    // -- make sure the chain can switch from fork A to fork B back to fork A safely.
-    // TODO: test that only relevant user burns get stored in a burn distribution, and that they're
-    // all present in the DB
 }

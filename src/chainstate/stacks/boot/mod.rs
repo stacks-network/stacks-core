@@ -53,50 +53,66 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR: &'static str = "ST000000000000000000002AMW42H";
-
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-pub const BOOT_CODE_COST_VOTING: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
+const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 
 lazy_static! {
-    pub static ref STACKS_BOOT_CODE_CONTRACT_ADDRESS: StacksAddress =
-        StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR).unwrap();
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 5] = [
+    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 5] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
         ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
     ];
-    pub static ref STACKS_BOOT_POX_CONTRACT: QualifiedContractIdentifier = boot_code_id("pox");
-    pub static ref STACKS_BOOT_COST_CONTRACT: QualifiedContractIdentifier = boot_code_id("costs");
-    pub static ref STACKS_BOOT_COST_VOTE_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting");
 }
 
-pub fn boot_code_addr() -> StacksAddress {
-    STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()
+fn make_testnet_cost_voting() -> String {
+    BOOT_CODE_COST_VOTING_MAINNET
+        .replacen(
+            "(define-constant VETO_LENGTH u1008)",
+            "(define-constant VETO_LENGTH u50)",
+            1,
+        )
+        .replacen(
+            "(define-constant REQUIRED_VETOES u500)",
+            "(define-constant REQUIRED_VETOES u25)",
+            1,
+        )
 }
 
-pub fn boot_code_id(name: &str) -> QualifiedContractIdentifier {
+#[cfg(test)]
+pub fn boot_code_test_addr() -> StacksAddress {
+    boot_code_addr(false)
+}
+
+pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
+    StacksAddress::burn_address(mainnet)
+}
+
+pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
+    let addr = boot_code_addr(mainnet);
     QualifiedContractIdentifier::new(
-        StandardPrincipalData::from(boot_code_addr()),
+        addr.into(),
         ContractName::try_from(name.to_string()).unwrap(),
     )
 }
@@ -161,7 +177,7 @@ impl StacksChainState {
                 &stacks_block_id,
                 dbconn,
                 &iconn,
-                &boot_code_id(boot_contract_name),
+                &boot_code_id(boot_contract_name, self.mainnet),
                 code,
             )
             .map_err(Error::ClarityError)
@@ -291,8 +307,8 @@ impl StacksChainState {
         };
         let threshold = threshold_precise + ceil_amount;
         info!(
-            "PoX participation threshold is {}, from {}",
-            threshold, threshold_precise
+            "PoX participation threshold is {}, from {} + {} ({})",
+            threshold, threshold_precise, ceil_amount, scale_by,
         );
         (threshold, participation)
     }
@@ -602,7 +618,7 @@ pub mod test {
         let value = peer.chainstate().clarity_eval_read_only(
             &iconn,
             &stacks_block_id,
-            &boot_code_id(boot_contract),
+            &boot_code_id(boot_contract, false),
             expr,
         );
         peer.sortdb = Some(sortdb);
@@ -795,9 +811,13 @@ pub mod test {
         function_name: &str,
         args: Vec<Value>,
     ) -> StacksTransaction {
-        let payload =
-            TransactionPayload::new_contract_call(boot_code_addr(), "pox", function_name, args)
-                .unwrap();
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox",
+            function_name,
+            args,
+        )
+        .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -923,7 +943,7 @@ pub mod test {
                 (ok true)
             ))
         )
-        ", boot_code_addr());
+        ", boot_code_test_addr());
         let contract_tx = make_bare_contract(key, nonce, 0, name, &contract);
         contract_tx
     }
@@ -1242,7 +1262,7 @@ pub mod test {
                 if tenure_id == 2 {
                     let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
                         "(define-public (nested-stack-stx)
-                            (contract-call? '{}.pox stack-stx u5120000000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
+                            (contract-call? '{}.pox stack-stx u5120000000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", boot_code_test_addr()));
 
                     block_txs.push(alice_test_tx);
                 }
@@ -2420,7 +2440,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
+                        ", boot_code_test_addr().to_string()));
 
                     block_txs.push(bob_test_tx);
 
@@ -2434,7 +2454,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
+                        ", boot_code_test_addr().to_string()));
 
                     block_txs.push(alice_test_tx);
 
@@ -2448,7 +2468,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR));
+                        ", boot_code_test_addr().to_string()));
 
                     block_txs.push(charlie_test_tx);
                 }
@@ -3831,7 +3851,7 @@ pub mod test {
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
-                            boot_code_addr()));
+                               boot_code_test_addr()));
 
                     block_txs.push(charlie_stack);
 
@@ -3845,7 +3865,7 @@ pub mod test {
                              (var-set test-passed (is-eq
                                (err 3)
                                (print (contract-call? '{}.pox reject-pox))))",
-                            boot_code_addr()));
+                               boot_code_test_addr()));
 
                     block_txs.push(alice_reject);
 
@@ -3857,7 +3877,7 @@ pub mod test {
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox reject-pox))))",
-                            boot_code_addr()));
+                               boot_code_test_addr()));
 
                     block_txs.push(charlie_reject);
                 }

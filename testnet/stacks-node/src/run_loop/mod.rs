@@ -141,7 +141,7 @@ impl RunLoopCallbacks {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RegisteredKey {
     pub block_height: u64,
     pub op_vtxindex: u32,

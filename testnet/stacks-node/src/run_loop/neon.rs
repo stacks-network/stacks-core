@@ -12,13 +12,14 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR;
+use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
-use stacks::net::atlas::AtlasConfig;
-use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use stacks::net::atlas::{AtlasConfig, Attachment};
+use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
+use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 
@@ -122,24 +123,25 @@ impl RunLoop {
 
             let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
-                error!("Miner node: UTXOs not found. Switching to Follower node. Restart node when you get some UTXOs.");
+                error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
                 false
             } else {
-                info!("Miner node: starting up, UTXOs found.");
+                info!("UTXOs found - will run as a Miner node");
                 true
             }
         } else {
-            info!("Follower node: starting up");
+            info!("Will run as a Follower node");
             false
         };
 
         let burnchain_config = burnchain.get_burnchain();
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
 
+        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
         match burnchain.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
             Err(e) => {
-                warn!("Burnchain controller stopped: {}", e);
+                error!("Burnchain controller stopped: {}", e);
                 return;
             }
         };
@@ -160,6 +162,14 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
+        let mut atlas_config = AtlasConfig::default(false);
+        let genesis_attachments = GenesisData::new(USE_TEST_GENESIS_CHAINSTATE)
+            .read_name_zonefiles()
+            .into_iter()
+            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
+            .collect();
+        atlas_config.genesis_attachments = Some(genesis_attachments);
+
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
         let chainstate_path = self.config.get_chainstate_path();
@@ -172,11 +182,7 @@ impl RunLoop {
         let pox_rejection_fraction = burnchain_config.pox_constants.pox_rejection_fraction as u128;
 
         let boot_block = Box::new(move |clarity_tx: &mut ClarityTx| {
-            let contract = QualifiedContractIdentifier::parse(&format!(
-                "{}.pox",
-                STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
-            ))
-            .expect("Failed to construct boot code contract address");
+            let contract = boot::boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(first_block_height),
@@ -224,7 +230,7 @@ impl RunLoop {
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
 
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
 
         thread::Builder::new()
@@ -251,6 +257,7 @@ impl RunLoop {
             self.config.burnchain.poll_time_secs,
             self.config.connection_options.timeout,
             self.config.node.pox_sync_sample_secs,
+            self.config.node.pox_sync_sample_secs == 0,
         )
         .unwrap();
 
@@ -285,7 +292,7 @@ impl RunLoop {
         let _ = burnchain.sortdb_mut();
 
         // Start the runloop
-        info!("Begin run loop");
+        trace!("Begin run loop");
         self.bump_blocks_processed();
 
         let prometheus_bind = self.config.node.prometheus_bind.clone();

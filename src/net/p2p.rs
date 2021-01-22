@@ -69,6 +69,7 @@ use std::sync::mpsc::TrySendError;
 
 use std::net::SocketAddr;
 
+use std::cmp;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -274,12 +275,6 @@ pub struct PeerNetwork {
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
-    // do we need to do a prune at the end of the work state cycle?
-    pub do_prune: bool,
-
-    // prune state
-    pub prune_deadline: u64,
-
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
@@ -396,9 +391,6 @@ impl PeerNetwork {
             block_downloader: None,
             attachments_downloader: None,
 
-            do_prune: false,
-
-            prune_deadline: 0,
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
 
@@ -545,13 +537,13 @@ impl PeerNetwork {
     ) -> Result<(usize, bool), net_error> {
         let convo_opt = self.peers.get_mut(&event_id);
         if convo_opt.is_none() {
-            info!("No open socket for {}", event_id);
+            debug!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
 
         let socket_opt = self.sockets.get_mut(&event_id);
         if socket_opt.is_none() {
-            info!("No open socket for {}", event_id);
+            debug!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
 
@@ -1440,6 +1432,7 @@ impl PeerNetwork {
                 nk_remove.push(neighbor_key.clone());
             }
         }
+
         for nk in nk_remove.into_iter() {
             // remove event state
             self.events.remove(&nk);
@@ -1901,7 +1894,7 @@ impl PeerNetwork {
             return;
         }
 
-        test_debug!("Prune connections");
+        debug!("Prune from {} connections", self.events.len());
         let mut safe: HashSet<usize> = HashSet::new();
         let now = get_epoch_time_secs();
 
@@ -2064,10 +2057,7 @@ impl PeerNetwork {
             return Ok(true);
         }
 
-        if self.do_prune {
-            // wait until we do a prune before we try and find new neighbors
-            return Ok(true);
-        }
+        debug!("{:?}: walk peer graph", &self.local_peer);
 
         // walk the peer graph and deal with new/dropped connections
         let (done, walk_result_opt) = self.walk_peer_graph();
@@ -2075,7 +2065,6 @@ impl PeerNetwork {
             None => {}
             Some(walk_result) => {
                 // remember to prune later, if need be
-                self.do_prune = walk_result.do_prune;
                 self.process_neighbor_walk(walk_result);
             }
         }
@@ -2219,8 +2208,10 @@ impl PeerNetwork {
                             Some((data.addrbytes, self.bind_nk.port));
 
                         if old_ip != self.local_peer.public_ip_address {
-                            info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
-                            self.disconnect_all();
+                            info!(
+                                "IP address changed from {:?} to {:?}",
+                                &old_ip, &self.local_peer.public_ip_address
+                            );
                         }
                         return Ok(true);
                     }
@@ -2362,6 +2353,8 @@ impl PeerNetwork {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok((true, false));
         }
+
+        debug!("{:?}: network inventory sync", &self.local_peer);
 
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
@@ -2950,13 +2943,46 @@ impl PeerNetwork {
                             if inv_sync.hint_learned_data {
                                 // tell the downloader to wake up
                                 if let Some(ref mut downloader) = self.block_downloader {
-                                    downloader.hint_download_rescan();
+                                    downloader.hint_download_rescan(cmp::min(
+                                        self.chain_view.burn_block_height,
+                                        inv_sync.hint_learned_data_height,
+                                    ));
                                 }
                             }
                         }
 
                         if !inv_throttled {
-                            self.num_inv_sync_passes += 1;
+                            // only count an inv_sync as passing if there's an always-allowed node
+                            // in our inv state
+                            let always_allowed: HashSet<_> = PeerDB::get_always_allowed_peers(
+                                &self.peerdb.conn(),
+                                self.local_peer.network_id,
+                            )
+                            .unwrap_or(vec![])
+                            .into_iter()
+                            .map(|neighbor| neighbor.addr)
+                            .collect();
+
+                            let mut have_always_allowed = false;
+
+                            if always_allowed.len() == 0 {
+                                have_always_allowed = true;
+                            } else {
+                                if let Some(ref inv_state) = self.inv_state {
+                                    for nk in inv_state.block_stats.keys() {
+                                        if always_allowed.contains(&nk) {
+                                            have_always_allowed = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if have_always_allowed {
+                                debug!("{:?}: synchronized inventories with at least one always-allowed peer", &self.local_peer);
+                                self.num_inv_sync_passes += 1;
+                            } else {
+                                debug!("{:?}: did NOT synchronize inventories with at least one always-allowed peer", &self.local_peer);
+                            }
                             debug!(
                                 "{:?}: Finished full inventory state-machine pass ({})",
                                 &self.local_peer, self.num_inv_sync_passes
@@ -3004,14 +3030,7 @@ impl PeerNetwork {
                 PeerNetworkWorkState::Prune => {
                     // did one pass
                     did_cycle = true;
-
-                    // clear out neighbor connections after we finish sending
-                    if self.do_prune {
-                        do_prune = true;
-
-                        // re-enable neighbor walks
-                        self.do_prune = false;
-                    }
+                    do_prune = true;
 
                     // restart
                     self.work_state = PeerNetworkWorkState::GetPublicIP;
@@ -3950,8 +3969,8 @@ impl PeerNetwork {
             };
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
-            self.hint_sync_invs();
-            self.hint_download_rescan();
+            self.hint_sync_invs(self.chain_view.burn_stable_block_height);
+            self.hint_download_rescan(self.chain_view.burn_stable_block_height);
             self.chain_view = new_chain_view;
         }
 
@@ -4043,11 +4062,11 @@ impl PeerNetwork {
             self.prune_connections();
         }
 
-        // download attachments
-        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
-
         // In parallel, do a neighbor walk
         self.do_network_neighbor_walk()?;
+
+        // download attachments
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4090,14 +4109,16 @@ impl PeerNetwork {
         self.dispatch_requests();
 
         // fault injection -- periodically disconnect from everyone
-        if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
-            if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
-                debug!(
-                    "{:?}: Fault injection: forcing disconnect",
-                    &self.local_peer
-                );
-                self.disconnect_all();
-                self.fault_last_disconnect = get_epoch_time_secs();
+        if cfg!(test) {
+            if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
+                if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
+                    debug!(
+                        "{:?}: Fault injection: forcing disconnect",
+                        &self.local_peer
+                    );
+                    self.disconnect_all();
+                    self.fault_last_disconnect = get_epoch_time_secs();
+                }
             }
         }
 
@@ -4121,9 +4142,7 @@ impl PeerNetwork {
         }
 
         if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
-            info!("Reject transaction {}: {:?}", txid, &e;
-                  "txid" => %txid
-            );
+            warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
 
@@ -4221,7 +4240,7 @@ impl PeerNetwork {
         }) {
             Ok(_) => {}
             Err(e) => {
-                error!("Atlas: updating attachment inventory failed {}", e);
+                warn!("Atlas: updating attachment inventory failed {}", e);
             }
         }
 
@@ -4355,7 +4374,7 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();

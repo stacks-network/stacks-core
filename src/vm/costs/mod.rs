@@ -25,7 +25,7 @@ use std::{cmp, fmt};
 
 use std::collections::{BTreeMap, HashMap};
 
-use chainstate::stacks::boot::{STACKS_BOOT_COST_CONTRACT, STACKS_BOOT_COST_VOTE_CONTRACT};
+use chainstate::stacks::boot::boot_code_id;
 
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
@@ -233,6 +233,7 @@ pub struct LimitedCostTracker {
     memory: u64,
     memory_limit: u64,
     free: bool,
+    mainnet: bool,
 }
 
 #[cfg(test)]
@@ -279,7 +280,9 @@ pub enum CostErrors {
     CostContractLoadFailure,
 }
 
-fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
+
     let last_processed_at = match clarity_db.get_value(
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
@@ -291,7 +294,7 @@ fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumma
     let metadata_result = clarity_db
         .fetch_metadata_manual::<String>(
             last_processed_at,
-            &STACKS_BOOT_COST_VOTE_CONTRACT,
+            &cost_voting_contract,
             "::state_summary",
         )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
@@ -303,10 +306,12 @@ fn load_state_summary(clarity_db: &mut ClarityDatabase) -> Result<CostStateSumma
 }
 
 fn store_state_summary(
+    mainnet: bool,
     clarity_db: &mut ClarityDatabase,
     to_store: &CostStateSummary,
 ) -> Result<()> {
     let block_height = clarity_db.get_current_block_height();
+    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 
     clarity_db.put(
         "vm-costs::last-processed-at-height",
@@ -316,7 +321,7 @@ fn store_state_summary(
         serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
             .expect("BUG: failure to serialize cost state summary struct");
     clarity_db.set_metadata(
-        &STACKS_BOOT_COST_VOTE_CONTRACT,
+        &cost_voting_contract,
         "::state_summary",
         &serialized_summary,
     );
@@ -335,6 +340,7 @@ fn store_state_summary(
 ///   fork.
 ///
 fn load_cost_functions(
+    mainnet: bool,
     clarity_db: &mut ClarityDatabase,
     apply_updates: bool,
 ) -> Result<CostStateSummary> {
@@ -342,7 +348,7 @@ fn load_cost_functions(
         .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
         .unwrap_or(Value::UInt(0))
         .expect_u128();
-    let cost_voting_contract = &STACKS_BOOT_COST_VOTE_CONTRACT;
+    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
     let confirmed_proposals_count = clarity_db
         .lookup_variable_unknown_descriptor(&cost_voting_contract, "confirmed-proposal-count")
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
@@ -353,7 +359,7 @@ fn load_cost_functions(
 
     // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
     let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
-    let mut state_summary = load_state_summary(clarity_db)?;
+    let mut state_summary = load_state_summary(mainnet, clarity_db)?;
     if !apply_updates {
         return Ok(state_summary);
     }
@@ -499,7 +505,7 @@ fn load_cost_functions(
             }
         };
 
-        if target_contract == *STACKS_BOOT_COST_CONTRACT {
+        if target_contract == boot_code_id("costs", mainnet) {
             // refering to one of the boot code cost functions
             let target = match ClarityCostFunction::lookup_by_name(&target_function) {
                 Some(cost_func) => cost_func,
@@ -557,7 +563,7 @@ fn load_cost_functions(
         }
     }
     if confirmed_proposals_count > last_processed_count {
-        store_state_summary(clarity_db, &state_summary)?;
+        store_state_summary(mainnet, clarity_db, &state_summary)?;
         clarity_db.put(
             "vm-costs::last_processed_count",
             &Value::UInt(confirmed_proposals_count),
@@ -569,6 +575,7 @@ fn load_cost_functions(
 
 impl LimitedCostTracker {
     pub fn new(
+        mainnet: bool,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
     ) -> Result<LimitedCostTracker> {
@@ -581,6 +588,7 @@ impl LimitedCostTracker {
             total: ExecutionCost::zero(),
             memory: 0,
             free: false,
+            mainnet,
         };
         assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db, true)?;
@@ -588,6 +596,7 @@ impl LimitedCostTracker {
     }
 
     pub fn new_mid_block(
+        mainnet: bool,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
     ) -> Result<LimitedCostTracker> {
@@ -600,14 +609,16 @@ impl LimitedCostTracker {
             total: ExecutionCost::zero(),
             memory: 0,
             free: false,
+            mainnet,
         };
         cost_tracker.load_costs(clarity_db, false)?;
         Ok(cost_tracker)
     }
 
+    #[cfg(test)]
     pub fn new_max_limit(clarity_db: &mut ClarityDatabase) -> Result<LimitedCostTracker> {
         assert!(clarity_db.is_stack_empty());
-        LimitedCostTracker::new(ExecutionCost::max_value(), clarity_db)
+        LimitedCostTracker::new(false, ExecutionCost::max_value(), clarity_db)
     }
 
     pub fn new_free() -> LimitedCostTracker {
@@ -620,6 +631,7 @@ impl LimitedCostTracker {
             memory: 0,
             memory_limit: CLARITY_MEMORY_LIMIT,
             free: true,
+            mainnet: false,
         }
     }
 
@@ -627,13 +639,13 @@ impl LimitedCostTracker {
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
-        let boot_costs_id = (*STACKS_BOOT_COST_CONTRACT).clone();
+        let boot_costs_id = boot_code_id("costs", self.mainnet);
 
         clarity_db.begin();
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
-        } = load_cost_functions(clarity_db, apply_updates).map_err(|e| {
+        } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
             clarity_db.roll_back();
             e
         })?;
@@ -754,9 +766,10 @@ fn compute_cost(
     cost_function_reference: ClarityCostFunctionReference,
     input_sizes: &[u64],
 ) -> Result<ExecutionCost> {
+    let mainnet = cost_tracker.mainnet;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_free());
+    let mut global_context = GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free());
 
     let cost_contract = cost_tracker
         .cost_contracts
@@ -918,7 +931,7 @@ pub struct ExecutionCost {
 
 impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{\"runtime\": {}, \"write_length\": {}, \"write_count\": {}, \"read_length\": {}, \"read_count\": {}}}",
+        write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",
                self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
     }
 }

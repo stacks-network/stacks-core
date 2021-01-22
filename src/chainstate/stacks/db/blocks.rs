@@ -3066,9 +3066,6 @@ impl StacksChainState {
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
     /// block: the actual block data for this anchored Stacks block
     /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
-    ///
-    /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
-    /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -3750,6 +3747,7 @@ impl StacksChainState {
         operations: Vec<StackStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
+        let mainnet = clarity_tx.config.mainnet;
         let mut cost_so_far = clarity_tx.cost_so_far();
         for stack_stx_op in operations.into_iter() {
             let StackStxOp {
@@ -3765,7 +3763,7 @@ impl StacksChainState {
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.into(),
-                    &QualifiedContractIdentifier::boot_contract("pox"),
+                    &boot_code_id("pox", mainnet),
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
@@ -3946,7 +3944,8 @@ impl StacksChainState {
     pub fn process_stx_unlocks<'a>(
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
-        let lockup_contract_id = boot::boot_code_id("lockup");
+        let mainnet = clarity_tx.config.mainnet;
+        let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -4252,7 +4251,7 @@ impl StacksChainState {
             // epoch defined by this miner.
             clarity_tx.reset_cost(ExecutionCost::zero());
 
-            debug!("\n\nAppend block";
+            debug!("Append block";
                    "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
                    "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
                    "stacks_height" => %block.header.total_work.work,
@@ -4405,7 +4404,7 @@ impl StacksChainState {
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
                 total_coinbase,
-            ) // TODO: calculate total compute budget and scale up
+            )
             .expect("FATAL: parsed and processed a block without a coinbase");
 
             receipts.extend(microblock_txs_receipts.into_iter());
@@ -9162,8 +9161,8 @@ pub mod test {
         );
     }
 
-    // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
+    // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
-    // TODO: process_next_staging_block
-    // TODO: test resource limits -- shouldn't be able to load microblock streams that are too big
+    // TODO(test): process_next_staging_block
+    // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
 }

@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use slog::{BorrowedKV, Drain, FnValue, Logger, OwnedKVList, Record, KV};
+use chrono::prelude::*;
+use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 use std::env;
 use std::io;
@@ -26,9 +27,11 @@ use std::time::{Duration, SystemTime};
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
 }
-
 struct TermFormat<D: Decorator> {
     decorator: D,
+    pretty_print: bool,
+    debug: bool,
+    isatty: bool,
 }
 
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
@@ -64,6 +67,72 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     Ok(count_rd.count() != 0)
 }
 
+fn pretty_print_msg_header(
+    rd: &mut dyn RecordDecorator,
+    record: &Record,
+    debug: bool,
+    isatty: bool,
+) -> io::Result<bool> {
+    rd.start_timestamp()?;
+    let now: DateTime<Utc> = Utc::now();
+    write!(
+        rd,
+        "{}{}",
+        color_if_tty("\x1b[0;90m", isatty),
+        now.format("%b %e %T%.6f")
+    )?;
+    rd.start_whitespace()?;
+    write!(rd, " ")?;
+
+    rd.start_level()?;
+
+    match record.level() {
+        Level::Critical | Level::Error => write!(
+            rd,
+            "{}{}{}",
+            color_if_tty("\x1b[0;91m", isatty),
+            record.level().as_short_str(),
+            color_if_tty("\x1b[0m", isatty)
+        ),
+        Level::Warning => write!(
+            rd,
+            "{}{}{}",
+            color_if_tty("\x1b[0;33m", isatty),
+            record.level().as_short_str(),
+            color_if_tty("\x1b[0m", isatty)
+        ),
+        Level::Info => write!(
+            rd,
+            "{}{}{}",
+            color_if_tty("\x1b[0;94m", isatty),
+            record.level().as_short_str(),
+            color_if_tty("\x1b[0m", isatty)
+        ),
+        _ => write!(rd, "{}", record.level().as_short_str()),
+    }?;
+
+    rd.start_whitespace()?;
+    write!(rd, " ")?;
+
+    rd.start_msg()?;
+    write!(rd, "{}", record.msg())?;
+
+    if debug {
+        write!(rd, " ")?;
+        write!(
+            rd,
+            "{}({:?}, {}:{}){}",
+            color_if_tty("\x1b[0;90m", isatty),
+            thread::current().id(),
+            record.file(),
+            record.line(),
+            color_if_tty("\x1b[0m", isatty)
+        )?;
+    }
+
+    Ok(true)
+}
+
 impl<D: Decorator> Drain for TermFormat<D> {
     type Ok = ();
     type Err = io::Error;
@@ -74,13 +143,22 @@ impl<D: Decorator> Drain for TermFormat<D> {
 }
 
 impl<D: Decorator> TermFormat<D> {
-    pub fn new(decorator: D) -> TermFormat<D> {
-        TermFormat { decorator }
+    pub fn new(decorator: D, pretty_print: bool, debug: bool, isatty: bool) -> TermFormat<D> {
+        TermFormat {
+            decorator,
+            pretty_print,
+            debug,
+            isatty,
+        }
     }
 
     fn format_full(&self, record: &Record, values: &OwnedKVList) -> io::Result<()> {
         self.decorator.with_record(record, values, |decorator| {
-            let comma_needed = print_msg_header(decorator, record)?;
+            let comma_needed = if self.pretty_print {
+                pretty_print_msg_header(decorator, record, self.debug, self.isatty)
+            } else {
+                print_msg_header(decorator, record)
+            }?;
             {
                 let mut serializer = Serializer::new(decorator, comma_needed, true);
 
@@ -129,12 +207,14 @@ fn make_json_logger() -> Logger {
 
 #[cfg(not(test))]
 fn make_logger() -> Logger {
-    if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
+    if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
-        let plain = slog_term::PlainSyncDecorator::new(std::io::stderr());
-        let drain = TermFormat::new(plain);
-
+        let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
+        let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
+        let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
+        let atty = isatty(Stream::Stderr);
+        let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
     }
@@ -142,21 +222,22 @@ fn make_logger() -> Logger {
 
 #[cfg(test)]
 fn make_logger() -> Logger {
-    if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
+    if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
+        let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-        let drain = TermFormat::new(plain);
-
+        let isatty = isatty(Stream::Stdout);
+        let drain = TermFormat::new(plain, false, debug, isatty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
     }
 }
 
 pub fn get_loglevel() -> slog::Level {
-    if env::var("BLOCKSTACK_TRACE") == Ok("1".into()) {
+    if env::var("STACKS_LOG_TRACE") == Ok("1".into()) {
         slog::Level::Trace
-    } else if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) {
+    } else if env::var("STACKS_LOG_DEBUG") == Ok("1".into()) {
         slog::Level::Debug
     } else {
         slog::Level::Info
@@ -221,4 +302,32 @@ macro_rules! fatal {
             slog_crit!($crate::util::log::LOGGER, $($arg)*)
         }
     })
+}
+
+fn color_if_tty(color: &str, isatty: bool) -> &str {
+    if isatty {
+        color
+    } else {
+        ""
+    }
+}
+
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+#[cfg(all(unix))]
+fn isatty(stream: Stream) -> bool {
+    extern crate libc;
+    let fd = match stream {
+        Stream::Stdout => libc::STDOUT_FILENO,
+        Stream::Stderr => libc::STDERR_FILENO,
+    };
+    unsafe { libc::isatty(fd) != 0 }
+}
+
+#[cfg(not(unix))]
+fn isatty(stream: Stream) -> bool {
+    false
 }

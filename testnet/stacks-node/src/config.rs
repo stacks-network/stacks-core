@@ -20,7 +20,9 @@ pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
 pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
-const MINIMUM_DUST_FEE: u64 = 5500;
+const DEFAULT_SATS_PER_VB: u64 = 50;
+const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
+const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -239,7 +241,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X4".into()),
+            magic_bytes: Some("X5".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -281,12 +283,20 @@ impl ConfigFile {
             mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
             peer_port: Some(8333),
-            peer_host: Some("bitcoind.blockstack.org".to_string()),
+            peer_host: Some("bitcoin.blockstack.com".to_string()),
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
 
+        let bootstrap_nodes = [
+            "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459d36b@seed-0.mainnet.stacks.co:20444",
+            "02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444",
+            "03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"].join(",");
+
         let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@mainnet.blockstack.org:20444".to_string()),
+            bootstrap_node: Some(bootstrap_nodes),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -368,23 +378,25 @@ lazy_static! {
     static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
-        timeout: 30,
+        timeout: 15,
         idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 4,
-        num_clients: 1000,
-        soft_num_neighbors: 4,
-        soft_num_clients: 1000,
-        max_neighbors_per_host: 10,
-        max_clients_per_host: 1000,
-        soft_max_neighbors_per_host: 10,
-        soft_max_neighbors_per_org: 100,
-        soft_max_clients_per_host: 1000,
-        walk_interval: 30,
-        inv_sync_interval: 45,
-        download_interval: 10,
+        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_clients: 750,               // number of inbound p2p connections
+        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
+        soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
+        max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
+        max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
+        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
+        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
+        soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
+        max_http_clients: 1000,         // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
+        download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         max_inflight_attachments: 6,
@@ -427,7 +439,7 @@ impl Config {
                     rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                     p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
-                    bootstrap_node: None,
+                    bootstrap_node: vec![],
                     deny_nodes: vec![],
                     data_url: match node.data_url {
                         Some(data_url) => data_url,
@@ -472,7 +484,35 @@ impl Config {
                         burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
                     }
                 }
+
                 let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
+
+                if &burnchain_mode == "mainnet" {
+                    // check magic bytes and set if not defined
+                    let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = mainnet_magic.clone();
+                    }
+                    if burnchain.magic_bytes != mainnet_magic {
+                        panic!(
+                            "Attempted to run mainnet node with bad magic bytes '{}'",
+                            burnchain.magic_bytes.as_ref().unwrap()
+                        );
+                    }
+                    if node.use_test_genesis_chainstate == Some(true) {
+                        panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
+                    }
+                    if let Some(ref balances) = config_file.ustx_balance {
+                        if balances.len() > 0 {
+                            panic!(
+                                "Attempted to run mainnet node with specified `initial_balances`"
+                            );
+                        }
+                    }
+                    if config_file.block_limit.is_some() {
+                        panic!("Attempted to run mainnet node with a specified `block_limit`");
+                    }
+                }
 
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
@@ -531,13 +571,19 @@ impl Config {
                         })
                         .unwrap_or(default_burnchain_config.magic_bytes),
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    burnchain_op_tx_fee: burnchain
-                        .burnchain_op_tx_fee
-                        .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
                     poll_time_secs: burnchain
                         .poll_time_secs
                         .unwrap_or(default_burnchain_config.poll_time_secs),
+                    satoshis_per_byte: burnchain
+                        .satoshis_per_byte
+                        .unwrap_or(default_burnchain_config.satoshis_per_byte),
+                    leader_key_tx_estimated_size: burnchain
+                        .leader_key_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
+                    block_commit_tx_estimated_size: burnchain
+                        .block_commit_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
                 }
             }
             None => default_burnchain_config,
@@ -558,7 +604,9 @@ impl Config {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
-        node.set_bootstrap_node(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        if let Some(bootstrap_node) = bootstrap_node {
+            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
         }
@@ -737,6 +785,9 @@ impl Config {
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
                     force_disconnect_interval: opts.force_disconnect_interval,
+                    max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
+                    }),
                     ..ConnectionOptions::default()
                 }
             }
@@ -833,6 +884,10 @@ impl Config {
             _ => false,
         }
     }
+
+    pub fn is_node_event_driven(&self) -> bool {
+        self.events_observers.len() > 0
+    }
 }
 
 impl std::default::Default for Config {
@@ -880,9 +935,11 @@ pub struct BurnchainConfig {
     pub spv_headers_path: String,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
+    pub satoshis_per_byte: u64,
+    pub leader_key_tx_estimated_size: u64,
+    pub block_commit_tx_estimated_size: u64,
 }
 
 impl BurnchainConfig {
@@ -904,9 +961,11 @@ impl BurnchainConfig {
             spv_headers_path: "./spv-headers.dat".to_string(),
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
-            burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
+            satoshis_per_byte: DEFAULT_SATS_PER_VB,
+            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
+            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
         }
     }
 
@@ -954,9 +1013,11 @@ pub struct BurnchainConfigFile {
     pub spv_headers_path: Option<String>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
+    pub satoshis_per_byte: Option<u64>,
+    pub leader_key_tx_estimated_size: Option<u64>,
+    pub block_commit_tx_estimated_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -969,7 +1030,7 @@ pub struct NodeConfig {
     pub data_url: String,
     pub p2p_address: String,
     pub local_peer_seed: Vec<u8>,
-    pub bootstrap_node: Option<Neighbor>,
+    pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
@@ -1007,14 +1068,14 @@ impl NodeConfig {
             p2p_bind: format!("0.0.0.0:{}", p2p_port),
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             p2p_address: format!("127.0.0.1:{}", rpc_port),
-            bootstrap_node: None,
+            bootstrap_node: vec![],
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
-            mine_microblocks: false,
-            microblock_frequency: 5000,
+            mine_microblocks: true,
+            microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
-            wait_time_for_microblocks: 5000,
+            wait_time_for_microblocks: 60_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
@@ -1054,26 +1115,32 @@ impl NodeConfig {
         }
     }
 
-    pub fn set_bootstrap_node(
+    pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
+        let parts: Vec<&str> = bootstrap_node.split("@").collect();
+        if parts.len() != 2 {
+            panic!(
+                "Invalid bootstrap node '{}': expected PUBKEY@IP:PORT",
+                bootstrap_node
+            );
+        }
+        let (pubkey_str, hostport) = (parts[0], parts[1]);
+        let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
+            .expect(&format!("Invalid public key '{}'", pubkey_str));
+        let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
+        let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
+        self.bootstrap_node.push(neighbor);
+    }
+
+    pub fn set_bootstrap_nodes(
         &mut self,
-        bootstrap_node: Option<String>,
+        bootstrap_nodes: String,
         chain_id: u32,
         peer_version: u32,
     ) {
-        if let Some(bootstrap_node) = bootstrap_node {
-            let comps: Vec<&str> = bootstrap_node.split("@").collect();
-            match comps[..] {
-                [public_key, peer_addr] => {
-                    let mut pubk = Secp256k1PublicKey::from_hex(public_key).unwrap();
-                    pubk.set_compressed(true);
-
-                    let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
-                    let sock_addr = addrs_iter.next().unwrap();
-                    let neighbor =
-                        NodeConfig::default_neighbor(sock_addr, pubk, chain_id, peer_version);
-                    self.bootstrap_node = Some(neighbor);
-                }
-                _ => {}
+        let parts: Vec<&str> = bootstrap_nodes.split(",").collect();
+        for part in parts.into_iter() {
+            if part.len() > 0 {
+                self.add_bootstrap_node(&part, chain_id, peer_version);
             }
         }
     }
@@ -1109,6 +1176,7 @@ pub struct ConnectionOptionsFile {
     pub private_key_lifetime: Option<u64>,
     pub num_neighbors: Option<u64>,
     pub num_clients: Option<u64>,
+    pub max_http_clients: Option<u64>,
     pub soft_num_neighbors: Option<u64>,
     pub soft_num_clients: Option<u64>,
     pub max_neighbors_per_host: Option<u64>,

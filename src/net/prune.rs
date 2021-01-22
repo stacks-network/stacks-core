@@ -225,7 +225,7 @@ impl PeerNetwork {
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
                     {
-                        test_debug!(
+                        debug!(
                             "Org {} has {} neighbors (more than {} soft limit)",
                             org,
                             neighbor_infos.len(),
@@ -236,11 +236,9 @@ impl PeerNetwork {
                         {
                             let (neighbor_key, _) = neighbor_infos[i as usize].clone();
 
-                            test_debug!(
+                            debug!(
                                 "{:?}: Prune {:?} because its org ({}) dominates our peer table",
-                                &self.local_peer,
-                                &neighbor_key,
-                                org
+                                &self.local_peer, &neighbor_key, org
                             );
 
                             ret.push(neighbor_key);
@@ -273,11 +271,9 @@ impl PeerNetwork {
 
         // select an org at random proportional to its popularity, and remove a neighbor
         // at random proportional to how unhealthy and short-lived it is.
-        test_debug!(
+        debug!(
             "{:?}: Prune outbound neighbor set of {} down to {}",
-            &self.local_peer,
-            num_outbound,
-            self.connection_opts.soft_num_neighbors
+            &self.local_peer, num_outbound, self.connection_opts.soft_num_neighbors
         );
         while num_outbound - (ret.len() as u64) > self.connection_opts.soft_num_neighbors {
             let mut weighted_sample: HashMap<u32, usize> = HashMap::new();
@@ -300,10 +296,9 @@ impl PeerNetwork {
                 Some(ref mut neighbor_info) => {
                     let (neighbor_key, _) = neighbor_info[0].clone();
 
-                    test_debug!(
+                    debug!(
                         "Prune {:?} because its org ({}) has too many members",
-                        &neighbor_key,
-                        prune_org
+                        &neighbor_key, prune_org
                     );
 
                     neighbor_info.remove(0);
@@ -416,16 +411,23 @@ impl PeerNetwork {
 
     /// Prune our frontier.  Ignore connections in the preserve set.
     pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
+        let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
+        let num_inbound = (self.peers.len() as u64).saturating_sub(num_outbound);
+        debug!(
+            "{:?}: Pruning frontier with {} inbound and {} outbound connection(s)",
+            &self.local_peer, num_inbound, num_outbound
+        );
+
         let pruned_by_ip = self.prune_frontier_inbound_ip(preserve);
 
-        test_debug!(
+        debug!(
             "{:?}: remove {} inbound peers by shared IP",
             &self.local_peer,
             pruned_by_ip.len()
         );
 
         for prune in pruned_by_ip.iter() {
-            test_debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
+            debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
             self.deregister_neighbor(&prune);
 
             if !self.prune_inbound_counts.contains_key(prune) {
@@ -440,14 +442,14 @@ impl PeerNetwork {
             .prune_frontier_outbound_orgs(preserve)
             .unwrap_or(vec![]);
 
-        test_debug!(
+        debug!(
             "{:?}: remove {} outbound peers by shared Org",
             &self.local_peer,
             pruned_by_org.len()
         );
 
         for prune in pruned_by_org.iter() {
-            test_debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
+            debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
             self.deregister_neighbor(&prune);
 
             if !self.prune_outbound_counts.contains_key(prune) {

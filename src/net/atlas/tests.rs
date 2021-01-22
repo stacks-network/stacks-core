@@ -685,8 +685,8 @@ fn test_downloader_context_attachment_requests() {
 
 #[test]
 fn test_keep_uninstantiated_attachments() {
-    let bns_contract_id = boot_code_id("bns");
-    let pox_contract_id = boot_code_id("pox");
+    let bns_contract_id = boot_code_id("bns", false);
+    let pox_contract_id = boot_code_id("pox", false);
 
     let mut contracts = HashSet::new();
     contracts.insert(bns_contract_id.clone());
@@ -696,6 +696,7 @@ fn test_keep_uninstantiated_attachments() {
         attachments_max_size: 16,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 10,
+        genesis_attachments: None,
     };
 
     let atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
@@ -726,6 +727,7 @@ fn test_evict_k_oldest_uninstantiated_attachments() {
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 0,
+        genesis_attachments: None,
     };
 
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
@@ -872,6 +874,7 @@ fn test_evict_expired_uninstantiated_attachments() {
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
+        genesis_attachments: None,
     };
 
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();

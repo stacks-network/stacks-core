@@ -191,20 +191,23 @@ impl HttpPeer {
         outbound_url: Option<&UrlString>,
     ) -> Result<(), net_error> {
         if outbound_url.is_none()
-            && (self.peers.len() as u64) + 1 > self.connection_opts.num_clients
+            && (self.peers.len() as u64) + 1 > self.connection_opts.max_http_clients
         {
             // inbound
-            debug!("HTTP: too many inbound peers total");
+            debug!(
+                "HTTP: too many inbound peers total (max is {})",
+                self.connection_opts.max_http_clients
+            );
             return Err(net_error::TooManyPeers);
         }
 
         // how many other conversations are connected?
         let num_inbound = self.count_inbound_ip_addrs(peer_addr);
-        if num_inbound > self.connection_opts.max_clients_per_host {
+        if num_inbound > self.connection_opts.max_http_clients {
             // too many
             debug!(
-                "HTTP: too many inbound peers from {:?} ({} > {})",
-                peer_addr, num_inbound, self.connection_opts.max_clients_per_host
+                "HTTP: too many inbound HTTP peers from {:?} ({} > {})",
+                peer_addr, num_inbound, self.connection_opts.max_http_clients
             );
             return Err(net_error::TooManyPeers);
         }
@@ -212,7 +215,7 @@ impl HttpPeer {
         debug!(
             "HTTP: Have {} peers now (max {}) inbound={}, including {} from host of {:?}",
             self.peers.len(),
-            self.connection_opts.num_clients,
+            self.connection_opts.max_http_clients,
             outbound_url.is_none(),
             num_inbound,
             peer_addr

@@ -91,7 +91,7 @@ mod tests {
         }
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
 
         clarity_instance
             .begin_test_genesis_block(

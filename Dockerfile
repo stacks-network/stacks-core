@@ -22,4 +22,4 @@ FROM alpine
 
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "xenon"]
+CMD ["stacks-node", "mainnet"]

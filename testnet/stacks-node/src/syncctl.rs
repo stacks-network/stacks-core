@@ -115,6 +115,8 @@ pub struct PoxSyncWatchdog {
     relayer_comms: PoxSyncWatchdogComms,
     /// what was the last burnchain height?
     last_burnchain_height: u64,
+    /// should this sync watchdog always download? used in integration tests.
+    unconditionally_download: bool,
 }
 
 const PER_SAMPLE_WAIT_MS: u64 = 1000;
@@ -127,6 +129,7 @@ impl PoxSyncWatchdog {
         burnchain_poll_time: u64,
         download_timeout: u64,
         max_samples: u64,
+        unconditionally_download: bool,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -139,6 +142,7 @@ impl PoxSyncWatchdog {
         };
 
         Ok(PoxSyncWatchdog {
+            unconditionally_download,
             new_attachable_blocks: VecDeque::new(),
             new_processed_blocks: VecDeque::new(),
             last_attachable_query: 0,
@@ -383,6 +387,15 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
+            sleep_ms(10_000);
+            return PoxSyncWatchdog::infer_initial_burnchain_block_download(
+                burnchain,
+                burnchain_tip,
+                burnchain_height,
+            );
+        }
+
+        if self.unconditionally_download {
             return PoxSyncWatchdog::infer_initial_burnchain_block_download(
                 burnchain,
                 burnchain_tip,
@@ -395,7 +408,7 @@ impl PoxSyncWatchdog {
             // burnchain has advanced since the last call
             self.last_burnchain_height = burnchain_height;
             debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(self.max_samples);
+            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait an hour at most
             waited = true;
         }
 
@@ -558,6 +571,9 @@ impl PoxSyncWatchdog {
                     panic!();
                 }
             };
+
+            debug!("PoX watchdog: Wait for at least one inventory state-machine pass before resetting...");
+            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait at most an hour, but should be far, far less
 
             self.reset(burnchain, burnchain_tip.block_snapshot.block_height);
             break ibbd;

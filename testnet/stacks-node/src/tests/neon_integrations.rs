@@ -2,7 +2,6 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
-use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -14,6 +13,10 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
+use stacks::{
+    burnchains::{Address, Burnchain, PoxConstants},
+    vm::costs::ExecutionCost,
+};
 
 use stacks::vm::database::ClarityDeserializable;
 
@@ -65,9 +68,9 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     assert_eq!(magic_bytes.as_bytes(), &['X' as u8, '4' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
-    conf.node.pox_sync_sample_secs = 1;
+    conf.node.pox_sync_sample_secs = 0;
 
-    let miner_account = keychain.origin_address().unwrap();
+    let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
 }
@@ -784,6 +787,7 @@ fn microblock_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 5_000;
 
     test_observer::spawn();
 
@@ -1243,6 +1247,324 @@ fn size_check_integration_test() {
 
 #[test]
 #[ignore]
+fn cost_voting_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // let's make `<` free...
+    let cost_definer_src = "
+    (define-read-only (cost-definition-le (size uint))
+       {
+         runtime: u0, write_length: u0, write_count: u0, read_count: u0, read_length: u0
+       })
+    ";
+
+    // the contract that we'll test the costs of
+    let caller_src = "
+    (define-public (execute-2 (a uint))
+       (ok (< a a)))
+    ";
+
+    let power_vote_src = "
+    (define-public (propose-vote-confirm)
+      (let
+        ((proposal-id (unwrap-panic (contract-call? 'ST000000000000000000002AMW42H.cost-voting submit-proposal
+                            'ST000000000000000000002AMW42H.costs \"cost_le\"
+                            .cost-definer \"cost-definition-le\")))
+         (vote-amount (* u9000000000 u1000000)))
+        (try! (contract-call? 'ST000000000000000000002AMW42H.cost-voting vote-proposal proposal-id vote-amount))
+        (try! (contract-call? 'ST000000000000000000002AMW42H.cost-voting confirm-votes proposal-id))
+        (ok proposal-id)))
+    ";
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.into();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+    let res = get_account(&http_origin, &miner_account);
+    assert_eq!(res.balance, 0);
+    assert_eq!(res.nonce, 1);
+
+    // and our spender:
+    let res = get_account(&http_origin, &spender_princ);
+    assert_eq!(res.balance, spender_bal as u128);
+    assert_eq!(res.nonce, 0);
+
+    let transactions = vec![
+        make_contract_publish(&spender_sk, 0, 1000, "cost-definer", cost_definer_src),
+        make_contract_publish(&spender_sk, 1, 1000, "caller", caller_src),
+        make_contract_publish(&spender_sk, 2, 1000, "voter", power_vote_src),
+    ];
+
+    for tx in transactions.into_iter() {
+        submit_tx(&http_origin, &tx);
+    }
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let vote_tx = make_contract_call(
+        &spender_sk,
+        3,
+        1000,
+        &spender_addr,
+        "voter",
+        "propose-vote-confirm",
+        &[],
+    );
+
+    let call_le_tx = make_contract_call(
+        &spender_sk,
+        4,
+        1000,
+        &spender_addr,
+        "caller",
+        "execute-2",
+        &[Value::UInt(1)],
+    );
+
+    submit_tx(&http_origin, &vote_tx);
+    submit_tx(&http_origin, &call_le_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    let mut exec_cost = ExecutionCost::zero();
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "execute-2" {
+                exec_cost =
+                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+            } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                assert_eq!(parsed.to_string(), "(ok u0)");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
+
+    // try to confirm the passed vote (this will fail)
+    let confirm_proposal = make_contract_call(
+        &spender_sk,
+        5,
+        1000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "cost-voting",
+        "confirm-miners",
+        &[Value::UInt(0)],
+    );
+
+    submit_tx(&http_origin, &confirm_proposal);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "confirm-miners" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                assert_eq!(parsed.to_string(), "(err 13)");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
+
+    for _i in 0..58 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // confirm the passed vote
+    let confirm_proposal = make_contract_call(
+        &spender_sk,
+        6,
+        1000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "cost-voting",
+        "confirm-miners",
+        &[Value::UInt(0)],
+    );
+
+    submit_tx(&http_origin, &confirm_proposal);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+    eprintln!("{}", transactions.len());
+    let mut tested = false;
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "confirm-miners" {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                assert_eq!(parsed.to_string(), "(ok true)");
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
+
+    let call_le_tx = make_contract_call(
+        &spender_sk,
+        7,
+        1000,
+        &spender_addr,
+        "caller",
+        "execute-2",
+        &[Value::UInt(1)],
+    );
+
+    submit_tx(&http_origin, &call_le_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut blocks = test_observer::get_blocks();
+    // should have produced 1 new block
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.pop().unwrap();
+    let transactions = block.get("transactions").unwrap().as_array().unwrap();
+
+    let mut tested = false;
+    let mut new_exec_cost = ExecutionCost::max_value();
+    for tx in transactions.iter() {
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        if raw_tx == "0x00" {
+            continue;
+        }
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+            eprintln!("{}", contract_call.function_name.as_str());
+            if contract_call.function_name.as_str() == "execute-2" {
+                new_exec_cost =
+                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+                tested = true;
+            }
+        }
+    }
+    assert!(tested, "Should have found a contract call tx");
+
+    assert!(exec_cost.exceeds(&new_exec_cost));
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn pox_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -1655,8 +1977,8 @@ fn atlas_integration_test() {
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
     );
-    conf_follower_node.node.set_bootstrap_node(
-        Some(bootstrap_node_url),
+    conf_follower_node.node.set_bootstrap_nodes(
+        bootstrap_node_url,
         conf_follower_node.burnchain.chain_id,
         conf_follower_node.burnchain.peer_version,
     );

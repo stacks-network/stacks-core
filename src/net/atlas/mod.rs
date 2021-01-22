@@ -30,17 +30,19 @@ pub struct AtlasConfig {
     pub attachments_max_size: u32,
     pub max_uninstantiated_attachments: u32,
     pub uninstantiated_attachments_expire_after: u32,
+    pub genesis_attachments: Option<Vec<Attachment>>,
 }
 
 impl AtlasConfig {
-    pub fn default() -> AtlasConfig {
+    pub fn default(mainnet: bool) -> AtlasConfig {
         let mut contracts = HashSet::new();
-        contracts.insert(boot_code_id("bns"));
+        contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {
             contracts,
             attachments_max_size: 1_048_576,
             max_uninstantiated_attachments: 10_000,
             uninstantiated_attachments_expire_after: 3_600,
+            genesis_attachments: None,
         }
     }
 }

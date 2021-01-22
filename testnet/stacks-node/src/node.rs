@@ -376,10 +376,7 @@ impl Node {
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
 
-        let mut initial_neighbors = vec![];
-        if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {
-            initial_neighbors.push(bootstrap_node.clone());
-        }
+        let initial_neighbors = self.config.node.bootstrap_node.clone();
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
@@ -440,7 +437,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(false);
         let atlasdb =
             AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
 
@@ -476,8 +473,8 @@ impl Node {
         )
         .unwrap();
 
-        info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
-        info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
+        info!("Start HTTP server on: {}", &self.config.node.rpc_bind);
+        info!("Start P2P server on: {}", &self.config.node.p2p_bind);
     }
 
     pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {

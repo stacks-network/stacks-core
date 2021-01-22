@@ -31,7 +31,6 @@ use chainstate::stacks::*;
 use core::*;
 
 use net::StacksPublicKeyBuffer;
-use net::MAX_MESSAGE_LEN;
 
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
@@ -72,7 +71,7 @@ impl StacksMessageCodec for TransactionContractCall {
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
@@ -99,6 +98,22 @@ impl TransactionContractCall {
         QualifiedContractIdentifier::new(
             StandardPrincipalData::from(self.address.clone()),
             self.contract_name.clone(),
+        )
+    }
+}
+
+impl fmt::Display for TransactionContractCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let formatted_args = self
+            .function_args
+            .iter()
+            .map(|v| format!("{}", v))
+            .collect::<Vec<String>>()
+            .join(", ");
+        write!(
+            f,
+            "{}.{}::{}({})",
+            self.address, self.contract_name, self.function_name, formatted_args
         )
     }
 }
@@ -4874,6 +4889,6 @@ mod test {
         }
     }
 
-    // TODO: test with different tx versions
-    // TODO: test error values for signing and verifying
+    // TODO(test): test with different tx versions
+    // TODO(test): test error values for signing and verifying
 }

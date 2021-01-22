@@ -30,9 +30,7 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::{
-        boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
-    },
+    boot::boot_code_id,
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
@@ -351,7 +349,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             reward_set_provider,
             notifier: (),
             attachments_tx,
-            atlas_config: AtlasConfig::default(),
+            atlas_config: AtlasConfig::default(false),
         }
     }
 }
@@ -398,7 +396,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle";
+        debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
               "prepare_phase_length" => burnchain.pox_constants.prepare_length);

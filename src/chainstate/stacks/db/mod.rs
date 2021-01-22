@@ -462,7 +462,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     CREATE TABLE block_headers(
         version INTEGER NOT NULL,
         total_burn TEXT NOT NULL,       -- converted to/from u64
-        total_work TEXT NOT NULL,       -- converted to/from u64 -- TODO: rename to total_length
+        total_work TEXT NOT NULL,       -- converted to/from u64
         proof TEXT NOT NULL,
         parent_block TEXT NOT NULL,             -- hash of parent Stacks block
         parent_microblock TEXT NOT NULL,
@@ -850,7 +850,8 @@ impl StacksChainState {
             TransactionVersion::Testnet
         };
 
-        let boot_code_address = STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone();
+        let boot_code_address = boot_code_addr(mainnet);
+
         let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
                 signer: boot_code_address.bytes.clone(),
@@ -886,8 +887,7 @@ impl StacksChainState {
             };
             for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!(
-                    "Instantiate boot code contract '{}.{}' ({} bytes)...",
-                    &STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR,
+                    "Instantiate boot code contract '{}' ({} bytes)...",
                     boot_code_name,
                     boot_code_contract.len()
                 );
@@ -918,9 +918,8 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-
-            info!(
-                "Initializing chain with {} config balances",
+            warn!(
+                "Seeding {} balances coming from the config",
                 boot_data.initial_balances.len()
             );
             for (address, amount) in boot_data.initial_balances.iter() {
@@ -942,7 +941,7 @@ impl StacksChainState {
             clarity_tx.connection().as_transaction(|clarity| {
                 // Balances
                 if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                    info!("Initializing chain with balances");
+                    info!("Importing accounts from Stacks 1.0");
                     let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
@@ -965,7 +964,7 @@ impl StacksChainState {
                         );
                         allocation_events.push(mint_event);
                     }
-                    info!("Committing {} balances to genesis tx", balances_count);
+                    info!("Seeding {} balances coming from chain dump", balances_count);
                 }
 
                 // Lockups
@@ -994,7 +993,7 @@ impl StacksChainState {
                         };
                     }
 
-                    let lockup_contract_id = boot_code_id("lockup");
+                    let lockup_contract_id = boot_code_id("lockup", mainnet);
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
@@ -1013,7 +1012,7 @@ impl StacksChainState {
                 }
 
                 // BNS Namespace
-                let bns_contract_id = boot_code_id("bns");
+                let bns_contract_id = boot_code_id("bns", mainnet);
                 if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
                     info!("Initializing chain with namespaces");
                     clarity
@@ -1212,6 +1211,7 @@ impl StacksChainState {
                 })
                 .expect("FATAL: `ust-liquid-supply` overflowed");
 
+            info!("Committing Genesis transaction. This could take a while");
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
@@ -1376,7 +1376,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -2016,7 +2016,7 @@ pub mod test {
 
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()),
+                boot_code_test_addr().into(),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
             let contract_res =
@@ -2108,7 +2108,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "54e300e1f626c3a952968204b63a272d308ba498824e72013a7788fcf4b316e4"
+            "beb536eb6e37350d9745c7578ff295142e5fef2bcd0aad8beff3b8ce287ca0e4"
         );
     }
 
@@ -2116,7 +2116,7 @@ pub mod test {
     #[ignore]
     fn test_chainstate_full_genesis_consistency() {
         // Test root hash for the final chainstate data set
-        // TODO: update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
+        // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
         // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
@@ -2198,7 +2198,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "a2fcaeb9fcc41d54e91062d9a69d76c301155fabf87e7139bdb1ca9b6e3d9705"
+            "01913a865d57a627cdc207de8fc7337eb2bebe5e1539f525a3c6a35a74d5f1de"
         );
     }
 }

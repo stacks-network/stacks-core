@@ -99,6 +99,8 @@ pub struct AtlasDB {
 
 impl AtlasDB {
     fn instantiate(&mut self) -> Result<(), db_error> {
+        let genesis_attachments = self.atlas_config.genesis_attachments.take();
+
         let tx = self.tx_begin()?;
 
         for row_text in ATLASDB_SETUP {
@@ -111,6 +113,21 @@ impl AtlasDB {
             &[&ATLASDB_VERSION],
         )
         .map_err(db_error::SqliteError)?;
+
+        if let Some(attachments) = genesis_attachments {
+            let now = util::get_epoch_time_secs() as i64;
+            for attachment in attachments {
+                tx.execute(
+                    "INSERT INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
+                    &[
+                        &attachment.hash() as &dyn ToSql,
+                        &attachment.content as &dyn ToSql,
+                        &now as &dyn ToSql,
+                    ],
+                )
+                .map_err(db_error::SqliteError)?;
+            }
+        }
 
         tx.commit().map_err(db_error::SqliteError)?;
 

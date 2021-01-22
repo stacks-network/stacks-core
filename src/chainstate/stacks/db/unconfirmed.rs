@@ -64,7 +64,8 @@ impl UnconfirmedState {
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
+        let clarity_instance =
+            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
 
         Ok(UnconfirmedState {
@@ -90,7 +91,8 @@ impl UnconfirmedState {
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance = ClarityInstance::new(marf, chainstate.block_limit.clone());
+        let clarity_instance =
+            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
 
         Ok(UnconfirmedState {

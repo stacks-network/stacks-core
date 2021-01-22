@@ -20,7 +20,9 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{
+    ChainStateBootData, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{miner::StacksMicroblockBuilder, StacksBlockBuilder};
@@ -43,7 +45,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
+use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
@@ -90,10 +92,10 @@ pub struct InitializedNeonNode {
     relay_channel: SyncSender<RelayerDirective>,
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
-    active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
     is_miner: bool,
     pub atlas_config: AtlasConfig,
+    leader_key_registration_state: LeaderKeyRegistrationState,
 }
 
 pub struct NeonGenesisNode {
@@ -280,7 +282,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &MemPoolDB,
-) -> Result<StacksMicroblock, NetError> {
+) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (at seq {})",
         &microblock_state.parent_consensus_hash,
@@ -304,13 +306,13 @@ fn mine_one_microblock(
                         &e
                     );
                     error!("{}", msg);
-                    return Err(NetError::ChainstateError(msg));
+                    return Err(e);
                 }
             };
 
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
 
-        info!("Minted microblock with {} transactions", mblock.txs.len());
+        info!("Mined microblock with {} transactions", mblock.txs.len());
 
         Ok(mblock)
     };
@@ -324,20 +326,11 @@ fn mine_one_microblock(
     };
 
     // preprocess the microblock locally
-    chainstate
-        .preprocess_streamed_microblock(
-            &microblock_state.parent_consensus_hash,
-            &microblock_state.parent_block_hash,
-            &mined_microblock,
-        )
-        .map_err(|e| {
-            error!(
-                "Error while pre-processing microblock {}: {}",
-                mined_microblock.header.block_hash(),
-                e
-            );
-            NetError::ChainstateError(format!("{:?}", &e))
-        })?;
+    chainstate.preprocess_streamed_microblock(
+        &microblock_state.parent_consensus_hash,
+        &microblock_state.parent_block_hash,
+        &mined_microblock,
+    )?;
 
     microblock_state.quantity += 1;
     return Ok(mined_microblock);
@@ -409,15 +402,8 @@ fn try_mine_microblock(
                                 // will need to relay this
                                 next_microblock = Some(microblock);
                             }
-                            Err(NetError::ChainstateError(err_str)) => {
-                                if err_str.contains("NoTransactionsToMine") {
-                                    trace!("Failed to mine microblock because there are no transactions to mine");
-                                } else {
-                                    warn!(
-                                        "Failed to mine one microblock: {:?}",
-                                        &NetError::ChainstateError(err_str)
-                                    );
-                                }
+                            Err(ChainstateError::NoTransactionsToMine) => {
+                                info!("Will keep polling mempool for transactions to include in a microblock");
                             }
                             Err(e) => {
                                 warn!("Failed to mine one microblock: {:?}", &e);
@@ -652,6 +638,9 @@ fn spawn_peer(
                     }
                     Err(e) => {
                         error!("P2P: Failed to process network dispatch: {:?}", &e);
+                        if config.is_node_event_driven() {
+                            panic!();
+                        }
                     }
                 };
 
@@ -745,8 +734,6 @@ fn spawn_miner_relayer(
     let mut last_microblock_tenure_time = 0;
 
     let _relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
-        let mut did_register_key = false;
-        let mut key_registered_at_block = 0;
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -796,7 +783,9 @@ fn spawn_miner_relayer(
                                 && burn_hash == mined_burn_hash
                             {
                                 // we won!
-                                info!("Won sortition!";
+                                let reward_block_height = mined_block.header.total_work.work + MINER_REWARD_MATURITY;
+                                info!("Won sortition! Mining reward will be received in {} blocks (block #{})", MINER_REWARD_MATURITY, reward_block_height);
+                                debug!("Won sortition!";
                                       "stacks_header" => %block_header_hash,
                                       "burn_hash" => %mined_burn_hash,
                                 );
@@ -915,20 +904,12 @@ fn spawn_miner_relayer(
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    // Ensure that we're submitting this one time per block.
-                    if did_register_key && key_registered_at_block == last_burn_block.block_height {
-                        debug!("Relayer: Received RegisterKey directive - ignoring");
-                        continue;
-                    }
-                    did_register_key = rotate_vrf_and_register(
+                    rotate_vrf_and_register(
                         is_mainnet,
                         &mut keychain,
                         last_burn_block,
                         &mut bitcoin_controller,
                     );
-                    if did_register_key {
-                        key_registered_at_block = last_burn_block.block_height;
-                    }
                     bump_processed_counter(&blocks_processed);
                 }
                 RelayerDirective::RunMicroblockTenure => {
@@ -966,6 +947,12 @@ fn spawn_miner_relayer(
     Ok(())
 }
 
+enum LeaderKeyRegistrationState {
+    Inactive,
+    Pending,
+    Active(RegisteredKey),
+}
+
 impl InitializedNeonNode {
     fn new(
         config: Config,
@@ -994,12 +981,15 @@ impl InitializedNeonNode {
 
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
-        let mut initial_neighbors = vec![];
-        if let Some(ref bootstrap_node) = &config.node.bootstrap_node {
-            initial_neighbors.push(bootstrap_node.clone());
+        let initial_neighbors = config.node.bootstrap_node.clone();
+        if initial_neighbors.len() > 0 {
+            info!(
+                "Will bootstrap from peers {}",
+                VecDisplay(&initial_neighbors)
+            );
+        } else {
+            warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
-
-        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
         let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
             "Failed to parse socket: {}",
@@ -1041,9 +1031,32 @@ impl InitializedNeonNode {
             &vec![],
             Some(&initial_neighbors),
         )
+        .map_err(|e| {
+            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_path(), &e);
+            panic!();
+        })
         .unwrap();
 
-        println!("DENY NEIGHBORS {:?}", &config.node.deny_nodes);
+        {
+            // bootstrap nodes *always* allowed
+            let mut tx = peerdb.tx_begin().unwrap();
+            for initial_neighbor in initial_neighbors.iter() {
+                PeerDB::set_allow_peer(
+                    &mut tx,
+                    initial_neighbor.addr.network_id,
+                    &initial_neighbor.addr.addrbytes,
+                    initial_neighbor.addr.port,
+                    -1,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+
+        if !config.node.deny_nodes.is_empty() {
+            warn!("Will ignore nodes {:?}", &config.node.deny_nodes);
+        }
+
         {
             let mut tx = peerdb.tx_begin().unwrap();
             for denied in config.node.deny_nodes.iter() {
@@ -1116,15 +1129,14 @@ impl InitializedNeonNode {
         )
         .expect("Failed to initialize mine/relay thread");
 
-        info!("Bound HTTP server on: {}", &config.node.rpc_bind);
-        info!("Bound P2P server on: {}", &config.node.p2p_bind);
+        info!("Start HTTP server on: {}", &config.node.rpc_bind);
+        info!("Start P2P server on: {}", &config.node.p2p_bind);
 
         let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
 
         let is_miner = miner;
 
-        let active_keys = vec![];
-        let atlas_config = AtlasConfig::default();
+        let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
             config: config.clone(),
             relay_channel: relay_send,
@@ -1132,8 +1144,8 @@ impl InitializedNeonNode {
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
-            active_keys,
             atlas_config,
+            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
         }
     }
 
@@ -1145,19 +1157,24 @@ impl InitializedNeonNode {
         }
 
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
-            if let Some(key) = self.active_keys.first() {
-                debug!("Using key {:?}", &key.vrf_public_key);
-                // sleep a little before building the anchor block, to give any broadcasted
-                //   microblocks time to propagate.
-                thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
-                self.relay_channel
-                    .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
-                    .is_ok()
-            } else {
-                warn!("Skipped tenure because no active VRF key. Trying to register one.");
-                self.relay_channel
-                    .send(RelayerDirective::RegisterKey(burnchain_tip))
-                    .is_ok()
+            match self.leader_key_registration_state {
+                LeaderKeyRegistrationState::Active(ref key) => {
+                    debug!("Using key {:?}", &key.vrf_public_key);
+                    // sleep a little before building the anchor block, to give any broadcasted
+                    //   microblocks time to propagate.
+                    thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
+                    self.relay_channel
+                        .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
+                        .is_ok()
+                }
+                LeaderKeyRegistrationState::Inactive => {
+                    warn!("Skipped tenure because no active VRF key. Trying to register one.");
+                    self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
+                    self.relay_channel
+                        .send(RelayerDirective::RegisterKey(burnchain_tip))
+                        .is_ok()
+                }
+                LeaderKeyRegistrationState::Pending => true,
             }
         } else {
             warn!("Do not know the last burn block. As a miner, this is bad.");
@@ -1281,7 +1298,7 @@ impl InitializedNeonNode {
                        &stacks_tip.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
 
             let coinbase_nonce = {
-                let principal = keychain.origin_address().unwrap().into();
+                let principal = keychain.origin_address(config.is_mainnet()).unwrap().into();
                 let account = chain_state
                     .with_read_only_clarity_tx(
                         &burn_db.index_conn(),
@@ -1307,7 +1324,7 @@ impl InitializedNeonNode {
                 coinbase_nonce,
             )
         } else {
-            warn!("No Stacks chain tip known, attempting to mine a genesis block");
+            debug!("No Stacks chain tip known, will return a genesis block");
             let (network, _) = config.burnchain.get_bitcoin_network();
             let burnchain_params =
                 BurnchainParameters::from_params(&config.burnchain.chain, &network)
@@ -1553,14 +1570,15 @@ impl InitializedNeonNode {
                 return None;
             }
         };
-
+        let block_height = anchored_block.header.total_work.work;
         info!(
-            "{} block assembled: {}, with {} txs, attempt {}",
+            "Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
             if parent_block_total_burn == 0 {
                 "Genesis"
             } else {
                 "Stacks"
             },
+            block_height,
             anchored_block.block_hash(),
             anchored_block.txs.len(),
             attempt
@@ -1689,21 +1707,25 @@ impl InitializedNeonNode {
         );
 
         for op in key_registers.into_iter() {
-            if self.is_miner {
-                info!(
-                    "Received burnchain block #{} including key_register_op - {}",
-                    block_height, op.address
-                );
-            }
             if op.address == node_address {
+                if self.is_miner {
+                    info!(
+                        "Received burnchain block #{} including key_register_op - {}",
+                        block_height, op.address
+                    );
+                }
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined
-                    self.active_keys.push(RegisteredKey {
-                        vrf_public_key: op.public_key,
-                        block_height: op.block_height as u64,
-                        op_vtxindex: op.vtxindex as u32,
-                    });
+                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state
+                    {
+                        self.leader_key_registration_state =
+                            LeaderKeyRegistrationState::Active(RegisteredKey {
+                                vrf_public_key: op.public_key,
+                                block_height: op.block_height as u64,
+                                op_vtxindex: op.vtxindex as u32,
+                            });
+                    }
                 }
             }
         }

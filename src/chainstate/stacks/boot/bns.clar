@@ -577,7 +577,7 @@
 
 ;; NAME_PREORDER
 ;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
-;; and it pays the registration fee to the namespace owner's designated address
+;; and it burns the registration fee.
 (define-public (name-preorder (hashed-salted-fqn (buff 20))
                               (stx-to-burn uint))
   (let 
@@ -877,6 +877,13 @@
         (ok (and 
           (> block-height (+ lifetime lease-started-at)) 
           (<= block-height (+ (+ lifetime lease-started-at) NAME_GRACE_PERIOD_DURATION)))))))
+
+(define-read-only (resolve-principal (owner principal))
+  (match (map-get? owner-name owner)
+    name (match (name-resolve (get namespace name) (get name name))
+      resolved-name (ok name)
+      error (err {code: error, name: (some name)}))
+    (err {code: ERR_NAME_NOT_FOUND, name: none})))
 
 (define-read-only (can-receive-name (owner principal))
   (let ((current-owned-name (map-get? owner-name owner)))
