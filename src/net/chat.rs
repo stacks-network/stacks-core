@@ -2336,7 +2336,7 @@ mod test {
 
     use net::test::*;
 
-    use core::{NETWORK_P2P_PORT, PEER_VERSION};
+    use core::{NETWORK_P2P_PORT, PEER_VERSION_TESTNET};
 
     fn make_test_chain_dbs(
         testname: &str,
@@ -2533,7 +2533,7 @@ mod test {
         .unwrap();
 
         Burnchain {
-            peer_version: PEER_VERSION,
+            peer_version: PEER_VERSION_TESTNET,
             network_id: 0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),

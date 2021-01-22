@@ -1,4 +1,3 @@
-use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::BlockHeaderHash;
 use stacks::net::{Error as NetError, StacksMessageCodec};
 use stacks::util::{hash::*, secp256k1::*};
@@ -6,6 +5,7 @@ use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
+use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksAddress, StacksBlockHeader,
@@ -22,11 +22,11 @@ use std::sync::Mutex;
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-use crate::config::TESTNET_CHAIN_ID;
+use stacks::core::CHAIN_ID_TESTNET;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
-    to_addr, SK_1, SK_2,
+    serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
@@ -55,7 +55,7 @@ pub fn make_bad_stacks_transfer(
     let auth = TransactionAuth::Standard(spending_condition);
 
     let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-    unsigned_tx.chain_id = TESTNET_CHAIN_ID;
+    unsigned_tx.chain_id = CHAIN_ID_TESTNET;
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
@@ -196,7 +196,7 @@ fn mempool_setup_chainstate() {
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
-            let _mempool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &chainstate_path).unwrap();
+            let _mempool = MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
 
             if round == 3 {
                 let block_header = chain_tip.metadata.clone();
@@ -332,6 +332,93 @@ fn mempool_setup_chainstate() {
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::BadNonces(_) = e {
+                    true
+                } else {
+                    false
+                });
+
+                // not enough funds
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
+                    true
+                } else {
+                    false
+                });
+
+                // sender == recipient
+                let contract_princ = PrincipalData::from(contract_addr.clone());
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
+                    r == contract_princ
+                } else {
+                    false
+                });
+
+                // recipient must be testnet
+                let mut mainnet_recipient = to_addr(&other_sk);
+                mainnet_recipient.version = C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+                let mainnet_princ = mainnet_recipient.into();
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &mainnet_princ, 1000);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::BadAddressVersionByte = e {
+                    true
+                } else {
+                    false
+                });
+
+                // tx version must be testnet
+                let contract_princ = PrincipalData::from(contract_addr.clone());
+                let payload = TransactionPayload::TokenTransfer(
+                    contract_princ.clone(),
+                    1000,
+                    TokenTransferMemo([0; 34]),
+                );
+                let tx_bytes = serialize_sign_standard_single_sig_tx_anchor_mode_version(
+                    payload,
+                    &contract_sk,
+                    5,
+                    300,
+                    TransactionAnchorMode::OnChainOnly,
+                    TransactionVersion::Mainnet,
+                );
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::BadTransactionVersion = e {
+                    true
+                } else {
+                    false
+                });
+
+                // send amount must be positive
+                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::TransferAmountMustBePositive = e {
                     true
                 } else {
                     false

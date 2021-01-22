@@ -6,6 +6,9 @@ use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::core::{
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
@@ -13,12 +16,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-
-pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
-pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
@@ -517,14 +514,14 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
-                        MAINNET_CHAIN_ID
+                        CHAIN_ID_MAINNET
                     } else {
-                        TESTNET_CHAIN_ID
+                        CHAIN_ID_TESTNET
                     },
                     peer_version: if &burnchain_mode == "mainnet" {
-                        MAINNET_PEER_VERSION
+                        PEER_VERSION_MAINNET
                     } else {
-                        TESTNET_PEER_VERSION
+                        PEER_VERSION_TESTNET
                     },
                     mode: burnchain_mode.clone(),
                     burn_fee_cap: burnchain
@@ -947,8 +944,8 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
-            chain_id: TESTNET_CHAIN_ID,
-            peer_version: TESTNET_PEER_VERSION,
+            chain_id: CHAIN_ID_TESTNET,
+            peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
