@@ -1191,6 +1191,7 @@ impl InitializedNeonNode {
         }
 
         if let Some(ref snapshot) = &self.last_burn_block {
+            debug!("Notify sortition! Last snapshot is {}/{} ({})", &snapshot.consensus_hash, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash);
             if snapshot.sortition {
                 return self
                     .relay_channel
@@ -1201,6 +1202,9 @@ impl InitializedNeonNode {
                     ))
                     .is_ok();
             }
+        }
+        else {
+            debug!("Notify sortition! No last burn block");
         }
         true
     }
@@ -1626,10 +1630,11 @@ impl InitializedNeonNode {
         );
         let mut op_signer = keychain.generate_op_signer();
         debug!(
-            "Submit block-commit for block {} off of {}/{}",
+            "Submit block-commit for block {} off of {}/{} with microblock parent {}",
             &anchored_block.block_hash(),
             &parent_consensus_hash,
-            &anchored_block.header.parent_block
+            &anchored_block.header.parent_block,
+            &anchored_block.header.parent_microblock
         );
 
         let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
