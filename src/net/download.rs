@@ -797,14 +797,16 @@ impl BlockDownloader {
                     );
                     ret.push((consensus_hash, None, vec![]));
 
-                    for (nk, stats) in inv_state.block_stats.iter() {
-                        if stats.inv.has_ith_block(sortition_bit + first_block_height) {
-                            test_debug!(
-                                "BUT! Neighbor {:?} has block bit {} set!: {:?}",
-                                &nk,
-                                sortition_bit + first_block_height,
-                                &stats
-                            );
+                    if cfg!(test) {
+                        for (_nk, stats) in inv_state.block_stats.iter() {
+                            if stats.inv.has_ith_block(sortition_bit + first_block_height) {
+                                test_debug!(
+                                    "BUT! Neighbor {:?} has block bit {} set!: {:?}",
+                                    &nk,
+                                    sortition_bit + first_block_height,
+                                    &stats
+                                );
+                            }
                         }
                     }
                 }
