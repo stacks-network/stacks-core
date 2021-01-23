@@ -332,16 +332,18 @@ impl RunLoop {
                 next_burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
-            debug!(
-                "Downloaded burnchain blocks up to height {}; new target height is {}",
-                next_burnchain_height, target_burnchain_block_height
-            );
-
+            
             burnchain_tip = next_burnchain_tip;
             burnchain_height = next_burnchain_height;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
+            
+            debug!(
+                "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
+                next_burnchain_height, target_burnchain_block_height, next_height, block_height
+            );
+
 
             if next_height > block_height {
                 // first, let's process all blocks in (block_height, next_height]
@@ -368,11 +370,12 @@ impl RunLoop {
                     }
                 }
 
-                block_height = next_height;
                 debug!(
-                    "Synchronized burnchain up to block height {} (chain tip height is {})",
-                    block_height, burnchain_height
+                    "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
+                    next_height, block_height, burnchain_height
                 );
+
+                block_height = next_height;
             } else if ibd {
                 // drive block processing after we reach the burnchain tip.
                 // we may have downloaded all the blocks already,
