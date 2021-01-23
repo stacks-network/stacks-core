@@ -551,12 +551,24 @@ impl NeighborWalk {
                             if self.walk_outbound {
                                 // connected to a routable neighbor, so update its entry in the DB.
                                 let mut tx = network.peerdb.tx_begin()?;
-                                let neighbor_from_handshake = Neighbor::from_handshake(
+                                let mut neighbor_from_handshake = Neighbor::from_handshake(
                                     &mut tx,
                                     message.preamble.peer_version,
                                     message.preamble.network_id,
                                     &data.handshake,
                                 )?;
+
+                                // if the neighbor accidentally gave us a private IP address, then
+                                // just use the one we used to contact it.  This can happen if the
+                                // node is behind a load-balancer, or is doing port-forwarding,
+                                // etc.
+                                if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
+                                    debug!("{:?}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}", &self.local_peer, &neighbor_from_handshake.addr, &self.cur_neighbor.addr);
+                                    neighbor_from_handshake.addr.addrbytes =
+                                        self.cur_neighbor.addr.addrbytes.clone();
+                                    neighbor_from_handshake.addr.port = self.cur_neighbor.addr.port;
+                                }
+
                                 let res = if neighbor_from_handshake.addr != self.cur_neighbor.addr
                                 {
                                     // somehow, got a handshake from someone that _isn't_ cur_neighbor
@@ -1871,30 +1883,42 @@ impl PeerNetwork {
     fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
         let allowed_peers =
             PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
-        for allowed in allowed_peers {
-            if !self.events.contains_key(&allowed.addr) {
-                debug!(
-                    "Will (re-)connect to always-allowed peer {:?}",
-                    &allowed.addr
-                );
-                let w = NeighborWalk::new(
-                    self.local_peer.clone(),
-                    self.chain_view.clone(),
-                    &allowed,
-                    true,
-                    self.walk_pingbacks.clone(),
-                    &self.connection_opts,
-                );
 
-                debug!(
-                    "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
-                    &self.local_peer, &allowed
-                );
-                self.walk = Some(w);
-                return Ok(());
+        let mut count = 0;
+        for allowed in allowed_peers.iter() {
+            if self.events.contains_key(&allowed.addr) {
+                count += 1;
             }
         }
 
+        if count == 0 {
+            // must connect to always-allowed
+            for allowed in allowed_peers {
+                if !self.events.contains_key(&allowed.addr) {
+                    debug!(
+                        "Will (re-)connect to always-allowed peer {:?}",
+                        &allowed.addr
+                    );
+                    let w = NeighborWalk::new(
+                        self.local_peer.clone(),
+                        self.chain_view.clone(),
+                        &allowed,
+                        true,
+                        self.walk_pingbacks.clone(),
+                        &self.connection_opts,
+                    );
+
+                    debug!(
+                        "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
+                        &self.local_peer, &allowed
+                    );
+                    self.walk = Some(w);
+                    return Ok(());
+                }
+            }
+        }
+
+        // try a different walk strategy
         return Err(net_error::NotFoundError);
     }
 

@@ -367,10 +367,9 @@ impl Node {
         let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
-            let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
-            ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
+            SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
         };
 
         // create a new peerdb

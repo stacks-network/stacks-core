@@ -2488,6 +2488,7 @@ mod test {
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
             next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
+            next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
             next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
             next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());

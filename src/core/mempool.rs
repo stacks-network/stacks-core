@@ -47,7 +47,7 @@ use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::FromColumn;
-use util::db::{DBConn, DBTx, FromRow};
+use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -299,6 +299,8 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
+        sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
+
         let tx = tx_begin_immediate(conn)?;
 
         for cmd in MEMPOOL_SQL {
