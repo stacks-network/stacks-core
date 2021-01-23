@@ -3586,11 +3586,13 @@ impl StacksChainState {
                 let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
                 debug!(
-                    "Consider block {}/{} whose parent is {}/{}",
+                    "Consider block {}/{} whose parent is {}/{} with {} parent microblocks tailed at {}",
                     &candidate.consensus_hash,
                     &candidate.anchored_block_hash,
                     &candidate.parent_consensus_hash,
-                    &candidate.parent_anchored_block_hash
+                    &candidate.parent_anchored_block_hash,
+                    if candidate.parent_microblock_hash != BlockHeaderHash([0u8; 32]) { (candidate.parent_microblock_seq as u32) + 1 } else { 0 },
+                    &candidate.parent_microblock_hash
                 );
 
                 let can_attach = {
