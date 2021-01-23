@@ -2158,6 +2158,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_121_snapshot.index_root = sn121.index_root.clone();
+            block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
             assert_eq!(sn121, block_121_snapshot);
         }
         {
@@ -2180,6 +2181,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_122_snapshot.index_root = sn122.index_root.clone();
+            block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
             assert_eq!(sn122, block_122_snapshot);
         }
         {
@@ -2201,6 +2203,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_123_snapshot.index_root = sn123.index_root.clone();
+            block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
             assert_eq!(sn123, block_123_snapshot);
         }
 
@@ -2312,6 +2315,7 @@ pub mod tests {
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
+                block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
                 sn124
             };
 
