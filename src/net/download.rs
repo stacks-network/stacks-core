@@ -802,7 +802,7 @@ impl BlockDownloader {
                             if stats.inv.has_ith_block(sortition_bit + first_block_height) {
                                 test_debug!(
                                     "BUT! Neighbor {:?} has block bit {} set!: {:?}",
-                                    &nk,
+                                    &_nk,
                                     sortition_bit + first_block_height,
                                     &stats
                                 );
