@@ -1191,7 +1191,12 @@ impl InitializedNeonNode {
         }
 
         if let Some(ref snapshot) = &self.last_burn_block {
-            debug!("Notify sortition! Last snapshot is {}/{} ({})", &snapshot.consensus_hash, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash);
+            debug!(
+                "Notify sortition! Last snapshot is {}/{} ({})",
+                &snapshot.consensus_hash,
+                &snapshot.burn_header_hash,
+                &snapshot.winning_stacks_block_hash
+            );
             if snapshot.sortition {
                 return self
                     .relay_channel
@@ -1202,8 +1207,7 @@ impl InitializedNeonNode {
                     ))
                     .is_ok();
             }
-        }
-        else {
+        } else {
             debug!("Notify sortition! No last burn block");
         }
         true

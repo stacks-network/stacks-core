@@ -402,7 +402,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         Ok(true) => {
                             bytes_so_far += mempool_tx.metadata.len;
 
-                            debug!("Include tx {} ({}) in microblock", mempool_tx.tx.txid(), mempool_tx.tx.payload.name());
+                            debug!(
+                                "Include tx {} ({}) in microblock",
+                                mempool_tx.tx.txid(),
+                                mempool_tx.tx.payload.name()
+                            );
                             txs_included.push(mempool_tx.tx);
                         }
                         Ok(false) => {
@@ -664,7 +668,11 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            debug!("Include tx {} ({}) in anchor block", tx.txid(), tx.payload.name());
+            debug!(
+                "Include tx {} ({}) in anchor block",
+                tx.txid(),
+                tx.payload.name()
+            );
 
             // save
             self.txs.push(tx.clone());
@@ -695,7 +703,11 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            debug!("Include tx {} ({}) in microblock", tx.txid(), tx.payload.name());
+            debug!(
+                "Include tx {} ({}) in microblock",
+                tx.txid(),
+                tx.payload.name()
+            );
 
             // save
             self.micro_txs.push(tx.clone());
