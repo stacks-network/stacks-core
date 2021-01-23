@@ -31,7 +31,7 @@ use stacks::net::{
 };
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
-use stacks::util::sleep_ms;
+use stacks::util::{sleep_ms, get_epoch_time_secs};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -196,7 +196,7 @@ fn next_block_and_wait(
     blocks_processed: &Arc<AtomicU64>,
 ) {
     let current = blocks_processed.load(Ordering::SeqCst);
-    eprintln!("Issuing block, waiting for bump");
+    eprintln!("Issuing block at {}, waiting for bump ({})", get_epoch_time_secs(), current);
     btc_controller.build_next_block(1);
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
@@ -206,6 +206,7 @@ fn next_block_and_wait(
         }
         thread::sleep(Duration::from_millis(100));
     }
+    eprintln!("Block bumped at {} ({})", get_epoch_time_secs(), blocks_processed.load(Ordering::SeqCst));
 }
 
 fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
@@ -343,6 +344,7 @@ fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
     get_account(http_origin, account).balance
 }
 
+#[derive(Debug)]
 struct Account {
     balance: u128,
     nonce: u64,
@@ -1159,8 +1161,8 @@ fn size_check_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 30000;
-    conf.node.microblock_frequency = 1000;
+    conf.node.wait_time_for_microblocks = 5000;
+    conf.node.microblock_frequency = 15000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1211,7 +1213,7 @@ fn size_check_integration_test() {
         submit_tx(&http_origin, tx);
     }
 
-    sleep_ms(60_000);
+    sleep_ms(75_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -1223,7 +1225,7 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(60_000);
+    sleep_ms(75_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -1242,6 +1244,8 @@ fn size_check_integration_test() {
         } else if res.nonce != 0 {
             panic!("Spender address nonce incremented past 1");
         }
+
+        debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
     }
 
     eprintln!(
