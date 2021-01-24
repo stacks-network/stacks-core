@@ -22,7 +22,7 @@ use rusqlite::{
 
 use chainstate::stacks::StacksBlockId;
 
-use util::db::tx_busy_handler;
+use util::db::{sql_pragma, tx_busy_handler};
 
 use vm::contracts::Contract;
 use vm::errors::{
@@ -159,6 +159,9 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
+        conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS data_table
                       (key TEXT PRIMARY KEY, value TEXT)",

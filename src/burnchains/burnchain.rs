@@ -340,7 +340,7 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_address(&self, network_type: BitcoinNetworkType) -> String {
+    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
@@ -1949,6 +1949,7 @@ pub mod tests {
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
+            parent_sortition_id: SortitionId(block_121_hash.0.clone()),
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
@@ -1994,6 +1995,7 @@ pub mod tests {
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
+            parent_sortition_id: block_121_snapshot.sortition_id.clone(),
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
@@ -2046,6 +2048,7 @@ pub mod tests {
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
+            parent_sortition_id: block_122_snapshot.sortition_id.clone(),
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
@@ -2155,6 +2158,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_121_snapshot.index_root = sn121.index_root.clone();
+            block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
             assert_eq!(sn121, block_121_snapshot);
         }
         {
@@ -2177,6 +2181,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_122_snapshot.index_root = sn122.index_root.clone();
+            block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
             assert_eq!(sn122, block_122_snapshot);
         }
         {
@@ -2198,6 +2203,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_123_snapshot.index_root = sn123.index_root.clone();
+            block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
             assert_eq!(sn123, block_123_snapshot);
         }
 
@@ -2243,6 +2249,7 @@ pub mod tests {
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),
+                parent_sortition_id: block_123_snapshot.sortition_id.clone(),
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
@@ -2308,6 +2315,7 @@ pub mod tests {
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
+                block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
                 sn124
             };
 

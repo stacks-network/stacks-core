@@ -983,10 +983,11 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 {
+        if new_blocks.len() > 0 || new_microblocks.len() > 0 {
             info!(
-                "Processing newly received Stacks blocks: {}",
-                new_blocks.len()
+                "Processing newly received Stacks blocks: {}, microblocks: {}",
+                new_blocks.len(),
+                new_microblocks.len()
             );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
@@ -1278,7 +1279,9 @@ impl Relayer {
         let receipts = ProcessedNetReceipts { mempool_txs_added };
 
         // finally, refresh the unconfirmed chainstate, if need be
-        Relayer::refresh_unconfirmed(chainstate, sortdb);
+        if network_result.has_microblocks() {
+            Relayer::refresh_unconfirmed(chainstate, sortdb);
+        }
 
         Ok(receipts)
     }

@@ -588,6 +588,18 @@ impl PeerAddress {
     pub fn is_anynet(&self) -> bool {
         self.0 == [0x00; 16] || self == &PeerAddress::from_ipv4(0, 0, 0, 0)
     }
+
+    /// Is this a private IP address?
+    pub fn is_in_private_range(&self) -> bool {
+        if self.is_ipv4() {
+            // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
+            self.0[13] == 10
+                || (self.0[13] == 172 && self.0[14] >= 16 && self.0[14] <= 31)
+                || (self.0[13] == 192 && self.0[14] == 168)
+        } else {
+            self.0[0] >= 0xfc
+        }
+    }
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
@@ -1635,6 +1647,10 @@ impl Neighbor {
         self.allowed < 0 || (self.allowed as u64) > get_epoch_time_secs()
     }
 
+    pub fn is_always_allowed(&self) -> bool {
+        self.allowed < 0
+    }
+
     pub fn is_denied(&self) -> bool {
         self.denied < 0 || (self.denied as u64) > get_epoch_time_secs()
     }
@@ -2295,6 +2311,21 @@ pub mod test {
                 Some(&config.initial_neighbors),
             )
             .unwrap();
+            {
+                // bootstrap nodes *always* allowed
+                let mut tx = peerdb.tx_begin().unwrap();
+                for initial_neighbor in config.initial_neighbors.iter() {
+                    PeerDB::set_allow_peer(
+                        &mut tx,
+                        initial_neighbor.addr.network_id,
+                        &initial_neighbor.addr.addrbytes,
+                        initial_neighbor.addr.port,
+                        -1,
+                    )
+                    .unwrap();
+                }
+                tx.commit().unwrap();
+            }
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
             let atlasdb =
@@ -2431,9 +2462,9 @@ pub mod test {
 
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                ic.get_burnchain_view(&config.burnchain, &chaintip).unwrap()
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &config.burnchain, &chaintip)
+                    .unwrap()
             };
             let mut peer_network = PeerNetwork::new(
                 peerdb,
@@ -2466,10 +2497,14 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.sortdb {
                 Some(ref mut sortdb) => {
-                    let ic = sortdb.index_conn();
-                    let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                    ic.get_burnchain_view(&self.config.burnchain, &chaintip)
-                        .unwrap()
+                    let chaintip =
+                        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                    SortitionDB::get_burnchain_view(
+                        &sortdb.conn(),
+                        &self.config.burnchain,
+                        &chaintip,
+                    )
+                    .unwrap()
                 }
                 None => panic!("Misconfigured peer: no sortdb"),
             };
@@ -3191,9 +3226,8 @@ pub mod test {
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
-                let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                ic.get_burnchain_view(&self.config.burnchain, &chaintip)
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.config.burnchain, &chaintip)
             };
             self.sortdb = Some(sortdb);
             view_res
