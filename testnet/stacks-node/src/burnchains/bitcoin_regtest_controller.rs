@@ -767,7 +767,7 @@ impl BitcoinRegtestController {
                 vec![utxo],
             )
         } else {
-            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, &vec![], &vec![])?
+            self.prepare_tx(&public_key, 3 * DUST_UTXO_LIMIT, &vec![], &vec![])?
         };
 
         // Serialize the payload
@@ -793,7 +793,7 @@ impl BitcoinRegtestController {
             &mut tx,
             DUST_UTXO_LIMIT,
             0,
-            150,
+            230,
             self.config.burnchain.satoshis_per_byte,
             utxos,
             signer,
@@ -826,7 +826,7 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let output_amt = 2 * DUST_UTXO_LIMIT;
+        let output_amt = 4 * DUST_UTXO_LIMIT;
         let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, &vec![], &vec![])?;
 
         // Serialize the payload
@@ -851,7 +851,7 @@ impl BitcoinRegtestController {
             &mut tx,
             output_amt,
             0,
-            150,
+            280,
             self.config.burnchain.satoshis_per_byte,
             utxos,
             signer,
@@ -1123,7 +1123,7 @@ impl BitcoinRegtestController {
         total_to_spend: u64,
         mut utxos: Vec<UTXO>,
         signer: &mut BurnchainOpSigner,
-    ) {
+    ) -> bool {
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
 
@@ -1143,7 +1143,7 @@ impl BitcoinRegtestController {
                 "Consumed total {} is less than intended spend: {}",
                 total_consumed, total_to_spend
             );
-            return;
+            return false;
         }
 
         // Append the change output
@@ -1193,6 +1193,7 @@ impl BitcoinRegtestController {
                 .push_slice(&public_key.to_bytes())
                 .into_script();
         }
+        true
     }
 
     fn build_user_burn_support_tx(
