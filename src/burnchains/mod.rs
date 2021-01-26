@@ -221,7 +221,7 @@ impl BurnchainTransaction {
     pub fn opcode(&self) -> u8 {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.opcode,
-        } 
+        }
     }
 
     pub fn data(&self) -> Vec<u8> {
