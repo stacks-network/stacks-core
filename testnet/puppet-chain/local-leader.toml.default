@@ -34,7 +34,7 @@ ignore_txs = true
 [[blocks]]
 count = 3
 block_time = 20000
-ignore_txs = false
+ignore_txs = true
 
 [[blocks]]
 count = 2
