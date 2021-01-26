@@ -144,8 +144,8 @@ impl BitcoinIndexer {
                 return self.handle_pong(message).and_then(|_r| Ok(true));
             }
             _ => match handler {
-                Some(custom_handler) => custom_handler.handle_message(self, message.clone()),
-                None => Err(btc_error::UnhandledMessage(message.clone())),
+                Some(custom_handler) => custom_handler.handle_message(self, message),
+                None => Err(btc_error::UnhandledMessage(message)),
             },
         }
     }

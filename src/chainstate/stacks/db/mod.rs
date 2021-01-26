@@ -1182,7 +1182,7 @@ impl StacksChainState {
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
-                boot_code_auth.clone(),
+                boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
                     0,
@@ -1334,7 +1334,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut state_path = path.clone();
+        let mut state_path = path;
 
         state_path.push("vm");
         StacksChainState::mkdirs(&state_path)?;
