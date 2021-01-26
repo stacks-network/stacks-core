@@ -47,13 +47,16 @@ use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::FromColumn;
-use util::db::{DBConn, DBTx, FromRow};
+use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 
 use rusqlite::Error as SqliteError;
+
+use chainstate::stacks::TransactionPayload;
+use vm::types::PrincipalData;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -76,7 +79,6 @@ impl MemPoolAdmitter {
         self.cur_consensus_hash = cur_consensus_hash.clone();
         self.cur_block = cur_block.clone();
     }
-
     pub fn will_admit_tx(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -297,6 +299,8 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
+        sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
+
         let tx = tx_begin_immediate(conn)?;
 
         for cmd in MEMPOOL_SQL {
@@ -328,7 +332,7 @@ impl MemPoolDB {
         let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
-        let mut path = PathBuf::from(chainstate.root_path.clone());
+        let mut path = PathBuf::from(chainstate.root_path);
 
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
@@ -360,7 +364,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            path: db_path.to_string(),
+            path: db_path,
             admitter: admitter,
         })
     }
