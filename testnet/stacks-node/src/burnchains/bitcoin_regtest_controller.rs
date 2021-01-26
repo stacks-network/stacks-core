@@ -963,17 +963,6 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
         _attempt: u64,
     ) -> Option<Transaction> {
-        // Before going further, ensure that we're operating with a fresh chain tip
-        let (chaintip, _) = self.sync(None).unwrap();
-
-        // // Early return: op was built upon outdated block
-        // if payload.key_block_ptr < chaintip.block_snapshot.block_height as u32 {
-        info!("Chaintip: {:?}", chaintip);
-        info!("Payload: {:?}", payload);
-        //     warn!("Abort attempt to submit LeaderBlockCommit based on an outdated burnchain chain tip");
-        //     return None;
-        // }
-
         // Are we currently tracking an operation?
         if self.ongoing_block_commit.is_none() {
             // Good to go, let's build the transaction and send it.
@@ -1082,7 +1071,7 @@ impl BitcoinRegtestController {
     ) -> Option<()> {
         // spend UTXOs in decreasing order
         utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
-        utxos.reverse(); // todo(ludo): hum
+        utxos.reverse();
 
         let tx_size = {
             let estimated_rbf = if spent_in_rbf == 0 {
