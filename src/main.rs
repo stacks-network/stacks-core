@@ -28,6 +28,7 @@ extern crate rusqlite;
 extern crate slog;
 
 use blockstack_lib::*;
+use blockstack_lib::{burnchains::Burnchain, chainstate::stacks::db::StacksChainState};
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
     chainstate::burn::db::sortdb::SortitionDB,
@@ -193,22 +194,38 @@ fn main() {
 
     if argv[1] == "evaluate-pox-anchor" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} evaluate-pox-anchor <path to burnchain/db/bitcoin/mainnet/sortition.db> <height> (last-height)", argv[0]);
+            eprintln!("Usage: {} evaluate-pox-anchor <path to stacks-node work-dir> <height> (last-height) (compute-minimum?)", argv[0]);
             process::exit(1);
         }
+
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+
         let start_height: u64 = argv[3].parse().expect("Failed to parse <height> argument");
         let end_height: u64 = argv
             .get(4)
             .map(|x| x.parse().expect("Failed to parse <end-height> argument"))
             .unwrap_or(start_height);
 
-        let sort_db =
-            SortitionDB::open(&argv[2], false).expect(&format!("Failed to open {}", argv[2]));
+        let compute_minimum: bool = argv
+            .get(5)
+            .map(|x| {
+                x.parse()
+                    .expect("Failed to parse `compute-minimum?` argument")
+            })
+            .unwrap_or(false);
+
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let (mut chain_state, _) = StacksChainState::open(true, 0x01, &chain_state_path)
+            .expect("Failed to open stacks chain state");
+
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
         let sort_conn = sort_db.index_handle(&chain_tip);
 
         let mut results = vec![];
+        let mut compute_minimum_results = vec![];
 
         for eval_height in start_height..(1 + end_height) {
             if (sort_conn.context.first_block_height + 100) >= eval_height {
@@ -220,6 +237,7 @@ fn main() {
                 .expect("Failed to get chain tip to evaluate at")
                 .expect("Failed to get chain tip to evaluate at");
 
+            let burnchain = Burnchain::new(&argv[2], "bitcoin", "mainnet").unwrap();
             let pox_consts = PoxConstants::mainnet_default();
 
             let result = sort_conn
@@ -230,15 +248,93 @@ fn main() {
                 )
                 .expect("Failed to compute PoX cycle");
 
-            match result {
-                Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
-                Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
-            };
+            if compute_minimum {
+                match result {
+                    Ok((chosen_ch, chosen_bh, confirmed_by)) => {
+                        let anchor_block_known = StacksChainState::is_stacks_block_processed(
+                            &chain_state.db(),
+                            &chosen_ch,
+                            &chosen_bh,
+                        )
+                        .expect("Failed to check if stacks block was processed");
+                        if anchor_block_known {
+                            let block_id =
+                                StacksBlockHeader::make_index_block_hash(&chosen_ch, &chosen_bh);
+                            let anchor_height = chain_state
+                                .get_stacks_block_height(&chosen_ch, &chosen_bh)
+                                .unwrap()
+                                .unwrap();
+                            info!("Anchor height = {}", anchor_height);
+                            let registered_addrs = chain_state
+                                .get_reward_addresses(
+                                    &burnchain,
+                                    &sort_db,
+                                    eval_height + 1000,
+                                    &block_id,
+                                )
+                                .expect("Failed to get reward addresses");
+                            for (addr, amount) in registered_addrs.iter() {
+                                println!("{}, {}", addr, amount);
+                            }
+
+                            let liquid_ustx = chain_state.get_liquid_ustx(&block_id);
+
+                            let (threshold, participation) =
+                                StacksChainState::get_reward_threshold_and_participation(
+                                    &pox_consts,
+                                    &registered_addrs,
+                                    liquid_ustx,
+                                );
+                            if !burnchain
+                                .pox_constants
+                                .enough_participation(participation, liquid_ustx)
+                            {
+                                info!("PoX reward cycle did not have enough participation. Defaulting to burn";
+                                      "burn_height" => eval_height,
+                                      "participation" => participation,
+                                      "liquid_ustx" => liquid_ustx,
+                                      "registered_addrs" => registered_addrs.len());
+                            } else {
+                                info!("PoX reward cycle threshold computed";
+                                      "burn_height" => eval_height,
+                                      "threshold" => threshold,
+                                      "participation" => participation,
+                                      "liquid_ustx" => liquid_ustx,
+                                      "registered_addrs" => registered_addrs.len());
+                            }
+
+                            compute_minimum_results.push((
+                                eval_height,
+                                true,
+                                confirmed_by,
+                                threshold,
+                            ))
+                        } else {
+                            compute_minimum_results.push((eval_height, true, confirmed_by, 0))
+                        }
+                    }
+                    Err(confirmed_by) => {
+                        compute_minimum_results.push((eval_height, false, confirmed_by, 0))
+                    }
+                };
+            } else {
+                match result {
+                    Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                    Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
+                };
+            }
         }
 
-        println!("Block height, Would select anchor, Anchor agreement");
-        for r in results.iter() {
-            println!("{}, {}, {}", &r.0, &r.1, &r.2);
+        if compute_minimum {
+            println!("Block height, Would select anchor, Anchor agreement, Threshold");
+            for r in compute_minimum_results.iter() {
+                println!("{}, {}, {}, {}", &r.0, &r.1, &r.2, &r.3);
+            }
+        } else {
+            println!("Block height, Would select anchor, Anchor agreement");
+            for r in results.iter() {
+                println!("{}, {}, {}", &r.0, &r.1, &r.2);
+            }
         }
     }
 

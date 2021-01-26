@@ -1324,6 +1324,9 @@ impl StacksChainState {
         };
 
         path.push(chain_id_str);
+
+        eprintln!("{}", path.to_str().unwrap());
+
         StacksChainState::mkdirs(&path)?;
 
         let mut blocks_path = path.clone();
