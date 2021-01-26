@@ -767,7 +767,7 @@ impl BitcoinRegtestController {
                 vec![utxo],
             )
         } else {
-            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, 1)?
+            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, &vec![], &vec![])?
         };
 
         // Serialize the payload
@@ -827,7 +827,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
 
         let output_amt = 2 * DUST_UTXO_LIMIT;
-        let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, 1)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, &vec![], &vec![])?;
 
         // Serialize the payload
         let op_bytes = {
