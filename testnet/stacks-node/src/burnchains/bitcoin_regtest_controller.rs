@@ -914,8 +914,6 @@ impl BitcoinRegtestController {
                 .push(commit_to.to_bitcoin_tx_out(estimated_fees.amount_per_output()));
         }
 
-        // In the case of a replacement by fee, we need to look at the fee rate of the previous tx,
-        // the fee rate of the current transaction, and take the highest value.
         let fee_rate = estimated_fees.fee_rate;
         self.finalize_tx(
             &mut tx,
