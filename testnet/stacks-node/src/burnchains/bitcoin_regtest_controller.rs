@@ -941,11 +941,10 @@ impl BitcoinRegtestController {
         };
 
         info!(
-            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {} (using: {}), fee_rate: {})",
+            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {})",
             ongoing_block_commit.txid.to_hex(),
             ongoing_block_commit.fees.is_rbf_enabled,
             ongoing_block_commit.fees.total_spent(),
-            tx_size,
             ongoing_block_commit.fees.final_size,
             fee_rate,
         );
@@ -981,7 +980,7 @@ impl BitcoinRegtestController {
 
         if mined_op.is_some() {
             // Good to go, the transaction in progress was mined
-            warn!("Was able to retrieve ongoing TXID - {}", ongoing_op.txid);
+            debug!("Was able to retrieve ongoing TXID - {}", ongoing_op.txid);
             let res = self.send_block_commit_operation(payload, signer, &vec![], &vec![], None);
             return res;
         } else {
@@ -998,7 +997,7 @@ impl BitcoinRegtestController {
 
         // Let's start by early returning 1)
         if payload == ongoing_op.payload {
-            warn!("Abort attempt to re-submit identical LeaderBlockCommit");
+            debug!("Abort attempt to re-submit identical LeaderBlockCommit");
             return None;
         }
 
