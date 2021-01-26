@@ -523,7 +523,7 @@ impl Config {
                     } else {
                         PEER_VERSION_TESTNET
                     },
-                    mode: burnchain_mode.clone(),
+                    mode: burnchain_mode,
                     burn_fee_cap: burnchain
                         .burn_fee_cap
                         .unwrap_or(default_burnchain_config.burn_fee_cap),
