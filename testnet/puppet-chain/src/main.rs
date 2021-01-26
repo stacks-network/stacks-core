@@ -105,14 +105,18 @@ async fn main() -> http_types::Result<()> {
             let delay = {
                 let mut block_height = block_height_writer.lock().unwrap();
                 let effective_height = *block_height - num_blocks;
+                *block_height += 1;
                 let block_time = conf.get_block_time_at_height(effective_height);
                 let will_ignore = conf.should_ignore_transactions(effective_height);
-
+                let behavior = if will_ignore {
+                    "buffering"
+                } else {
+                    "accepting"
+                };
                 println!(
-                    "Generating block {} (block_time: {}ms, ignoring: {})",
-                    block_height, block_time, will_ignore
+                    "Assembled block {}. Will be {} incoming transactions for the next {}ms, then assemble block {}.",
+                    *block_height, behavior, block_time, *block_height + 1
                 );
-                *block_height += 1;
                 block_time
             };
             async_std::task::block_on(async {
@@ -135,14 +139,14 @@ async fn main() -> http_types::Result<()> {
     while let Some(stream) = incoming.next().await {
         let block_height = block_height_reader.lock().unwrap();
         let effective_block_height = *block_height - boot_height;
-        let should_ignore_txs = config.should_ignore_transactions(effective_block_height);
+        let should_ignore_txs = config.should_ignore_transactions(effective_block_height - 1);
 
         let stream = stream?;
         let addr = addr.clone();
 
         if should_ignore_txs {
             // Returns ok
-            println!("will buffer request from {}", stream.peer_addr()?);
+            println!("Buffering request from {}", stream.peer_addr()?);
             async_h1::accept(&addr, stream.clone(), |_| async {
                 Ok(Response::new(StatusCode::Ok))
             })
@@ -154,6 +158,7 @@ async fn main() -> http_types::Result<()> {
             while let Some((addr, stream)) = buffered_requests.pop_front() {
                 let config = config.clone();
                 task::spawn(async move {
+                    println!("Dequeuing buffered request from {}", stream.peer_addr().unwrap());
                     if let Err(err) = accept(addr, stream, &config).await {
                         eprintln!("{}", err);
                     }
@@ -162,6 +167,7 @@ async fn main() -> http_types::Result<()> {
             // Then handle the request
             let config = config.clone();
             task::spawn(async move {
+                println!("Handling request from {}", stream.peer_addr().unwrap());
                 if let Err(err) = accept(addr, stream, &config).await {
                     eprintln!("{}", err);
                 }
@@ -173,7 +179,6 @@ async fn main() -> http_types::Result<()> {
 
 // Take a TCP stream, and convert it into sequential HTTP request / response pairs.
 async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
-    println!("starting new connection from {}", stream.peer_addr()?);
     async_h1::accept(&addr, stream.clone(), |mut req| async {
         match (
             req.method(),
