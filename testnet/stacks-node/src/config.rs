@@ -582,7 +582,7 @@ impl Config {
                     block_commit_tx_estimated_size: burnchain
                         .block_commit_tx_estimated_size
                         .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
-                        rbf_fee_increment: burnchain
+                    rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
                 }
