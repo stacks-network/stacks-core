@@ -158,7 +158,10 @@ async fn main() -> http_types::Result<()> {
             while let Some((addr, stream)) = buffered_requests.pop_front() {
                 let config = config.clone();
                 task::spawn(async move {
-                    println!("Dequeuing buffered request from {}", stream.peer_addr().unwrap());
+                    println!(
+                        "Dequeuing buffered request from {}",
+                        stream.peer_addr().unwrap()
+                    );
                     if let Err(err) = accept(addr, stream, &config).await {
                         eprintln!("{}", err);
                     }
