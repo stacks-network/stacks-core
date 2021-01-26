@@ -418,7 +418,7 @@ impl NeighborWalk {
         }
 
         self.prev_neighbor = Some(self.cur_neighbor.clone());
-        self.cur_neighbor = next_neighbor.clone();
+        self.cur_neighbor = next_neighbor;
         self.walk_outbound = next_neighbor_outbound;
         self.next_neighbor = None;
 
@@ -1433,7 +1433,7 @@ impl NeighborWalk {
             );
         }
 
-        self.next_neighbor = next_neighbor_opt.clone();
+        self.next_neighbor = next_neighbor_opt;
         if let Some(ref next_neighbor) = self.next_neighbor {
             if *next_neighbor == self.cur_neighbor {
                 self.next_walk_outbound = self.walk_outbound;

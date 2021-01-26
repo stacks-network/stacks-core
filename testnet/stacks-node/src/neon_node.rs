@@ -1026,7 +1026,7 @@ impl InitializedNeonNode {
             config.connection_options.private_key_lifetime.clone(),
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
-            data_url.clone(),
+            data_url,
             &vec![],
             Some(&initial_neighbors),
         )
@@ -1109,7 +1109,7 @@ impl InitializedNeonNode {
             event_dispatcher,
             blocks_processed.clone(),
             burnchain,
-            coord_comms.clone(),
+            coord_comms,
             shared_unconfirmed_txs.clone(),
         )
         .expect("Failed to initialize mine/relay thread");
@@ -1124,7 +1124,7 @@ impl InitializedNeonNode {
             relay_send.clone(),
             sync_comms,
             attachments_rx,
-            shared_unconfirmed_txs.clone(),
+            shared_unconfirmed_txs,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1137,7 +1137,7 @@ impl InitializedNeonNode {
 
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
-            config: config.clone(),
+            config: config,
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,

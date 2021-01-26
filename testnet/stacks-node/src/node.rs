@@ -415,7 +415,7 @@ impl Node {
             self.config.connection_options.private_key_lifetime.clone(),
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
-            data_url.clone(),
+            data_url,
             &vec![],
             Some(&initial_neighbors),
         )
