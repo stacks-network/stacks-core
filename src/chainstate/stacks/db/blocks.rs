@@ -3787,10 +3787,23 @@ impl StacksChainState {
                 Ok((value, _, events)) => {
                     if let Value::Response(ref resp) = value {
                         if !resp.committed {
-                            debug!("StackStx burn op rejected by PoX contract.";
-                                   "txid" => %txid,
-                                   "burn_block" => %burn_header_hash,
-                                   "contract_call_ecode" => %resp.data);
+                            info!("StackStx burn op rejected by PoX contract.";
+                                  "txid" => %txid,
+                                  "burn_block" => %burn_header_hash,
+                                  "contract_call_ecode" => %resp.data,
+                                  "stacked_ustx" => stacked_ustx,
+                                  "block_height" => block_height,
+                                  "num_cycles" => num_cycles,
+                                  "reward_addr" => %Value::from(reward_addr.as_clarity_tuple()));
+                        } else {
+                            info!("StackStx burn op accepted by PoX contract.";
+                                  "txid" => %txid,
+                                  "burn_block" => %burn_header_hash,
+                                  "contract_call_ecode" => %resp.data,
+                                  "stacked_ustx" => stacked_ustx,
+                                  "block_height" => block_height,
+                                  "num_cycles" => num_cycles,
+                                  "reward_addr" => %Value::from(reward_addr.as_clarity_tuple()));
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost

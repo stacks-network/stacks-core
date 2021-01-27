@@ -29,8 +29,9 @@ extern crate slog;
 
 use blockstack_lib::*;
 use blockstack_lib::{
-    burnchains::{db::BurnchainBlockData, PoxConstants},
+    burnchains::{db::BurnchainBlockData, Burnchain, PoxConstants},
     chainstate::burn::db::sortdb::SortitionDB,
+    chainstate::stacks::db::StacksChainState,
 };
 
 use std::env;
@@ -188,6 +189,62 @@ fn main() {
             .unwrap();
 
         println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "evaluate-reward-set" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} evaluate-pox-anchor <working-dir>", argv[0]);
+            process::exit(1);
+        }
+
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let (mut chain_state, _) = StacksChainState::open(true, 0x01, &chain_state_path)
+            .expect("Failed to open stacks chain state");
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+
+        let burnchain = Burnchain::new(&argv[2], "bitcoin", "mainnet").unwrap();
+
+        let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+
+        let block_id = StacksBlockId::new(
+            &stacks_block.consensus_hash,
+            &stacks_block.anchored_block_hash,
+        );
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(chain_tip.block_height)
+            .unwrap()
+            + 1;
+        let eval_height = burnchain.reward_cycle_to_block_height(reward_cycle);
+        let liquid_ustx = chain_state.get_liquid_ustx(&block_id);
+
+        let registered_addrs = chain_state
+            .get_reward_addresses(&burnchain, &sort_db, eval_height, &block_id)
+            .expect("Failed to get reward addresses");
+
+        for (addr, amount) in registered_addrs.iter() {
+            println!("{}, {}", &addr.to_b58(), amount);
+        }
+
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            &burnchain.pox_constants,
+            &registered_addrs,
+            liquid_ustx,
+        );
+
+        let reward_set = StacksChainState::make_reward_set(threshold, registered_addrs);
+
+        println!(
+            "Threshold: {}, Participation: {}, Slots Occupied: {}",
+            threshold,
+            participation,
+            reward_set.len()
+        );
         process::exit(0);
     }
 

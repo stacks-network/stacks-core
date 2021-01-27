@@ -520,8 +520,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs::<()>(args, &mut ())
-            .map_err(|_| CheckErrors::BadSyntaxBinding)?;
+        let mut args = parse_name_type_pairs::<()>(args, &mut ())?;
+        //            .map_err(|_| CheckErrors::BadSyntaxBinding)?;
 
         if self.function_return_tracker.is_some() {
             panic!("Interpreter error: Previous function define left dirty typecheck state.");
