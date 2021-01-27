@@ -550,6 +550,7 @@ impl BitcoinRegtestController {
         &self,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
+        utxos_to_include: &Vec<UTXO>,
         utxos_to_exclude: &Vec<UTXO>,
     ) -> Option<Vec<UTXO>> {
         // Configure UTXO filter
@@ -568,6 +569,7 @@ impl BitcoinRegtestController {
                 filter_addresses.clone(),
                 false,
                 total_required,
+                &utxos_to_include,
                 &utxos_to_exclude,
             );
 
@@ -601,6 +603,7 @@ impl BitcoinRegtestController {
                     filter_addresses.clone(),
                     false,
                     total_required,
+                    &utxos_to_include,
                     &utxos_to_exclude,
                 );
 
@@ -1030,19 +1033,17 @@ impl BitcoinRegtestController {
         utxos_to_include: &Vec<UTXO>,
         utxos_to_exclude: &Vec<UTXO>,
     ) -> Option<(Transaction, Vec<UTXO>)> {
-        let utxos = if utxos_to_include.len() > 0 {
-            // in RBF, you have to consume the same UTXOs
-            utxos_to_include.clone()
-        } else {
-            // Fetch some UTXOs
-            let new_utxos = match self.get_utxos(&public_key, total_required, utxos_to_exclude) {
-                Some(utxos) => utxos,
-                None => {
-                    debug!("No UTXOs for {}", &public_key.to_hex());
-                    return None;
-                }
-            };
-            new_utxos
+        let utxos = match self.get_utxos(
+            &public_key,
+            total_required,
+            utxos_to_include,
+            utxos_to_exclude,
+        ) {
+            Some(utxos) => utxos,
+            None => {
+                debug!("No UTXOs for {}", &public_key.to_hex());
+                return None;
+            }
         };
 
         // Prepare a backbone for the tx
@@ -1612,6 +1613,7 @@ impl BitcoinRPCRequest {
         addresses: Vec<String>,
         include_unsafe: bool,
         minimum_sum_amount: u64,
+        utxos_to_include: &Vec<UTXO>,
         utxos_to_exclude: &Vec<UTXO>,
     ) -> RPCResult<Vec<UTXO>> {
         let min_conf = 0;
@@ -1636,6 +1638,13 @@ impl BitcoinRPCRequest {
             .iter()
             .map(|utxo| utxo.txid)
             .collect::<Vec<_>>();
+
+        let txids_to_keep = utxos_to_include
+            .iter()
+            .map(|utxo| utxo.txid)
+            .collect::<Vec<_>>();
+
+        let mut utxos = vec![];
 
         match res.as_object_mut() {
             Some(ref mut object) => match object.get_mut("result") {
@@ -1669,16 +1678,24 @@ impl BitcoinRPCRequest {
                             None => continue,
                         };
 
-                        if txids_to_filter.contains(&txid) {
-                            continue;
+                        if txids_to_keep.len() > 0 {
+                            // Include UTXOs that we want to keep
+                            if !txids_to_keep.contains(&txid) {
+                                continue;
+                            }
+                        } else {
+                            // Exclude UTXOs that we want to filter
+                            if txids_to_filter.contains(&txid) {
+                                continue;
+                            }
                         }
 
-                        return Ok(vec![UTXO {
+                        utxos.push(UTXO {
                             txid,
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
-                        }]);
+                        });
                     }
                 }
                 _ => {
@@ -1690,7 +1707,7 @@ impl BitcoinRPCRequest {
             }
         };
 
-        Ok(vec![])
+        Ok(utxos)
     }
 
     pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
