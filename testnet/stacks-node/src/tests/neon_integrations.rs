@@ -1652,7 +1652,7 @@ fn near_full_block_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
