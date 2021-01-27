@@ -917,7 +917,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let sender = {
                 if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
-                    PrincipalData::Standard(sender.clone())
+                    PrincipalData::Standard(sender)
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
                     panic_test!();
@@ -935,7 +935,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         argument_parsed,
                         &format!("Failed to parse a value from the argument: {}", argument),
                     );
-                    SymbolicExpression::atom_value(argument_value.clone())
+                    SymbolicExpression::atom_value(argument_value)
                 })
                 .collect();
 

@@ -223,6 +223,11 @@ impl MarfedKV {
                 .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
         };
 
+        if SqliteConnection::check_schema(&marf.sqlite_conn()).is_ok() {
+            // no need to initialize
+            return Ok(marf);
+        }
+
         let tx = marf
             .storage_tx()
             .map_err(|err| InterpreterError::DBError(IncomparableError { err }))?;
@@ -280,8 +285,11 @@ impl MarfedKV {
         at_block: Option<&StacksBlockId>,
     ) -> ReadOnlyMarfStore<'a> {
         let chain_tip = if let Some(at_block) = at_block {
-            self.marf.open_block(at_block).unwrap_or_else(|_| {
-                error!("Failed to open read only connection at {}", at_block);
+            self.marf.open_block(at_block).unwrap_or_else(|e| {
+                error!(
+                    "Failed to open read only connection at {}: {:?}",
+                    at_block, &e
+                );
                 panic!()
             });
             at_block.clone()
@@ -299,8 +307,11 @@ impl MarfedKV {
         at_block: Option<&StacksBlockId>,
     ) -> Result<ReadOnlyMarfStore<'a>> {
         let chain_tip = if let Some(at_block) = at_block {
-            self.marf.open_block(at_block).map_err(|_| {
-                debug!("Failed to open read only connection at {}", at_block);
+            self.marf.open_block(at_block).map_err(|e| {
+                debug!(
+                    "Failed to open read only connection at {}: {:?}",
+                    at_block, &e
+                );
                 InterpreterError::MarfFailure(IncomparableError {
                     err: MarfError::NotFoundError,
                 })
@@ -700,6 +711,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 
     pub fn rollback_unconfirmed(self) {
+        debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip);
         self.marf.drop_unconfirmed();
     }
