@@ -325,7 +325,7 @@ fn bitcoind_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -433,7 +433,7 @@ fn liquid_ustx_integration() {
     let _client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -556,7 +556,7 @@ fn stx_transfer_btc_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -730,7 +730,7 @@ fn bitcoind_forking_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -826,7 +826,7 @@ fn microblock_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1192,7 +1192,7 @@ fn size_check_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1346,7 +1346,7 @@ fn cost_voting_integration() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1652,7 +1652,7 @@ fn near_full_block_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, None));
+    thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1789,7 +1789,7 @@ fn pox_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -2148,7 +2148,7 @@ fn atlas_integration_test() {
         let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
-        thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+        thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
 
         // give the run loop some time to start up!
         wait_for_runloop(&blocks_processed);
@@ -2436,7 +2436,7 @@ fn atlas_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);

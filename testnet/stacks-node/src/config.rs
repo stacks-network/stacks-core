@@ -603,6 +603,15 @@ impl Config {
 
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        } else {
+            if burnchain.mode == "mainnet" {
+                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
