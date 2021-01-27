@@ -30,8 +30,8 @@ use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
 
 use util::db::{
-    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, Error as DBError,
-    FromColumn, FromRow,
+    query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
+    Error as DBError, FromColumn, FromRow,
 };
 
 use std::collections::HashMap;
@@ -216,6 +216,7 @@ impl BurnchainDB {
 
         if create_flag {
             let db_tx = db.tx_begin()?;
+            sql_pragma(&db_tx.sql_tx, "PRAGMA journal_mode = WAL;")?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_SCHEMA)?;
 
             let first_block_header = BurnchainBlockHeader {

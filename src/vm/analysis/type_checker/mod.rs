@@ -268,11 +268,9 @@ impl FunctionType {
                 (expected_type, value) => {
                     if !expected_type.admits(&value) {
                         let actual_type = TypeSignature::type_of(&value);
-                        return Err(CheckErrors::TypeError(
-                            expected_type.clone(),
-                            actual_type.clone(),
-                        )
-                        .into());
+                        return Err(
+                            CheckErrors::TypeError(expected_type.clone(), actual_type).into()
+                        );
                     }
                 }
             }

@@ -2433,7 +2433,7 @@ impl PeerNetwork {
         let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             for dead_event in broken_http_peers.drain(..) {
                 debug!(
-                    "{:?}: De-register broken HTTP connection {}",
+                    "{:?}: De-register dead/broken HTTP connection {}",
                     &network.local_peer, dead_event
                 );
                 network.http.deregister_http(network_state, dead_event);
@@ -2443,7 +2443,7 @@ impl PeerNetwork {
 
         for broken_neighbor in broken_p2p_peers.drain(..) {
             debug!(
-                "{:?}: De-register broken neighbor {:?}",
+                "{:?}: De-register dead/broken neighbor {:?}",
                 &self.local_peer, &broken_neighbor
             );
             self.deregister_and_ban_neighbor(&broken_neighbor);
@@ -2969,8 +2969,18 @@ impl PeerNetwork {
                                 have_always_allowed = true;
                             } else {
                                 if let Some(ref inv_state) = self.inv_state {
-                                    for nk in inv_state.block_stats.keys() {
-                                        if always_allowed.contains(&nk) {
+                                    for (nk, stats) in inv_state.block_stats.iter() {
+                                        if !always_allowed.contains(&nk) {
+                                            continue;
+                                        }
+
+                                        if stats.inv.num_reward_cycles
+                                            >= (self.pox_id.len() - 1) as u64
+                                        {
+                                            debug!(
+                                                "{:?}: Fully-sync'ed PoX inventory from {}",
+                                                &self.local_peer, nk
+                                            );
                                             have_always_allowed = true;
                                         }
                                     }
@@ -3958,15 +3968,13 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height > self.chain_view.burn_block_height {
+        if sn.block_height != self.chain_view.burn_block_height {
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
             );
-            let new_chain_view = {
-                let ic = sortdb.index_conn();
-                ic.get_burnchain_view(&self.burnchain, &sn)?
-            };
+            let new_chain_view =
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.burnchain, &sn)?;
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs(self.chain_view.burn_stable_block_height);

@@ -382,6 +382,12 @@ where
     query_int(conn, sql_query, sql_args)
 }
 
+/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
+/// rusqlite does not like this).
+pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
+    conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
+}
+
 /// Set up an on-disk database with a MARF index if they don't exist yet.
 /// Either way, returns (db path, MARF path)
 pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
@@ -492,6 +498,7 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
         "Database is locked; sleeping {}ms and trying again",
         &sleep_count
     );
+
     sleep_ms(sleep_count);
     true
 }

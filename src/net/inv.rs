@@ -298,7 +298,7 @@ impl PeerBlocksInv {
                 highest_agreed_block_height,
                 num_bits,
                 zeros.clone(),
-                zeros.clone(),
+                zeros,
                 true,
             );
             self.num_sortitions = highest_agreed_block_height - self.first_block_height;
@@ -670,13 +670,13 @@ impl NeighborBlockStats {
                 } else if unstable {
                     debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 } else {
-                    debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash", _nk);
-
                     // if this peer is always allowed, then this isn't a "broken" condition -- it's
                     // a diverged condition.  we trust that it has the correct PoX view.
                     if always_allowed {
+                        debug!("Remote always-allowed neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Diverged.", _nk);
                         diverged = true;
                     } else {
+                        debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Broken.", _nk);
                         broken = true;
                     }
                 }
@@ -1147,7 +1147,7 @@ impl InvState {
     pub fn add_peer(&mut self, nk: NeighborKey) -> () {
         self.block_stats.insert(
             nk.clone(),
-            NeighborBlockStats::new(nk.clone(), self.first_block_height),
+            NeighborBlockStats::new(nk, self.first_block_height),
         );
     }
 
