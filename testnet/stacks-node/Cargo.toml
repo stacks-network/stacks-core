@@ -35,6 +35,5 @@ path = "src/main.rs"
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json"]
-tx-log = ["stacks/tx_log"]
 prod-genesis-chainstate = []
 default = []

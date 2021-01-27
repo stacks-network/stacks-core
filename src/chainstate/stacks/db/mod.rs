@@ -97,6 +97,11 @@ use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 
+lazy_static! {
+    pub static ref TRANSACTION_LOG: bool =
+        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -396,31 +401,24 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    #[cfg(feature = "tx_log")]
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        let insert =
-            "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-        for tx_event in events.iter() {
-            let txid = tx_event.transaction.txid();
-            let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
-            let result = tx_event.result.to_string();
-            let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.tx.tx().execute(insert, params) {
-                warn!("Failed to log TX: {}", e);
+        if *TRANSACTION_LOG {
+            let insert =
+                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
+            for tx_event in events.iter() {
+                let txid = tx_event.transaction.txid();
+                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let result = tx_event.result.to_string();
+                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                if let Err(e) = self.tx.tx().execute(insert, params) {
+                    warn!("Failed to log TX: {}", e);
+                }
             }
         }
-    }
-
-    #[cfg(not(feature = "tx_log"))]
-    pub fn log_transactions_processed(
-        &self,
-        _block_id: &StacksBlockId,
-        _events: &[StacksTransactionReceipt],
-    ) {
     }
 }
 
@@ -492,7 +490,6 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     );
     CREATE UNIQUE INDEX index_block_hash_to_primary_key(index_block_hash,consensus_hash,block_hash);
     "#,
-    #[cfg(feature = "tx_log")]
     r#"
     CREATE TABLE transactions(
         id INTEGER PRIMARY KEY,
