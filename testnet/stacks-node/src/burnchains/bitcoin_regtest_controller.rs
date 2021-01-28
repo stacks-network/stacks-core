@@ -70,7 +70,7 @@ struct OngoingBlockCommit {
     payload: LeaderBlockCommitOp,
     utxos: UTXOSet,
     fees: LeaderBlockCommitFees,
-    txid: Txid,
+    txids: Vec<Txid>,
 }
 
 impl OngoingBlockCommit {
@@ -878,6 +878,7 @@ impl BitcoinRegtestController {
         utxos_to_include: Option<UTXOSet>,
         utxos_to_exclude: Option<UTXOSet>,
         previous_fees: Option<LeaderBlockCommitFees>,
+        previous_txids: &Vec<Txid>,
     ) -> Option<Transaction> {
         let mut estimated_fees = match previous_fees {
             Some(fees) => fees.fees_from_previous_tx(&payload, &self.config),
@@ -937,17 +938,20 @@ impl BitcoinRegtestController {
         let mut txid = tx.txid().as_bytes().to_vec();
         txid.reverse();
 
-        warn!("Transaction relying on UTXOs: {:?}", utxos);
+        debug!("Transaction relying on UTXOs: {:?}", utxos);
+        let txid = Txid::from_bytes(&txid[..]).unwrap();
+        let mut txids = previous_txids.clone();
+        txids.push(txid.clone());
         let ongoing_block_commit = OngoingBlockCommit {
             payload,
             utxos,
             fees: estimated_fees,
-            txid: Txid::from_bytes(&txid[..]).unwrap(),
+            txids,
         };
 
         info!(
             "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {})",
-            ongoing_block_commit.txid.to_hex(),
+            txid.to_hex(),
             ongoing_block_commit.fees.is_rbf_enabled,
             ongoing_block_commit.fees.total_spent(),
             ongoing_block_commit.fees.final_size,
@@ -970,7 +974,7 @@ impl BitcoinRegtestController {
         // Are we currently tracking an operation?
         if self.ongoing_block_commit.is_none() {
             // Good to go, let's build the transaction and send it.
-            let res = self.send_block_commit_operation(payload, signer, None, None, None);
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
         }
 
@@ -979,14 +983,16 @@ impl BitcoinRegtestController {
         let _ = self.sortdb_mut();
         let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
-        let mined_op = burnchain_db.get_burnchain_op(&ongoing_op.txid);
-        if mined_op.is_some() {
-            // Good to go, the transaction in progress was mined
-            info!("Was able to retrieve ongoing TXID - {}", ongoing_op.txid);
-            let res = self.send_block_commit_operation(payload, signer, None, None, None);
-            return res;
-        } else {
-            info!("Was unable to retrieve ongoing TXID - {}", ongoing_op.txid);
+        for txid in ongoing_op.txids.iter() {
+            let mined_op = burnchain_db.get_burnchain_op(txid);
+            if mined_op.is_some() {
+                // Good to go, the transaction in progress was mined
+                info!("Was able to retrieve ongoing TXID - {}", txid);
+                let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+                return res;
+            } else {
+                info!("Was unable to retrieve ongoing TXID - {}", txid);
+            }
         }
 
         // Did a re-org occurred since we fetched our UTXOs
@@ -995,7 +1001,7 @@ impl BitcoinRegtestController {
                 "Detected presence of fork, invalidating cached set of UTXOs - {:?}",
                 e
             );
-            let res = self.send_block_commit_operation(payload, signer, None, None, None);
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
         }
 
@@ -1023,6 +1029,7 @@ impl BitcoinRegtestController {
                 None,
                 Some(ongoing_op.utxos.clone()),
                 None,
+                &vec![],
             )
         } else {
             // Case 2) ii): Attempt to RBF
@@ -1033,6 +1040,7 @@ impl BitcoinRegtestController {
                 Some(ongoing_op.utxos.clone()),
                 None,
                 Some(ongoing_op.fees.clone()),
+                &ongoing_op.txids
             )
         };
 
