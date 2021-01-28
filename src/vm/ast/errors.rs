@@ -93,7 +93,7 @@ impl ParseError {
 
     pub fn set_pre_expressions(&mut self, exprs: Vec<PreSymbolicExpression>) {
         self.diagnostic.spans = exprs.iter().map(|e| e.span.clone()).collect();
-        self.pre_expressions.replace(exprs.clone().to_vec());
+        self.pre_expressions.replace(exprs.to_vec());
     }
 }
 

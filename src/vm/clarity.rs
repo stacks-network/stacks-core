@@ -337,7 +337,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", false),
                     &*BOOT_CODE_COST_VOTING,
@@ -350,6 +350,10 @@ impl ClarityInstance {
                     &*BOOT_CODE_COST_VOTING,
                     |_, _| false,
                 )
+                .unwrap();
+
+            clarity_db
+                .save_analysis(&boot_code_id("cost-voting", false), &analysis)
                 .unwrap();
         });
 

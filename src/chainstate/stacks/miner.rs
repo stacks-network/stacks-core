@@ -293,7 +293,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         &cost_after,
                         &total_budget
                     );
-                    clarity_tx.reset_cost(cost_before.clone());
+                    clarity_tx.reset_cost(cost_before);
                 }
                 _ => {
                     warn!("Error processing TX {}: {}", tx.txid(), e);
@@ -401,6 +401,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     ) {
                         Ok(true) => {
                             bytes_so_far += mempool_tx.metadata.len;
+
+                            debug!(
+                                "Include tx {} ({}) in microblock",
+                                mempool_tx.tx.txid(),
+                                mempool_tx.tx.payload.name()
+                            );
                             txs_included.push(mempool_tx.tx);
                         }
                         Ok(false) => {
@@ -664,6 +670,7 @@ impl StacksBlockBuilder {
 
             info!("Include tx";
                   "tx" => %tx.txid(),
+                  "payload" => tx.payload.name(),
                   "origin" => %tx.origin_address());
 
             // save
@@ -694,6 +701,12 @@ impl StacksBlockBuilder {
                     }
                     _ => e,
                 })?;
+
+            debug!(
+                "Include tx {} ({}) in microblock",
+                tx.txid(),
+                tx.payload.name()
+            );
 
             // save
             self.micro_txs.push(tx.clone());

@@ -93,7 +93,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
+    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -103,7 +103,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt.clone(),
+            burnchain_opt,
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -273,7 +273,7 @@ impl RunLoop {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
@@ -282,7 +282,7 @@ impl RunLoop {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
@@ -333,16 +333,17 @@ impl RunLoop {
                 next_burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
-            debug!(
-                "Downloaded burnchain blocks up to height {}; new target height is {}",
-                next_burnchain_height, target_burnchain_block_height
-            );
 
             burnchain_tip = next_burnchain_tip;
             burnchain_height = next_burnchain_height;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
+
+            debug!(
+                "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
+                next_burnchain_height, target_burnchain_block_height, next_height, block_height
+            );
 
             if next_height > block_height {
                 // first, let's process all blocks in (block_height, next_height]
@@ -369,23 +370,46 @@ impl RunLoop {
                     }
                 }
 
-                block_height = next_height;
                 debug!(
-                    "Synchronized burnchain up to block height {} (chain tip height is {})",
-                    block_height, burnchain_height
+                    "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
+                    next_height, block_height, burnchain_height
                 );
+
+                block_height = next_height;
+            } else if ibd {
+                // drive block processing after we reach the burnchain tip.
+                // we may have downloaded all the blocks already,
+                // so we can't rely on the relayer alone to
+                // drive it.
+                coordinator_senders.announce_new_stacks_block();
             }
 
             if block_height >= burnchain_height && !ibd {
-                // at tip, and not downloading. proceed to mine.
-                debug!(
-                    "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                    block_height
-                );
-                if !node.relayer_issue_tenure() {
-                    // relayer hung up, exit.
-                    error!("Block relayer and miner hung up, exiting.");
-                    return;
+                let canonical_stacks_tip_height =
+                    SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                        .map(|snapshot| snapshot.canonical_stacks_tip_height)
+                        .unwrap_or(0);
+                if canonical_stacks_tip_height < mine_start {
+                    info!(
+                        "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
+                        canonical_stacks_tip_height,
+                        mine_start
+                    );
+                } else {
+                    // once we've synced to the chain tip once, don't apply this check again.
+                    //  this prevents a possible corner case in the event of a PoX fork.
+                    mine_start = 0;
+
+                    // at tip, and not downloading. proceed to mine.
+                    debug!(
+                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                        block_height
+                    );
+                    if !node.relayer_issue_tenure() {
+                        // relayer hung up, exit.
+                        error!("Block relayer and miner hung up, exiting.");
+                        return;
+                    }
                 }
             }
         }
