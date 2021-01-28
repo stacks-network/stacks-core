@@ -2862,7 +2862,7 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<SortitionId>, db_error> {
-        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1";
+        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
         let args = [&consensus_hash];
         query_row_panic(conn, qry, &args, || {
             format!(
