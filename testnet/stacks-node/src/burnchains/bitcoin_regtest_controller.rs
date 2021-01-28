@@ -996,6 +996,12 @@ impl BitcoinRegtestController {
             }
         }
 
+        // Stop as soon as the fee_rate is 1.25 higher, stop RBF
+        if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            return res;
+        }
+
         // Did a re-org occurred since we fetched our UTXOs
         if let Err(e) = burnchain_db.get_burnchain_block(&ongoing_op.utxos.bhh) {
             info!(
