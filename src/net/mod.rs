@@ -1216,6 +1216,7 @@ pub enum HttpRequestType {
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
+    PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(
         HttpRequestMetadata,
@@ -1340,6 +1341,7 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
+    StacksBlockAccepted(HttpResponseMetadata, StacksBlockId, bool),
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
@@ -1685,6 +1687,7 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
+    pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
     pub attachments: Vec<AttachmentInstance>,
@@ -1703,6 +1706,7 @@ impl NetworkResult {
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_attachments: vec![],
             attachments: vec![],
@@ -1797,6 +1801,9 @@ impl NetworkResult {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
                 }
+                StacksMessageType::Blocks(block_data) => {
+                    self.uploaded_blocks.push(block_data);
+                },
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
                 }
