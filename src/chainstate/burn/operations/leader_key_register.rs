@@ -214,8 +214,8 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
             .map_err(net_error::WriteError)?;
 
         let memo = match self.memo.len() {
-            l if l <= 25 => self.memo[0..].to_vec().clone(),
-            _ => self.memo[0..25].to_vec().clone(),
+            l if l <= 25 => self.memo[0..].to_vec(),
+            _ => self.memo[0..25].to_vec(),
         };
         fd.write_all(&memo).map_err(net_error::WriteError)?;
         Ok(())
