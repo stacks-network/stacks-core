@@ -988,7 +988,8 @@ impl BitcoinRegtestController {
             if mined_op.is_some() {
                 // Good to go, the transaction in progress was mined
                 info!("Was able to retrieve ongoing TXID - {}", txid);
-                let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+                let res =
+                    self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
                 return res;
             } else {
                 info!("Was unable to retrieve ongoing TXID - {}", txid);
@@ -1040,7 +1041,7 @@ impl BitcoinRegtestController {
                 Some(ongoing_op.utxos.clone()),
                 None,
                 Some(ongoing_op.fees.clone()),
-                &ongoing_op.txids
+                &ongoing_op.txids,
             )
         };
 
