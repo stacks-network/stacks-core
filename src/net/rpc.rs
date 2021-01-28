@@ -33,13 +33,13 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
+use net::BlocksData;
 use net::ClientError;
 use net::Error as net_error;
 use net::HttpRequestMetadata;
 use net::HttpRequestType;
 use net::HttpResponseMetadata;
 use net::HttpResponseType;
-use net::BlocksData;
 use net::MicroblocksData;
 use net::NeighborAddress;
 use net::NeighborsData;
@@ -1529,7 +1529,7 @@ impl ConversationHttp {
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
-    
+
     /// Handle a block.  Directly submit a Stacks block to this node's chain state.
     /// Indicate whether or not the block was accepted (i.e. it was new, and valid)
     fn handle_post_block<W: Write>(
@@ -1539,55 +1539,113 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
-        block: &StacksBlock
+        block: &StacksBlock,
     ) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // is this a consensus hash we recognize?
-        let (response, accepted) = match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
-            Ok(Some(_)) => {
-                // we recognize this consensus hash
-                let ic = sortdb.index_conn();
-                match Relayer::process_new_anchored_block(&ic, chainstate, consensus_hash, block, 0) {
-                    Ok(true) => {
-                        debug!("Accepted Stacks block {}/{}", consensus_hash, &block.block_hash());
-                        (
-                            HttpResponseType::StacksBlockAccepted(response_metadata, StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash()), true),
-                            true
-                        )
-                    },
-                    Ok(false) => {
-                        debug!("Did not accept Stacks block {}/{}", consensus_hash, &block.block_hash());
-                        (
-                            HttpResponseType::StacksBlockAccepted(response_metadata, StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash()), false),
-                            false
-                        )
-                    },
-                    Err(e) => {
-                        error!("Failed to process anchored block {}/{}: {:?}", consensus_hash, &block.block_hash(), &e);
-                        (
-                            HttpResponseType::ServerError(response_metadata, format!("Failed to process anchored block {}/{}: {:?}", consensus_hash, &block.block_hash(), &e)),
-                            false
-                        )
+        let (response, accepted) =
+            match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
+                Ok(Some(_)) => {
+                    // we recognize this consensus hash
+                    let ic = sortdb.index_conn();
+                    match Relayer::process_new_anchored_block(
+                        &ic,
+                        chainstate,
+                        consensus_hash,
+                        block,
+                        0,
+                    ) {
+                        Ok(true) => {
+                            debug!(
+                                "Accepted Stacks block {}/{}",
+                                consensus_hash,
+                                &block.block_hash()
+                            );
+                            (
+                                HttpResponseType::StacksBlockAccepted(
+                                    response_metadata,
+                                    StacksBlockHeader::make_index_block_hash(
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                    ),
+                                    true,
+                                ),
+                                true,
+                            )
+                        }
+                        Ok(false) => {
+                            debug!(
+                                "Did not accept Stacks block {}/{}",
+                                consensus_hash,
+                                &block.block_hash()
+                            );
+                            (
+                                HttpResponseType::StacksBlockAccepted(
+                                    response_metadata,
+                                    StacksBlockHeader::make_index_block_hash(
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                    ),
+                                    false,
+                                ),
+                                false,
+                            )
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to process anchored block {}/{}: {:?}",
+                                consensus_hash,
+                                &block.block_hash(),
+                                &e
+                            );
+                            (
+                                HttpResponseType::ServerError(
+                                    response_metadata,
+                                    format!(
+                                        "Failed to process anchored block {}/{}: {:?}",
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                        &e
+                                    ),
+                                ),
+                                false,
+                            )
+                        }
                     }
                 }
-            },
-            Ok(None) => {
-                debug!("Unrecognized consensus hash {} for block {}", consensus_hash, &block.block_hash());
-                (
-                    HttpResponseType::NotFound(response_metadata, format!("No such consensus hash '{}'", consensus_hash)),
-                    false
-                )
-            },
-            Err(e) => {
-                error!("Failed to query sortition ID by consensus '{}'", consensus_hash);
-                (
-                    HttpResponseType::ServerError(response_metadata, format!("Failed to query sortition ID for consensus hash '{}': {:?}", consensus_hash, &e)),
-                    false
-                )
-            }
-        };
-        
+                Ok(None) => {
+                    debug!(
+                        "Unrecognized consensus hash {} for block {}",
+                        consensus_hash,
+                        &block.block_hash()
+                    );
+                    (
+                        HttpResponseType::NotFound(
+                            response_metadata,
+                            format!("No such consensus hash '{}'", consensus_hash),
+                        ),
+                        false,
+                    )
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to query sortition ID by consensus '{}'",
+                        consensus_hash
+                    );
+                    (
+                        HttpResponseType::ServerError(
+                            response_metadata,
+                            format!(
+                                "Failed to query sortition ID for consensus hash '{}': {:?}",
+                                consensus_hash, &e
+                            ),
+                        ),
+                        false,
+                    )
+                }
+            };
+
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -1605,38 +1663,39 @@ impl ConversationHttp {
         microblock: &StacksMicroblock,
     ) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted) = match chainstate.preprocess_streamed_microblock(
-            consensus_hash,
-            block_hash,
-            microblock,
-        ) {
-            Ok(accepted) => {
-                if accepted {
-                    debug!(
-                        "Accepted uploaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &microblock.block_hash()
-                    );
-                } else {
-                    debug!(
-                        "Did not accept microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &microblock.block_hash()
-                    );
-                }
+        let (response, accepted) =
+            match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, microblock)
+            {
+                Ok(accepted) => {
+                    if accepted {
+                        debug!(
+                            "Accepted uploaded microblock {}/{}-{}",
+                            &consensus_hash,
+                            &block_hash,
+                            &microblock.block_hash()
+                        );
+                    } else {
+                        debug!(
+                            "Did not accept microblock {}/{}-{}",
+                            &consensus_hash,
+                            &block_hash,
+                            &microblock.block_hash()
+                        );
+                    }
 
-                (
-                    HttpResponseType::MicroblockHash(response_metadata, microblock.block_hash()),
-                    accepted,
-                )
-            }
-            Err(e) => (
-                HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
-                false,
-            ),
-        };
+                    (
+                        HttpResponseType::MicroblockHash(
+                            response_metadata,
+                            microblock.block_hash(),
+                        ),
+                        accepted,
+                    )
+                }
+                Err(e) => (
+                    HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
+                    false,
+                ),
+            };
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
@@ -1989,16 +2048,16 @@ impl ConversationHttp {
                     sortdb,
                     chainstate,
                     consensus_hash,
-                    block
+                    block,
                 )?;
                 if accepted {
                     // inform the peer network so it can announce its presence
                     ret = Some(StacksMessageType::Blocks(BlocksData {
-                        blocks: vec![(consensus_hash.clone(), block.clone())]
+                        blocks: vec![(consensus_hash.clone(), block.clone())],
                     }));
                 }
                 None
-            },
+            }
             HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
                 if let Some((consensus_hash, block_hash)) =
                     ConversationHttp::handle_load_stacks_chain_tip_hashes(
@@ -2507,7 +2566,7 @@ impl ConversationHttp {
         HttpRequestType::PostBlock(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             ch,
-            block
+            block,
         )
     }
 

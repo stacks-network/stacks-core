@@ -1803,7 +1803,7 @@ impl NetworkResult {
                 }
                 StacksMessageType::Blocks(block_data) => {
                     self.uploaded_blocks.push(block_data);
-                },
+                }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
                 }

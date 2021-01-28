@@ -154,7 +154,7 @@ enum HttpReservedHeader {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct StacksBlockAcceptedData {
     stacks_block_id: StacksBlockId,
-    accepted: bool
+    accepted: bool,
 }
 
 impl FromStr for PeerHost {
@@ -1477,11 +1477,7 @@ impl HttpRequestType {
                 &PATH_POSTTRANSACTION,
                 &HttpRequestType::parse_posttransaction,
             ),
-            (
-                "POST",
-                &PATH_POSTBLOCK,
-                &HttpRequestType::parse_postblock
-            ),
+            ("POST", &PATH_POSTBLOCK, &HttpRequestType::parse_postblock),
             (
                 "POST",
                 &PATH_POSTMICROBLOCK,
@@ -2154,17 +2150,16 @@ impl HttpRequestType {
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError(
-                "Invalid Http request: expected non-zero-length body for PostBlock"
-                    .to_string(),
+                "Invalid Http request: expected non-zero-length body for PostBlock".to_string(),
             ));
         }
-        
+
         if preamble.get_content_length() > MAX_PAYLOAD_LEN {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: PostBlock body is too big".to_string(),
             ));
         }
-        
+
         // content-type must be given, and must be application/octet-stream
         match preamble.content_type {
             None => {
@@ -2181,18 +2176,18 @@ impl HttpRequestType {
                 }
             }
         };
-        
+
         let consensus_hash_str = regex
             .get(1)
             .ok_or(net_error::DeserializeError(
                 "Failed to match consensus hash in path group".to_string(),
             ))?
             .as_str();
-        
-        let consensus_hash : ConsensusHash = ConsensusHash::from_hex(consensus_hash_str)
-            .map_err(|_| net_error::DeserializeError(
-                "Failed to parse consensus hash".to_string()
-            ))?;
+
+        let consensus_hash: ConsensusHash =
+            ConsensusHash::from_hex(consensus_hash_str).map_err(|_| {
+                net_error::DeserializeError("Failed to parse consensus hash".to_string())
+            })?;
 
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
         let stacks_block = StacksBlock::consensus_deserialize(&mut bound_fd)?;
@@ -2200,7 +2195,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::PostBlock(
             HttpRequestMetadata::from_preamble(preamble),
             consensus_hash,
-            stacks_block
+            stacks_block,
         ))
     }
 
@@ -2217,7 +2212,7 @@ impl HttpRequestType {
                     .to_string(),
             ));
         }
-        
+
         if preamble.get_content_length() > MAX_PAYLOAD_LEN {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: PostMicroblock body is too big".to_string(),
@@ -2240,7 +2235,7 @@ impl HttpRequestType {
                 }
             }
         };
-        
+
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
 
         let mb = StacksMicroblock::consensus_deserialize(&mut bound_fd)?;
@@ -2577,10 +2572,10 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(block_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers
+                    empty_headers,
                 )?;
                 fd.write_all(&block_bytes).map_err(net_error::WriteError)?;
-            },
+            }
             HttpRequestType::PostMicroblock(md, mb, ..) => {
                 let mut mb_bytes = vec![];
                 write_next(&mut mb_bytes, mb)?;
@@ -3275,7 +3270,7 @@ impl HttpResponseType {
             res,
         ))
     }
-    
+
     fn parse_stacks_block_accepted<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3283,11 +3278,12 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let stacks_block_accepted : StacksBlockAcceptedData = HttpResponseType::parse_json(preamble, fd, len_hint, 128)?;
+        let stacks_block_accepted: StacksBlockAcceptedData =
+            HttpResponseType::parse_json(preamble, fd, len_hint, 128)?;
         Ok(HttpResponseType::StacksBlockAccepted(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             stacks_block_accepted.stacks_block_id,
-            stacks_block_accepted.accepted
+            stacks_block_accepted.accepted,
         ))
     }
 
@@ -3555,7 +3551,7 @@ impl HttpResponseType {
             HttpResponseType::StacksBlockAccepted(ref md, ref stacks_block_id, ref accepted) => {
                 let accepted_data = StacksBlockAcceptedData {
                     stacks_block_id: stacks_block_id.clone(),
-                    accepted: *accepted
+                    accepted: *accepted,
                 };
                 HttpResponsePreamble::new_serialized(
                     fd,
