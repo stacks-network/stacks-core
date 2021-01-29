@@ -31,6 +31,7 @@ use chainstate::burn::operations::{
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
+use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
@@ -660,8 +661,14 @@ impl LeaderBlockCommitOp {
         // There must be a burn
         /////////////////////////////////////////////////////////////////////////////////////
 
+        let apparent_sender_address = self
+            .apparent_sender
+            .to_bitcoin_address(BitcoinNetworkType::Mainnet);
+
         if self.burn_fee == 0 {
-            warn!("Invalid block commit: no burn amount");
+            warn!("Invalid block commit: no burn amount";
+                  "apparent_sender" => %apparent_sender_address
+            );
             return Err(op_error::BlockCommitBadInput);
         }
 
@@ -671,7 +678,9 @@ impl LeaderBlockCommitOp {
             warn!("Invalid block commit: missed target block";
                   "intended_modulus" => intended_modulus,
                   "actual_modulus" => actual_modulus,
-                  "block_height" => self.block_height);
+                  "block_height" => self.block_height,
+                  "apparent_sender" => %apparent_sender_address
+            );
             // This transaction "missed" its target burn block, the transaction
             //  is not valid, but we should allow this UTXO to "chain" to valid
             //  UTXOs to allow the miner windowing to work in the face of missed
@@ -697,9 +706,18 @@ impl LeaderBlockCommitOp {
         }
 
         if self.block_height >= burnchain.pox_constants.sunset_end {
-            self.check_after_pox_sunset()?;
+            self.check_after_pox_sunset().map_err(|e| {
+                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_address);
+                e
+            })?;
         } else {
-            self.check_pox(burnchain, tx, reward_set_info)?;
+            self.check_pox(burnchain, tx, reward_set_info)
+                .map_err(|e| {
+                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_address);
+                    e
+                })?;
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
@@ -710,8 +728,10 @@ impl LeaderBlockCommitOp {
 
         if self.block_height < first_block_snapshot.block_height {
             warn!(
-                "Invalid block commit: predates genesis height {}",
-                first_block_snapshot.block_height
+                "Invalid block commit from {}: predates genesis height {}",
+                self.block_height,
+                first_block_snapshot.block_height;
+                "apparent_sender" => %apparent_sender_address
             );
             return Err(op_error::BlockCommitPredatesGenesis);
         }
@@ -725,7 +745,8 @@ impl LeaderBlockCommitOp {
         if is_already_committed {
             warn!(
                 "Invalid block commit: already committed to {}",
-                self.block_header_hash
+                self.block_header_hash;
+                "apparent_sender" => %apparent_sender_address
             );
             return Err(op_error::BlockCommitAlreadyExists);
         }
@@ -737,7 +758,8 @@ impl LeaderBlockCommitOp {
         if leader_key_block_height >= self.block_height {
             warn!(
                 "Invalid block commit: references leader key in the same or later block ({} >= {})",
-                leader_key_block_height, self.block_height
+                leader_key_block_height, self.block_height;
+                "apparent_sender" => %apparent_sender_address
             );
             return Err(op_error::BlockCommitNoLeaderKey);
         }
@@ -747,7 +769,8 @@ impl LeaderBlockCommitOp {
             .ok_or_else(|| {
                 warn!(
                     "Invalid block commit: no corresponding leader key at {},{} in fork {}",
-                    leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip
+                    leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip;
+                    "apparent_sender" => %apparent_sender_address
                 );
                 op_error::BlockCommitNoLeaderKey
             })?;
@@ -761,7 +784,9 @@ impl LeaderBlockCommitOp {
 
         if parent_block_height == self.block_height {
             // tried to build off a block in the same epoch (not allowed)
-            warn!("Invalid block commit: cannot build off of a commit in the same block");
+            warn!("Invalid block commit: cannot build off of a commit in the same block";
+                  "apparent_sender" => %apparent_sender_address
+            );
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
@@ -769,7 +794,9 @@ impl LeaderBlockCommitOp {
                 .get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
             if !has_parent {
-                warn!("Invalid block commit: no parent block in this fork");
+                warn!("Invalid block commit: no parent block in this fork";
+                      "apparent_sender" => %apparent_sender_address
+                );
                 return Err(op_error::BlockCommitNoParent);
             }
         }
@@ -1602,6 +1629,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,

@@ -4,7 +4,7 @@
 
 Title: Clarity Execution Cost Assessment
 
-Author: Aaron Blankstein <aaron@blockstack.com>
+Author: Aaron Blankstein <aaron@blockstack.com>, Reed Rosenbluth <reed@blockstack.com>
 
 Status: Draft
 
@@ -22,6 +22,10 @@ _constants_ associated with those asymptotic cost functions. Those
 constants will necessarily be measured via benchmark harnesses and
 regression analyses. Furthermore, the _analysis_ cost associated with
 this code will not be covered by this proposal.
+
+The asymptotic cost functions for Clarity functions are modifiable
+via an on-chain voting mechanism. This enables new native functions to
+be added to the language over time.
 
 This document also describes the memory limit imposed during contract
 execution, and the memory model for enforcing that limit.
@@ -208,7 +212,11 @@ RUNTIME_COST = c*X+d
 
 where a, b, c, and d, are constants.
 
-# Native Function Costs
+# Initial Native Function Costs
+
+These are the initial set values for native function costs, however, these
+can be changed as described below in the [Cost Upgrades](#cost-upgrades)
+section of this document.
 
 ## Data, Token, Contract-Calls ##
 
@@ -746,3 +754,259 @@ types is defined as:
 * `map`: the size of stored key + the size of the stored value.
 * `nft`: the size of the NFT key
 * `ft`: the size of a Clarity uint value.
+
+# Cost Upgrades
+
+In order to enable the addition of new native functions to the Clarity
+language, there is a mechanism for voting on and changing a function's
+_cost-assessment function_ (the asymptotic function that describes its
+complexity and is used to calculate its cost). 
+
+New functions can be introduced to Clarity by first being implemented
+_in_ Clarity and published in a contract. This is necessary to avoid
+a hard fork of the blockchain and ensure the availability of the function
+across the network.
+
+If it is decided that a published function should be a part of the Clarity
+language, it can then be re-implemented as a native function in Rust and
+included in a future release of Clarity. Nodes running this upgraded VM
+would instead use this new native implementation of the function when they
+encounter Clarity code that references it via `contract-call?`.
+
+The new native function is likely faster and more efficient than the
+prior Clarity implementation, so a new cost-assessment function may need
+to be chosen for its evaluation. Until a new cost-assessment function is
+agreed upon, the cost of the Clarity implementation will continue to be used.
+
+## Voting on the Cost of Clarity Functions
+
+New and more accurate cost-assessment functions can be agreed upon as
+follows:
+
+1. A user formulates a cost-assessment function and publishes it in a
+Clarity contract as a `define-read-only` function.
+2. The user proposes the cost-assessment function by calling the
+`submit-proposal` function in the **Clarity Cost Voting Contract**.
+3. Voting on the proposed function ensues via the voting functions in
+the **Clarity Cost Voting Contract**, and the function is either
+selected as a replacement for the existing cost-assessment function,
+or ignored.
+
+### Publishing a Cost-Assessment Function
+
+Cost-assessment functions to be included in proposals can be published
+in Clarity contracts. They must be written precisely as follows:
+
+1. The function must be `read-only`.
+2. The function must return a tuple with the keys `runtime`, `write_length`,
+`write_count`, `read_count`, and `read_length` (the execution cost measurement
+[categories](#measurements-for-execution-cost)).
+3. The values of the returned tuple must be Clarity expressions representing
+the asymptotic cost functions. These expressions must be limited to **arithmetic operations**.
+4. Variables used in these expressions must be listed as arguments to the Clarity
+function.
+5. Constant factors can be set directly in the code.
+
+For example, suppose we have a function that implements a sorting algorithm:
+
+```lisp
+(define-public (quick-sort (input (list 1024 int))) ... )
+```
+
+The cost-assessment function should have _one_ argument, corresponding to the size
+of the `input` field, e.g.
+
+```lisp
+(define-read-only (quick-sort-cost (n uint))
+  {
+    runtime: (* n (log n)),
+    write_length: 0,
+    write_count: 0,
+    read_count: 0,
+    read_length: 0,
+  })
+```
+
+Here's another example where the cost function contains constant factors:
+
+```lisp
+(define-read-only (quick-sort-cost (n uint))
+   {
+     runtime: (+ 30 (* 2 n (log n))),
+     write_length: 0,
+     write_count: 0,
+     read_count: 0,
+     read_length: 0
+   })
+```
+
+### Making a Cost-Assessment Function Proposal
+
+Stacks holders can propose cost-assessment functions by calling the
+`submit-proposal` function in the **Clarity Cost Voting Contract**.
+
+```Lisp
+(define-public (submit-proposal
+    (function-contract principal)
+    (function-name (string-ascii 128))
+    (cost-function-contract principal)
+    (cost-function-name (string-ascii 128))
+    ...
+)
+```
+
+Description of `submit-proposal` arguments:
+- `function-contract`: the principal of the contract that defines
+the function for which a cost is being proposed
+- `function-name`: the name of the function for which a cost is being proposed
+- `cost-function-contract-principal`: the principal of the contract that defines
+the cost function being proposed
+- `cost-function-name`: the name of the cost-function being proposed
+
+If submitting a proposal for a native function included in Clarity at boot,
+provide the principal of the boot costs contract for the `function-contract`
+argument, and the name of the corresponding cost function for the `function-name`
+argument.
+
+This function will return a response containing the proposal ID, if successful,
+and an error otherwise.
+
+Usage:
+```Lisp
+(contract-call?
+    .cost-voting-contract
+    "submit-proposal"
+    .function-contract
+    "function-name"
+    .new-cost-function-contract
+    "new-cost-function-name"
+)
+```
+
+### Viewing a Proposal
+
+To view cost-assessment function proposals, you can use the 
+`get-proposal` function in the **Clarity Cost Voting Contract**:
+
+```Lisp
+(define-read-only (get-proposal (proposal-id uint)) ... )
+```
+
+This function takes a `proposal-id` and returns a response containing the proposal
+data tuple, if a proposal with the supplied ID exists, or an error code. Proposal
+data tuples contain information about the state of the proposal, and take the
+following form:
+
+```Lisp
+{
+    cost-function-contract: principal,
+    cost-function-name: (string-ascii 128),
+    function-contract: principal,
+    function-name: (string-ascii 128),
+    expiration-block-height: uint
+}
+```
+
+Usage:
+```Lisp
+(contract-call? .cost-voting-contract "get-proposal" 123)
+```
+
+### Voting
+
+#### Stacks Holders
+
+Stacks holders can vote for cost-assessment function proposals by calling the
+**Clarity Cost Voting Contract's** `vote-proposal` function. The `vote-proposal`
+function takes two arguments, `proposal-id` and `amount`. `proposal-id` is the ID
+of the proposal being voted for. `amount` is the amount of STX the voter would like
+to vote *with*. The amount of STX you include is the number of votes you are casting.
+
+Calling the `vote` function authorizes the contract to transfer STX out
+of the caller's address, and into the address of the contract. The equivalent
+amount of `cost-vote-tokens` will be distributed to the voter, representing the
+amount of STX they have staked in the voting contract.
+
+STX staked for voting can be withdrawn from the voting contract by the voter with
+the `withdraw-votes` function. If staked STX are withdrawn prior to confirmation,
+they will not be counted as votes.
+
+Upon withdrawal, the voter permits the contract to reclaim allocated `CFV` tokens,
+and will receive the equivalent amount of their staked STX tokens.
+
+**Voting example**
+```Lisp
+(contract-call? .cost-voting-contract "vote-proposal" 123 10000)
+```
+
+The `vote-proposal` function will return a successful response if the STX were staked
+for voting, or an error if the staking failed.
+
+**Withdrawal example**
+```Lisp
+(contract-call? .cost-voting-contract "withdraw-votes" 123 10000)
+```
+
+Like the `vote-proposal` function, the `withdraw-votes` function expects a `proposal-id` and
+an `amount`, letting the voter withdraw some or all of their staked STX. This function
+will return a successful response if the STX were withdrawn, and an error otherwise.
+
+#### Miner Veto
+
+Miners can vote *against* (veto) cost-function proposals by creating a transaction that
+calls the **Clarity Cost Voting Contract's** `veto` function and mining
+a block that includes this transaction. The `veto` function won't count
+the veto if the block wasn't mined by the node that signed that transaction.
+In other words, miners must **commit** their veto with their mining power.
+
+Usage:
+```Lisp
+(contract-call? .cost-voting-contract "veto" 123)
+```
+
+This function will return a successful response if the veto was counted, or
+an error if the veto failed.
+
+### Confirming the Result of a Vote
+
+In order for a cost-function proposal to get successfully voted in, it must be
+**confirmed**. Confirmation is a two step process, involving calling the `confirm-votes`
+function _before_ the proposal has expired to confirm the vote threshold was met,
+and calling the `confirm-miners` function _after_ to confirm that the proposal wasn't vetoed
+by miners.
+
+#### Confirm Votes
+
+Any stacks holder can call the `confirm-votes` function in the **Clarity
+Cost Voting Contract** to attempt confirmation. `confirm-votes` will return a
+success response and become **vote confirmed** if the following criteria are met.
+
+1. The proposal must receive votes representing 20% of the liquid supply of STX.
+This is calculated like such:
+   
+```lisp
+(>= (/ (* votes u100) stx-liquid-supply) u20)
+```
+
+2. The proposal must not be expired, meaning its `expiration-height` must
+not have been reached.
+   
+Usage:
+```Lisp
+(contract-call? .cost-voting-contract "confirm-votes" 123)
+```
+
+#### Confirm Miners
+
+Like `confirm-votes`, any stacks holder can call the `confirm-miners` function.
+`confirm-miners` will return a success response and the proposal will become
+**miner confirmed** if the following criteria are met:
+
+1. The number of vetos is less than 500.
+2. There have been less than 10 proposals already confirmed in the current block.
+3. The proposal has expired.
+
+Usage:
+```Lisp
+(contract-call? .cost-voting-contract "confirm-miners" 123)
+```

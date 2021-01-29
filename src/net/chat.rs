@@ -420,7 +420,7 @@ impl Neighbor {
 
         let mut neighbor = match peer_opt {
             Some(neighbor) => {
-                let mut ret = neighbor.clone();
+                let mut ret = neighbor;
                 ret.addr = addr.clone();
                 ret
             }
@@ -2336,7 +2336,7 @@ mod test {
 
     use net::test::*;
 
-    use core::{NETWORK_P2P_PORT, PEER_VERSION};
+    use core::{NETWORK_P2P_PORT, PEER_VERSION_TESTNET};
 
     fn make_test_chain_dbs(
         testname: &str,
@@ -2488,6 +2488,7 @@ mod test {
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
             next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
+            next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
             next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
             next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());
@@ -2533,7 +2534,7 @@ mod test {
         .unwrap();
 
         Burnchain {
-            peer_version: PEER_VERSION,
+            peer_version: PEER_VERSION_TESTNET,
             network_id: 0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),

@@ -842,7 +842,7 @@ impl StacksChainState {
         mainnet: bool,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        debug!("Begin install boot code");
+        info!("Building genesis block");
 
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
@@ -918,10 +918,12 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            warn!(
-                "Seeding {} balances coming from the config",
-                boot_data.initial_balances.len()
-            );
+            if boot_data.initial_balances.len() > 0 {
+                warn!(
+                    "Seeding {} balances coming from the config",
+                    boot_data.initial_balances.len()
+                );
+            }
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
@@ -1178,11 +1180,12 @@ impl StacksChainState {
                         })
                         .unwrap();
                 }
+                info!("Saving Genesis block. This could take a while");
             });
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
-                boot_code_auth.clone(),
+                boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
                     0,
@@ -1211,7 +1214,6 @@ impl StacksChainState {
                 })
                 .expect("FATAL: `ust-liquid-supply` overflowed");
 
-            info!("Committing Genesis transaction. This could take a while");
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
@@ -1334,7 +1336,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut state_path = path.clone();
+        let mut state_path = path;
 
         state_path.push("vm");
         StacksChainState::mkdirs(&state_path)?;

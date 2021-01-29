@@ -6,6 +6,10 @@ use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::core::{
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET,
+};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
@@ -13,12 +17,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-
-pub const MAINNET_CHAIN_ID: u32 = 0x00000001;
-pub const MAINNET_PEER_VERSION: u32 = 0x18000000;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
@@ -413,14 +411,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     runtime: 100_000_000_000,
 };
 
-pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
-
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
@@ -517,16 +507,16 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
-                        MAINNET_CHAIN_ID
+                        CHAIN_ID_MAINNET
                     } else {
-                        TESTNET_CHAIN_ID
+                        CHAIN_ID_TESTNET
                     },
                     peer_version: if &burnchain_mode == "mainnet" {
-                        MAINNET_PEER_VERSION
+                        PEER_VERSION_MAINNET
                     } else {
-                        TESTNET_PEER_VERSION
+                        PEER_VERSION_TESTNET
                     },
-                    mode: burnchain_mode.clone(),
+                    mode: burnchain_mode,
                     burn_fee_cap: burnchain
                         .burn_fee_cap
                         .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -606,6 +596,15 @@ impl Config {
 
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        } else {
+            if burnchain.mode == "mainnet" {
+                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
@@ -795,7 +794,7 @@ impl Config {
         };
 
         let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            MAINNET_BLOCK_LIMIT.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
             match config_file.block_limit {
                 Some(opts) => ExecutionCost {
@@ -947,8 +946,8 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
-            chain_id: TESTNET_CHAIN_ID,
-            peer_version: TESTNET_PEER_VERSION,
+            chain_id: CHAIN_ID_TESTNET,
+            peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),

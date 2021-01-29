@@ -149,6 +149,9 @@ pub enum MemPoolRejection {
         principal: PrincipalData,
         is_origin: bool,
     },
+    BadTransactionVersion,
+    TransferRecipientIsSender(PrincipalData),
+    TransferAmountMustBePositive,
     DBError(db_error),
     Other(String),
 }
@@ -178,6 +181,7 @@ impl MemPoolRejection {
                     }),
                 ),
             ),
+            BadTransactionVersion => ("BadTransactionVersion", None),
             FailedToValidate(e) => (
                 "SignatureValidation",
                 Some(json!({"message": e.to_string()})),
@@ -188,6 +192,11 @@ impl MemPoolRejection {
                                                 "expected": expected,
                                                 "actual": actual})),
             ),
+            TransferRecipientIsSender(recipient) => (
+                "TransferRecipientCannotEqualSender",
+                Some(json!({"recipient": recipient.to_string()})),
+            ),
+            TransferAmountMustBePositive => ("TransferAmountMustBePositive", None),
             BadNonces(TransactionNonceMismatch {
                 expected,
                 actual,
@@ -1190,7 +1199,7 @@ impl StacksChainState {
                         parent_consensus_hash, parent_anchored_block_hash, &mblock_hash,
                     )),
                     None => {
-                        debug!(
+                        test_debug!(
                             "No such microblock (processed={}): {}/{}-{} ({})",
                             processed_only,
                             parent_consensus_hash,
@@ -1215,7 +1224,7 @@ impl StacksChainState {
                 }
             }
 
-            debug!(
+            test_debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
@@ -1369,8 +1378,8 @@ impl StacksChainState {
                         &parent_index_block_hash, mblock.header.sequence
                     );
                     fork_poison = Some(TransactionPayload::PoisonMicroblock(
-                        mblock.header.clone(),
-                        tip_mblock.header.clone(),
+                        mblock.header,
+                        tip_mblock.header,
                     ));
                     ret.pop(); // last microblock pushed (i.e. the tip) conflicts with mblock
                     break;
@@ -3577,11 +3586,13 @@ impl StacksChainState {
                 let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
                 debug!(
-                    "Consider block {}/{} whose parent is {}/{}",
+                    "Consider block {}/{} whose parent is {}/{} with {} parent microblocks tailed at {}",
                     &candidate.consensus_hash,
                     &candidate.anchored_block_hash,
                     &candidate.parent_consensus_hash,
-                    &candidate.parent_anchored_block_hash
+                    &candidate.parent_anchored_block_hash,
+                    if candidate.parent_microblock_hash != BlockHeaderHash([0u8; 32]) { (candidate.parent_microblock_seq as u32) + 1 } else { 0 },
+                    &candidate.parent_microblock_hash
                 );
 
                 let can_attach = {
@@ -4996,6 +5007,34 @@ impl StacksChainState {
         query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
+    /// This runs checks for the validity of a transaction that
+    ///   can be performed just by inspecting the transaction itself (i.e., without
+    ///   consulting chain state).
+    fn can_admit_mempool_semantic(
+        tx: &StacksTransaction,
+        is_mainnet: bool,
+    ) -> Result<(), MemPoolRejection> {
+        if is_mainnet != tx.is_mainnet() {
+            return Err(MemPoolRejection::BadTransactionVersion);
+        }
+        match tx.payload {
+            TransactionPayload::TokenTransfer(ref recipient, amount, ref _memo) => {
+                let origin = PrincipalData::from(tx.origin_address());
+                if &origin == recipient {
+                    return Err(MemPoolRejection::TransferRecipientIsSender(origin));
+                }
+                if amount == 0 {
+                    return Err(MemPoolRejection::TransferAmountMustBePositive);
+                }
+                if !StacksChainState::is_valid_address_version(is_mainnet, recipient.version()) {
+                    return Err(MemPoolRejection::BadAddressVersionByte);
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
     /// Note that this only checks the transaction against the _anchored chain tip_, not the
     /// unconfirmed microblock stream trailing off of it.
@@ -5006,6 +5045,9 @@ impl StacksChainState {
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
+        let is_mainnet = self.clarity_state.is_mainnet();
+        StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
+
         let conf = self.config();
         let staging_height =
             match self.get_stacks_block_height(current_consensus_hash, current_block) {

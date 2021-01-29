@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::PEER_VERSION;
+use core::PEER_VERSION_TESTNET;
 
 use net::asn::ASEntry4;
 use net::db::PeerDB;
@@ -418,7 +418,7 @@ impl NeighborWalk {
         }
 
         self.prev_neighbor = Some(self.cur_neighbor.clone());
-        self.cur_neighbor = next_neighbor.clone();
+        self.cur_neighbor = next_neighbor;
         self.walk_outbound = next_neighbor_outbound;
         self.next_neighbor = None;
 
@@ -551,12 +551,24 @@ impl NeighborWalk {
                             if self.walk_outbound {
                                 // connected to a routable neighbor, so update its entry in the DB.
                                 let mut tx = network.peerdb.tx_begin()?;
-                                let neighbor_from_handshake = Neighbor::from_handshake(
+                                let mut neighbor_from_handshake = Neighbor::from_handshake(
                                     &mut tx,
                                     message.preamble.peer_version,
                                     message.preamble.network_id,
                                     &data.handshake,
                                 )?;
+
+                                // if the neighbor accidentally gave us a private IP address, then
+                                // just use the one we used to contact it.  This can happen if the
+                                // node is behind a load-balancer, or is doing port-forwarding,
+                                // etc.
+                                if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
+                                    debug!("{:?}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}", &self.local_peer, &neighbor_from_handshake.addr, &self.cur_neighbor.addr);
+                                    neighbor_from_handshake.addr.addrbytes =
+                                        self.cur_neighbor.addr.addrbytes.clone();
+                                    neighbor_from_handshake.addr.port = self.cur_neighbor.addr.port;
+                                }
+
                                 let res = if neighbor_from_handshake.addr != self.cur_neighbor.addr
                                 {
                                     // somehow, got a handshake from someone that _isn't_ cur_neighbor
@@ -977,7 +989,7 @@ impl NeighborWalk {
         for (naddr, mut rh) in unresolved_handshake_neighbors.drain() {
             if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
                 self.result.add_dead(NeighborKey::from_neighbor_address(
-                    PEER_VERSION,
+                    network.peer_version,
                     self.local_peer.network_id,
                     &naddr,
                 ));
@@ -1081,7 +1093,7 @@ impl NeighborWalk {
                                 &self.local_peer, naddr, &e
                             );
                             self.result.add_dead(NeighborKey::from_neighbor_address(
-                                PEER_VERSION,
+                                network.peer_version,
                                 self.local_peer.network_id,
                                 &naddr,
                             ));
@@ -1421,7 +1433,7 @@ impl NeighborWalk {
             );
         }
 
-        self.next_neighbor = next_neighbor_opt.clone();
+        self.next_neighbor = next_neighbor_opt;
         if let Some(ref next_neighbor) = self.next_neighbor {
             if *next_neighbor == self.cur_neighbor {
                 self.next_walk_outbound = self.walk_outbound;
@@ -1871,30 +1883,42 @@ impl PeerNetwork {
     fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
         let allowed_peers =
             PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
-        for allowed in allowed_peers {
-            if !self.events.contains_key(&allowed.addr) {
-                debug!(
-                    "Will (re-)connect to always-allowed peer {:?}",
-                    &allowed.addr
-                );
-                let w = NeighborWalk::new(
-                    self.local_peer.clone(),
-                    self.chain_view.clone(),
-                    &allowed,
-                    true,
-                    self.walk_pingbacks.clone(),
-                    &self.connection_opts,
-                );
 
-                debug!(
-                    "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
-                    &self.local_peer, &allowed
-                );
-                self.walk = Some(w);
-                return Ok(());
+        let mut count = 0;
+        for allowed in allowed_peers.iter() {
+            if self.events.contains_key(&allowed.addr) {
+                count += 1;
             }
         }
 
+        if count == 0 {
+            // must connect to always-allowed
+            for allowed in allowed_peers {
+                if !self.events.contains_key(&allowed.addr) {
+                    debug!(
+                        "Will (re-)connect to always-allowed peer {:?}",
+                        &allowed.addr
+                    );
+                    let w = NeighborWalk::new(
+                        self.local_peer.clone(),
+                        self.chain_view.clone(),
+                        &allowed,
+                        true,
+                        self.walk_pingbacks.clone(),
+                        &self.connection_opts,
+                    );
+
+                    debug!(
+                        "{:?}: instantiated neighbor walk to always-allowed peer {:?}",
+                        &self.local_peer, &allowed
+                    );
+                    self.walk = Some(w);
+                    return Ok(());
+                }
+            }
+        }
+
+        // try a different walk strategy
         return Err(net_error::NotFoundError);
     }
 
@@ -4673,7 +4697,7 @@ mod test {
         conf.connection_opts.disable_block_download = true;
 
         let j = i as u32;
-        conf.burnchain.peer_version = PEER_VERSION | (j << 16) | (j << 8) | j; // different non-major versions for each peer
+        conf.burnchain.peer_version = PEER_VERSION_TESTNET | (j << 16) | (j << 8) | j; // different non-major versions for each peer
         conf
     }
 
