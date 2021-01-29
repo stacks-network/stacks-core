@@ -7,7 +7,8 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MAINNET_BLOCK_LIMIT, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -408,14 +409,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     read_count: 5_0_000,
     // allow much more runtime in helium blocks than mainnet
     runtime: 100_000_000_000,
-};
-
-pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
 };
 
 impl Config {

@@ -20,8 +20,10 @@ use burnchains::{Burnchain, BurnchainHeaderHash};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
+use vm::costs::ExecutionCost;
 
 pub mod mempool;
+
 pub use self::mempool::MemPoolDB;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
@@ -102,6 +104,14 @@ pub const POX_MAXIMAL_SCALING: u128 = 4;
 pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
+
+pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
+};
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

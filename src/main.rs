@@ -251,14 +251,6 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let mainnet_block_limit = ExecutionCost {
-            write_length: 15_000_000, // roughly 15 mb
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        };
-
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -268,7 +260,7 @@ simulating a miner.
             VRFProof::empty(),
             Hash160([0; 20]),
             &coinbase_tx,
-            mainnet_block_limit,
+            core::MAINNET_BLOCK_LIMIT.clone(),
         );
 
         println!(
