@@ -771,7 +771,7 @@ impl BitcoinRegtestController {
                 },
             )
         } else {
-            self.prepare_tx(&public_key, 3 * DUST_UTXO_LIMIT, None, None, 0)?
+            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, None, None, 0)?
         };
 
         // Serialize the payload
