@@ -756,6 +756,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
+        let max_tx_size = 230;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -771,7 +772,13 @@ impl BitcoinRegtestController {
                 },
             )
         } else {
-            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, None, None, 0)?
+            self.prepare_tx(
+                &public_key,
+                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                None,
+                None,
+                0,
+            )?
         };
 
         // Serialize the payload
@@ -797,7 +804,7 @@ impl BitcoinRegtestController {
             &mut tx,
             DUST_UTXO_LIMIT,
             0,
-            230,
+            max_tx_size,
             self.config.burnchain.satoshis_per_byte,
             &mut utxos,
             signer,
@@ -829,8 +836,9 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
+        let max_tx_size = 280;
 
-        let output_amt = 4 * DUST_UTXO_LIMIT;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte;
         let (mut tx, mut utxos) = self.prepare_tx(&public_key, output_amt, None, None, 0)?;
 
         // Serialize the payload
@@ -855,7 +863,7 @@ impl BitcoinRegtestController {
             &mut tx,
             output_amt,
             0,
-            280,
+            max_tx_size,
             self.config.burnchain.satoshis_per_byte,
             &mut utxos,
             signer,
