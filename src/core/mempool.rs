@@ -391,7 +391,7 @@ impl MemPoolDB {
             return Ok(MemPoolWalkResult::Done);
         }
 
-        let mut next_tips = MemPoolDB::get_chain_tips_at_height(&self.db, next_height)?;
+        let next_tips = MemPoolDB::get_chain_tips_at_height(&self.db, next_height)?;
 
         let ancestor_tip = {
             let headers_conn = chainstate.index_conn()?;

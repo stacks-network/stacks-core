@@ -199,7 +199,16 @@ fn main() {
 
     if argv[1] == "try-mine" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} try-mine <working-dir>", argv[0]);
+            eprintln!(
+                "Usage: {} try-mine <working-dir>
+
+Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
+assembly, but does not attempt to broadcast a block commit. This is useful for determining
+what transactions a given chain state would include in an anchor block, or otherwise
+simulating a miner.
+",
+                argv[0]
+            );
             process::exit(1);
         }
 
@@ -208,8 +217,8 @@ fn main() {
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = 1;
-        let (mut chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let chain_id = core::CHAIN_ID_MAINNET;
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -239,7 +248,7 @@ fn main() {
         coinbase_tx.chain_id = chain_id;
         coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-        tx_signer.sign_origin(&sk);
+        tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
         let mainnet_block_limit = ExecutionCost {
