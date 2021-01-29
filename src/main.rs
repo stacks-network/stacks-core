@@ -260,7 +260,7 @@ simulating a miner.
             VRFProof::empty(),
             Hash160([0; 20]),
             &coinbase_tx,
-            core::MAINNET_BLOCK_LIMIT.clone(),
+            core::BLOCK_LIMIT_MAINNET.clone(),
         );
 
         println!(

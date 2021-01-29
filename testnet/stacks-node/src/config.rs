@@ -7,7 +7,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MAINNET_BLOCK_LIMIT, PEER_VERSION_MAINNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
     PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
@@ -794,7 +794,7 @@ impl Config {
         };
 
         let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            MAINNET_BLOCK_LIMIT.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
             match config_file.block_limit {
                 Some(opts) => ExecutionCost {
