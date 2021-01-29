@@ -384,10 +384,16 @@ impl MemPoolDB {
     ) -> Result<MemPoolWalkResult, ChainstateError> {
         // Walk back to the next-highest
         // ancestor of this tip, and see if we can include anything from there.
-        let next_height = MemPoolDB::get_previous_block_height(&self.db, tip_height)?.unwrap_or(0);
+        let next_height = match MemPoolDB::get_previous_block_height(&self.db, tip_height)? {
+            Some(next_height) => next_height,
+            None => {
+                debug!("Done scanning mempool: no transactions left"; "height" => tip_height);
+                return Ok(MemPoolWalkResult::Done);
+            }
+        };
         if next_height == 0 && tip_height == 0 {
             // we're done -- tried every tx
-            debug!("Done scanning mempool -- at height 0");
+            debug!("Done scanning mempool: at height 0");
             return Ok(MemPoolWalkResult::Done);
         }
 
@@ -404,16 +410,17 @@ impl MemPoolDB {
             )? {
                 Some(tip_info) => tip_info,
                 None => {
-                    // no such ancestor.  We're done
-                    debug!(
-                        "Done scanning mempool -- no ancestor at height {} off of {}/{} ({})",
-                        next_height,
-                        tip_consensus_hash,
-                        tip_block_hash,
-                        StacksBlockHeader::make_index_block_hash(
+                    // no ancestor at the height, this is a error because this shouldn't ever
+                    //   happen: a chain tip should have an ancestor at every height < than its own height
+                    error!(
+                        "Done scanning mempool: no known ancestor of tip at height";
+                        "height" => next_height,
+                        "tip_consensus_hash" => %tip_consensus_hash,
+                        "tip_block_hash" => %tip_block_hash,
+                        "tip_index_hash" => %StacksBlockHeader::make_index_block_hash(
                             tip_consensus_hash,
                             tip_block_hash
-                        )
+                        ),
                     );
                     return Ok(MemPoolWalkResult::Done);
                 }
@@ -438,7 +445,10 @@ impl MemPoolDB {
 
         if !found {
             // no ancestor at height, try an earlier height
-            debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_consensus_hash, tip_block_hash);
+            debug!(
+                "None of the available prior chain tips at {} is an ancestor of {}/{}",
+                next_height, tip_consensus_hash, tip_block_hash
+            );
             return Ok(MemPoolWalkResult::NoneAtHeight(
                 ancestor_tip.consensus_hash,
                 ancestor_bh,
