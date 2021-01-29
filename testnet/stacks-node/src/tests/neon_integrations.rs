@@ -2065,7 +2065,7 @@ fn atlas_integration_test() {
             "namespace-preorder",
             &[
                 Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
-                Value::UInt(1000),
+                Value::UInt(1000000000),
             ],
         );
 
@@ -2213,12 +2213,10 @@ fn atlas_integration_test() {
             panic!("");
         }
 
-        // From there, let's mine these transaction, and build an extra block.
+        // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1;
+        let few_blocks = sort_height + 5;
 
-        // now let's mine until the next reward cycle starts ...
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
             sort_height = channel.get_sortitions_processed();
@@ -2237,10 +2235,9 @@ fn atlas_integration_test() {
             _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
-        // From there, let's mine these transaction, and build an extra block.
+        // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1;
+        let few_blocks = sort_height + 5;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
