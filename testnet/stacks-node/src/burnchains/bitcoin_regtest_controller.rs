@@ -987,12 +987,12 @@ impl BitcoinRegtestController {
             let mined_op = burnchain_db.get_burnchain_op(txid);
             if mined_op.is_some() {
                 // Good to go, the transaction in progress was mined
-                info!("Was able to retrieve ongoing TXID - {}", txid);
+                debug!("Was able to retrieve ongoing TXID - {}", txid);
                 let res =
                     self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
                 return res;
             } else {
-                info!("Was unable to retrieve ongoing TXID - {}", txid);
+                debug!("Was unable to retrieve ongoing TXID - {}", txid);
             }
         }
 
@@ -1005,7 +1005,7 @@ impl BitcoinRegtestController {
         // Did a re-org occurred since we fetched our UTXOs
         if let Err(e) = burnchain_db.get_burnchain_block(&ongoing_op.utxos.bhh) {
             info!(
-                "Detected presence of fork, invalidating cached set of UTXOs - {:?}",
+                "Possible presence of fork, invalidating cached set of UTXOs - {:?}",
                 e
             );
             let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
