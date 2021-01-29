@@ -533,7 +533,7 @@ impl MemPoolDB {
                             next_block_hash,
                             next_height,
                         ) => {
-                            if std::env::var("MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
+                            if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
                                 warn!(
                                 "Stopping mempool walk because no mempool entries at height = {}",
                                 next_height - 1
@@ -596,7 +596,7 @@ impl MemPoolDB {
                             next_block_hash,
                             next_height,
                         ) => {
-                            if std::env::var("MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
+                            if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
                                 warn!(
                                     "Stopping mempool walk because no mempool entries at height = {}",
                                     next_height - 1
