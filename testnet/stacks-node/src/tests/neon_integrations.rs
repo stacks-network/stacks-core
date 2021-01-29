@@ -38,12 +38,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use crate::config::MAINNET_BLOCK_LIMIT;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
+use stacks::core::BLOCK_LIMIT_MAINNET;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1623,7 +1623,7 @@ fn near_full_block_integration_test() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     // Set block limit
-    conf.block_limit = MAINNET_BLOCK_LIMIT;
+    conf.block_limit = BLOCK_LIMIT_MAINNET;
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
