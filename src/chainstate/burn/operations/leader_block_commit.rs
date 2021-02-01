@@ -51,6 +51,7 @@ use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 use chainstate::stacks::index::storage::TrieFileStorage;
 
 // return type from parse_data below
+#[derive(Debug)]
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
@@ -267,6 +268,8 @@ impl LeaderBlockCommitOp {
             op_error::ParseError
         })?;
 
+        println!("parse_from_tx.data {:#?}", data);
+
         // basic sanity checks
         if data.parent_block_ptr == 0 {
             if data.parent_vtxindex != 0 {
@@ -443,7 +446,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(StacksAddress, u16)>,

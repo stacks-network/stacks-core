@@ -1,0 +1,21 @@
+àCp	
+M9ü¿W$°rù÷ë^bÅ
+µ»ÿHàõy&Ñk¦x)f!©â?£z¦©´6¢F:owïüÁÓxÛàZ'®ragreeable-apricot-squirreld;; hello-world contract
+
+(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(define-constant recipient 'ST1XNHFEXV7KW2EPEFJ4QKMETEESXHJGEM9QMEZ7A)
+
+(define-fungible-token novel-token-19)
+(begin (ft-mint? novel-token-19 u12 sender))
+(begin (ft-transfer? novel-token-19 u2 sender recipient))
+
+(define-non-fungible-token hello-nft uint)
+(begin (nft-mint? hello-nft u1 sender))
+(begin (nft-mint? hello-nft u2 sender))
+(begin (nft-transfer? hello-nft u1 sender recipient))
+
+(define-public (test-emit-event)
+    (begin
+        (print "Event! Hello world")
+        (ok u1)))
+(begin (test-emit-event))

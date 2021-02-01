@@ -70,19 +70,22 @@ use burnchains::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::ConsensusHash;
+use chainstate::burn::SortitionHash;
 
 use chainstate::burn::db::sortdb::PoxId;
+use chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::{
     Error as chain_error, StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock,
-    StacksPublicKey, StacksTransaction,
+    StacksPrivateKey, StacksPublicKey, StacksTransaction,
 };
 
 use chainstate::stacks::Error as chainstate_error;
 
 use vm::{
-    analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
+    analysis::contract_interface_builder::ContractInterface,
+    costs::ExecutionCost, types::PrincipalData, ClarityName,
     ContractName, Value,
 };
 
@@ -102,6 +105,8 @@ use util::strings::UrlString;
 
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
+
+use util::vrf::VRFProof;
 
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
@@ -1008,6 +1013,8 @@ pub struct RPCPeerInfoData {
     pub peer_version: u32,
     pub pox_consensus: ConsensusHash,
     pub burn_block_height: u64,
+    pub burn_block_hash: BurnchainHeaderHash,
+    pub sortition_hash: SortitionHash,
     pub stable_pox_consensus: ConsensusHash,
     pub stable_burn_block_height: u64,
     pub server_version: String,
@@ -1068,6 +1075,22 @@ pub struct ContractSrcResponse {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marf_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuildBlockTemplateResponse {
+    pub block: StacksBlock,
+    pub consumed: ExecutionCost,
+    pub size: u64,
+    pub height: u32,
+    #[serde(rename = "parent-block-burn-height")]
+    pub parent_block_burn_height: u32,
+    #[serde(rename = "parent-winning-vtxindex")]
+    pub parent_winning_vtxindex: u16,
+    #[serde(rename = "recipients")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipients: Option<RewardSetInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1171,6 +1194,19 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PostBuildBlockTemplateRequestBody {
+    pub txids: Vec<Txid>,
+    #[serde(rename = "vrf-proof")]
+    pub vrf_proof: VRFProof,
+    #[serde(rename = "micro-block-public-hash")]
+    pub microblock_public_hash: Hash160,
+    #[serde(rename = "micro-block-secret-key")]
+    pub microblock_secret_key: StacksPrivateKey,
+    #[serde(rename = "coinbase-tx")]
+    pub coinbase_tx: StacksTransaction,
+}
+
 /// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighbor {
@@ -1254,6 +1290,14 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         Option<StacksBlockId>,
+    ),
+    PostBuildBlockTemplate(
+        HttpRequestMetadata,
+        Vec<Txid>,
+        VRFProof,
+        Hash160,
+        StacksPrivateKey,
+        StacksTransaction,
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
@@ -1350,6 +1394,7 @@ pub enum HttpResponseType {
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
+    PostBuildBlockTemplate(HttpResponseMetadata, BuildBlockTemplateResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
@@ -1538,7 +1583,7 @@ impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 
-impl_byte_array_serde!(ConsensusHash);
+// impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -2474,6 +2519,7 @@ pub mod test {
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                None,
             );
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();

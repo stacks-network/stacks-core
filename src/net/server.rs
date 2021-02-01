@@ -81,6 +81,9 @@ pub struct HttpPeer {
 
     // connection options
     pub connection_opts: ConnectionOptions,
+
+    // the relay sender to send instructions to the Miner Relayer
+    pub rpc_channel: Option<SyncSender<RPCDirective>>,
 }
 
 impl HttpPeer {
@@ -90,6 +93,7 @@ impl HttpPeer {
         chain_view: BurnchainView,
         conn_opts: ConnectionOptions,
         server_handle: usize,
+        rpc_channel: Option<SyncSender<RPCDirective>>,
     ) -> HttpPeer {
         HttpPeer {
             network_id: network_id,
@@ -102,6 +106,7 @@ impl HttpPeer {
 
             burnchain: burnchain,
             connection_opts: conn_opts,
+            rpc_channel,
         }
     }
 
@@ -266,6 +271,7 @@ impl HttpPeer {
             peer_host,
             &self.connection_opts,
             event_id,
+            self.rpc_channel.clone(),
         );
 
         debug!(

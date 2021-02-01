@@ -16,7 +16,7 @@
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+    blocks::MemPoolRejection, blocks::StagingBlock, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
 };
 use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::index::TrieHash;
@@ -27,11 +27,15 @@ use std::collections::HashSet;
 use std::convert::From;
 use std::fs;
 use std::mem;
+use std::sync::mpsc::SyncSender;
 
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
+use net::rpc::RPCDirective;
 use net::StacksMessageCodec;
 use vm::clarity::ClarityConnection;
+
+use util::db::Error as db_error;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -41,10 +45,12 @@ use net::StacksPublicKeyBuffer;
 
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
+use chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use chainstate::burn::*;
-
+use chainstate::coordinator::{ get_next_recipientsPSQ, OnChainRewardSetProvider };
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
+use burnchains::Burnchain;
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
@@ -79,6 +85,12 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
         }
     }
 }
+
+use std::marker::Sized;
+
+trait BuildError: std::convert::From<db_error> + std::convert::From<Error> + Sized {
+}
+
 
 ///
 ///    Independent structure for building microblocks:
@@ -1144,6 +1156,181 @@ impl StacksBlockBuilder {
         Ok((block, size, cost))
     }
 
+    ///
+    pub fn build_anchored_block_from_txids(
+        tip: &StagingBlock,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        mempool: &mut MemPoolDB,
+        burnchain: &Burnchain,
+        txids: &Vec<Txid>,
+        proof: &VRFProof,
+        microblock_public_hash: &Hash160,
+        microblock_secret_key: &StacksPrivateKey,
+        coinbase_tx: &StacksTransaction,
+        rpc_channel: Option<SyncSender<RPCDirective>>,
+    ) -> Result<(StacksBlock, ExecutionCost, u64, u32, u32, u16, Option<RewardSetInfo>), Error> {
+        // let coinbase_tx = StacksTransaction::new(   // TODO(psq): use param instead, placeholder for now
+        //     TransactionVersion::Testnet,
+        //     miner.as_transaction_auth().unwrap(),
+        //     TransactionPayload::Coinbase(CoinbasePayload([(0u8; 32])),
+        // );
+        // let const execution_budget: ExecutionCost = ExecutionCost {  // TODO(psq): use param instead? or use HELIUM_BLOCK_LIMIT?
+        //     write_length: 15_0_000_000,
+        //     write_count: 5_0_000,
+        //     read_length: 1_000_000_000,
+        //     read_count: 5_0_000,
+        //     runtime: 1_00_000_000,
+        // };
+
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        debug!("build_anchored_block_from_txids burnchain tip #{}: {:?}", burnchain_tip.block_height, burnchain_tip.burn_header_hash);
+
+        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
+        } else {
+            return Err(Error::MemPoolError(
+                "Not a coinbase transaction".to_string(),
+            ));
+        }
+
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            tip.consensus_hash.clone(),
+            tip.anchored_block_hash.clone(),
+            tip.height,
+        );
+
+        debug!(
+            "Build anchored block off of {}/{} height {}",
+            &tip_consensus_hash, &tip_block_hash, tip_height
+        );
+
+        let (mut header_reader_chainstate, _) = chainstate.reopen()?;
+        let (mut chainstate, _) = chainstate.reopen_limited(chainstate.block_limit.clone())?;
+
+        let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
+            header_reader_chainstate.db(),
+            &tip_consensus_hash,
+            &tip_block_hash,
+        )
+        .unwrap()
+        .unwrap();
+
+        // the stacks block I'm mining off of's burn header hash and vtxindex:
+        let burn_dbconn = sortdb.index_conn();
+        let parent_snapshot = SortitionDB::get_block_snapshot_consensus(
+            &burn_dbconn,
+            &tip_consensus_hash,
+        )
+        .expect("Failed to look up block's parent snapshot")
+        .expect("Failed to look up block's parent snapshot");
+
+        println!("====> total_burn {:?}", parent_snapshot.total_burn);
+
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            &parent_stacks_header,
+            proof.clone(),
+            parent_snapshot.total_burn,
+            *microblock_public_hash,
+        )?;
+
+        println!("epoch_begin");
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, &burn_dbconn)?;
+        println!("try_mine coinbase {:#?}", coinbase_tx);
+        builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
+
+        println!("get parent_sortition_id, parent_winning_vtxindex");
+        let parent_sortition_id = &parent_snapshot.sortition_id;
+        let parent_winning_vtxindex =
+            match SortitionDB::get_block_winning_vtxindex(&burn_dbconn, parent_sortition_id)
+                .expect("SortitionDB failure.")
+            {
+                Some(x) => x,
+                None => {
+                    warn!(
+                        "Failed to find winning vtx index for the parent sortition {}",
+                        parent_sortition_id
+                    );
+                    return Err(Error::NoSuchBlockError);
+                }
+            };
+
+        let mut ids: Vec<MemPoolTxInfo> = Vec::new();
+
+        println!("get txs");
+        let result = if txids.is_empty() {
+            // TODO(psq): find all transactions from mempool instead
+            // allowing for a lighter miner that does not have to keep track of which transaction
+            // has already been included in which block, and keep track of what is in the mempool
+            mempool.iterate_candidates(
+                &tip_consensus_hash,
+                &tip_block_hash,
+                tip_height,
+                &mut header_reader_chainstate,
+                |available_txs| {
+                    StacksBlockBuilder::consider_transactions(available_txs, &mut builder, &mut epoch_tx)
+                },
+            )
+        } else {
+            // TODO(psq): generate an error if tx can't be found?
+            // TODO(psq): or just report those that could not be included
+            for txid in txids.iter() {
+                if let Ok(Some(id)) = MemPoolDB::get_tx(mempool.conn(), &txid) {
+                    ids.push(id);
+                } else {
+                    // TODO(psq): build list of txids that can not be included
+                }
+            }            
+            StacksBlockBuilder::consider_transactions(ids, &mut builder, &mut epoch_tx)
+        };
+
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Failure building block: {}", e);
+                epoch_tx.rollback_block();
+                return Err(e);
+            }
+        }
+
+        println!("build block");
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
+        let consumed = builder.epoch_finish(epoch_tx);
+
+        let parent_block_burn_height: u32 = parent_stacks_header.burn_header_height;
+
+        println!("get_next_recipients");
+        let recipients/*: Option<RewardSetInfo>*/ = match get_next_recipientsPSQ(
+            &parent_snapshot,
+            &mut chainstate,
+            &sortdb,  // TODO(psq): need non mutable flavor for get_next_recipients
+            &burnchain,
+            &OnChainRewardSetProvider(),
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                error!("Failure fetching recipient set: {:?}", e);
+                return Err(Error::PoxRecipientsNotAvailable);
+            }
+        };
+
+        println!("StoreMinerBlock");
+        // TODO(psq): this is where the relayer should be an option?
+        // store the block in case it wins sortition
+        if rpc_channel.is_some() {
+            // TODO(psq): parent_snapshot.burn_header_hash is not the right burn, needs to be highest known instead if we missed a block
+            let rpc_status = rpc_channel.unwrap().send(RPCDirective::StoreMinerBlock(tip_consensus_hash, burnchain_tip.burn_header_hash, block.clone(), *microblock_secret_key));
+            println!("rpc_status {:?}", rpc_status);
+            if !rpc_status.is_ok() {
+                return Err(Error::RelayerError);
+            }            
+        }
+
+        println!("returning");
+        Ok((block, consumed, size, tip_height as u32, parent_block_burn_height, parent_winning_vtxindex, recipients))
+    }
+
     /// Create a block builder for mining
     pub fn make_block_builder(
         mainnet: bool,
@@ -1238,6 +1425,66 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // pub fn consider_transactions(available_txs: Vec<MemPoolTxInfo>, builder: &StacksBlockBuilder, epoch_tx: &mut ClarityTx) -> Result<(), From<db_error> + std::convert::From<Error> + Sized> {
+    pub fn consider_transactions(available_txs: Vec<MemPoolTxInfo>, builder: &mut StacksBlockBuilder, epoch_tx: &mut ClarityTx) -> Result<(), Error> {
+        let mut considered = HashSet::new(); // txids of all transactions we looked at
+        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
+        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
+
+        for txinfo in available_txs.into_iter() {
+            // skip transactions early if we can
+            if considered.contains(&txinfo.tx.txid()) {
+                continue;
+            }
+            if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
+                if *nonce >= txinfo.tx.get_origin_nonce() {
+                    continue;
+                }
+            }
+            if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
+                if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
+                    if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
+                        if *nonce >= sponsor_nonce {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            considered.insert(txinfo.tx.txid());
+
+            match builder.try_mine_tx_with_len(
+                epoch_tx,
+                &txinfo.tx,
+                txinfo.metadata.len,
+            ) {
+                Ok(_) => {}
+                Err(Error::BlockTooBigError) => {
+                    // done mining -- our execution budget is exceeded.
+                    // Make the block from the transactions we did manage to get
+                    debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                }
+                Err(Error::InvalidStacksTransaction(_, true)) => {
+                    // if we have an invalid transaction that was quietly ignored, don't warn here either
+                    continue;
+                }
+                Err(e) => {
+                    warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                    continue;
+                }
+            }
+
+            mined_origin_nonces
+                .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
+            if let (Some(sponsor_addr), Some(sponsor_nonce)) =
+                (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
+            {
+                mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+            }
+        }
+        Ok(())
+    }
+
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
@@ -1283,68 +1530,13 @@ impl StacksBlockBuilder {
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
-
         let result = mempool.iterate_candidates(
             &tip_consensus_hash,
             &tip_block_hash,
             tip_height,
             &mut header_reader_chainstate,
             |available_txs| {
-                for txinfo in available_txs.into_iter() {
-                    // skip transactions early if we can
-                    if considered.contains(&txinfo.tx.txid()) {
-                        continue;
-                    }
-                    if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                        if *nonce >= txinfo.tx.get_origin_nonce() {
-                            continue;
-                        }
-                    }
-                    if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                        if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                            if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                if *nonce >= sponsor_nonce {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
-                    considered.insert(txinfo.tx.txid());
-
-                    match builder.try_mine_tx_with_len(
-                        &mut epoch_tx,
-                        &txinfo.tx,
-                        txinfo.metadata.len,
-                    ) {
-                        Ok(_) => {}
-                        Err(Error::BlockTooBigError) => {
-                            // done mining -- our execution budget is exceeded.
-                            // Make the block from the transactions we did manage to get
-                            debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                        }
-                        Err(Error::InvalidStacksTransaction(_, true)) => {
-                            // if we have an invalid transaction that was quietly ignored, don't warn here either
-                            continue;
-                        }
-                        Err(e) => {
-                            warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                            continue;
-                        }
-                    }
-
-                    mined_origin_nonces
-                        .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
-                    if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                        (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                    {
-                        mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                    }
-                }
-                Ok(())
+                StacksBlockBuilder::consider_transactions(available_txs, &mut builder, &mut epoch_tx)
             },
         );
 

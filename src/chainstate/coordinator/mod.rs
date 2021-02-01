@@ -375,6 +375,27 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         .map_err(|e| Error::from(e))
 }
 
+pub fn get_next_recipientsPSQ<U: RewardSetProvider>(
+    sortition_tip: &BlockSnapshot,
+    chain_state: &mut StacksChainState,
+    sort_db: &SortitionDB,
+    burnchain: &Burnchain,
+    provider: &U,
+) -> Result<Option<RewardSetInfo>, Error> {
+    let reward_cycle_info = get_reward_cycle_info(
+        sortition_tip.block_height + 1,
+        &sortition_tip.burn_header_hash,
+        &sortition_tip.sortition_id,
+        burnchain,
+        chain_state,
+        sort_db,
+        provider,
+    )?;
+    sort_db
+        .get_next_block_recipientsPSQ(sortition_tip, reward_cycle_info.as_ref())
+        .map_err(|e| Error::from(e))
+}
+
 /// returns None if this burnchain block is _not_ the start of a reward cycle
 ///         otherwise, returns the required reward cycle info for this burnchain block
 ///                     in our current sortition view:

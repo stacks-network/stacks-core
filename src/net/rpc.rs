@@ -22,6 +22,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::sync::mpsc::SyncSender;
 
 use core::mempool::*;
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
@@ -55,8 +56,8 @@ use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
 use net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    AccountEntryResponse, AttachmentPage, BuildBlockTemplateResponse, CallReadOnlyResponse,
+    ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
@@ -77,6 +78,7 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
+use chainstate::stacks::db::blocks::StagingBlock;
 use monitoring;
 
 use rusqlite::{DatabaseName, NO_PARAMS};
@@ -86,6 +88,7 @@ use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
+use util::vrf::VRFProof;
 
 use crate::{util::hash::Sha256Sum, version_string};
 
@@ -111,6 +114,17 @@ pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
     pub genesis_chainstate_hash: Sha256Sum,
 }
+
+
+pub enum RPCDirective {
+    StoreMinerBlock(
+        ConsensusHash,
+        BurnchainHeaderHash,
+        StacksBlock,
+        StacksPrivateKey,
+    ),
+}
+
 
 pub struct ConversationHttp {
     network_id: u32,
@@ -139,6 +153,7 @@ pub struct ConversationHttp {
     pending_request: Option<ReplyHandleHttp>,
     pending_response: Option<HttpResponseType>,
     pending_error_response: Option<HttpResponseType>,
+    rpc_channel: Option<SyncSender<RPCDirective>>,
 }
 
 impl fmt::Display for ConversationHttp {
@@ -213,6 +228,8 @@ impl RPCPeerInfoData {
             peer_version: burnchain.peer_version,
             pox_consensus: burnchain_tip.consensus_hash,
             burn_block_height: burnchain_tip.block_height,
+            burn_block_hash: burnchain_tip.burn_header_hash,
+            sortition_hash: burnchain_tip.sortition_hash,
             stable_pox_consensus: stable_burnchain_tip.consensus_hash,
             stable_burn_block_height: stable_burnchain_tip.block_height,
             server_version,
@@ -392,6 +409,7 @@ impl ConversationHttp {
         peer_host: PeerHost,
         conn_opts: &ConnectionOptions,
         conn_id: usize,
+        rpc_channel: Option<SyncSender<RPCDirective>>,
     ) -> ConversationHttp {
         let mut stacks_http = StacksHttp::new();
         stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
@@ -414,6 +432,7 @@ impl ConversationHttp {
             last_request_timestamp: 0,
             last_response_timestamp: 0,
             connection_time: get_epoch_time_secs(),
+            rpc_channel,
         }
     }
 
@@ -1579,6 +1598,59 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
+    /// Handle a POST to pre-build a block for a miner
+    fn handle_post_build_block<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        tip: &StagingBlock,
+        _chain_view: &BurnchainView,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        mempool: &mut MemPoolDB,
+        burnchain: &Burnchain,
+        txids: &Vec<Txid>,
+        proof: &VRFProof,
+        microblock_public_hash: &Hash160,
+        microblock_secret_key: &StacksPrivateKey,
+        coinbase_tx: &StacksTransaction,
+        rpc_channel: Option<SyncSender<RPCDirective>>,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // TODO(psq): generate block
+        println!("handle_post_build_block {:?}", tip);
+
+        let result = StacksBlockBuilder::build_anchored_block_from_txids(
+            tip,
+            sortdb,
+            chainstate,
+            mempool,
+            burnchain,
+            txids,
+            proof,
+            microblock_public_hash,
+            microblock_secret_key,
+            coinbase_tx,
+            rpc_channel,
+        );
+        println!("handle_post_build_block.result {:?}", result);
+
+        let (block, consumed, size, height, parent_block_burn_height, parent_winning_vtxindex, recipients) = result.unwrap();
+        let data = BuildBlockTemplateResponse {
+            block,
+            consumed,
+            size,
+            height,
+            parent_block_burn_height,
+            parent_winning_vtxindex,
+            recipients,
+        };
+
+        let response = HttpResponseType::PostBuildBlockTemplate(response_metadata, data);
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -1947,6 +2019,41 @@ impl ConversationHttp {
                             index_anchor_block: tip,
                             microblocks: vec![(*mblock).clone()],
                         }));
+                    }
+                }
+                None
+            }
+            HttpRequestType::PostBuildBlockTemplate(ref _md, ref txids, ref proof, ref microblock_public_hash, ref microblock_secret_key, ref coinbase_tx) => {
+                println!("==> PostBuildBlockTemplate {:#?}: {:#?} - {:#?} - {:#?} - {:#?}", _md, txids, proof, microblock_public_hash, microblock_secret_key);
+
+                match chainstate.get_stacks_chain_tip(sortdb)? {
+                    Some(tip) => {
+                        ConversationHttp::handle_post_build_block(
+                            &mut self.connection.protocol,
+                            &mut reply,
+                            &req,
+                            &tip,
+                            chain_view,
+                            sortdb,
+                            chainstate,
+                            mempool,
+                            &self.burnchain,
+                            txids,
+                            proof,
+                            microblock_public_hash,
+                            microblock_secret_key,
+                            coinbase_tx,
+                            self.rpc_channel.clone(),
+                        )?;
+                    }
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from(&req);
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load Stacks chain tip"),
+                        );
+                        response.send(&mut self.connection.protocol, &mut reply)?;
                     }
                 }
                 None
@@ -2547,6 +2654,7 @@ mod test {
     use net::*;
     use std::cell::RefCell;
     use std::iter::FromIterator;
+    use std::sync::mpsc::sync_channel;
 
     use burnchains::Burnchain;
     use burnchains::BurnchainHeaderHash;
@@ -2909,6 +3017,7 @@ mod test {
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
             0,
+            None,
         );
 
         let mut convo_2 = ConversationHttp::new(
@@ -2921,6 +3030,7 @@ mod test {
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
             1,
+            None,
         );
 
         let req = make_request(&mut peer_1, &mut convo_1, &mut peer_2, &mut convo_2);

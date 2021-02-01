@@ -1873,6 +1873,106 @@ impl<'a> SortitionHandleConn<'a> {
 
         Ok(result)
     }
+
+    pub fn get_last_anchor_block_hashPSQ(&self) -> Result<Option<BlockHeaderHash>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
+            self.get_indexed(&chain_tip, &db_keys::pox_last_anchor())?,
+        );
+        Ok(anchor_block_hash)
+    }
+
+    fn get_reward_set_sizePSQ(&self) -> Result<u16, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        self.get_indexed(&chain_tip, db_keys::pox_reward_set_size())
+            .map(|x| {
+                db_keys::reward_set_size_from_string(
+                    &x.expect("CORRUPTION: no current reward set size written"),
+                )
+            })
+    }
+
+    fn get_reward_set_entryPSQ(&self, entry_ix: u16) -> Result<StacksAddress, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let entry_str = self
+            .get_indexed(&chain_tip, &db_keys::pox_reward_set_entry(entry_ix))?
+            .expect(&format!(
+                "CORRUPTION: expected reward set entry at index={}, but not found",
+                entry_ix
+            ));
+        Ok(StacksAddress::from_string(&entry_str).expect(&format!(
+            "CORRUPTION: bad address formatting in database: {}",
+            &entry_str
+        )))
+    }
+
+    fn pick_recipientsPSQ(
+        &self,
+        reward_set_vrf_seed: &SortitionHash,
+        next_pox_info: Option<&RewardCycleInfo>,
+    ) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        if let Some(next_pox_info) = next_pox_info {
+            if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) =
+                next_pox_info.anchor_status
+            {
+                if reward_set.len() == 0 {
+                    return Ok(None);
+                }
+
+                if OUTPUTS_PER_COMMIT != 2 {
+                    unreachable!("BUG: PoX reward address selection only implemented for OUTPUTS_PER_COMMIT = 2");
+                }
+
+                let chosen_recipients = reward_set_vrf_seed.choose_two(
+                    reward_set
+                        .len()
+                        .try_into()
+                        .expect("BUG: u32 overflow in PoX outputs per commit"),
+                );
+
+                Ok(Some(RewardSetInfo {
+                    anchor_block: anchor_block.clone(),
+                    recipients: chosen_recipients
+                        .into_iter()
+                        .map(|ix| {
+                            let recipient = reward_set[ix as usize].clone();
+                            (recipient, u16::try_from(ix).unwrap())
+                        })
+                        .collect(),
+                }))
+            } else {
+                Ok(None)
+            }
+        } else {
+            let last_anchor = self.get_last_anchor_block_hashPSQ()?;
+            if let Some(anchor_block) = last_anchor {
+                // known
+                // get the reward set size
+                let reward_set_size = self.get_reward_set_sizePSQ()?;
+                if reward_set_size == 0 {
+                    Ok(None)
+                } else {
+                    let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
+                    let mut recipients = vec![];
+                    for ix in chosen_recipients.into_iter() {
+                        let ix = u16::try_from(ix).unwrap();
+                        let recipient = self.get_reward_set_entryPSQ(ix)?;
+                        recipients.push((recipient, ix));
+                    }
+                    Ok(Some(RewardSetInfo {
+                        anchor_block,
+                        recipients,
+                    }))
+                }
+            } else {
+                // no anchor block selected
+                Ok(None)
+            }
+        }
+    }
+
+
+
 }
 
 impl PoxId {
@@ -2592,6 +2692,24 @@ impl SortitionDB {
         }
     }
 
+    pub fn get_next_block_recipientsPSQ(
+        &self,
+        parent_snapshot: &BlockSnapshot,
+        next_pox_info: Option<&RewardCycleInfo>,
+    ) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        let reward_set_vrf_hash = parent_snapshot
+            .sortition_hash
+            .mix_burn_header(&parent_snapshot.burn_header_hash);
+
+        // let mut sortition_db_handle =
+        //     SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
+        // sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
+
+        let conn = self.index_conn();
+        let sortition_db_ro = SortitionHandleConn::open_reader(&conn, &parent_snapshot.sortition_id).unwrap();
+        sortition_db_ro.pick_recipientsPSQ(&reward_set_vrf_hash, next_pox_info)
+    }
+
     pub fn is_stacks_block_in_sortition_set(
         &self,
         sortition_id: &SortitionId,
@@ -2614,7 +2732,7 @@ impl SortitionDB {
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
     pub fn get_burnchain_view(
-        conn: &DBConn,
+        &self,
         burnchain: &Burnchain,
         chain_tip: &BlockSnapshot,
     ) -> Result<BurnchainView, db_error> {
@@ -2658,7 +2776,7 @@ impl SortitionDB {
         for _height in oldest_height..(tip_height + 1) {
             let (ancestor_hash, ancestor_height) =
                 if cursor.block_height > burnchain.first_block_height {
-                    match SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id) {
+                    match SortitionDB::get_block_snapshot(self.conn(), &cursor.parent_sortition_id) {
                         Ok(Some(new_cursor)) => {
                             let ret = (cursor.burn_header_hash.clone(), cursor.block_height);
 

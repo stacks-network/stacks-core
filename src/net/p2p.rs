@@ -53,6 +53,8 @@ use net::relay::*;
 
 use net::atlas::{AttachmentInstance, AttachmentsDownloader};
 
+use net::rpc::RPCDirective;
+
 use util::db::DBConn;
 use util::db::Error as db_error;
 
@@ -327,6 +329,7 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
+        rpc_channel: Option<SyncSender<RPCDirective>>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(
             local_peer.network_id,
@@ -334,6 +337,7 @@ impl PeerNetwork {
             chain_view.clone(),
             connection_opts.clone(),
             0,
+            rpc_channel,
         );
         let pub_ip = connection_opts.public_ip_address.clone();
         let pub_ip_learned = pub_ip.is_none();
@@ -3974,7 +3978,7 @@ impl PeerNetwork {
                 &self.local_peer, sn.block_height
             );
             let new_chain_view =
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.burnchain, &sn)?;
+                SortitionDB::get_burnchain_view(&sortdb, &self.burnchain, &sn)?;
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs(self.chain_view.burn_stable_block_height);
@@ -4394,6 +4398,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
+            None,
         );
         p2p
     }

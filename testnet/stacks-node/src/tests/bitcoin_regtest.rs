@@ -50,7 +50,7 @@ impl BitcoinCoreController {
             .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
 
         match (
-            &self.config.burnchain.username,
+            &self.config.burnchain.username,z
             &self.config.burnchain.password,
         ) {
             (Some(username), Some(password)) => {

@@ -72,11 +72,12 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
-#[derive(Serialize, Deserialize)]
+// #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+impl_byte_array_serde!(BurnchainHeaderHash);
 pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;

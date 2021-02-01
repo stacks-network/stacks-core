@@ -60,8 +60,10 @@ pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
+impl_byte_array_serde!(ConsensusHash);
 pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
+#[derive(Default)]
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
@@ -104,6 +106,7 @@ pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
+impl_byte_array_serde!(SortitionHash);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]

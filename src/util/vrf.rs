@@ -67,6 +67,21 @@ impl<'de> serde::Deserialize<'de> for VRFPublicKey {
     }
 }
 
+impl serde::Serialize for VRFPrivateKey {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = self.to_hex();
+        s.serialize_str(inst.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VRFPrivateKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<VRFPrivateKey, D::Error> {
+        let inst_str = String::deserialize(d)?;
+        VRFPrivateKey::from_hex(&inst_str)
+            .ok_or_else(|| serde::de::Error::custom("Failed to parse VRF Secret Key from hex"))
+    }
+}
+
 // have to do Clone separately since ed25519_PrivateKey doesn't implement Clone
 impl Clone for VRFPrivateKey {
     fn clone(&self) -> VRFPrivateKey {

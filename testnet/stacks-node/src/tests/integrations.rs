@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use stacks::burnchains::Address;
 use stacks::chainstate::burn::VRFSeed;
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, StacksAddress, StacksBlockHeader,
-    StacksPrivateKey, StacksTransaction,
+    CoinbasePayload, db::blocks::MemPoolRejection, db::StacksChainState, StacksAddress,
+    StacksBlockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
+    TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::StacksMessageCodec;
-use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
-use stacks::util::hash::hex_bytes;
+use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse, PostBuildBlockTemplateRequestBody};
+use stacks::util::hash::{Hash160, hex_bytes};
+use stacks::util::vrf::VRFProof;
 use stacks::vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
@@ -26,7 +28,7 @@ use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 
 use super::{
-    make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
+    make_contract_call, make_contract_publish, make_stacks_transfer, TESTNET_CHAIN_ID, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
 
@@ -643,6 +645,268 @@ fn integration_test_get_info() {
                 assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
                 assert!(res.get("reason").is_some());
             },
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds).unwrap();
+}
+
+#[test]
+#[ignore]
+fn integration_test_miner_1() {
+    let mut conf = super::new_test_conf();
+    let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr,
+        amount: 100300,
+    });
+
+    conf.burnchain.commit_anchor_block_within = 5000;
+
+    let num_rounds = 4;
+
+    let rpc_bind = conf.node.rpc_bind.clone();
+    let mut run_loop = RunLoop::new(conf);
+
+    {
+        let mut http_opt = HTTP_BINDING.lock().unwrap();
+        http_opt.replace(format!("http://{}", &rpc_bind));
+    }
+
+    run_loop
+        .callbacks
+        .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+            let mut chainstate_copy = tenure.open_chainstate();
+            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+            let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+            let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+            let header_hash = chain_tip.block.block_hash();
+            let consensus_hash = chain_tip.metadata.consensus_hash;
+
+            // TODO(psq) keep adding transactions to the mempool so they can be addedd to a block
+            if round == 1 {
+                let publish_tx =
+                    make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
+                eprintln!("contract published");
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+            } else if round >= 2 {
+                let tx = make_contract_call(
+                    &principal_sk,
+                    (round - 2).into(),
+                    0,
+                    &to_addr(&contract_sk),
+                    "get-info",
+                    "update-info",
+                    &[],
+                );
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                    )
+                    .unwrap();
+            }
+
+            if round >= 1 {
+                let tx_xfer = make_stacks_transfer(
+                    &spender_sk,
+                    (round - 1).into(),
+                    0,
+                    &StacksAddress::from_string(ADDR_4).unwrap().into(),
+                    100,
+                );
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx_xfer,
+                    )
+                    .unwrap();
+            }
+
+            return;
+        });
+
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, _chain_tip, _chain_state, _burn_dbconn| {
+        // let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
+        // let contract_identifier =
+        //     QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
+
+        let http_origin = {
+            HTTP_BINDING.lock().unwrap().clone().unwrap()
+        };
+
+        match round {
+            1 => {
+                // let blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
+
+                // let parent = chain_tip.block.header.parent_block;
+                // let bhh = &chain_tip.metadata.index_block_hash();
+                // eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
+                // let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
+
+                // // find header metadata
+                // let mut headers = vec![];
+                // for block in blocks.iter() {
+                //     let header = StacksChainState::get_anchored_block_header_info(chain_state.headers_db(), &block.0, &block.1).unwrap().unwrap();
+                //     eprintln!("{}/{}: {:?}", &block.0, &block.1, &header);
+                //     headers.push(header);
+                // }
+
+                // let _tip_header_info = headers.last().unwrap();
+
+                // // find miner metadata
+                // let mut miners = vec![];
+                // for block in blocks.iter() {
+                //     let miner = StacksChainState::get_miner_info(chain_state.headers_db(), &block.0, &block.1).unwrap().unwrap();
+                //     miners.push(miner);
+                // }
+
+                // let _tip_miner = miners.last().unwrap();
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "block-height"),
+                //     Value::UInt(2));
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn,bhh, &contract_identifier, "(test-1)"),
+                //     Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)).unwrap());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-2)"),
+                //     Value::none());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-3)"),
+                //     Value::none());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-4 u1)"),
+                //     Value::some(parent_val.clone()).unwrap());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-5)"),
+                //     Value::some(parent_val).unwrap());
+
+                // // test-6 and test-7 return the block at height 1's VRF-seed,
+                // //   which in this integration test, should be blocks[0]
+                // let last_tip = blocks[0];
+                // eprintln!("Last block info: stacks: {}, burn: {}", last_tip.1, last_tip.0);
+                // let last_block = StacksChainState::load_block(&chain_state.blocks_path, &last_tip.0, &last_tip.1).unwrap().unwrap();
+                // assert_eq!(parent, last_block.header.block_hash());
+
+                // let last_vrf_seed = VRFSeed::from_proof(&last_block.header.proof).as_bytes().to_vec();
+                // let last_burn_header = headers[0].burn_header_hash.as_bytes().to_vec();
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-6)"),
+                //     Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-7)"),
+                //     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
+
+                // // verify that we can get the block miner
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-8)"),
+                //     Value::some(Value::Principal(miners[0].address.to_account_principal())).unwrap());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-9)"),
+                //     Value::none());
+
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-10)"),
+                //     Value::none());
+
+                // // verify we can read the burn block height
+                // assert_eq!(
+                //     chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-11)"),
+                //     Value::UInt(2));
+
+            },
+            3 => {
+                // let bhh = &chain_tip.metadata.index_block_hash();
+
+                // pre-mine a block
+                let client = reqwest::blocking::Client::new();
+                let path = format!("{}/v2/miner/build-block", &http_origin);
+                eprintln!("Test: POST {}", path);
+
+                let proof_bytes = hex_bytes(
+                    "9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a"
+                ).unwrap();
+                let vrf_proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+                let microblock_secret_key = StacksPrivateKey::new();  // not just the microblock key...
+                let microblock_public_hash =
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
+
+                let tx_auth = TransactionAuth::from_p2pkh(&microblock_secret_key).unwrap();
+                let mut coinbase_tx = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    tx_auth,
+                    TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+                );
+
+                coinbase_tx.chain_id = TESTNET_CHAIN_ID;
+                coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+                tx_signer.sign_origin(&microblock_secret_key).unwrap();
+
+
+
+                let txids = vec![];
+
+                let body = PostBuildBlockTemplateRequestBody {
+                    txids,
+                    vrf_proof,
+                    microblock_public_hash,
+                    microblock_secret_key,
+                    coinbase_tx: tx_signer.get_tx().unwrap(),
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                println!("--> result {:#?}", res);
+                assert!(res.get("block").is_some());
+                assert!(res["height"].as_i64().unwrap() > 0);
+
+                // let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                // let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
+                //                                                        "(get-exotic-data-info u1)");
+                // assert_eq!(result_data, expected_data);
+
+            },
+
+            // TODO(psq): pre-mine more blocks?
             _ => {},
         }
     });

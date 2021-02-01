@@ -173,6 +173,8 @@ pub enum Error {
     PoxAlreadyLocked,
     PoxInsufficientBalance,
     PoxNoRewardCycle,
+    RelayerError,
+    PoxRecipientsNotAvailable,
 }
 
 impl From<marf_error> for Error {
@@ -228,6 +230,8 @@ impl fmt::Display for Error {
             Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
             Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
             Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
+            Error::RelayerError => write!(f, "Relayer Error"),
+            Error::PoxRecipientsNotAvailable => write!(f, "Pox Recipients Not Available"),
         }
     }
 }
@@ -258,6 +262,8 @@ impl error::Error for Error {
             Error::PoxAlreadyLocked => None,
             Error::PoxInsufficientBalance => None,
             Error::PoxNoRewardCycle => None,
+            Error::RelayerError => None,
+            Error::PoxRecipientsNotAvailable => None,
         }
     }
 }
@@ -288,6 +294,8 @@ impl Error {
             Error::PoxAlreadyLocked => "PoxAlreadyLocked",
             Error::PoxInsufficientBalance => "PoxInsufficientBalance",
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
+            Error::RelayerError => "RelayerError",
+            Error::PoxRecipientsNotAvailable => "PoxRecipientsNotAvailable",
         }
     }
 
