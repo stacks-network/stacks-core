@@ -115,7 +115,8 @@ If your name is in a namespace where names do not expire, then you never need to
         ("name-resolve", "Get name registration details."),
         ("get-namespace-properties", "Get namespace properties."),
         ("can-receive-name", "Returns true if the provided name can be received. That is, if it is not curretly owned, a previous lease is expired, and the name wasn't revoked."),
-        ("get-name", "Returns a response with the username that belongs to the user if any, otherwise an error ERROR_NOT_FOUND is returned.")
+        ("get-name", "Returns a response with the username that belongs to the user if any, otherwise an error ERROR_NOT_FOUND is returned."),
+        ("resolve-principal", "Returns the name for a principal, if there is one.")
     ];
 
     let pox_skip_display = vec![
