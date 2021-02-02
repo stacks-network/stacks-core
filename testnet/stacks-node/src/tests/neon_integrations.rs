@@ -38,12 +38,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use crate::config::MAINNET_BLOCK_LIMIT;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
+use stacks::core::BLOCK_LIMIT_MAINNET;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1623,7 +1623,7 @@ fn near_full_block_integration_test() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     // Set block limit
-    conf.block_limit = MAINNET_BLOCK_LIMIT;
+    conf.block_limit = BLOCK_LIMIT_MAINNET;
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
@@ -2191,7 +2191,7 @@ fn atlas_integration_test() {
             "namespace-preorder",
             &[
                 Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
-                Value::UInt(1000),
+                Value::UInt(1000000000),
             ],
         );
 
@@ -2339,12 +2339,10 @@ fn atlas_integration_test() {
             panic!("");
         }
 
-        // From there, let's mine these transaction, and build an extra block.
+        // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1;
+        let few_blocks = sort_height + 5;
 
-        // now let's mine until the next reward cycle starts ...
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
             sort_height = channel.get_sortitions_processed();
@@ -2363,10 +2361,9 @@ fn atlas_integration_test() {
             _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
-        // From there, let's mine these transaction, and build an extra block.
+        // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        eprintln!("=> Sort height: {}", sort_height);
-        let few_blocks = sort_height + 1 + 1;
+        let few_blocks = sort_height + 5;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
