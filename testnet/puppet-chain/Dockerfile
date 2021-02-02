@@ -13,7 +13,7 @@ RUN CC=musl-gcc \
 
 FROM alpine
 WORKDIR /
-COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/bitcoin-neon-controller /bin/
-COPY config.toml.default /etc/bitcoin-neon-controller/Config.toml
+COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/puppet-chain /bin/
+COPY config.toml.default /etc/puppet-chain/Config.toml
 EXPOSE 3000
-CMD ["/bin/bitcoin-neon-controller", "/etc/bitcoin-neon-controller/Config.toml"]
+CMD ["/bin/puppet-chain", "/etc/puppet-chain/Config.toml"]
