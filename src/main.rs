@@ -29,7 +29,6 @@ extern crate slog;
 
 use blockstack_lib::*;
 use blockstack_lib::{
-    burnchains::db::BurnchainBlockData,
     burnchains::{db::BurnchainBlockData, PoxConstants},
     chainstate::{
         burn::db::sortdb::SortitionDB,
