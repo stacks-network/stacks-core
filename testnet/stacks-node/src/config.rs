@@ -7,7 +7,8 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -239,7 +240,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X5".into()),
+            magic_bytes: Some("X6".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -409,14 +410,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     read_count: 5_0_000,
     // allow much more runtime in helium blocks than mainnet
     runtime: 100_000_000_000,
-};
-
-pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
 };
 
 impl Config {
@@ -607,6 +600,15 @@ impl Config {
 
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        } else {
+            if burnchain.mode == "mainnet" {
+                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
@@ -796,7 +798,7 @@ impl Config {
         };
 
         let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            MAINNET_BLOCK_LIMIT.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
             match config_file.block_limit {
                 Some(opts) => ExecutionCost {

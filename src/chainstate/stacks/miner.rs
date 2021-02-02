@@ -668,7 +668,7 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            debug!(
+            info!(
                 "Include tx {} ({}) in anchor block",
                 tx.txid(),
                 tx.payload.name()
