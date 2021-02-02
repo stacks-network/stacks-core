@@ -42,7 +42,7 @@ pub trait BurnchainController {
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
-    fn get_chain_tip(&mut self) -> BurnchainTip;
+    fn get_chain_tip(&self) -> BurnchainTip;
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);

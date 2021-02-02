@@ -112,4 +112,4 @@ members = [
     ".", 
     "stx-genesis",
     "testnet/stacks-node",
-    "testnet/bitcoin-neon-controller"]
+    "testnet/puppet-chain"]
