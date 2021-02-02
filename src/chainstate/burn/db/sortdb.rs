@@ -3893,12 +3893,26 @@ impl<'a> SortitionHandleTx<'a> {
                 }
             };
 
+            if !arrival_sn.pox_valid {
+                test_debug!(
+                    "Snapshot {} is no longer a valid PoX snapshot",
+                    &arrival_sn.sortition_id
+                );
+                continue;
+            }
+
             // must be an ancestor of this tip, or must be this tip
             if let Some(sn) =
                 self.get_block_snapshot(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)?
             {
-                // this block arrived on an ancestor block
-                assert_eq!(sn, arrival_sn);
+                if !sn.pox_valid {
+                    test_debug!(
+                        "Parent snapshot {} of {} is no longer a valid PoX snapshot",
+                        &sn.sortition_id,
+                        &arrival_sn.sortition_id
+                    );
+                    continue;
+                }
 
                 debug!(
                     "New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}",
