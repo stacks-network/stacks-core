@@ -93,7 +93,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
+    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -121,7 +121,8 @@ impl RunLoop {
             .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
-            let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
+            let utxos =
+                burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
             if utxos.is_none() {
                 error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
                 false
@@ -384,15 +385,31 @@ impl RunLoop {
             }
 
             if block_height >= burnchain_height && !ibd {
-                // at tip, and not downloading. proceed to mine.
-                debug!(
-                    "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                    block_height
-                );
-                if !node.relayer_issue_tenure() {
-                    // relayer hung up, exit.
-                    error!("Block relayer and miner hung up, exiting.");
-                    return;
+                let canonical_stacks_tip_height =
+                    SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                        .map(|snapshot| snapshot.canonical_stacks_tip_height)
+                        .unwrap_or(0);
+                if canonical_stacks_tip_height < mine_start {
+                    info!(
+                        "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
+                        canonical_stacks_tip_height,
+                        mine_start
+                    );
+                } else {
+                    // once we've synced to the chain tip once, don't apply this check again.
+                    //  this prevents a possible corner case in the event of a PoX fork.
+                    mine_start = 0;
+
+                    // at tip, and not downloading. proceed to mine.
+                    debug!(
+                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                        block_height
+                    );
+                    if !node.relayer_issue_tenure() {
+                        // relayer hung up, exit.
+                        error!("Block relayer and miner hung up, exiting.");
+                        return;
+                    }
                 }
             }
         }
