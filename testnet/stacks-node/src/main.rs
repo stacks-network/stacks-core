@@ -79,6 +79,17 @@ fn main() {
 
     info!("{}", version());
 
+    let mine_start: Option<u64> = args
+        .opt_value_from_str("--mine-at-height")
+        .expect("Failed to parse --mine-at-height argument");
+
+    if let Some(mine_start) = mine_start {
+        info!(
+            "Will begin mining once Stacks chain has synced to height >= {}",
+            mine_start
+        );
+    }
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -144,7 +155,7 @@ fn main() {
         || conf.burnchain.mode == "mainnet"
     {
         let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(num_round, None);
+        run_loop.start(None, mine_start.unwrap_or(0));
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
@@ -196,6 +207,10 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 version\t\tDisplay information about the current version and our release cycle.
 
 help\t\tDisplay this help.
+
+OPTIONAL ARGUMENTS:
+
+\t\t--mine-at-height=<height>: optional argument for a miner to not attempt mining until Stacks block has sync'ed to <height>
 
 ", argv[0]);
 }
