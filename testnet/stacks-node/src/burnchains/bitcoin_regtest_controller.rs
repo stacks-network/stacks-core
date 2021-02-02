@@ -16,9 +16,6 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
-use stacks::burnchains::bitcoin::indexer::{
-    BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
-};
 use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
@@ -49,6 +46,10 @@ use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::{
+    burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime},
+    chainstate::burn::db::sortdb::SortitionId,
+};
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
@@ -1011,7 +1012,10 @@ impl BitcoinRegtestController {
         }
 
         // Did a re-org occurred since we fetched our UTXOs
-        if let Err(e) = burnchain_db.get_burnchain_block(&ongoing_op.utxos.bhh) {
+        let sortdb = self.sortdb_mut();
+        let sort_id = SortitionId::stubbed(&ongoing_op.utxos.bhh);
+        let ic = sortdb.index_conn();
+        if let Err(e) = SortitionDB::get_block_snapshot(&ic, &sort_id) {
             info!(
                 "Possible presence of fork, invalidating cached set of UTXOs - {:?}",
                 e
