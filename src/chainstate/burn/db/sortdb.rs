@@ -1766,6 +1766,19 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
+            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Err(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn get_chosen_pox_anchor_check_position(
+        &self,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+        check_position: bool,
+    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
                 .ok_or_else(|| {
@@ -1783,7 +1796,9 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Err(CoordinatorError::NotPrepareEndBlock);
+            if check_position {
+                return Err(CoordinatorError::NotPrepareEndBlock);
+            }
         }
 
         if effective_height == 0 {
@@ -1791,7 +1806,7 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Ok(None);
+            return Ok(Err(0));
         }
 
         let prepare_end = block_height;
@@ -1856,7 +1871,11 @@ impl<'a> SortitionHandleConn<'a> {
 
         // did any candidate receive >= F*w?
         let mut result = None;
+        let mut max_confirmed_by = 0;
         for (candidate, confirmed_by) in candidate_anchors.into_iter() {
+            if confirmed_by > max_confirmed_by {
+                max_confirmed_by = confirmed_by;
+            }
             if confirmed_by >= pox_consts.anchor_threshold {
                 // find the sortition at height
                 let sn =
@@ -1864,7 +1883,11 @@ impl<'a> SortitionHandleConn<'a> {
                         .expect("BUG: cannot find chosen PoX candidate's sortition");
                 assert!(
                     result
-                        .replace((sn.consensus_hash, sn.winning_stacks_block_hash))
+                        .replace((
+                            sn.consensus_hash,
+                            sn.winning_stacks_block_hash,
+                            confirmed_by
+                        ))
                         .is_none(),
                     "BUG: multiple anchor blocks received more confirmations than anchor_threshold"
                 );
@@ -1872,16 +1895,19 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         let reward_cycle_id = effective_height / pox_consts.reward_cycle_length;
-        if result.is_none() {
-            info!(
-                "Reward cycle #{} ({}): (F*w) not reached, expecting consensus over proof of burn",
-                reward_cycle_id, block_height
-            );
-        } else {
-            info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
+        match result {
+            None => {
+                info!(
+                    "Reward cycle #{} ({}): (F*w) not reached, expecting consensus over proof of burn",
+                    reward_cycle_id, block_height
+                );
+                Ok(Err(max_confirmed_by))
+            }
+            Some(response) => {
+                info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
+                Ok(Ok(response))
+            }
         }
-
-        Ok(result)
     }
 }
 
