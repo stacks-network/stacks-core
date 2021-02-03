@@ -91,6 +91,8 @@ use deps::httparse;
 use std::time::SystemTime;
 use time;
 
+use chainstate::burn::ConsensusHash;
+
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
     static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
@@ -105,6 +107,7 @@ lazy_static! {
     static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
@@ -145,6 +148,13 @@ enum HttpReservedHeader {
     ContentType(HttpContentType),
     XRequestID(u32),
     Host(PeerHost),
+}
+
+/// Stacks block accepted struct
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct StacksBlockAcceptedData {
+    stacks_block_id: StacksBlockId,
+    accepted: bool,
 }
 
 impl FromStr for PeerHost {
@@ -1467,6 +1477,7 @@ impl HttpRequestType {
                 &PATH_POSTTRANSACTION,
                 &HttpRequestType::parse_posttransaction,
             ),
+            ("POST", &PATH_POSTBLOCK, &HttpRequestType::parse_postblock),
             (
                 "POST",
                 &PATH_POSTMICROBLOCK,
@@ -2130,6 +2141,64 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_postblock<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-zero-length body for PostBlock".to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: PostBlock body is too big".to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for Stacks block".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::Bytes {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for Stacks block; expected application/octet-stream"
+                            .to_string(),
+                    ));
+                }
+            }
+        };
+
+        let consensus_hash_str = regex
+            .get(1)
+            .ok_or(net_error::DeserializeError(
+                "Failed to match consensus hash in path group".to_string(),
+            ))?
+            .as_str();
+
+        let consensus_hash: ConsensusHash =
+            ConsensusHash::from_hex(consensus_hash_str).map_err(|_| {
+                net_error::DeserializeError("Failed to parse consensus hash".to_string())
+            })?;
+
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let stacks_block = StacksBlock::consensus_deserialize(&mut bound_fd)?;
+
+        Ok(HttpRequestType::PostBlock(
+            HttpRequestMetadata::from_preamble(preamble),
+            consensus_hash,
+            stacks_block,
+        ))
+    }
+
     fn parse_postmicroblock<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2141,6 +2210,12 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: expected non-zero-length body for PostMicroblock"
                     .to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: PostMicroblock body is too big".to_string(),
             ));
         }
 
@@ -2161,7 +2236,9 @@ impl HttpRequestType {
             }
         };
 
-        let mb = StacksMicroblock::consensus_deserialize(fd)?;
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+
+        let mb = StacksMicroblock::consensus_deserialize(&mut bound_fd)?;
         let tip = HttpRequestType::get_chain_tip_query(query);
 
         Ok(HttpRequestType::PostMicroblock(
@@ -2265,6 +2342,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::GetTransactionUnconfirmed(ref md, _) => md,
             HttpRequestType::PostTransaction(ref md, _, _) => md,
+            HttpRequestType::PostBlock(ref md, ..) => md,
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
@@ -2290,6 +2368,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
             HttpRequestType::GetTransactionUnconfirmed(ref mut md, _) => md,
             HttpRequestType::PostTransaction(ref mut md, _, _) => md,
+            HttpRequestType::PostBlock(ref mut md, ..) => md,
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
@@ -2340,6 +2419,7 @@ impl HttpRequestType {
                 format!("/v2/transactions/unconfirmed/{}", txid)
             }
             HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
+            HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
             HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
                 "/v2/microblocks{}",
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
@@ -2478,6 +2558,23 @@ impl HttpRequestType {
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
+            }
+            HttpRequestType::PostBlock(md, _ch, block) => {
+                let mut block_bytes = vec![];
+                write_next(&mut block_bytes, block)?;
+
+                HttpRequestPreamble::new_serialized(
+                    fd,
+                    &md.version,
+                    "POST",
+                    &self.request_path(),
+                    &md.peer,
+                    md.keep_alive,
+                    Some(block_bytes.len() as u32),
+                    Some(&HttpContentType::Bytes),
+                    empty_headers,
+                )?;
+                fd.write_all(&block_bytes).map_err(net_error::WriteError)?;
             }
             HttpRequestType::PostMicroblock(md, mb, ..) => {
                 let mut mb_bytes = vec![];
@@ -2831,6 +2928,10 @@ impl HttpResponseType {
             ),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
             (
+                &PATH_POSTBLOCK,
+                &HttpResponseType::parse_stacks_block_accepted,
+            ),
+            (
                 &PATH_POSTMICROBLOCK,
                 &HttpResponseType::parse_microblock_hash,
             ),
@@ -3170,6 +3271,22 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_stacks_block_accepted<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let stacks_block_accepted: StacksBlockAcceptedData =
+            HttpResponseType::parse_json(preamble, fd, len_hint, 128)?;
+        Ok(HttpResponseType::StacksBlockAccepted(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            stacks_block_accepted.stacks_block_id,
+            stacks_block_accepted.accepted,
+        ))
+    }
+
     fn parse_microblock_hash<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3237,6 +3354,7 @@ impl HttpResponseType {
             HttpResponseType::Microblocks(ref md, _) => md,
             HttpResponseType::MicroblockStream(ref md) => md,
             HttpResponseType::TransactionID(ref md, _) => md,
+            HttpResponseType::StacksBlockAccepted(ref md, ..) => md,
             HttpResponseType::MicroblockHash(ref md, _) => md,
             HttpResponseType::TokenTransferCost(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
@@ -3430,6 +3548,22 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
             }
+            HttpResponseType::StacksBlockAccepted(ref md, ref stacks_block_id, ref accepted) => {
+                let accepted_data = StacksBlockAcceptedData {
+                    stacks_block_id: stacks_block_id.clone(),
+                    accepted: *accepted,
+                };
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, &accepted_data)?;
+            }
             HttpResponseType::MicroblockHash(ref md, ref mblock_hash) => {
                 let mblock_bytes = mblock_hash.to_hex();
                 HttpResponsePreamble::new_serialized(
@@ -3550,6 +3684,7 @@ impl MessageSequence for StacksHttpMessage {
                     "HTTP(GetTransactionUnconfirmed)"
                 }
                 HttpRequestType::PostTransaction(_, _, _) => "HTTP(PostTransaction)",
+                HttpRequestType::PostBlock(..) => "HTTP(PostBlock)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
@@ -3579,7 +3714,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
-                HttpResponseType::MicroblockHash(_, _) => "HTTP(Microblock)",
+                HttpResponseType::StacksBlockAccepted(..) => "HTTP(StacksBlockAccepted)",
+                HttpResponseType::MicroblockHash(_, _) => "HTTP(MicroblockHash)",
                 HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
