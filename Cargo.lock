@@ -255,6 +255,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_stacker",
  "sha2 0.8.2",
  "sha2-asm",
  "sha3",
@@ -1662,6 +1663,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d883f78645c21b7281d21305181aa1f4dd9e9363e7cf2566c93121552cff003e"
 
 [[package]]
+name = "psm"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3abf49e5417290756acfd26501536358560c4a5cc4a0934d390939acb3e7083a"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "puppet-chain"
 version = "0.1.0"
 dependencies = [
@@ -2202,6 +2212,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_stacker"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4c92391a63e3b83f77334d8beaaf11bac4c900f3769483e543bf76a81bf8ee2"
+dependencies = [
+ "serde",
+ "stacker",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2350,6 +2370,19 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "stacker"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3f47e840d001df3b785fbc3b84c7228519bdf63d4fb61b9e9f50f7fa153ce10"
+dependencies = [
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "psm",
+ "winapi 0.3.9",
+]
 
 [[package]]
 name = "stacks-node"
