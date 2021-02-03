@@ -13,10 +13,10 @@ RUN apk add --no-cache musl-dev
 RUN mkdir /out
 
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
-RUN cd testnet/bitcoin-neon-controller && cargo build --release
+RUN cd testnet/puppet-chain && cargo build --release
 
 RUN cp target/release/stacks-node /out
-RUN cp target/release/bitcoin-neon-controller /out
+RUN cp target/release/puppet-chain /out
 
 FROM alpine
 

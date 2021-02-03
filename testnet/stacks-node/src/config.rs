@@ -19,6 +19,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
+const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 
@@ -574,6 +575,9 @@ impl Config {
                     block_commit_tx_estimated_size: burnchain
                         .block_commit_tx_estimated_size
                         .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+                    rbf_fee_increment: burnchain
+                        .rbf_fee_increment
+                        .unwrap_or(default_burnchain_config.rbf_fee_increment),
                 }
             }
             None => default_burnchain_config,
@@ -939,6 +943,7 @@ pub struct BurnchainConfig {
     pub satoshis_per_byte: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
+    pub rbf_fee_increment: u64,
 }
 
 impl BurnchainConfig {
@@ -965,6 +970,7 @@ impl BurnchainConfig {
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
         }
     }
 
@@ -1017,6 +1023,7 @@ pub struct BurnchainConfigFile {
     pub satoshis_per_byte: Option<u64>,
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
+    pub rbf_fee_increment: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
