@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde::Deserialize;
 use std::convert::TryInto;
 use std::io::Write;
 use util::hash::{hex_bytes, to_hex};
@@ -51,7 +52,12 @@ macro_rules! clarity_serializable {
         }
         impl ClarityDeserializable<$Name> for $Name {
             fn deserialize(json: &str) -> Self {
-                serde_json::from_str(json).expect("Failed to serialize vm.Value")
+                let mut deserializer = serde_json::Deserializer::from_str(&json);
+                // serde's default 128 depth limit can be exhausted
+                //  by a 64-stack-depth AST, so disable the recursion limit
+                deserializer.disable_recursion_limit();
+                let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
+                Deserialize::deserialize(deserializer).expect("Failed to deserialize vm.Value")
             }
         }
     };
