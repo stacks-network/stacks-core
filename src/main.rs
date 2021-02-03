@@ -39,11 +39,11 @@ use blockstack_lib::{
     vm::costs::ExecutionCost,
 };
 
-use std::env;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::process;
+use std::{collections::HashMap, env};
 
 use blockstack_lib::util::log;
 
@@ -194,6 +194,45 @@ fn main() {
             .unwrap();
 
         println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "get-block-inventory" {
+        if argv.len() < 3 {
+            eprintln!(
+                "Usage: {} try-mine <working-dir>
+
+Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
+assembly, but does not attempt to broadcast a block commit. This is useful for determining
+what transactions a given chain state would include in an anchor block, or otherwise
+simulating a miner.
+",
+                argv[0]
+            );
+            process::exit(1);
+        }
+
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let chain_id = core::CHAIN_ID_MAINNET;
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+            .expect("Failed to open stacks chain state");
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+
+        let header_hashes = {
+            let ic = sort_db.index_conn();
+
+            ic.get_stacks_header_hashes(2100, &chain_tip.consensus_hash, &HashMap::new())
+                .unwrap()
+        };
+
+        let _block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
+
+        println!("Done!");
         process::exit(0);
     }
 
