@@ -29,18 +29,6 @@ pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,
 }
 
-impl ClaritySerializable for ContractAnalysis {
-    fn serialize(&self) -> String {
-        serde_json::to_string(self).expect("Failed to serialize vm.Value")
-    }
-}
-
-impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
-    fn deserialize(json: &str) -> Self {
-        serde_json::from_str(json).expect("Failed to serialize vm.Value")
-    }
-}
-
 impl<'a> AnalysisDatabase<'a> {
     pub fn new(store: &'a mut dyn ClarityBackingStore) -> AnalysisDatabase<'a> {
         AnalysisDatabase {
