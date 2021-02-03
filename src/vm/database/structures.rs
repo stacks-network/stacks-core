@@ -56,6 +56,8 @@ macro_rules! clarity_serializable {
                 // serde's default 128 depth limit can be exhausted
                 //  by a 64-stack-depth AST, so disable the recursion limit
                 deserializer.disable_recursion_limit();
+                // use stacker to prevent the deserializer from overflowing.
+                //  this will instead spill to the heap
                 let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
                 Deserialize::deserialize(deserializer).expect("Failed to deserialize vm.Value")
             }
