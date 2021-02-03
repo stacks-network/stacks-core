@@ -1073,7 +1073,7 @@ impl PeerNetwork {
     }
 
     /// Are we able to download a microblock stream between two blocks at this time?
-    fn can_download_microblock_stream(
+    pub fn can_download_microblock_stream(
         _local_peer: &LocalPeer,
         chainstate: &StacksChainState,
         parent_consensus_hash: &ConsensusHash,
