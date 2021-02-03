@@ -1026,6 +1026,18 @@ impl StacksChainState {
         query_row::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)
     }
 
+    /// Get the parent microblock hash of a preprocessed block from the staging DB, regardless of its processed status.
+    pub fn get_staging_block_parent_microblock_hash(
+        block_conn: &DBConn,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<BlockHeaderHash>, Error> {
+        let sql = "SELECT parent_microblock_hash FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
+        block_conn
+            .query_row(sql, &[index_block_hash], |row| row.get(0))
+            .optional()
+            .map_err(|e| Error::DBError(db_error::from(e)))
+    }
+
     #[cfg(test)]
     fn load_staging_block_data(
         block_conn: &DBConn,
@@ -1801,8 +1813,11 @@ impl StacksChainState {
         let parent_index_block_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_block_hash);
 
-        let child_info =
-            match StacksChainState::load_staging_block_info(&self.db(), child_index_block_hash)? {
+        let parent_microblock_hash =
+            match StacksChainState::get_staging_block_parent_microblock_hash(
+                &self.db(),
+                child_index_block_hash,
+            )? {
                 Some(x) => x,
                 None => {
                     // no header record for this block, so it cannot have confirmed anything
@@ -1811,7 +1826,7 @@ impl StacksChainState {
             };
 
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 AND processed = 1 AND orphaned = 0";
-        let args: &[&dyn ToSql] = &[&parent_index_block_hash, &child_info.parent_microblock_hash];
+        let args: &[&dyn ToSql] = &[&parent_index_block_hash, &parent_microblock_hash];
         let res = self
             .db()
             .query_row(sql, args, |_r| Ok(()))

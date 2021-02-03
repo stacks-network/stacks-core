@@ -562,6 +562,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );
+    CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);
     "#,
     r#"
     -- Staging microblocks data

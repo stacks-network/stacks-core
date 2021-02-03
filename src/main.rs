@@ -200,12 +200,9 @@ fn main() {
     if argv[1] == "get-block-inventory" {
         if argv.len() < 3 {
             eprintln!(
-                "Usage: {} try-mine <working-dir>
+                "Usage: {} get-block-inventory <working-dir>
 
-Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
-assembly, but does not attempt to broadcast a block commit. This is useful for determining
-what transactions a given chain state would include in an anchor block, or otherwise
-simulating a miner.
+Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty header cache).
 ",
                 argv[0]
             );
@@ -223,6 +220,8 @@ simulating a miner.
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
+        let start = time::Instant::now();
+
         let header_hashes = {
             let ic = sort_db.index_conn();
 
@@ -230,7 +229,14 @@ simulating a miner.
                 .unwrap()
         };
 
+        println!(
+            "Fetched header hashes in {}",
+            start.elapsed().as_seconds_f32()
+        );
+        let start = time::Instant::now();
+
         let _block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
+        println!("Fetched block inv in {}", start.elapsed().as_seconds_f32());
 
         println!("Done!");
         process::exit(0);

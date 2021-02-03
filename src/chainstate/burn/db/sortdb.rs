@@ -2306,12 +2306,14 @@ impl<'a> SortitionDBConn<'a> {
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
 
-            let ancestor_snapshot_parent = db_handle
-                .get_block_snapshot(&ancestor_snapshot.parent_burn_header_hash)?
-                .expect(&format!(
-                    "Discontiguous index: missing parent block of parent burn header hash {}",
-                    &ancestor_snapshot.parent_burn_header_hash
-                ));
+            let ancestor_snapshot_parent = SortitionDB::get_block_snapshot(
+                db_handle.conn(),
+                &ancestor_snapshot.parent_sortition_id,
+            )?
+            .expect(&format!(
+                "Discontiguous index: missing parent block of parent burn header hash {}",
+                &ancestor_snapshot.parent_burn_header_hash
+            ));
 
             ancestor_consensus_hash = ancestor_snapshot_parent.consensus_hash;
         }
