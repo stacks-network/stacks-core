@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   across the board. **NOTE:** *This changed the database schema, any
   running node would need to re-initialize their nodes from a new chain
   state when upgrading*.
+- Default value `wait_time_for_microblocks`: from 60s to 30s
 - The mempool now performs more transfer semantics checks before admitting
   a transaction (e.g., reject if origin = recipient): see issue #2354
 - Improved the performance of the code that handles `GetBlocksInv` p2p
@@ -34,3 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Miner mempool querying now works across short-lived forks: see issue #2389
 - JSON deserialization for high-depth JSON objects
 - Atlas attachment serving: see PR #2390
+- Address issues #2379, #2356, #2347, #2346. The tracking of the
+  `LeaderBlockCommit` operations inflight is improved, drastically
+  reducing the number of block commit rejections. When
+  a`LeaderBlockCommit` is not included in the Bitcoin block it was
+  targeting, it is condemned to be rejected, per the Stacks
+  consensus. To avoid wasting BTC, the miner now tries to send its
+  next `LeaderBlockCommit` operations using the UTXOs of the previous
+  transaction with a replacement by fee. The fee increase increments
+  can be configured with the setting `rbf_fee_increment`.
