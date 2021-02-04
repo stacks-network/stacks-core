@@ -484,13 +484,21 @@ impl BlockDownloader {
                         };
 
                         if !is_always_allowed {
-                            debug!("Event {} ({:?}, {:?} for block {} failed to connect. Temporarily blocking URL", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
+                            debug!("Event {} ({:?}, {:?}) for block {} failed to connect. Temporarily blocking URL", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
 
                             // don't try this again for a while
                             self.blocked_urls.insert(
                                 block_key.data_url,
                                 get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
                             );
+                        } else {
+                            debug!("Event {} ({:?}, {:?}, always-allowed) for block {} failed to connect", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
+
+                            if cfg!(test) {
+                                // just mark that we would have blocked it
+                                self.blocked_urls
+                                    .insert(block_key.data_url, get_epoch_time_secs() + 10);
+                            }
                         }
                     }
                 }
@@ -680,6 +688,7 @@ impl BlockDownloader {
     /// Return the local block headers, paired with the list of peers that can serve them.
     /// Possibly less than the given range request.
     pub fn get_block_availability(
+        _local_peer: &LocalPeer,
         inv_state: &InvState,
         sortdb: &SortitionDB,
         header_cache: &mut BlockHeaderCache,
@@ -768,7 +777,8 @@ impl BlockDownloader {
                     let mut neighbors = vec![];
                     for (nk, stats) in inv_state.block_stats.iter() {
                         test_debug!(
-                            "stats for {:?}: {:?}; testing block bit {}",
+                            "{:?}: stats for {:?}: {:?}; testing block bit {}",
+                            _local_peer,
                             &nk,
                             &stats,
                             sortition_bit + first_block_height
@@ -1035,31 +1045,7 @@ impl PeerNetwork {
     ) -> Result<bool, net_error> {
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        if StacksChainState::has_stored_block(
-            &chainstate.db(),
-            &chainstate.blocks_path,
-            consensus_hash,
-            block_hash,
-        )? {
-            test_debug!(
-                "{:?}: Block already stored and processed: {}/{} ({})",
-                _local_peer,
-                consensus_hash,
-                block_hash,
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_staging_block(&chainstate.db(), consensus_hash, block_hash)?
-        {
-            test_debug!(
-                "{:?}: Block already stored (but not processed): {}/{} ({})",
-                _local_peer,
-                consensus_hash,
-                block_hash,
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
+        if StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
             test_debug!(
                 "{:?}: Block already stored to chunk store: {}/{} ({})",
                 _local_peer,
@@ -1081,44 +1067,51 @@ impl PeerNetwork {
         child_consensus_hash: &ConsensusHash,
         child_block_hash: &BlockHeaderHash,
     ) -> Result<bool, net_error> {
-        // must already have parent and child
-        if PeerNetwork::need_anchored_block(
-            _local_peer,
-            chainstate,
-            parent_consensus_hash,
-            parent_block_hash,
-        )? {
+        // if the child is processed, then we have all the microblocks we need.
+        // this is the overwhelmingly likely case.
+        if let Ok(Some(true)) = StacksChainState::get_staging_block_status(
+            &chainstate.db(),
+            &child_consensus_hash,
+            &child_block_hash,
+        ) {
             test_debug!(
-                "{:?}: Still need parent anchored block {}/{}",
+                "{:?}: Already processed block {}/{}, so must have stream between it and {}/{}",
                 _local_peer,
+                child_consensus_hash,
+                child_block_hash,
                 parent_consensus_hash,
-                parent_block_hash
+                parent_block_hash,
             );
             return Ok(false);
         }
 
-        if PeerNetwork::need_anchored_block(
-            _local_peer,
-            chainstate,
-            child_consensus_hash,
-            child_block_hash,
-        )? {
-            test_debug!(
-                "{:?}: Still need child anchored block {}/{}",
-                _local_peer,
-                child_consensus_hash,
-                child_block_hash
-            );
-            return Ok(false);
-        }
+        // block not processed for some reason.  Do we have the parent and child anchored blocks at
+        // least?
+
+        let _parent_header = match StacksChainState::load_block_header(
+            &chainstate.blocks_path,
+            parent_consensus_hash,
+            parent_block_hash,
+        ) {
+            Ok(Some(hdr)) => hdr,
+            _ => {
+                test_debug!(
+                    "{:?}: No parent block {}/{}, so cannot load microblock stream it produced",
+                    _local_peer,
+                    parent_consensus_hash,
+                    parent_block_hash
+                );
+                return Ok(false);
+            }
+        };
 
         let child_header = match StacksChainState::load_block_header(
             &chainstate.blocks_path,
             child_consensus_hash,
             child_block_hash,
-        )? {
-            Some(hdr) => hdr,
-            None => {
+        ) {
+            Ok(Some(hdr)) => hdr,
+            _ => {
                 test_debug!(
                     "{:?}: No child block {}/{}, so cannot load microblock stream it confirms",
                     _local_peer,
@@ -1129,7 +1122,13 @@ impl PeerNetwork {
             }
         };
 
+        debug!(
+            "EXPENSIVE check stream between {}/{} and {}/{}",
+            parent_consensus_hash, parent_block_hash, child_consensus_hash, child_block_hash
+        );
+
         // try and load the connecting stream.  If we have it, then we're good to go.
+        // SLOW
         match StacksChainState::load_microblock_stream_fork(
             &chainstate.db(),
             parent_consensus_hash,
@@ -1181,6 +1180,7 @@ impl PeerNetwork {
         let mut availability =
             PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
                 BlockDownloader::get_block_availability(
+                    &network.local_peer,
                     inv_state,
                     sortdb,
                     &mut network.header_cache,
@@ -1300,14 +1300,25 @@ impl PeerNetwork {
 
                 // does this anchor block _confirm_ a microblock stream that we don't know about?
                 let parent_header_opt = {
-                    let ic = sortdb.index_conn();
-                    match StacksChainState::load_parent_block_header(
-                        &ic,
+                    let child_block_info = match StacksChainState::load_staging_block_info(
+                        &chainstate.db(),
+                        &index_block_hash,
+                    )? {
+                        Some(hdr) => hdr,
+                        None => {
+                            test_debug!("No such block: {:?}", &index_block_hash);
+                            continue;
+                        }
+                    };
+
+                    match StacksChainState::load_block_header(
                         &chainstate.blocks_path,
-                        &consensus_hash,
-                        &block_hash,
+                        &child_block_info.parent_consensus_hash,
+                        &child_block_info.parent_anchored_block_hash,
                     ) {
-                        Ok(header_opt) => header_opt,
+                        Ok(header_opt) => {
+                            header_opt.map(|hdr| (hdr, child_block_info.parent_consensus_hash))
+                        }
                         Err(chainstate_error::DBError(db_error::NotFoundError)) => {
                             // we don't know about this parent block yet
                             debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &self.local_peer, &consensus_hash, &block_hash);
@@ -2469,6 +2480,7 @@ pub mod test {
                  ref mut _relayer,
                  ref mut _mempool| {
                     BlockDownloader::get_block_availability(
+                        &network.local_peer,
                         &inv_state,
                         sortdb,
                         &mut network.header_cache,
