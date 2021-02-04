@@ -2712,7 +2712,7 @@ mod test {
                 eprintln!("Send getinfo");
                 let peer_info = http_get_info(remote_port);
                 eprintln!("Got getinfo! {:?}", &peer_info);
-                let mut idx = peer_info.stacks_tip_height as usize;
+                let idx = peer_info.stacks_tip_height as usize;
 
                 eprintln!("Get blocks and microblocks");
                 let blocks_and_microblocks: Vec<(

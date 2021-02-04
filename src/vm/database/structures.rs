@@ -18,6 +18,7 @@ use serde::Deserialize;
 use std::convert::TryInto;
 use std::io::Write;
 use util::hash::{hex_bytes, to_hex};
+use vm::analysis::ContractAnalysis;
 use vm::contracts::Contract;
 use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
@@ -117,6 +118,7 @@ clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
 clarity_serializable!(Contract);
+clarity_serializable!(ContractAnalysis);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct STXBalance {

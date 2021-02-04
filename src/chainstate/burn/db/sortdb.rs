@@ -475,6 +475,7 @@ const BURNDB_SETUP: &'static [&'static str] = &[
     CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
     CREATE UNIQUE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);
     CREATE UNIQUE INDEX snapshots_burn_hashes ON snapshots(block_height,burn_header_hash)
+    CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);
     CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);
     CREATE INDEX arrival_indexes ON snapshots(arrival_index);
     "#,
@@ -2342,12 +2343,14 @@ impl<'a> SortitionDBConn<'a> {
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
 
-            let ancestor_snapshot_parent = db_handle
-                .get_block_snapshot(&ancestor_snapshot.parent_burn_header_hash)?
-                .expect(&format!(
-                    "Discontiguous index: missing parent block of parent burn header hash {}",
-                    &ancestor_snapshot.parent_burn_header_hash
-                ));
+            let ancestor_snapshot_parent = SortitionDB::get_block_snapshot(
+                db_handle.conn(),
+                &ancestor_snapshot.parent_sortition_id,
+            )?
+            .expect(&format!(
+                "Discontiguous index: missing parent block of parent burn header hash {}",
+                &ancestor_snapshot.parent_burn_header_hash
+            ));
 
             ancestor_consensus_hash = ancestor_snapshot_parent.consensus_hash;
         }

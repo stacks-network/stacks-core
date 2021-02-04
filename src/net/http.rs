@@ -2910,6 +2910,7 @@ impl HttpResponseType {
             (&PATH_GETPOXINFO, &HttpResponseType::parse_poxinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
+            (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
                 &PATH_GETMICROBLOCKS_INDEXED,
                 &HttpResponseType::parse_microblocks,
