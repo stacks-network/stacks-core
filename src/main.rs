@@ -70,6 +70,8 @@ use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
+use blockstack_lib::util::get_epoch_time_ms;
+
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -239,8 +241,9 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         );
         let start = time::Instant::now();
 
-        let _block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
+        let block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
         println!("Fetched block inv in {}", start.elapsed().as_seconds_f32());
+        println!("{:?}", &block_inv);
 
         println!("Done!");
         process::exit(0);
@@ -294,6 +297,7 @@ check if the associated microblocks can be downloaded
         );
 
         let start = time::Instant::now();
+        let mut total_load_headers = 0;
 
         for (consensus_hash, block_hash_opt) in header_hashes.iter() {
             let block_hash = match block_hash_opt {
@@ -301,23 +305,39 @@ check if the associated microblocks can be downloaded
                 None => continue,
             };
 
+            let index_block_hash =
+                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+            let start_load_header = get_epoch_time_ms();
             let parent_header_opt = {
-                let ic = sort_db.index_conn();
-                match StacksChainState::load_parent_block_header(
-                    &ic,
-                    &chain_state.blocks_path,
-                    &consensus_hash,
-                    &block_hash,
+                let child_block_info = match StacksChainState::load_staging_block_info(
+                    &chain_state.db(),
+                    &index_block_hash,
                 ) {
-                    Ok(header_opt) => header_opt,
-                    Err(chainstate::stacks::Error::DBError(util::db::Error::NotFoundError)) => {
-                        continue
+                    Ok(Some(hdr)) => hdr,
+                    _ => {
+                        debug!("No such block: {:?}", &index_block_hash);
+                        continue;
                     }
-                    Err(e) => {
-                        panic!("Err: {:?}", e);
+                };
+
+                match StacksChainState::load_block_header(
+                    &chain_state.blocks_path,
+                    &child_block_info.parent_consensus_hash,
+                    &child_block_info.parent_anchored_block_hash,
+                ) {
+                    Ok(header_opt) => {
+                        header_opt.map(|hdr| (hdr, child_block_info.parent_consensus_hash))
+                    }
+                    Err(_) => {
+                        // we don't know about this parent block yet
+                        debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &local_peer, &consensus_hash, &block_hash);
+                        continue;
                     }
                 }
             };
+
+            let end_load_header = get_epoch_time_ms();
+            total_load_headers += end_load_header.saturating_sub(start_load_header);
 
             if let Some((parent_header, parent_consensus_hash)) = parent_header_opt {
                 PeerNetwork::can_download_microblock_stream(
@@ -335,8 +355,9 @@ check if the associated microblocks can be downloaded
         }
 
         println!(
-            "Checked can_download in {}",
-            start.elapsed().as_seconds_f32()
+            "Checked can_download in {} (headers load took {}ms)",
+            start.elapsed().as_seconds_f32(),
+            total_load_headers
         );
 
         println!("Done!");
