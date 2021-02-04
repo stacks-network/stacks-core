@@ -572,6 +572,7 @@ pub mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,

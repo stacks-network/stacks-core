@@ -973,10 +973,9 @@ impl InitializedNeonNode {
             .expect("Error while instantiating sortition db");
 
         let view = {
-            let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
-            ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
+            SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
         };
 
         // create a new peerdb
@@ -1192,6 +1191,12 @@ impl InitializedNeonNode {
         }
 
         if let Some(ref snapshot) = &self.last_burn_block {
+            debug!(
+                "Notify sortition! Last snapshot is {}/{} ({})",
+                &snapshot.consensus_hash,
+                &snapshot.burn_header_hash,
+                &snapshot.winning_stacks_block_hash
+            );
             if snapshot.sortition {
                 return self
                     .relay_channel
@@ -1202,6 +1207,8 @@ impl InitializedNeonNode {
                     ))
                     .is_ok();
             }
+        } else {
+            debug!("Notify sortition! No last burn block");
         }
         true
     }
@@ -1627,10 +1634,11 @@ impl InitializedNeonNode {
         );
         let mut op_signer = keychain.generate_op_signer();
         debug!(
-            "Submit block-commit for block {} off of {}/{}",
+            "Submit block-commit for block {} off of {}/{} with microblock parent {}",
             &anchored_block.block_hash(),
             &parent_consensus_hash,
-            &anchored_block.header.parent_block
+            &anchored_block.header.parent_block,
+            &anchored_block.header.parent_microblock
         );
 
         let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
@@ -1681,7 +1689,7 @@ impl InitializedNeonNode {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.apparent_sender.to_address(network),
+                    op.apparent_sender.to_bitcoin_address(network),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
@@ -1690,7 +1698,7 @@ impl InitializedNeonNode {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.apparent_sender.to_address(network),
+                        op.apparent_sender.to_bitcoin_address(network),
                         &op.block_header_hash
                     );
                 }

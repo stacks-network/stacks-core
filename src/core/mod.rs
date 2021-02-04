@@ -20,15 +20,22 @@ use burnchains::{Burnchain, BurnchainHeaderHash};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
+use vm::costs::ExecutionCost;
 
 pub mod mempool;
+
 pub use self::mempool::MemPoolDB;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
-// p2p network version
-pub const PEER_VERSION: u32 = 0x18000000; // 24.0.0.0
+// chain id
+pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
+pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+
+// peer version
+pub const PEER_VERSION_MAINNET: u32 = 0x18000000; // 24.0.0.0
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade01;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
@@ -62,10 +69,10 @@ pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
     "0000000000000000000ab248c8e35c574514d052a83dbc12669e19bc43df486e";
 pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
 
-pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1902511;
-pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1609852982;
+pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1931620;
+pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1612282029;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
-    "00000000a3302490b1e1cbbdfcfacc21662006889765d3cda906fd8e842427f1";
+    "00000000000000b8275ac9907d4d8f3b862f93d6f986ba628a2784748e56e51b";
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -97,6 +104,14 @@ pub const POX_MAXIMAL_SCALING: u128 = 4;
 pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
+
+pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
+};
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

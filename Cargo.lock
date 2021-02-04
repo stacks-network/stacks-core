@@ -185,21 +185,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
-name = "bitcoin-neon-controller"
-version = "0.1.0"
-dependencies = [
- "async-h1",
- "async-std",
- "base64 0.12.3",
- "http-types",
- "rand 0.7.2",
- "serde",
- "serde_derive",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1684,6 +1669,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3abf49e5417290756acfd26501536358560c4a5cc4a0934d390939acb3e7083a"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "puppet-chain"
+version = "0.1.0"
+dependencies = [
+ "async-h1",
+ "async-std",
+ "base64 0.12.3",
+ "http-types",
+ "rand 0.7.2",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

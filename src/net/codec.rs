@@ -46,7 +46,7 @@ use net::db::LocalPeer;
 use net::Error as net_error;
 use net::*;
 
-use core::PEER_VERSION;
+use core::PEER_VERSION_TESTNET;
 
 use sha2::Digest;
 use sha2::Sha512Trunc256;
@@ -2271,7 +2271,7 @@ pub mod test {
             StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
 
         let mut ping = StacksMessage::new(
-            PEER_VERSION,
+            PEER_VERSION_TESTNET,
             0x9abcdef0,
             12345,
             &BurnchainHeaderHash([0x11; 32]),
