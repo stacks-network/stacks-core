@@ -562,6 +562,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );
+    CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);
     "#,
     r#"
     -- Staging microblocks data
@@ -581,7 +582,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                 parent_microblock_seq INT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
                                 height INT NOT NULL,
-                                attachable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
+                                attachable INT NOT NULL,            -- set to 1 if this block's parent is processed; 0 if not
                                 orphaned INT NOT NULL,              -- set to 1 if this block can never be attached
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
@@ -594,6 +595,9 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     );
     CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
     CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
+    CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);
+    CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);
+    CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);
     "#,
     r#"
     -- users who burned in support of a block
@@ -1185,7 +1189,7 @@ impl StacksChainState {
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
-                boot_code_auth.clone(),
+                boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
                     0,
@@ -1336,7 +1340,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut state_path = path.clone();
+        let mut state_path = path;
 
         state_path.push("vm");
         StacksChainState::mkdirs(&state_path)?;
@@ -2200,7 +2204,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "01913a865d57a627cdc207de8fc7337eb2bebe5e1539f525a3c6a35a74d5f1de"
+            "cff7b73beb78d2e0f45b6108f1e7376cefce0f9f691d62a130e0c0730fb090c5"
         );
     }
 }

@@ -75,7 +75,7 @@ impl BurnchainController for MocknetController {
         }
     }
 
-    fn get_chain_tip(&mut self) -> BurnchainTip {
+    fn get_chain_tip(&self) -> BurnchainTip {
         match &self.chain_tip {
             Some(chain_tip) => chain_tip.clone(),
             None => {

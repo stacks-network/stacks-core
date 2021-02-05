@@ -74,8 +74,7 @@ fn c32_normalize(input_str: &str) -> String {
         .to_uppercase()
         .replace("O", "0")
         .replace("L", "1")
-        .replace("I", "1")
-        .to_string();
+        .replace("I", "1");
     norm_str
 }
 

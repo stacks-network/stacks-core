@@ -80,6 +80,7 @@ impl BlockSnapshot {
             //  we shouldn't need to update this to use PoxId::initial(),
             //  but if we do, we need to update a lot of test cases.
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
+            parent_sortition_id: SortitionId::stubbed(first_burn_header_hash),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
         }
@@ -232,6 +233,7 @@ impl BlockSnapshot {
                 .canonical_stacks_tip_consensus_hash
                 .clone(),
             sortition_id: sortition_id.clone(),
+            parent_sortition_id: parent_snapshot.sortition_id.clone(),
             pox_valid: true,
             accumulated_coinbase_ustx,
         })
@@ -402,6 +404,7 @@ impl BlockSnapshot {
                 .canonical_stacks_tip_consensus_hash
                 .clone(),
             sortition_id: my_sortition_id.clone(),
+            parent_sortition_id: parent_snapshot.sortition_id.clone(),
             pox_valid: true,
             accumulated_coinbase_ustx,
         })

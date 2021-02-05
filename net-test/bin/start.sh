@@ -67,7 +67,7 @@ start_bitcoind_controller() {
    logln "ok"
 
    log "[$$] Starting bitcoind controller..."
-   bitcoin-neon-controller "$BITCOIN_CONTROLLER_CONF" >"$BITCOIN_CONTROLLER_LOGFILE" 2>&1 &
+   puppet-chain "$BITCOIN_CONTROLLER_CONF" >"$BITCOIN_CONTROLLER_LOGFILE" 2>&1 &
    local RC=$?
    local BITCOIN_NEON_CONTROLLER_PID=$!
 
@@ -494,7 +494,7 @@ report() {
 
 is_sourced
 if [ $? -ne 0 ]; then 
-   for cmd in bitcoind bitcoin-cli bitcoin-neon-controller stacks-node blockstack-cli date jq grep sed kill cat curl faucet.sh seq; do
+   for cmd in bitcoind bitcoin-cli puppet-chain stacks-node blockstack-cli date jq grep sed kill cat curl faucet.sh seq; do
       which $cmd 2>&1 >/dev/null || exit_error "Missing \"$cmd\""
    done
 

@@ -198,7 +198,7 @@ impl ContractAnalysis {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
                     if !expected_sig.check_args_trait_compliance(args_sig) {
                         return Err(CheckErrors::BadTraitImplementation(
-                            trait_name.clone(),
+                            trait_name,
                             func_name.to_string(),
                         )
                         .into());

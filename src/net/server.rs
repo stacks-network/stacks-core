@@ -1089,6 +1089,7 @@ mod test {
     fn test_http_too_many_clients() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.num_clients = 1;
+        conn_opts.max_http_clients = 1;
 
         let have_success = RefCell::new(false);
         let have_error = RefCell::new(false);

@@ -763,7 +763,7 @@ impl StacksChainState {
                     &sender_principal,
                     mblock_header_1.sequence,
                 )?;
-                (sender_principal.clone(), mblock_header_1.sequence)
+                (sender_principal, mblock_header_1.sequence)
             } else {
                 // someone else beat the sender to this report
                 debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq;
@@ -785,7 +785,7 @@ impl StacksChainState {
                 &sender_principal,
                 mblock_header_1.sequence,
             )?;
-            (sender_principal.clone(), mblock_header_1.sequence)
+            (sender_principal, mblock_header_1.sequence)
         };
 
         let hash_data = BuffData {

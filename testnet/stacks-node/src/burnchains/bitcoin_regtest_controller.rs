@@ -16,18 +16,19 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use stacks::burnchains::bitcoin::indexer::{
-    BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
-};
 use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
+use stacks::burnchains::BurnchainHeaderHash;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
+use stacks::burnchains::{
+    bitcoin::address::{BitcoinAddress, BitcoinAddressType},
+    Txid,
+};
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -45,11 +46,15 @@ use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::{
+    burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime},
+    chainstate::burn::db::sortdb::SortitionId,
+};
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
 #[cfg(test)]
-use stacks::{burnchains::BurnchainHeaderHash, chainstate::burn::Opcodes};
+use stacks::chainstate::burn::Opcodes;
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -59,9 +64,119 @@ pub struct BitcoinRegtestController {
     chain_tip: Option<BurnchainTip>,
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
-    last_utxos: Vec<UTXO>,
-    last_tx_len: u64,
-    min_relay_fee: u64, // satoshis/byte
+    ongoing_block_commit: Option<OngoingBlockCommit>,
+}
+
+struct OngoingBlockCommit {
+    payload: LeaderBlockCommitOp,
+    utxos: UTXOSet,
+    fees: LeaderBlockCommitFees,
+    txids: Vec<Txid>,
+}
+
+impl OngoingBlockCommit {
+    fn sum_utxos(&self) -> u64 {
+        self.utxos.total_available()
+    }
+}
+
+#[derive(Clone)]
+struct LeaderBlockCommitFees {
+    sunset_fee: u64,
+    fee_rate: u64,
+    sortition_fee: u64,
+    outputs_len: u64,
+    default_tx_size: u64,
+    spent_in_attempts: u64,
+    is_rbf_enabled: bool,
+    final_size: u64,
+}
+
+impl LeaderBlockCommitFees {
+    pub fn fees_from_previous_tx(
+        &self,
+        payload: &LeaderBlockCommitOp,
+        config: &Config,
+    ) -> LeaderBlockCommitFees {
+        let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config);
+        fees.spent_in_attempts = cmp::max(1, self.spent_in_attempts);
+        fees.final_size = self.final_size;
+        fees.fee_rate = self.fee_rate + config.burnchain.rbf_fee_increment;
+        fees.is_rbf_enabled = true;
+        fees
+    }
+
+    pub fn estimated_fees_from_payload(
+        payload: &LeaderBlockCommitOp,
+        config: &Config,
+    ) -> LeaderBlockCommitFees {
+        let sunset_fee = if payload.sunset_burn > 0 {
+            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
+        let number_of_transfers = payload.commit_outs.len() as u64;
+        let value_per_transfer = payload.burn_fee / number_of_transfers;
+        let sortition_fee = value_per_transfer * number_of_transfers;
+        let spent_in_attempts = 0;
+        let fee_rate = config.burnchain.satoshis_per_byte;
+        let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
+
+        LeaderBlockCommitFees {
+            sunset_fee,
+            fee_rate,
+            sortition_fee,
+            outputs_len: number_of_transfers,
+            default_tx_size,
+            spent_in_attempts,
+            is_rbf_enabled: false,
+            final_size: 0,
+        }
+    }
+
+    pub fn estimated_miner_fee(&self) -> u64 {
+        self.fee_rate * self.default_tx_size
+    }
+
+    pub fn rbf_fee(&self) -> u64 {
+        if self.is_rbf_enabled {
+            self.spent_in_attempts + self.default_tx_size
+        } else {
+            0
+        }
+    }
+
+    pub fn estimated_amount_required(&self) -> u64 {
+        self.estimated_miner_fee() + self.rbf_fee() + self.sunset_fee + self.sortition_fee
+    }
+
+    pub fn total_spent(&self) -> u64 {
+        self.fee_rate * self.final_size
+            + self.spent_in_attempts
+            + self.sunset_fee
+            + self.sortition_fee
+    }
+
+    pub fn amount_per_output(&self) -> u64 {
+        self.sortition_fee / self.outputs_len
+    }
+
+    pub fn total_spent_in_outputs(&self) -> u64 {
+        self.sunset_fee + self.sortition_fee
+    }
+
+    pub fn min_tx_size(&self) -> u64 {
+        cmp::max(self.final_size, self.default_tx_size)
+    }
+
+    pub fn register_replacement(&mut self, tx_size: u64) {
+        let new_size = cmp::max(tx_size, self.final_size);
+        if self.is_rbf_enabled {
+            self.spent_in_attempts += new_size;
+        }
+        self.final_size = new_size;
+    }
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -120,9 +235,7 @@ impl BitcoinRegtestController {
             burnchain_db: None,
             chain_tip: None,
             burnchain_config,
-            last_utxos: vec![],
-            last_tx_len: 0,
-            min_relay_fee: 1024, // TODO: learn from bitcoind
+            ongoing_block_commit: None,
         }
     }
 
@@ -157,9 +270,7 @@ impl BitcoinRegtestController {
             burnchain_db: None,
             chain_tip: None,
             burnchain_config: None,
-            last_utxos: vec![],
-            last_tx_len: 0,
-            min_relay_fee: 1024, // TODO: learn from bitcoind
+            ongoing_block_commit: None,
         }
     }
 
@@ -182,7 +293,7 @@ impl BitcoinRegtestController {
 
     pub fn get_pox_constants(&self) -> PoxConstants {
         let burnchain = self.get_burnchain();
-        burnchain.pox_constants.clone()
+        burnchain.pox_constants
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
@@ -438,7 +549,9 @@ impl BitcoinRegtestController {
         &self,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
-    ) -> Option<Vec<UTXO>> {
+        utxos_to_exclude: Option<UTXOSet>,
+        block_height: u64,
+    ) -> Option<UTXOSet> {
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
@@ -455,6 +568,8 @@ impl BitcoinRegtestController {
                 filter_addresses.clone(),
                 false,
                 total_required,
+                &utxos_to_exclude,
+                block_height,
             );
 
             // Perform request
@@ -470,7 +585,7 @@ impl BitcoinRegtestController {
             };
         };
 
-        let utxos = if utxos.len() == 0 {
+        let utxos = if utxos.is_empty() {
             let (_, network) = self.config.burnchain.get_bitcoin_network();
             loop {
                 if let BitcoinNetworkType::Regtest = network {
@@ -487,6 +602,8 @@ impl BitcoinRegtestController {
                     filter_addresses.clone(),
                     false,
                     total_required,
+                    &utxos_to_exclude,
+                    block_height,
                 );
 
                 utxos = match result {
@@ -498,7 +615,7 @@ impl BitcoinRegtestController {
                     }
                 };
 
-                if utxos.len() == 0 {
+                if utxos.is_empty() {
                     return None;
                 } else {
                     break utxos;
@@ -508,7 +625,7 @@ impl BitcoinRegtestController {
             utxos
         };
 
-        let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
+        let total_unspent = utxos.total_available();
         if total_unspent < total_required {
             warn!(
                 "Total unspent {} < {} for {:?}",
@@ -526,7 +643,7 @@ impl BitcoinRegtestController {
         &mut self,
         payload: LeaderKeyRegisterOp,
         signer: &mut BurnchainOpSigner,
-        attempt: u64,
+        _attempt: u64,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
@@ -535,7 +652,7 @@ impl BitcoinRegtestController {
         let budget_for_outputs = DUST_UTXO_LIMIT;
         let total_required = btc_miner_fee + budget_for_outputs;
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, total_required, attempt)?;
+        let (mut tx, mut utxos) = self.prepare_tx(&public_key, total_required, None, None, 0)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -563,13 +680,16 @@ impl BitcoinRegtestController {
 
         tx.output.push(identifier_output);
 
+        let fee_rate = self.config.burnchain.satoshis_per_byte;
+
         self.finalize_tx(
             &mut tx,
             budget_for_outputs,
-            btc_miner_fee,
-            utxos,
+            0,
+            self.config.burnchain.leader_key_tx_estimated_size,
+            fee_rate,
+            &mut utxos,
             signer,
-            attempt,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -637,8 +757,9 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
+        let max_tx_size = 230;
 
-        let (mut tx, utxos) = if let Some(utxo) = utxo_to_use {
+        let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
                 Transaction {
                     input: vec![],
@@ -646,10 +767,19 @@ impl BitcoinRegtestController {
                     version: 1,
                     lock_time: 0,
                 },
-                vec![utxo],
+                UTXOSet {
+                    bhh: BurnchainHeaderHash::zero(),
+                    utxos: vec![utxo],
+                },
             )
         } else {
-            self.prepare_tx(&public_key, DUST_UTXO_LIMIT, 1)?
+            self.prepare_tx(
+                &public_key,
+                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                None,
+                None,
+                0,
+            )?
         };
 
         // Serialize the payload
@@ -671,7 +801,15 @@ impl BitcoinRegtestController {
         tx.output
             .push(payload.recipient.to_bitcoin_tx_out(DUST_UTXO_LIMIT));
 
-        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, DUST_UTXO_LIMIT, utxos, signer, 1)?;
+        self.finalize_tx(
+            &mut tx,
+            DUST_UTXO_LIMIT,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
 
         increment_btc_ops_sent_counter();
 
@@ -699,9 +837,10 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
+        let max_tx_size = 280;
 
-        let output_amt = 2 * DUST_UTXO_LIMIT;
-        let (mut tx, utxos) = self.prepare_tx(&public_key, output_amt, 1)?;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte;
+        let (mut tx, mut utxos) = self.prepare_tx(&public_key, output_amt, None, None, 0)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -721,7 +860,15 @@ impl BitcoinRegtestController {
         tx.output = vec![consensus_output];
         tx.output.push(payload.output.to_bitcoin_tx_out(output_amt));
 
-        self.finalize_tx(&mut tx, output_amt, DUST_UTXO_LIMIT, utxos, signer, 1)?;
+        self.finalize_tx(
+            &mut tx,
+            output_amt,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
 
         increment_btc_ops_sent_counter();
 
@@ -733,36 +880,28 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
-    fn build_leader_block_commit_tx(
+    fn send_block_commit_operation(
         &mut self,
         payload: LeaderBlockCommitOp,
         signer: &mut BurnchainOpSigner,
-        attempt: u64,
+        utxos_to_include: Option<UTXOSet>,
+        utxos_to_exclude: Option<UTXOSet>,
+        previous_fees: Option<LeaderBlockCommitFees>,
+        previous_txids: &Vec<Txid>,
     ) -> Option<Transaction> {
-        let public_key = signer.get_public_key();
-
-        let sunset_fee = if payload.sunset_burn > 0 {
-            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
-        } else {
-            0
+        let mut estimated_fees = match previous_fees {
+            Some(fees) => fees.fees_from_previous_tx(&payload, &self.config),
+            None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
-        let number_of_transfers = payload.commit_outs.len() as u64;
-        let value_per_transfer = payload.burn_fee / number_of_transfers;
-        if value_per_transfer < DUST_UTXO_LIMIT {
-            warn!("Unable to submit a LeaderBlockCommit, consider increasing your burn_fee_cap");
-            return None;
-        }
-
-        let btc_miner_fee = self.config.burnchain.block_commit_tx_estimated_size
-            * self.config.burnchain.satoshis_per_byte;
-
-        let rbf_fee = (attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000;
-        let budget_for_outputs = value_per_transfer * number_of_transfers + sunset_fee;
-
-        let total_required = btc_miner_fee + budget_for_outputs + rbf_fee;
-
-        let (mut tx, utxos) = self.prepare_tx(&public_key, total_required, attempt)?;
+        let public_key = signer.get_public_key();
+        let (mut tx, mut utxos) = self.prepare_tx(
+            &public_key,
+            estimated_fees.estimated_amount_required(),
+            utxos_to_include,
+            utxos_to_exclude,
+            payload.parent_block_ptr as u64,
+        )?;
 
         // Serialize the payload
         let op_bytes = {
@@ -776,7 +915,7 @@ impl BitcoinRegtestController {
         };
 
         let consensus_output = TxOut {
-            value: sunset_fee,
+            value: estimated_fees.sunset_fee,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -787,50 +926,172 @@ impl BitcoinRegtestController {
 
         for commit_to in payload.commit_outs.iter() {
             tx.output
-                .push(commit_to.to_bitcoin_tx_out(value_per_transfer));
+                .push(commit_to.to_bitcoin_tx_out(estimated_fees.amount_per_output()));
         }
 
+        let fee_rate = estimated_fees.fee_rate;
         self.finalize_tx(
             &mut tx,
-            budget_for_outputs,
-            btc_miner_fee + rbf_fee,
-            utxos,
+            estimated_fees.total_spent_in_outputs(),
+            estimated_fees.spent_in_attempts,
+            estimated_fees.min_tx_size(),
+            fee_rate,
+            &mut utxos,
             signer,
-            attempt,
         )?;
+
+        let serialized_tx = SerializedTx::new(tx.clone());
+
+        let tx_size = serialized_tx.bytes.len() as u64;
+        estimated_fees.register_replacement(tx_size);
+        let mut txid = tx.txid().as_bytes().to_vec();
+        txid.reverse();
+
+        debug!("Transaction relying on UTXOs: {:?}", utxos);
+        let txid = Txid::from_bytes(&txid[..]).unwrap();
+        let mut txids = previous_txids.clone();
+        txids.push(txid.clone());
+        let ongoing_block_commit = OngoingBlockCommit {
+            payload,
+            utxos,
+            fees: estimated_fees,
+            txids,
+        };
+
+        info!(
+            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {})",
+            txid.to_hex(),
+            ongoing_block_commit.fees.is_rbf_enabled,
+            ongoing_block_commit.fees.total_spent(),
+            ongoing_block_commit.fees.final_size,
+            fee_rate,
+        );
+
+        self.ongoing_block_commit = Some(ongoing_block_commit);
 
         increment_btc_ops_sent_counter();
 
-        info!(
-            "Miner node: submitting leader_block_commit op for {} - {}, waiting for its inclusion in the next Bitcoin block",
-            &payload.block_header_hash,
-            public_key.to_hex()
-        );
-
         Some(tx)
+    }
+
+    fn build_leader_block_commit_tx(
+        &mut self,
+        payload: LeaderBlockCommitOp,
+        signer: &mut BurnchainOpSigner,
+        _attempt: u64,
+    ) -> Option<Transaction> {
+        // Are we currently tracking an operation?
+        if self.ongoing_block_commit.is_none() {
+            // Good to go, let's build the transaction and send it.
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            return res;
+        }
+
+        let ongoing_op = self.ongoing_block_commit.take().unwrap();
+
+        let _ = self.sortdb_mut();
+        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
+
+        for txid in ongoing_op.txids.iter() {
+            let mined_op = burnchain_db.get_burnchain_op(txid);
+            if mined_op.is_some() {
+                // Good to go, the transaction in progress was mined
+                debug!("Was able to retrieve ongoing TXID - {}", txid);
+                let res =
+                    self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+                return res;
+            } else {
+                debug!("Was unable to retrieve ongoing TXID - {}", txid);
+            }
+        }
+
+        // Stop as soon as the fee_rate is 1.25 higher, stop RBF
+        if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            return res;
+        }
+
+        // Did a re-org occurred since we fetched our UTXOs
+        let sortdb = self.sortdb_mut();
+        let sort_id = SortitionId::stubbed(&ongoing_op.utxos.bhh);
+        let ic = sortdb.index_conn();
+        if let Err(e) = SortitionDB::get_block_snapshot(&ic, &sort_id) {
+            info!(
+                "Possible presence of fork, invalidating cached set of UTXOs - {:?}",
+                e
+            );
+            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            return res;
+        }
+
+        // An ongoing operation is in the mempool and we received a new block. The desired behaviour is the following:
+        // 1) If the ongoing and the incoming operation are **strictly** identical, we will be idempotent and discard the incoming.
+        // 2) If the 2 operations are different, we will try to avoid wasting UTXOs, and attempt to RBF the outgoing transaction:
+        //  i) If UTXOs are insufficient,
+        //    a) If no other UTXOs, we'll have to wait on the ongoing operation to be mined before resuming operation.
+        //    b) If we have some other UTXOs, drop the ongoing operation, and track the new one.
+        //  ii) If UTXOs initially used are sufficient for paying for a fee bump, then RBF
+
+        // Let's start by early returning 1)
+        if payload == ongoing_op.payload {
+            info!("Abort attempt to re-submit identical LeaderBlockCommit");
+            return None;
+        }
+
+        // Let's proceed and early return 2) i)
+        let res = if ongoing_op.fees.estimated_amount_required() > ongoing_op.sum_utxos() {
+            // Try to build and submit op, excluding UTXOs currently used
+            info!("Attempt to submit another leader_block_commit, despite an ongoing (outdated) commit");
+            self.send_block_commit_operation(
+                payload,
+                signer,
+                None,
+                Some(ongoing_op.utxos.clone()),
+                None,
+                &vec![],
+            )
+        } else {
+            // Case 2) ii): Attempt to RBF
+            info!("Attempt to replace by fee an outdated leader block commit");
+            self.send_block_commit_operation(
+                payload,
+                signer,
+                Some(ongoing_op.utxos.clone()),
+                None,
+                Some(ongoing_op.fees.clone()),
+                &ongoing_op.txids,
+            )
+        };
+
+        if res.is_none() {
+            self.ongoing_block_commit = Some(ongoing_op);
+        }
+
+        res
     }
 
     fn prepare_tx(
         &mut self,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
-        attempt: u64,
-    ) -> Option<(Transaction, Vec<UTXO>)> {
-        let utxos = if attempt > 1 && self.last_utxos.len() > 0 {
+        utxos_to_include: Option<UTXOSet>,
+        utxos_to_exclude: Option<UTXOSet>,
+        block_height: u64,
+    ) -> Option<(Transaction, UTXOSet)> {
+        let utxos = if let Some(utxos) = utxos_to_include {
             // in RBF, you have to consume the same UTXOs
-            self.last_utxos.clone()
+            utxos
         } else {
             // Fetch some UTXOs
-            let new_utxos = match self.get_utxos(&public_key, total_required) {
-                Some(utxos) => utxos,
-                None => {
-                    debug!("No UTXOs for {}", &public_key.to_hex());
-                    return None;
-                }
-            };
-            self.last_utxos = new_utxos.clone();
-            self.last_tx_len = 0;
-            new_utxos
+            let utxos =
+                match self.get_utxos(&public_key, total_required, utxos_to_exclude, block_height) {
+                    Some(utxos) => utxos,
+                    None => {
+                        debug!("No UTXOs for {}", &public_key.to_hex());
+                        return None;
+                    }
+                };
+            utxos
         };
 
         // Prepare a backbone for the tx
@@ -847,26 +1108,68 @@ impl BitcoinRegtestController {
     fn finalize_tx(
         &mut self,
         tx: &mut Transaction,
-        budget_for_outputs: u64,
-        btc_miner_fee: u64,
-        mut utxos: Vec<UTXO>,
+        spent_in_outputs: u64,
+        spent_in_rbf: u64,
+        min_tx_size: u64,
+        fee_rate: u64,
+        utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
-        attempt: u64,
     ) -> Option<()> {
         // spend UTXOs in decreasing order
-        utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
-        utxos.reverse();
+        utxos_set.utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
+        utxos_set.utxos.reverse();
 
+        let tx_size = {
+            // We will be calling 2 times serialize_tx, the first time with an estimated size,
+            // Second time with the actual size, computed thanks to the 1st attempt.
+            let estimated_rbf = if spent_in_rbf == 0 {
+                0
+            } else {
+                spent_in_rbf + min_tx_size // we're spending 1 sat / byte in RBF
+            };
+            let mut tx_cloned = tx.clone();
+            let mut utxos_cloned = utxos_set.clone();
+            self.serialize_tx(
+                &mut tx_cloned,
+                spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
+                &mut utxos_cloned,
+                signer,
+            );
+            let serialized_tx = SerializedTx::new(tx_cloned);
+            cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
+        };
+
+        let rbf_fee = if spent_in_rbf == 0 {
+            0
+        } else {
+            spent_in_rbf + tx_size // we're spending 1 sat / byte in RBF
+        };
+        self.serialize_tx(
+            tx,
+            spent_in_outputs + tx_size * fee_rate + rbf_fee,
+            utxos_set,
+            signer,
+        );
+        signer.dispose();
+        Some(())
+    }
+
+    fn serialize_tx(
+        &mut self,
+        tx: &mut Transaction,
+        total_to_spend: u64,
+        utxos_set: &mut UTXOSet,
+        signer: &mut BurnchainOpSigner,
+    ) -> bool {
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
 
-        let total_to_spend = btc_miner_fee + budget_for_outputs;
-
         // select UTXOs until we have enough to cover the cost
-        let mut utxos_consumed = vec![];
-        for utxo in utxos.into_iter() {
+        let mut available_utxos = vec![];
+        available_utxos.append(&mut utxos_set.utxos);
+        for utxo in available_utxos.into_iter() {
             total_consumed += utxo.amount;
-            utxos_consumed.push(utxo);
+            utxos_set.utxos.push(utxo);
 
             if total_consumed >= total_to_spend {
                 break;
@@ -878,21 +1181,25 @@ impl BitcoinRegtestController {
                 "Consumed total {} is less than intended spend: {}",
                 total_consumed, total_to_spend
             );
-            return None;
+            return false;
         }
 
         // Append the change output
         let change_address_hash = Hash160::from_data(&public_key.to_bytes());
         let value = total_consumed - total_to_spend;
-        debug!("Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}, tx_fee: {:?}, attempt: {:?}", value, total_consumed, total_to_spend, btc_miner_fee, attempt);
+        debug!(
+            "Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}",
+            value, total_consumed, total_to_spend
+        );
         if value >= DUST_UTXO_LIMIT {
             let change_output = BitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value);
             tx.output.push(change_output);
         } else {
+            // Instead of leaving that change to the BTC miner, we could / should bump the sortition fee
             debug!("Not enough change to clear dust limit. Not adding change address.");
         }
 
-        for (i, utxo) in utxos_consumed.into_iter().enumerate() {
+        for (i, utxo) in utxos_set.utxos.iter().enumerate() {
             let input = TxIn {
                 previous_output: OutPoint {
                     txid: utxo.txid,
@@ -924,16 +1231,7 @@ impl BitcoinRegtestController {
                 .push_slice(&public_key.to_bytes())
                 .into_script();
         }
-
-        signer.dispose();
-
-        // remember how long the transaction is, in case we need to RBF
-        let tx_bytes = SerializedTx::new(tx.clone());
-        debug!("Send transaction: {:?}", tx_bytes.to_hex());
-
-        self.last_tx_len = tx_bytes.bytes.len() as u64;
-
-        Some(())
+        true
     }
 
     fn build_user_burn_support_tx(
@@ -1084,7 +1382,7 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn get_chain_tip(&mut self) -> BurnchainTip {
+    fn get_chain_tip(&self) -> BurnchainTip {
         match &self.chain_tip {
             Some(chain_tip) => chain_tip.clone(),
             None => {
@@ -1196,6 +1494,22 @@ impl BurnchainController for BitcoinRegtestController {
 }
 
 #[derive(Debug, Clone)]
+pub struct UTXOSet {
+    bhh: BurnchainHeaderHash,
+    utxos: Vec<UTXO>,
+}
+
+impl UTXOSet {
+    pub fn is_empty(&self) -> bool {
+        self.utxos.len() == 0
+    }
+
+    pub fn total_available(&self) -> u64 {
+        self.utxos.iter().map(|o| o.amount).sum()
+    }
+}
+
+#[derive(Debug, Clone)]
 struct SerializedTx {
     bytes: Vec<u8>,
 }
@@ -1230,7 +1544,7 @@ pub struct ParsedUTXO {
     safe: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UTXO {
     pub txid: Sha256dHash,
     pub vout: u32,
@@ -1366,7 +1680,31 @@ impl BitcoinRPCRequest {
         addresses: Vec<String>,
         include_unsafe: bool,
         minimum_sum_amount: u64,
-    ) -> RPCResult<Vec<UTXO>> {
+        utxos_to_exclude: &Option<UTXOSet>,
+        block_height: u64,
+    ) -> RPCResult<UTXOSet> {
+        let payload = BitcoinRPCRequest {
+            method: "getblockhash".to_string(),
+            params: vec![block_height.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let bhh = match res.as_object_mut() {
+            Some(res) => {
+                let res = res
+                    .get("result")
+                    .ok_or(RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+                let bhh: String = serde_json::from_value(res.to_owned())
+                    .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+                let bhh = BurnchainHeaderHash::from_hex(&bhh)
+                    .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+                Ok(bhh)
+            }
+            _ => return Err(RPCError::Parsing("Failed to get UTXOs".to_string())),
+        }?;
+
         let min_conf = 0;
         let max_conf = 9999999;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
@@ -1385,6 +1723,17 @@ impl BitcoinRPCRequest {
         };
 
         let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
+            utxos_to_exclude
+                .utxos
+                .iter()
+                .map(|utxo| utxo.txid)
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+
+        let mut utxos = vec![];
 
         match res.as_object_mut() {
             Some(ref mut object) => match object.get_mut("result") {
@@ -1418,12 +1767,17 @@ impl BitcoinRPCRequest {
                             None => continue,
                         };
 
-                        return Ok(vec![UTXO {
+                        // Exclude UTXOs that we want to filter
+                        if txids_to_filter.contains(&txid) {
+                            continue;
+                        }
+
+                        utxos.push(UTXO {
                             txid,
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
-                        }]);
+                        });
                     }
                 }
                 _ => {
@@ -1435,7 +1789,7 @@ impl BitcoinRPCRequest {
             }
         };
 
-        Ok(vec![])
+        Ok(UTXOSet { bhh, utxos })
     }
 
     pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
