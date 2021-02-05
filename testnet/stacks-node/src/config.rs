@@ -12,7 +12,7 @@ use stacks::core::{
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::get_epoch_time_secs;
+use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -1048,7 +1048,7 @@ impl NodeConfig {
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
 
-        let now = get_epoch_time_secs();
+        let now = get_epoch_time_ms();
         let testnet_id = format!("stacks-node-{}", now);
 
         let rpc_port = 20443;
