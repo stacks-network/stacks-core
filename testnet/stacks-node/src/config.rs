@@ -844,7 +844,7 @@ impl Config {
     }
 
     pub fn get_spv_headers_path(&self) -> String {
-        format!("{}spv-headers.sqlite", self.get_burnchain_path())
+        format!("{}headers.sqlite", self.get_burnchain_path())
     }
 
     pub fn get_chainstate_path(&self) -> String {
@@ -855,11 +855,11 @@ impl Config {
     }
 
     pub fn get_peer_db_path(&self) -> String {
-        format!("{}/peer_db.sqlite", self.get_chainstate_path())
+        format!("{}/peer.sqlite", self.get_chainstate_path())
     }
 
     pub fn get_atlas_db_path(&self) -> String {
-        format!("{}/atlas_db.sqlite", self.get_chainstate_path())
+        format!("{}/atlas.sqlite", self.get_chainstate_path())
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
