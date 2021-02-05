@@ -2412,8 +2412,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
+            let mut coord = ChainsCoordinator::test_new(
+                &burnchain,
+                config.network_id,
+                &test_path,
+                OnChainRewardSetProvider(),
+                tx,
+            );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
