@@ -215,7 +215,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
         let chain_state_path = format!("{}/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
@@ -262,7 +262,7 @@ check if the associated microblocks can be downloaded
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
         let chain_state_path = format!("{}/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
@@ -366,7 +366,7 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "evaluate-pox-anchor" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} evaluate-pox-anchor <path to burnchain/db/bitcoin/mainnet/sortition.db> <height> (last-height)", argv[0]);
+            eprintln!("Usage: {} evaluate-pox-anchor <path to burnchain/db/bitcoin/mainnet/sortition> <height> (last-height)", argv[0]);
             process::exit(1);
         }
         let start_height: u64 = argv[3].parse().expect("Failed to parse <height> argument");
@@ -432,7 +432,7 @@ simulating a miner.
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
+        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
         let chain_state_path = format!("{}/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
@@ -536,8 +536,8 @@ simulating a miner.
         let (marf_path, db_path, arg_next) = if argv.len() == 5 {
             let headers_dir = &argv[2];
             (
-                format!("{}/vm/index", &headers_dir),
-                format!("{}/vm/headers.db", &headers_dir),
+                format!("{}/vm/index.sqlite", &headers_dir),
+                format!("{}/vm/headers.sqlite", &headers_dir),
                 3,
             )
         } else {

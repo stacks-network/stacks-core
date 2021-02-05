@@ -117,7 +117,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: "./spv-headers.dat".to_string(),
+            spv_headers_path: "./spv-headers.sqlite".to_string(),
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
         }
@@ -782,7 +782,6 @@ impl BurnchainIndexer for BitcoinIndexer {
         let conf_path_str = Burnchain::get_chainstate_config_path(
             working_dir,
             &"bitcoin".to_string(),
-            network_name,
         );
 
         let network_id_opt = match network_name.as_ref() {
@@ -1404,7 +1403,7 @@ mod test {
             username: None,
             password: None,
             timeout: 30,
-            spv_headers_path: "/tmp/test_indexer_sync_headers.db".to_string(),
+            spv_headers_path: "/tmp/test_indexer_sync_headers.sqlite".to_string(),
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
         };

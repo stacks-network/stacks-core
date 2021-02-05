@@ -14,9 +14,9 @@ REPORT_MODE="http"
 # applicable if run with 'serve'
 STACKS_WORKING_DIR="$3"
 STACKS_BLOCKS_ROOT="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/blocks/"
-STACKS_STAGING_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index"
-STACKS_HEADERS_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index"
-STACKS_SORTITION_DB="$STACKS_WORKING_DIR/burnchain/db/bitcoin/regtest/sortition.db/marf"
+STACKS_STAGING_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index.sqlite"
+STACKS_HEADERS_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index.sqlite"
+STACKS_SORTITION_DB="$STACKS_WORKING_DIR/burnchain/db/bitcoin/regtest/sortition/marf.sqlite"
 STACKS_MEMPOOL_DB="$STACKS_WORKING_DIR/chainstate/mempool.db"
 
 exit_error() {

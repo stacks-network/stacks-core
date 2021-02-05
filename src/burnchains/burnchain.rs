@@ -561,12 +561,8 @@ impl Burnchain {
 
     pub fn get_chainstate_path(
         working_dir: &String,
-        chain_name: &String,
-        network_name: &String,
     ) -> String {
-        let mut chainstate_dir_path = PathBuf::from(working_dir);
-        chainstate_dir_path.push(chain_name);
-        chainstate_dir_path.push(network_name);
+        let chainstate_dir_path = PathBuf::from(working_dir);
         let dirpath = chainstate_dir_path.to_str().unwrap().to_string();
         dirpath
     }
@@ -574,9 +570,8 @@ impl Burnchain {
     pub fn get_chainstate_config_path(
         working_dir: &String,
         chain_name: &String,
-        network_name: &String,
     ) -> String {
-        let chainstate_dir = Burnchain::get_chainstate_path(working_dir, chain_name, network_name);
+        let chainstate_dir = Burnchain::get_chainstate_path(working_dir);
         let mut config_pathbuf = PathBuf::from(&chainstate_dir);
         let chainstate_config_name = format!("{}.ini", chain_name);
         config_pathbuf.push(&chainstate_config_name);
@@ -586,10 +581,8 @@ impl Burnchain {
 
     pub fn setup_chainstate_dirs(
         working_dir: &String,
-        chain_name: &String,
-        network_name: &String,
     ) -> Result<(), burnchain_error> {
-        let chainstate_dir = Burnchain::get_chainstate_path(working_dir, chain_name, network_name);
+        let chainstate_dir = Burnchain::get_chainstate_path(working_dir);
         let chainstate_pathbuf = PathBuf::from(&chainstate_dir);
 
         if !chainstate_pathbuf.exists() {
@@ -599,7 +592,7 @@ impl Burnchain {
     }
 
     pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
-        Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
+        Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
         let indexer: I = BurnchainIndexer::init(
             &self.working_dir,
@@ -634,9 +627,9 @@ impl Burnchain {
 
     pub fn get_db_path(&self) -> String {
         let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
+            Burnchain::get_chainstate_path(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
-        db_pathbuf.push("sortition.db");
+        db_pathbuf.push("sortition");
 
         let db_path = db_pathbuf.to_str().unwrap().to_string();
         db_path
@@ -644,9 +637,9 @@ impl Burnchain {
 
     pub fn get_burnchaindb_path(&self) -> String {
         let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
+            Burnchain::get_chainstate_path(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
-        db_pathbuf.push("burnchain.db");
+        db_pathbuf.push("burnchain.sqlite");
 
         let db_path = db_pathbuf.to_str().unwrap().to_string();
         db_path
@@ -657,7 +650,7 @@ impl Burnchain {
         indexer: &I,
         readwrite: bool,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
-        Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
+        Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
         let first_block_header_hash = indexer.get_first_block_header_hash()?;
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
