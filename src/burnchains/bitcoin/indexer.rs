@@ -779,10 +779,8 @@ impl BurnchainIndexer for BitcoinIndexer {
         network_name: &String,
         first_block_height: u64,
     ) -> Result<BitcoinIndexer, burnchain_error> {
-        let conf_path_str = Burnchain::get_chainstate_config_path(
-            working_dir,
-            &"bitcoin".to_string(),
-        );
+        let conf_path_str =
+            Burnchain::get_chainstate_config_path(working_dir, &"bitcoin".to_string());
 
         let network_id_opt = match network_name.as_ref() {
             BITCOIN_MAINNET_NAME => Some(BitcoinNetworkType::Mainnet),

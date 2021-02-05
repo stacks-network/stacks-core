@@ -12,12 +12,12 @@ use stacks::core::{
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::hash::{hex_bytes};
+use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use stacks::util::get_epoch_time_secs;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
@@ -829,7 +829,10 @@ impl Config {
     }
 
     pub fn get_burnchain_path(&self) -> String {
-        format!("{}/{}/burnchain/", self.node.working_dir, self.burnchain.mode)
+        format!(
+            "{}/{}/burnchain/",
+            self.node.working_dir, self.burnchain.mode
+        )
     }
 
     pub fn get_burn_db_path(&self) -> String {
@@ -837,10 +840,7 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        format!(
-            "{}sortition/",
-            self.get_burnchain_path(),
-        )
+        format!("{}sortition/", self.get_burnchain_path(),)
     }
 
     pub fn get_spv_headers_path(&self) -> String {
@@ -848,7 +848,10 @@ impl Config {
     }
 
     pub fn get_chainstate_path(&self) -> String {
-        format!("{}/{}/chainstate/", self.node.working_dir, self.burnchain.mode)
+        format!(
+            "{}/{}/chainstate/",
+            self.node.working_dir, self.burnchain.mode
+        )
     }
 
     pub fn get_peer_db_path(&self) -> String {

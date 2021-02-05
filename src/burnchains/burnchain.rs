@@ -559,18 +559,13 @@ impl Burnchain {
         ret
     }
 
-    pub fn get_chainstate_path(
-        working_dir: &String,
-    ) -> String {
+    pub fn get_chainstate_path(working_dir: &String) -> String {
         let chainstate_dir_path = PathBuf::from(working_dir);
         let dirpath = chainstate_dir_path.to_str().unwrap().to_string();
         dirpath
     }
 
-    pub fn get_chainstate_config_path(
-        working_dir: &String,
-        chain_name: &String,
-    ) -> String {
+    pub fn get_chainstate_config_path(working_dir: &String, chain_name: &String) -> String {
         let chainstate_dir = Burnchain::get_chainstate_path(working_dir);
         let mut config_pathbuf = PathBuf::from(&chainstate_dir);
         let chainstate_config_name = format!("{}.ini", chain_name);
@@ -579,9 +574,7 @@ impl Burnchain {
         config_pathbuf.to_str().unwrap().to_string()
     }
 
-    pub fn setup_chainstate_dirs(
-        working_dir: &String,
-    ) -> Result<(), burnchain_error> {
+    pub fn setup_chainstate_dirs(working_dir: &String) -> Result<(), burnchain_error> {
         let chainstate_dir = Burnchain::get_chainstate_path(working_dir);
         let chainstate_pathbuf = PathBuf::from(&chainstate_dir);
 
@@ -626,8 +619,7 @@ impl Burnchain {
     }
 
     pub fn get_db_path(&self) -> String {
-        let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir);
+        let chainstate_dir = Burnchain::get_chainstate_path(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
         db_pathbuf.push("sortition");
 
@@ -636,8 +628,7 @@ impl Burnchain {
     }
 
     pub fn get_burnchaindb_path(&self) -> String {
-        let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir);
+        let chainstate_dir = Burnchain::get_chainstate_path(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
         db_pathbuf.push("burnchain.sqlite");
 
