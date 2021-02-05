@@ -67,7 +67,8 @@ const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in secon
 
 pub const SPV_DB_VERSION: &'static str = "1";
 
-const SPV_INITIAL_SCHEMA: &[&'static str] = &[r#"
+const SPV_INITIAL_SCHEMA: &[&'static str] = &[
+    r#"
     CREATE TABLE headers(
         version INTEGER NOT NULL,
         prev_blockhash TEXT NOT NULL,
@@ -78,7 +79,8 @@ const SPV_INITIAL_SCHEMA: &[&'static str] = &[r#"
         height INTEGER PRIMARY KEY NOT NULL     -- not part of BlockHeader, but used by us internally
     );
     "#,
-    "CREATE TABLE db_config(version TEXT NOT NULL);"];
+    "CREATE TABLE db_config(version TEXT NOT NULL);",
+];
 
 pub struct SpvClient {
     pub headers_path: String,
@@ -185,7 +187,8 @@ impl SpvClient {
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
             &[&SPV_DB_VERSION],
-        ).map_err(db_error::SqliteError)?;
+        )
+        .map_err(db_error::SqliteError)?;
 
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())
