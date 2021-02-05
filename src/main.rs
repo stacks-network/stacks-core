@@ -215,8 +215,8 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
-        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
@@ -262,8 +262,8 @@ check if the associated microblocks can be downloaded
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
-        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
@@ -366,7 +366,7 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "evaluate-pox-anchor" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} evaluate-pox-anchor <path to burnchain/db/bitcoin/mainnet/sortition> <height> (last-height)", argv[0]);
+            eprintln!("Usage: {} evaluate-pox-anchor <path to mainnet/burnchain/sortition> <height> (last-height)", argv[0]);
             process::exit(1);
         }
         let start_height: u64 = argv[3].parse().expect("Failed to parse <height> argument");
@@ -432,8 +432,8 @@ simulating a miner.
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition", &argv[2]);
-        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
