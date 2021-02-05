@@ -308,7 +308,7 @@ impl MemPoolDB {
         let tx = tx_begin_immediate(conn)?;
 
         for cmd in MEMPOOL_INITIAL_SCHEMA {
-            tx.execute(cmd, NO_PARAMS).map_err(db_error::SqliteError)?;
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
         }
 
         tx.commit().map_err(db_error::SqliteError)?;

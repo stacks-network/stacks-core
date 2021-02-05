@@ -389,8 +389,7 @@ impl PeerDB {
         let mut tx = self.tx_begin()?;
 
         for row_text in PEERDB_INITIAL_SCHEMA {
-            tx.execute(row_text, NO_PARAMS)
-                .map_err(db_error::SqliteError)?;
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
         tx.execute(

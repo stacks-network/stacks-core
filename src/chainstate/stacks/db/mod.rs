@@ -706,7 +706,7 @@ impl StacksChainState {
             let tx = dbtx.tx();
 
             for cmd in CHAINSTATE_INITIAL_SCHEMA {
-                tx.execute(cmd, NO_PARAMS)?;
+                tx.execute_batch(cmd)?;
             }
 
             tx.execute(

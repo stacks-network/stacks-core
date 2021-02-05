@@ -2205,7 +2205,7 @@ impl SortitionDB {
         );
 
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
-            db_tx.execute(row_text, NO_PARAMS)?;
+            db_tx.execute_batch(row_text)?;
         }
 
         db_tx.execute(

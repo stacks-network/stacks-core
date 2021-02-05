@@ -180,8 +180,7 @@ impl SpvClient {
         let tx = tx_begin_immediate(conn)?;
 
         for row_text in SPV_INITIAL_SCHEMA {
-            tx.execute(row_text, NO_PARAMS)
-                .map_err(db_error::SqliteError)?;
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
         tx.execute(
