@@ -91,8 +91,6 @@ use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
 
-use core::CHAINSTATE_VERSION;
-
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -455,7 +453,9 @@ pub struct BlockStreamData {
     num_mblocks_ptr: usize,
 }
 
-const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
+pub const CHAINSTATE_VERSION: &'static str = "1";
+
+const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -489,9 +489,10 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         block_size TEXT NOT NULL,       -- converted to/from u64
 
         PRIMARY KEY(consensus_hash,block_hash)
-    );
-    CREATE UNIQUE INDEX index_block_hash_to_primary_key(index_block_hash,consensus_hash,block_hash);
-    "#,
+    );"#,
+    "CREATE UNIQUE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
+    "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
     #[cfg(feature = "tx_log")]
     r#"
     CREATE TABLE transactions(
@@ -501,14 +502,11 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         tx_hex TEXT NOT NULL,
         result TEXT NOT NULL,
         UNIQUE (txid,index_block_hash)
-    );
-    CREATE INDEX txid_tx_index ON transactions(txid);
-    CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);
-    "#,
-    r#"
-    CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);
-    CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);
-    "#,
+    );"#,
+    #[cfg(feature = "tx_log")]
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    #[cfg(feature = "tx_log")]
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -530,8 +528,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         stacks_block_height INTEGER NOT NULL,
         index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
         vtxindex INT NOT NULL               -- user burn support vtxindex
-    );
-    "#,
+    );"#,
     r#"
     -- users who supported miners
     CREATE TABLE user_supporters(
@@ -541,14 +538,13 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         consensus_hash TEXT NOT NULL,
 
         PRIMARY KEY(address,block_hash,consensus_hash)
-    );
-    "#,
+    );"#,
     r#"
     CREATE TABLE db_config(
         version TEXT NOT NULL,
         mainnet INTEGER NOT NULL,
         chain_id INTEGER NOT NULL
-    )"#,
+    );"#,
     r#"
     -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
@@ -561,16 +557,14 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                      processed INT NOT NULL,
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
-    );
-    CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);
-    "#,
+    );"#,
+    "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     r#"
     -- Staging microblocks data
     CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
                                           block_data BLOB NOT NULL,
                                           PRIMARY KEY(block_hash)
-    );
-    "#,
+    );"#,
     r#"
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
@@ -592,13 +586,12 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                 arrival_time INT NOT NULL,                -- when this block was stored
                                 processed_time INT NOT NULL,              -- when this block was processed
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
-    );
-    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
-    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
-    CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);
-    CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);
-    CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);
-    "#,
+    );"#,
+    "CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);",
+    "CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
+    "CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);",
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
@@ -606,8 +599,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                            address TEXT NOT NULL,
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
-    );
-    "#,
+    );"#,
 ];
 
 #[cfg(test)]
@@ -713,7 +705,7 @@ impl StacksChainState {
         {
             let tx = dbtx.tx();
 
-            for cmd in STACKS_CHAIN_STATE_SQL {
+            for cmd in CHAINSTATE_INITIAL_SCHEMA {
                 tx.execute(cmd, NO_PARAMS)?;
             }
 

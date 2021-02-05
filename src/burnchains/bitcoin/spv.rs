@@ -65,7 +65,9 @@ const GENESIS_BLOCK_HASH_REGTEST: &'static str =
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
-const SPV_SQL: &[&'static str] = &[r#"
+pub const SPV_DB_VERSION: &'static str = "1";
+
+const SPV_INITIAL_SCHEMA: &[&'static str] = &[r#"
     CREATE TABLE headers(
         version INTEGER NOT NULL,
         prev_blockhash TEXT NOT NULL,
@@ -75,7 +77,8 @@ const SPV_SQL: &[&'static str] = &[r#"
         nonce INTEGER NOT NULL,
         height INTEGER PRIMARY KEY NOT NULL     -- not part of BlockHeader, but used by us internally
     );
-    "#];
+    "#,
+    "CREATE TABLE db_config(version TEXT NOT NULL);"];
 
 pub struct SpvClient {
     pub headers_path: String,
@@ -174,10 +177,15 @@ impl SpvClient {
     fn db_instantiate(conn: &mut DBConn) -> Result<(), btc_error> {
         let tx = tx_begin_immediate(conn)?;
 
-        for row_text in SPV_SQL {
+        for row_text in SPV_INITIAL_SCHEMA {
             tx.execute(row_text, NO_PARAMS)
                 .map_err(db_error::SqliteError)?;
         }
+
+        tx.execute(
+            "INSERT INTO db_config (version) VALUES (?1)",
+            &[&SPV_DB_VERSION],
+        ).map_err(db_error::SqliteError)?;
 
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())

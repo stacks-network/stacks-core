@@ -167,7 +167,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     }
 }
 
-const MEMPOOL_SQL: &'static [&'static str] = &[
+const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
@@ -188,14 +188,12 @@ const MEMPOOL_SQL: &'static [&'static str] = &[
         UNIQUE (sponsor_address,sponsor_nonce)
     );
     "#,
-    r#"
-    CREATE INDEX by_txid ON mempool(txid);
-    CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce),
-    CREATE INDEX by_origin ON mempool(origin_address, origin_nonce),
-    CREATE INDEX by_timestamp ON mempool(accept_time);
-    CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);
-    CREATE INDEX by_estimated_fee ON mempool(estimated_fee);
-    "#,
+    "CREATE INDEX by_txid ON mempool(txid);",
+    "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
+    "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
+    "CREATE INDEX by_timestamp ON mempool(accept_time);",
+    "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
+    "CREATE INDEX by_estimated_fee ON mempool(estimated_fee);",
 ];
 
 pub struct MemPoolDB {
@@ -309,7 +307,7 @@ impl MemPoolDB {
 
         let tx = tx_begin_immediate(conn)?;
 
-        for cmd in MEMPOOL_SQL {
+        for cmd in MEMPOOL_INITIAL_SCHEMA {
             tx.execute(cmd, NO_PARAMS).map_err(db_error::SqliteError)?;
         }
 
