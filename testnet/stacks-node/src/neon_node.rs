@@ -1077,6 +1077,14 @@ impl InitializedNeonNode {
             _ => panic!("Unable to retrieve local peer"),
         };
 
+        // force early mempool instantiation
+        let _ = MemPoolDB::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &config.get_chainstate_path(),
+        )
+        .expect("BUG: failed to instantiate mempool");
+
         // now we're ready to instantiate a p2p network object, the relayer, and the event dispatcher
         let mut p2p_net = PeerNetwork::new(
             peerdb,
