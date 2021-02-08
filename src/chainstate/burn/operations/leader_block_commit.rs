@@ -49,6 +49,8 @@ use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+
 // return type from parse_data below
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
@@ -236,7 +238,23 @@ impl LeaderBlockCommitOp {
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
-        let mut outputs = tx.get_recipients();
+        let mut outputs = tx.get_recipients().clone();
+
+        let apparent_sender = tx
+            .get_signer(0)
+            .expect("UNREACHABLE: checked that inputs > 0");
+
+        for (ix, output) in outputs.iter().enumerate() {
+            let expected_outputs = if burnchain.is_in_prepare_phase(block_height) {
+                1
+            } else {
+                OUTPUTS_PER_COMMIT
+            };
+            if ix >= expected_outputs {
+                break;
+            }
+            debug!("Analytics[pox]: {},{},{},{},{},{}", block_height, block_hash, tx.txid(), output.address, output.amount, apparent_sender.to_address(BitcoinNetworkType::Mainnet));
+        }
 
         if tx.num_signers() == 0 {
             warn!(
@@ -362,10 +380,6 @@ impl LeaderBlockCommitOp {
             .get_input_tx_ref(0)
             .expect("UNREACHABLE: checked that inputs > 0")
             .clone();
-
-        let apparent_sender = tx
-            .get_signer(0)
-            .expect("UNREACHABLE: checked that inputs > 0");
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
