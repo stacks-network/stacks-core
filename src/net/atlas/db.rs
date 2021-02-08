@@ -232,8 +232,10 @@ impl AtlasDB {
 
         match rows.next() {
             Ok(Some(row)) => {
-                let min: i64 = row.get_unwrap("min");
-                let max: i64 = row.get_unwrap("max");
+                let min: i64 = row.get("min")
+                    .map_err(|_| db_error::NotFoundError)?;
+                let max: i64 = row.get("max")
+                    .map_err(|_| db_error::NotFoundError)?;
                 Ok((min as u64, max as u64))
             }
             _ => Err(db_error::NotFoundError),
