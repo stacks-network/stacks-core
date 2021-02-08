@@ -594,7 +594,7 @@ impl ConversationHttp {
         warn!("{}", msg);
         let response = HttpResponseType::NotFound(response_metadata, msg.clone());
         response.send(http, fd)?;
-        return Err(net_error::ClientError(ClientError::Message(msg)));
+        Ok(())
 
         // let response_metadata = HttpResponseMetadata::from(req);
         // if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
