@@ -592,7 +592,7 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let msg = format!("Atlas disabled");
         warn!("{}", msg);
-        let response = HttpResponseType::ServerError(response_metadata, msg.clone());
+        let response = HttpResponseType::NotFound(response_metadata, msg.clone());
         response.send(http, fd)?;
         return Err(net_error::ClientError(ClientError::Message(msg)));
 
