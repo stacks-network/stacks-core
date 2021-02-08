@@ -490,7 +490,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
-    "CREATE UNIQUE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
     #[cfg(feature = "tx_log")]
