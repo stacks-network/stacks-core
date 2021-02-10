@@ -1661,7 +1661,8 @@ impl InitializedNeonNode {
     }
 
     pub fn terminate_relayer(&self) {
-        self.relay_channel.send(RelayerDirective::Exit)
+        self.relay_channel
+            .send(RelayerDirective::Exit)
             .expect("Unable to terminate relayer");
     }
 

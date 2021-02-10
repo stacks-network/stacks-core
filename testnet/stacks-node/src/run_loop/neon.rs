@@ -4,6 +4,7 @@ use crate::{
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
+use ctrlc as termination;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -16,14 +17,13 @@ use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
-use thread::sleep;
-use std::{cmp, time::Duration};
-use std::sync::mpsc::sync_channel;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
+use std::{cmp, time::Duration};
 use stx_genesis::GenesisData;
-use ctrlc as termination;
+use thread::sleep;
 
 use super::RunLoopCallbacks;
 
@@ -319,15 +319,16 @@ impl RunLoop {
 
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
-        
+
         termination::set_handler(move || {
             keep_running_writer.store(false, Ordering::SeqCst);
-        }).expect("Error setting termination handler");
+        })
+        .expect("Error setting termination handler");
 
         loop {
             // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {
-                info!("Terminating process");                
+                info!("Terminating process");
                 // Terminate chains coordinator
                 info!("Stopping chains-coordinator");
                 coordinator_senders.stop_chains_coordinator();
