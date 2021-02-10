@@ -11,5 +11,5 @@ Relevant files:
   files.
 
 To use, you will need to install `stacks-node`, `blockstack-cli`,
-`bitcoin-neon-controller`, and `bin/faucet.sh` to somewhere in your `$PATH`.
+`puppet-chain`, and `bin/faucet.sh` to somewhere in your `$PATH`.
 You will also need a recent `bitcoind` and `bitcoin-cli`.

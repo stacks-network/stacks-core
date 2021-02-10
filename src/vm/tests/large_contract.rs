@@ -343,10 +343,19 @@ pub fn ccall_memory_test() {
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
 
-    {
-        let mut conn = clarity_instance.begin_block(
+    clarity_instance
+        .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([0 as u8; 32]),
+            &StacksBlockId([1 as u8; 32]),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
