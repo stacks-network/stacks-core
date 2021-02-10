@@ -471,8 +471,8 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    "CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
-    "CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
     "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
     "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
     "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",

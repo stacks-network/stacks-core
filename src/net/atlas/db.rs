@@ -38,7 +38,7 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         was_instantiated INTEGER NOT NULL,
         created_at INTEGER NOT NULL
     );"#,
-    "CREATE INDEX index_was_instanciated ON attachments(was_instantiated);",
+    "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
