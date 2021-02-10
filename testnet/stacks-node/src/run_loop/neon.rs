@@ -16,10 +16,14 @@ use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
-use std::cmp;
+use thread::sleep;
+use std::{cmp, time::Duration};
 use std::sync::mpsc::sync_channel;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use stx_genesis::GenesisData;
+use ctrlc as termination;
 
 use super::RunLoopCallbacks;
 
@@ -313,7 +317,29 @@ impl RunLoop {
         // prepare to fetch the first reward cycle!
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
 
+        let should_keep_running = Arc::new(AtomicBool::new(true));
+        let keep_running_writer = should_keep_running.clone();
+        
+        termination::set_handler(move || {
+            keep_running_writer.store(false, Ordering::SeqCst);
+        }).expect("Error setting termination handler");
+
         loop {
+            // Orchestrating graceful termination
+            if !should_keep_running.load(Ordering::SeqCst) {
+                info!("Terminating process");                
+                // Terminate chains coordinator
+                info!("Stopping chains-coordinator");
+                coordinator_senders.stop_chains_coordinator();
+                // Terminate relayer
+                info!("Stopping relayer");
+                node.terminate_relayer();
+                // Commands handling is async, we'll sleep to make sure
+                // that the exit commands sent are ingested.
+                sleep(Duration::from_secs(10));
+                info!("Stopping stacks-node");
+                break;
+            }
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions

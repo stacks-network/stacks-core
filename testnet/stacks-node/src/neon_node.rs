@@ -85,6 +85,7 @@ enum RelayerDirective {
     RunTenure(RegisteredKey, BlockSnapshot),
     RegisterKey(BlockSnapshot),
     RunMicroblockTenure,
+    Exit,
 }
 
 pub struct InitializedNeonNode {
@@ -939,6 +940,7 @@ fn spawn_miner_relayer(
                     // synchronize unconfirmed tx index to p2p thread
                     send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
+                RelayerDirective::Exit => break
             }
         }
         debug!("Relayer exit!");
@@ -1656,6 +1658,11 @@ impl InitializedNeonNode {
             },
             microblock_secret_key,
         ))
+    }
+
+    pub fn terminate_relayer(&self) {
+        self.relay_channel.send(RelayerDirective::Exit)
+            .expect("Unable to terminate relayer");
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
