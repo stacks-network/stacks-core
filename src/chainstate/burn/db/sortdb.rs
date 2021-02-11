@@ -1185,6 +1185,9 @@ impl<'a> SortitionHandleTx<'a> {
                         .into_iter()
                         .map(|ix| {
                             let recipient = reward_set[ix as usize].clone();
+                            debug!("PoX recipient chosen";
+                                   "recipient" => recipient.clone().to_b58(),
+                                   "block_height" => block_height);
                             (recipient, u16::try_from(ix).unwrap())
                         })
                         .collect(),
@@ -1211,9 +1214,11 @@ impl<'a> SortitionHandleTx<'a> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
+                        debug!("PoX recipient chosen";
+                               "recipient" => recipient.clone().to_b58(),
+                               "block_height" => block_height);
                         recipients.push((recipient, ix));
                     }
-                    test_debug!("PoX reward recipients: {:?}", &recipients);
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,

@@ -378,14 +378,21 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub blocks_path: String,
     pub tx: StacksDBTx<'a>,
+    pub root_path: String,
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+    pub fn new(
+        tx: StacksDBTx<'a>,
+        blocks_path: String,
+        root_path: String,
+        config: DBConfig,
+    ) -> ChainstateTx<'a> {
         ChainstateTx {
             config,
             blocks_path,
             tx,
+            root_path,
         }
     }
 
@@ -1446,7 +1453,8 @@ impl StacksChainState {
         let clarity_instance = &mut self.clarity_state;
         let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
+        let chainstate_tx =
+            ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
         Ok((chainstate_tx, clarity_instance))
     }

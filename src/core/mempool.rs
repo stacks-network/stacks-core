@@ -317,6 +317,15 @@ impl MemPoolDB {
         Ok(())
     }
 
+    pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
+        let mut path = PathBuf::from(chainstate_root_path);
+
+        path.push("mempool.db");
+        path.to_str()
+            .ok_or_else(|| db_error::ParseError)
+            .map(String::from)
+    }
+
     /// Open the mempool db within the chainstate directory.
     /// The chainstate must be instantiated already.
     pub fn open(
@@ -338,15 +347,8 @@ impl MemPoolDB {
         let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
-        let mut path = PathBuf::from(chainstate.root_path);
-
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
-
-        path.push("mempool.db");
-        let db_path = path
-            .to_str()
-            .ok_or_else(|| db_error::ParseError)?
-            .to_string();
+        let db_path = MemPoolDB::db_path(&chainstate.root_path)?;
 
         let mut create_flag = false;
         let open_flags = if fs::metadata(&db_path).is_err() {
