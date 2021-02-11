@@ -590,89 +590,96 @@ impl ConversationHttp {
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
-            let msg = format!(
-                "Number of attachment inv pages is limited by {} per request",
-                MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
-            );
-            warn!("{}", msg);
-            let response = HttpResponseType::ServerError(response_metadata, msg);
-            response.send(http, fd)?;
-            return Ok(());
-        }
+        let msg = format!("Atlas disabled");
+        warn!("{}", msg);
+        let response = HttpResponseType::NotFound(response_metadata, msg.clone());
+        response.send(http, fd)?;
+        Ok(())
 
-        let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
-        pages_indexes.sort();
-        let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
+        // let response_metadata = HttpResponseMetadata::from(req);
+        // if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
+        //     let msg = format!(
+        //         "Number of attachment inv pages is limited by {} per request",
+        //         MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+        //     );
+        //     warn!("{}", msg);
+        //     let response = HttpResponseType::ServerError(response_metadata, msg);
+        //     response.send(http, fd)?;
+        //     return Ok(());
+        // }
 
-        let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
-            (
-                *pages_indexes.first().unwrap(),
-                *pages_indexes.last().unwrap(),
-                pages_indexes.clone(),
-            )
-        } else {
-            // Pages indexes not provided, aborting
-            let msg = format!("Page indexes missing");
-            warn!("{}", msg);
-            let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
-            response.send(http, fd)?;
-            return Err(net_error::ClientError(ClientError::Message(msg)));
-        };
+        // let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        // pages_indexes.sort();
+        // let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
 
-        // We need to rebuild an ancestry tree, but we're still missing some informations at this point
-        let (min_block_height, max_block_height) = match atlasdb
-            .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
-        {
-            Ok(window) => window,
-            Err(e) => {
-                let msg = format!("Unable to read Atlas DB");
-                warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
-                response.send(http, fd)?;
-                return Err(net_error::DBError(e));
-            }
-        };
+        // let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
+        //     (
+        //         *pages_indexes.first().unwrap(),
+        //         *pages_indexes.last().unwrap(),
+        //         pages_indexes.clone(),
+        //     )
+        // } else {
+        //     // Pages indexes not provided, aborting
+        //     let msg = format!("Page indexes missing");
+        //     warn!("{}", msg);
+        //     let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
+        //     response.send(http, fd)?;
+        //     return Err(net_error::ClientError(ClientError::Message(msg)));
+        // };
 
-        let mut blocks_ids = vec![];
-        let mut headers_tx = chainstate.index_tx_begin()?;
-        let tip_index_hash =
-            StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
+        // // We need to rebuild an ancestry tree, but we're still missing some informations at this point
+        // let (min_block_height, max_block_height) = match atlasdb
+        //     .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
+        // {
+        //     Ok(window) => window,
+        //     Err(e) => {
+        //         let msg = format!("Unable to read Atlas DB");
+        //         warn!("{}", msg);
+        //         let response = HttpResponseType::ServerError(response_metadata, msg);
+        //         response.send(http, fd)?;
+        //         return Err(net_error::DBError(e));
+        //     }
+        // };
 
-        for block_height in min_block_height..=max_block_height {
-            match StacksChainState::get_index_tip_ancestor(
-                &mut headers_tx,
-                &tip_index_hash,
-                block_height,
-            )? {
-                Some(header) => blocks_ids.push(header.index_block_hash()),
-                _ => {}
-            }
-        }
+        // let mut blocks_ids = vec![];
+        // let mut headers_tx = chainstate.index_tx_begin()?;
+        // let tip_index_hash =
+        //     StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
 
-        match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
-            Ok(pages) => {
-                let pages = pages
-                    .into_iter()
-                    .zip(pages_indexes)
-                    .map(|(inventory, index)| AttachmentPage { index, inventory })
-                    .collect();
+        // for block_height in min_block_height..=max_block_height {
+        //     match StacksChainState::get_index_tip_ancestor(
+        //         &mut headers_tx,
+        //         &tip_index_hash,
+        //         block_height,
+        //     )? {
+        //         Some(header) => blocks_ids.push(header.index_block_hash()),
+        //         _ => {}
+        //     }
+        // }
 
-                let content = GetAttachmentsInvResponse {
-                    block_id: tip.clone(),
-                    pages,
-                };
-                let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
-                response.send(http, fd)
-            }
-            Err(e) => {
-                let msg = format!("Unable to read Atlas DB");
-                warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
-                response.send(http, fd)?;
-                return Err(net_error::DBError(e));
-            }
-        }
+        // match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
+        //     Ok(pages) => {
+        //         let pages = pages
+        //             .into_iter()
+        //             .zip(pages_indexes)
+        //             .map(|(inventory, index)| AttachmentPage { index, inventory })
+        //             .collect();
+
+        //         let content = GetAttachmentsInvResponse {
+        //             block_id: tip.clone(),
+        //             pages,
+        //         };
+        //         let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
+        //         response.send(http, fd)
+        //     }
+        //     Err(e) => {
+        //         let msg = format!("Unable to read Atlas DB");
+        //         warn!("{}", msg);
+        //         let response = HttpResponseType::ServerError(response_metadata, msg);
+        //         response.send(http, fd)?;
+        //         return Err(net_error::DBError(e));
+        //     }
+        // }
     }
 
     fn handle_getattachment<W: Write>(
