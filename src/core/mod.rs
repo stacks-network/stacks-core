@@ -48,6 +48,8 @@ pub const NETWORK_P2P_PORT: u16 = 6265;
 // its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
+pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
+
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)

@@ -8968,13 +8968,13 @@ pub mod test {
                         }
                     };
 
-                    let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,

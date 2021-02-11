@@ -1,5 +1,4 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
-use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 use std::collections::HashMap;
 

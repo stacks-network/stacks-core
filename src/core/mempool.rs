@@ -1069,6 +1069,16 @@ impl MemPoolDB {
         Ok(())
     }
 
+    /// Drop transactions from the mempool
+    pub fn drop_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
+        let mempool_tx = self.tx_begin()?;
+        let sql = "DELETE FROM mempool WHERE txid = ?";
+        for txid in txids.iter() {
+            mempool_tx.execute(sql, &[txid])?;
+        }
+        Ok(())
+    }
+
     /// Do we have a transaction?
     pub fn has_tx(&self, txid: &Txid) -> bool {
         match MemPoolDB::db_has_tx(self.conn(), txid) {
