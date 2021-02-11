@@ -1577,7 +1577,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            HELIUM_BLOCK_LIMIT.clone(),
+            config.block_limit.clone(),
         ) {
             Ok(block) => block,
             Err(e) => {
