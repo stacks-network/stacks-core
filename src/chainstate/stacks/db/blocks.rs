@@ -4131,14 +4131,8 @@ impl StacksChainState {
                     }),
                 );
 
-                let boot_code_account = StacksAccount {
-                    principal: PrincipalData::Standard(boot_code_address.into()),
-                    nonce: 0,
-                    stx_balance: STXBalance::zero(),
-                };
-
                 let lockup_tx = StacksTransaction::new(
-                    tx_version.clone(),
+                    tx_version,
                     boot_code_auth,
                     TransactionPayload::ContractCall(TransactionContractCall {
                         address: boot_code_address,
