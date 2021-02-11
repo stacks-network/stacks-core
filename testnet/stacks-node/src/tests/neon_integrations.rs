@@ -2,7 +2,6 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
-use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
     StacksPublicKey, StacksTransaction, TransactionPayload,
@@ -18,6 +17,13 @@ use stacks::vm::Value;
 use stacks::{
     burnchains::{Address, Burnchain, PoxConstants},
     vm::costs::ExecutionCost,
+};
+use stacks::{
+    chainstate::{burn::ConsensusHash, stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG},
+    vm::{
+        types::{SequenceData, TupleData},
+        ClarityName,
+    },
 };
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -2589,4 +2595,267 @@ fn atlas_integration_test() {
     channel.stop_chains_coordinator();
 
     bootstrap_node_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+fn send_many_memos() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let local_env = env::var("LOCAL_ENV") == Ok("1".into());
+
+    let send_many_memo_src = "
+;; send-many
+(define-public (send-stx-with-memo (ustx uint) (to principal) (memo (buff 34)))
+ (let ((transfer-ok (try! (stx-transfer? ustx tx-sender to))))
+   (print memo)
+   (ok transfer-ok)))
+
+(define-private (send-stx (recipient { to: principal, ustx: uint, memo: (buff 34) }))
+  (send-stx-with-memo
+     (get ustx recipient)
+     (get to recipient)
+     (get memo recipient)))
+
+(define-private (check-err (result (response bool uint))
+                           (prior (response bool uint)))
+  (match prior ok-value result
+               err-value (err err-value)))
+
+(define-public (send-many (recipients (list 200 { to: principal, ustx: uint, memo: (buff 34) })))
+  (fold check-err
+    (map send-stx recipients)
+    (ok true)))
+    ";
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.into();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    if !local_env {
+        test_observer::spawn();
+    }
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+    let res = get_account(&http_origin, &miner_account);
+    assert_eq!(res.balance, 0);
+    assert_eq!(res.nonce, 1);
+
+    // and our spender:
+    let res = get_account(&http_origin, &spender_princ);
+    assert_eq!(res.balance, spender_bal as u128);
+    assert_eq!(res.nonce, 0);
+
+    let transactions = vec![make_contract_publish(
+        &spender_sk,
+        0,
+        1000,
+        "send-many",
+        send_many_memo_src,
+    )];
+
+    for tx in transactions.into_iter() {
+        submit_tx(&http_origin, &tx);
+    }
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    fn make_recipient_tuple(to: &PrincipalData, ustx: u128, memo: &[u8]) -> Value {
+        Value::Tuple(
+            TupleData::from_data(vec![
+                (ClarityName::from("to"), Value::from(to.clone())),
+                (ClarityName::from("ustx"), Value::UInt(ustx)),
+                (
+                    ClarityName::from("memo"),
+                    Value::buff_from(memo.to_vec()).unwrap(),
+                ),
+            ])
+            .unwrap(),
+        )
+    }
+
+    let addresses: Vec<_> = (0..200)
+        .map(|ix| {
+            let addr = StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([ix; 20]),
+            };
+            addr.into()
+        })
+        .collect();
+
+    let send_many_tx = make_contract_call(
+        &spender_sk,
+        1,
+        1000,
+        &spender_addr,
+        "send-many",
+        "send-many",
+        &[Value::list_from(vec![make_recipient_tuple(
+            &addresses[0],
+            1,
+            "abc".as_bytes(),
+        )])
+        .unwrap()],
+    );
+
+    submit_tx(&http_origin, &send_many_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    if !local_env {
+        // clear and mine another burnchain block, so that the new winner is seen by the observer
+        //   (the observer is logically "one block behind" the miner
+        test_observer::clear();
+    }
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    if !local_env {
+        let mut blocks = test_observer::get_blocks();
+        // should have produced 1 new block
+        assert_eq!(blocks.len(), 1);
+        let block = blocks.pop().unwrap();
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        let events = block.get("events").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+        let mut txid = "".to_string();
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "send-many" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    txid = tx.get("txid").unwrap().as_str().unwrap().to_string();
+                    assert_eq!(parsed.to_string(), "(ok true)");
+                }
+            }
+        }
+
+        let mut processed_events: Vec<_> = events
+            .iter()
+            .filter_map(|event| {
+                if event.get("txid").unwrap().as_str().unwrap() == txid {
+                    let index = event.get("event_index").unwrap().as_u64().unwrap();
+                    assert_eq!(event.get("committed").unwrap().as_bool(), Some(true));
+                    let ev_type = event.get("type").unwrap().as_str().unwrap().to_string();
+                    Some((index, ev_type, event.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            processed_events.len(),
+            2,
+            "Should have 2 events for the transaction"
+        );
+
+        processed_events.sort_by_key(|(k, _, _)| *k);
+
+        assert_eq!(&processed_events[0].1, "stx_transfer_event");
+        let event_data = processed_events[0]
+            .2
+            .get("stx_transfer_event")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            event_data["sender"].as_str().unwrap(),
+            &spender_addr.to_string()
+        );
+        assert_eq!(
+            event_data["recipient"].as_str().unwrap(),
+            &addresses[0].to_string()
+        );
+        assert_eq!(event_data["amount"].as_str().unwrap(), "1");
+
+        assert_eq!(&processed_events[1].1, "contract_event");
+        let event_data = processed_events[1]
+            .2
+            .get("contract_event")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            event_data["contract_identifier"].as_str().unwrap(),
+            &format!("{}.{}", spender_addr.to_string(), "send-many")
+        );
+        let parsed_value = <Value as ClarityDeserializable<Value>>::deserialize(
+            &event_data["raw_value"].as_str().unwrap()[2..],
+        );
+        assert_eq!(parsed_value.to_string(), "0x616263");
+    }
+
+    if local_env {
+        // every ten seconds, issue a block and a transaction
+        sleep_ms(10_000);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    } else {
+        test_observer::clear();
+        channel.stop_chains_coordinator();
+    }
 }
