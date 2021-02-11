@@ -4070,28 +4070,28 @@ impl StacksChainState {
     /// Return the total number of uSTX unlocked in this block
     pub fn process_stx_unlocks<'a>(
         clarity_tx: &mut ClarityTx<'a>,
-    ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
+    ) -> Result<(u128, Option<StacksTransactionReceipt>), Error> {
         let mainnet = clarity_tx.config.mainnet;
         let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
-                let result = tx_connection.with_clarity_db(|db| {
+                let (result, block_height) = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
                     let res = db.fetch_entry_unknown_descriptor(
                         &lockup_contract_id,
                         "lockups",
                         &block_height,
                     )?;
-                    Ok(res)
+                    Ok((res, block_height))
                 })?;
 
                 let entries = match result {
                     Value::Optional(_) => match result.expect_optional() {
                         Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
-                        _ => return Ok((0, vec![])),
+                        _ => return Ok((0, None)),
                     },
-                    _ => return Ok((0, vec![])),
+                    _ => return Ok((0, None)),
                 };
 
                 let mut total_minted = 0;
@@ -4113,7 +4113,48 @@ impl StacksChainState {
                     let event = STXEventType::STXMintEvent(STXMintEventData { recipient, amount });
                     events.push(StacksTransactionEvent::STXEvent(event));
                 }
-                Ok((total_minted, events))
+
+                let tx_version = if mainnet {
+                    TransactionVersion::Mainnet
+                } else {
+                    TransactionVersion::Testnet
+                };
+                let boot_code_address = boot_code_addr(mainnet);
+                let boot_code_auth = TransactionAuth::Standard(
+                    TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                        signer: boot_code_address.bytes.clone(),
+                        hash_mode: SinglesigHashMode::P2PKH,
+                        key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                        nonce: 0,
+                        tx_fee: 0,
+                        signature: MessageSignature::empty(),
+                    }),
+                );
+
+                let boot_code_account = StacksAccount {
+                    principal: PrincipalData::Standard(boot_code_address.into()),
+                    nonce: 0,
+                    stx_balance: STXBalance::zero(),
+                };
+
+                let lockup_tx = StacksTransaction::new(
+                    tx_version.clone(),
+                    boot_code_auth,
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        address: boot_code_address,
+                        contract_name: ContractName::try_from("lockup").unwrap(),
+                        function_name: ClarityName::try_from("get-lockups").unwrap(),
+                        function_args: vec![block_height],
+                    }),
+                );
+                let lockup_receipt = StacksTransactionReceipt::from_stx_transfer(
+                    lockup_tx,
+                    events,
+                    Value::okay_true(),
+                    ExecutionCost::zero(),
+                );
+
+                Ok((total_minted, Some(lockup_receipt)))
             })
             .map_err(Error::ClarityError)
     }
@@ -4453,10 +4494,13 @@ impl StacksChainState {
                 .expect("Overflow: Too many STX burnt");
 
             // unlock any uSTX
-            let (new_unlocked_ustx, _unlocked_events) =
+            let (new_unlocked_ustx, receipt) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
-
             clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
+
+            if let Some(receipt) = receipt {
+                receipts.push(receipt);
+            }
 
             // record that this microblock public key hash was used at this height
             match StacksChainState::insert_microblock_pubkey_hash(
