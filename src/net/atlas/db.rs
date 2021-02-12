@@ -220,11 +220,10 @@ impl AtlasDB {
 
     pub fn get_minmax_heights_window_for_page_index(
         &self,
-        oldest_page_index: u32,
-        newest_page_index: u32,
+        page_index: u32,
     ) -> Result<(u64, u64), db_error> {
-        let min = oldest_page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let max = (newest_page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2".to_string();
         let args = [&min as &dyn ToSql, &max as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
@@ -240,22 +239,18 @@ impl AtlasDB {
         }
     }
 
-    pub fn get_attachments_available_at_pages_indexes(
+    pub fn get_attachments_available_at_page_index(
         &self,
-        pages_indexes: &Vec<u32>,
+        page_index: u32,
         blocks_ids: &Vec<StacksBlockId>,
-    ) -> Result<Vec<Vec<u8>>, db_error> {
-        let mut pages = vec![];
-        for page_index in pages_indexes {
-            let page = self.get_attachments_missing_at_page_index(*page_index, blocks_ids)?;
-            let mut bit_vector = vec![];
-            for (_index, is_attachment_missing) in page.iter().enumerate() {
-                // todo(ludo): use a bitvector instead
-                bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
-            }
-            pages.push(bit_vector);
+    ) -> Result<Vec<u8>, db_error> {
+        let page = self.get_attachments_missing_at_page_index(page_index, blocks_ids)?;
+        let mut bit_vector = vec![];
+        for (_index, is_attachment_missing) in page.iter().enumerate() {
+            // todo(ludo): use a bitvector instead
+            bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
         }
-        Ok(pages)
+        Ok(bit_vector)
     }
 
     pub fn get_attachments_missing_at_page_index(
