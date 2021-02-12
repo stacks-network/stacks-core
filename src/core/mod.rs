@@ -87,8 +87,6 @@ pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);
 
-pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
-
 pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
 
 pub const POX_SUNSET_START: u64 = 100_000;
