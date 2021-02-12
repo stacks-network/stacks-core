@@ -507,6 +507,86 @@ fn liquid_ustx_integration() {
 
 #[test]
 #[ignore]
+fn lockup_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let _client = reqwest::blocking::Client::new();
+
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query an account that unlocked STX
+    // Looking at chainstate-test.txt,
+    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,1
+    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
+    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
+    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
+    let recipient = StacksAddress::from_string("SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A").unwrap();
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // block #1 should be unlocking STX
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    assert_eq!(get_balance(&http_origin, &recipient), 13888888889);
+
+    // block #2 won't unlock STX
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // block #3 should be unlocking STX
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    assert_eq!(get_balance(&http_origin, &recipient), 13888888889*3);
+
+    // now let's ensure that the last block received by the event observer contains the lockup receipt
+    let blocks = test_observer::get_blocks();
+    let chain_tip = blocks.last().unwrap();
+
+    let events = chain_tip.get("events").unwrap().as_array().unwrap();
+    assert_eq!(events.len(), 2);
+    for event in events {
+        assert_eq!(event.get("type").unwrap().as_str().unwrap(), "stx_mint_event");
+    }
+}
+
+#[test]
+#[ignore]
 fn stx_transfer_btc_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
