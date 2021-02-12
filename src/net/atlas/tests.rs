@@ -934,3 +934,22 @@ fn test_evict_expired_uninstantiated_attachments() {
     // Count after eviction should be 10
     assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
 }
+
+#[test]
+fn test_get_minmax_heights_atlasdb() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 100,
+        uninstantiated_attachments_expire_after: 10,
+        genesis_attachments: None,
+    };
+
+    let atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    // Calling get_minmax_heights_window_for_page_index on a blank db should return an error,
+    // not be crashing.
+    let res = atlas_db
+        .get_minmax_heights_window_for_page_index(0)
+        .unwrap_err();
+}
