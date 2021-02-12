@@ -3,7 +3,6 @@ rpc_bind = "127.0.0.1:30443"
 p2p_bind = "127.0.0.1:30444"
 bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@127.0.0.1:20444"
 miner = false
-prometheus_bind = "127.0.0.1:5000"
 pox_sync_sample_secs = 10
 
 [burnchain]

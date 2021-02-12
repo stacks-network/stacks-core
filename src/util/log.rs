@@ -326,7 +326,8 @@ fn isatty(stream: Stream) -> bool {
         Stream::Stdout => libc::STDOUT_FILENO,
         Stream::Stderr => libc::STDERR_FILENO,
     };
-    unsafe { libc::isatty(fd) != 0 }
+    // unsafe { libc::isatty(fd) != 0 }
+    true
 }
 
 #[cfg(not(unix))]
