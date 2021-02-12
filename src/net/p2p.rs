@@ -4074,7 +4074,7 @@ impl PeerNetwork {
         self.do_network_neighbor_walk()?;
 
         // download attachments
-        // self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4240,17 +4240,17 @@ impl PeerNetwork {
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        // match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-        //     let mut known_attachments = attachments_downloader
-        //         .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
-        //     network_result.attachments.append(&mut known_attachments);
-        //     Ok(())
-        // }) {
-        //     Ok(_) => {}
-        //     Err(e) => {
-        //         warn!("Atlas: updating attachment inventory failed {}", e);
-        //     }
-        // }
+        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader
+                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+            network_result.attachments.append(&mut known_attachments);
+            Ok(())
+        }) {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Atlas: updating attachment inventory failed {}", e);
+            }
+        }
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
