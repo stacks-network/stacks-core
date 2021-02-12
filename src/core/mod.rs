@@ -48,6 +48,14 @@ pub const NETWORK_P2P_PORT: u16 = 6265;
 // its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
+// This controls a miner heuristic for dropping a transaction from repeated consideration
+//  in the mempool. If the transaction caused the block limit to be reached when the block
+//  was previously `TX_BLOCK_LIMIT_PROPORTION_HEURISTIC`% full, the transaction will be dropped
+//  from the mempool. 20% is chosen as a heuristic here to allow for large transactions to be
+//  attempted, but if they cannot be included in an otherwise mostly empty block, not to consider
+//  them again.
+pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
+
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)
