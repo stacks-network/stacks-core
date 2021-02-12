@@ -559,8 +559,7 @@ fn lockup_integration() {
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
     let recipient_addr_str = "SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A";
-    let recipient =
-        StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -582,7 +581,7 @@ fn lockup_integration() {
                 found = true;
             }
         }
-    } 
+    }
     assert_eq!(found, true);
 
     // block #2 won't unlock STX

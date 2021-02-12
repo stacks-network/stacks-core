@@ -4455,14 +4455,14 @@ impl StacksChainState {
             // unlock any uSTX
             let (new_unlocked_ustx, mut lockup_events) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
-            
-            // if any, append lockups events to the coinbase receipt 
+
+            // if any, append lockups events to the coinbase receipt
             if lockup_events.len() > 0 {
                 if let Some(receipt) = receipts.get_mut(0) {
                     if receipt.is_coinbase_tx() {
                         receipt.events.append(&mut lockup_events);
                     }
-                }    
+                }
             }
 
             clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
