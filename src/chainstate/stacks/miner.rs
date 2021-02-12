@@ -6805,6 +6805,15 @@ pub mod test {
 
         let chainstate_path = peer.chainstate_path.clone();
 
+        // make a blank chainstate and mempool so we can mine empty blocks
+        //  without punishing the correspondingly "too expensive" transactions
+        let blank_chainstate = instantiate_chainstate(
+            false,
+            1,
+            "test_build_anchored_blocks_multiple_chaintips_blank",
+        );
+        let mut blank_mempool = MemPoolDB::open(false, 1, &blank_chainstate.root_path).unwrap();
+
         let first_stacks_block_height = {
             let sn =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
@@ -6878,32 +6887,28 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let execution_cost = if tenure_id < num_blocks - 1 {
-                        // doesn't allow it to get mined yet, but it'll sit in the mempool.
-                        ExecutionCost {
-                            write_length: 0,
-                            write_count: 0,
-                            read_length: 0,
-                            read_count: 0,
-                            runtime: 0,
-                        }
-                    } else {
-                        // last block allows _everything_ to get mined
-                        ExecutionCost::max_value()
-                    };
+                    let execution_cost = ExecutionCost::max_value();
 
-                    let anchored_block = StacksBlockBuilder::build_anchored_block(
-                        chainstate,
-                        &sortdb.index_conn(),
-                        &mut mempool,
-                        &parent_tip,
-                        tip.total_burn,
-                        vrf_proof,
-                        Hash160([tenure_id as u8; 20]),
-                        &coinbase_tx,
-                        execution_cost,
-                    )
-                    .unwrap();
+                    let anchored_block = {
+                        let mempool_to_use = if tenure_id < num_blocks - 1 {
+                            &mut blank_mempool
+                        } else {
+                            &mut mempool
+                        };
+
+                        StacksBlockBuilder::build_anchored_block(
+                            chainstate,
+                            &sortdb.index_conn(),
+                            mempool_to_use,
+                            &parent_tip,
+                            tip.total_burn,
+                            vrf_proof,
+                            Hash160([tenure_id as u8; 20]),
+                            &coinbase_tx,
+                            execution_cost,
+                        )
+                        .unwrap()
+                    };
                     (anchored_block.0, vec![])
                 },
             );
