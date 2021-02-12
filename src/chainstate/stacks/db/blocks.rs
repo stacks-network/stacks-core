@@ -4453,8 +4453,21 @@ impl StacksChainState {
                 .expect("Overflow: Too many STX burnt");
 
             // unlock any uSTX
-            let (new_unlocked_ustx, _unlocked_events) =
+            let (new_unlocked_ustx, mut lockup_events) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+
+            // if any, append lockups events to the coinbase receipt
+            if lockup_events.len() > 0 {
+                // Receipts are appended in order, so the first receipt should be
+                // the one of the coinbase transaction
+                if let Some(receipt) = receipts.get_mut(0) {
+                    if receipt.is_coinbase_tx() {
+                        receipt.events.append(&mut lockup_events);
+                    }
+                } else {
+                    warn!("Unable to attach lockups events, first block's transaction is not a coinbase transaction")
+                }
+            }
 
             clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
@@ -8968,13 +8981,13 @@ pub mod test {
                         }
                     };
 
-                    let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,

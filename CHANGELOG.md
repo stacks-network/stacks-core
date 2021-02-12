@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2021-02-12
+
+### Added
+
+- Miner heuristic for handling relatively large or computationally
+  expensive transactions: such transactions will be dropped from the
+  mempool to prevent miners from re-attempting them once they fail.
+  Miners can also now continue processing transactions that are
+  behind those transactions in the mempool "queue".
+
+### Fixed
+
+- Miner block assembly now uses the correct block limit available via
+  the node config
+- `tx_fees_streamed_produced` fees are included in miner coinbase
+  events for event observers
+- SQLite indexes are now correctly created on database instantion
+
+### Changed
+
+- STX unlock events are now sent over the events endpoint bundled
+  into an associated unlock transaction
+- Atlas attachments networking endpoints are disabled for this
+  release, while networking issues are addressed in the
+  implementation
+
+## [2.0.4] - 2021-02-07
+
+### Changed
+
+- Atlas attachments networking endpoints are disabled for this
+  release, while networking issues are addressed in the
+  implementation.
+
 ## [2.0.3] - 2021-02-04
 
 ### Added
