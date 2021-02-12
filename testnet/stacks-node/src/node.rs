@@ -19,7 +19,6 @@ use stacks::chainstate::stacks::db::{
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
@@ -41,6 +40,7 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
 use stacks::chainstate::stacks::index::TrieHash;
 use stacks::util::get_epoch_time_secs;
@@ -233,7 +233,11 @@ fn spawn_peer(
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>, attachments_tx: SyncSender<HashSet<AttachmentInstance>>) -> Self {
+    pub fn new(
+        config: Config,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+    ) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             // When running in mocknet mode allow the small test genesis chainstate data to be enabled.
             // First check env var, then config file, then use default.
@@ -490,7 +494,7 @@ impl Node {
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
-            attachments_rx
+            attachments_rx,
         )
         .unwrap();
 

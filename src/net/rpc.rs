@@ -664,7 +664,7 @@ impl ConversationHttp {
                     warn!("{}", msg);
                     let response = HttpResponseType::ServerError(response_metadata, msg);
                     response.send(http, fd);
-                    return Ok(())
+                    return Ok(());
                 }
             }
         }

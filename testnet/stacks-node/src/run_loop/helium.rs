@@ -5,9 +5,9 @@ use crate::{
 };
 use stacks::burnchains::BurnchainHeaderHash;
 use stacks::chainstate::stacks::db::ClarityTx;
-use std::sync::mpsc::{sync_channel, Receiver};
 use stacks::net::atlas::AttachmentInstance;
 use std::collections::HashSet;
+use std::sync::mpsc::{sync_channel, Receiver};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -28,7 +28,6 @@ impl RunLoop {
         config: Config,
         boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
     ) -> Self {
-
         let (attachments_tx, attachments_rx) = sync_channel(1);
 
         // Build node based on config
