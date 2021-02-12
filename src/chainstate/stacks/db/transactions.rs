@@ -214,6 +214,17 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
         }
     }
+
+    pub fn is_coinbase_tx(&self) -> bool {
+        if let TransactionOrigin::Stacks(ref transaction) = self.transaction {
+            if let TransactionPayload::Coinbase(_) =
+                transaction.payload
+            {
+                return true
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug)]
