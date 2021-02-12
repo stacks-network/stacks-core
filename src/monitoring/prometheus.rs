@@ -142,4 +142,18 @@ lazy_static! {
         "Total number of active miners.",
         labels! {"handler" => "all",}
     )).unwrap();
+
+    // promserver
+    pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
+        "stacks_tip_height_gauge",
+        "Stacks Chain Tip Height",
+        labels! {"handler" => "all",}
+    )).unwrap();
+    
+    pub static ref BURNCHAIN_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
+        "burnchain_height_gauge",
+        "Burnchain Tip Height",
+        labels! {"handler" => "all",}
+    )).unwrap();
 }
+

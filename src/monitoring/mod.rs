@@ -122,3 +122,14 @@ pub fn update_active_miners_count_gauge(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);
 }
+
+// promserver
+pub fn update_stacks_tip_height(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STACKS_TIP_HEIGHT_GAUGE.set(value);
+}
+
+pub fn update_burnchain_height(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::BURNCHAIN_HEIGHT_GAUGE.set(value);
+}

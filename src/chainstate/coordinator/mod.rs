@@ -47,6 +47,8 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
+//promserver
+use monitoring::{update_stacks_tip_height};
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
@@ -613,6 +615,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+        // promserver
+        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
@@ -639,6 +644,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     debug!("Bump blocks processed");
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
+
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
                     let mut attachments_instances = HashSet::new();
@@ -703,6 +709,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         };
                         let stacks_block =
                             StacksBlockId::new(&metadata.consensus_hash, &block_hash);
+
                         let parent = self
                             .chain_state_db
                             .get_parent(&stacks_block)

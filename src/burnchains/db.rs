@@ -35,7 +35,8 @@ use util::db::{
 };
 
 use std::collections::HashMap;
-
+//promserver
+use monitoring::{update_burnchain_height};
 pub struct BurnchainDB {
     conn: Connection,
 }
@@ -146,6 +147,9 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
+        // promserver
+        update_burnchain_height(header.block_height as i64);
+
         match self.sql_tx.execute(sql, args) {
             Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
             Err(e) => Err(BurnchainError::from(e)),
