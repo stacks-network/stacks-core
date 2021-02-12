@@ -558,7 +558,8 @@ fn lockup_integration() {
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
-    let recipient = StacksAddress::from_string("SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A").unwrap();
+    let recipient =
+        StacksAddress::from_string("SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A").unwrap();
 
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -572,7 +573,7 @@ fn lockup_integration() {
 
     // block #3 should be unlocking STX
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    assert_eq!(get_balance(&http_origin, &recipient), 13888888889*3);
+    assert_eq!(get_balance(&http_origin, &recipient), 13888888889 * 3);
 
     // now let's ensure that the last block received by the event observer contains the lockup receipt
     let blocks = test_observer::get_blocks();
@@ -581,7 +582,10 @@ fn lockup_integration() {
     let events = chain_tip.get("events").unwrap().as_array().unwrap();
     assert_eq!(events.len(), 2);
     for event in events {
-        assert_eq!(event.get("type").unwrap().as_str().unwrap(), "stx_mint_event");
+        assert_eq!(
+            event.get("type").unwrap().as_str().unwrap(),
+            "stx_mint_event"
+        );
     }
 }
 
