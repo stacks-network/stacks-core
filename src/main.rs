@@ -366,7 +366,10 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "evaluate-reward-set" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} evaluate-pox-anchor <working-dir>", argv[0]);
+            eprintln!(
+                "Usage: {} evaluate-pox-anchor <working-dir> (pox-anchor)",
+                argv[0]
+            );
             process::exit(1);
         }
 
@@ -377,17 +380,34 @@ check if the associated microblocks can be downloaded
             .expect(&format!("Failed to open {}", &sort_db_path));
         let (mut chain_state, _) = StacksChainState::open(true, 0x01, &chain_state_path)
             .expect("Failed to open stacks chain state");
-        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-            .expect("Failed to get sortition chain tip");
+
+        let (chash, ahash) = if argv.len() > 3 {
+            (argv[3].to_string(), argv[4].to_string())
+        } else {
+            let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+            (
+                stacks_block.consensus_hash.to_string(),
+                stacks_block.anchored_block_hash.to_string(),
+            )
+        };
+
+        let sort_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn()).unwrap();
+
+        let chain_tip = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+            &sort_db.index_conn(),
+            &sort_tip,
+            &BlockHeaderHash::from_hex(&ahash).unwrap(),
+        )
+        .expect("Failed to get sortition chain tip")
+        .expect("Failed to get sortition chain tip");
 
         let burnchain = Burnchain::new(&argv[2], "bitcoin", "mainnet").unwrap();
 
-        let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
-
         let block_id = StacksBlockId::new(
-            &stacks_block.consensus_hash,
-            &stacks_block.anchored_block_hash,
+            &ConsensusHash::from_hex(&chash).unwrap(),
+            &BlockHeaderHash::from_hex(&ahash).unwrap(),
         );
+
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(chain_tip.block_height)
             .unwrap()
