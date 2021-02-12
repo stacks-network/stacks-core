@@ -558,8 +558,9 @@ fn lockup_integration() {
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
+    let recipient_addr_str = "SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A";
     let recipient =
-        StacksAddress::from_string("SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A").unwrap();
+        StacksAddress::from_string(recipient_addr_str).unwrap();
 
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -567,6 +568,22 @@ fn lockup_integration() {
     // block #1 should be unlocking STX
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889);
+    let blocks = test_observer::get_blocks();
+    let chain_tip = blocks.last().unwrap();
+
+    let events = chain_tip.get("events").unwrap().as_array().unwrap();
+    let mut found = false;
+    for event in events.iter() {
+        if event.get("type").unwrap().as_str().unwrap() == "stx_mint_event" {
+            let payload = event.get("stx_mint_event").unwrap().as_object().unwrap();
+            let address = payload.get("recipient").unwrap().as_str().unwrap();
+            let amount = payload.get("amount").unwrap().as_str().unwrap();
+            if address == recipient_addr_str && amount == "13888888889" {
+                found = true;
+            }
+        }
+    } 
+    assert_eq!(found, true);
 
     // block #2 won't unlock STX
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -587,6 +604,8 @@ fn lockup_integration() {
             "stx_mint_event"
         );
     }
+
+    test_observer::clear();
 }
 
 #[test]
