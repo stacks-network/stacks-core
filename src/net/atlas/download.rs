@@ -670,7 +670,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                     request
                                 );
                                 let peer_url = request.get_url().clone();
-                                state.faulty_peers.insert(peer_url);
+                                state.faulty_peers.insert(event_id, peer_url);
                             }
                         }
                         Some(ref mut convo) => {
@@ -688,7 +688,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                     let peer_url = request.get_url().clone();
 
                                     if let HttpResponseType::NotFound(_, _) = response {
-                                        state.faulty_peers.insert(peer_url);
+                                        state.faulty_peers.insert(event_id, peer_url);
                                         continue;
                                     }
                                     info!(
@@ -718,6 +718,20 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                     return fsm;
                 }
+
+                let _ = PeerNetwork::with_network_state(
+                    network,
+                    |ref mut network, ref mut network_state| {
+                        for (event_id, peer) in state.faulty_peers.drain() {
+                            debug!(
+                                "Atlas: Deregistering faulty connection (event_id: {}, peer: {})",
+                                event_id, peer
+                            );
+                            network.http.deregister_http(network_state, event_id);
+                        }
+                        Ok(())
+                    },
+                );
 
                 // Requests completed!
                 // any requests left to perform?
@@ -752,7 +766,7 @@ pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
     pub succeeded: HashMap<T, HashMap<UrlString, Option<HttpResponseType>>>,
     pub errors: HashMap<T, HashMap<UrlString, net_error>>,
-    pub faulty_peers: HashSet<UrlString>,
+    pub faulty_peers: HashMap<usize, UrlString>,
 }
 
 impl<T: Requestable> BatchedRequestsResult<T> {
@@ -761,7 +775,7 @@ impl<T: Requestable> BatchedRequestsResult<T> {
             remaining,
             succeeded: HashMap::new(),
             errors: HashMap::new(),
-            faulty_peers: HashSet::new(),
+            faulty_peers: HashMap::new(),
         }
     }
 
@@ -770,7 +784,7 @@ impl<T: Requestable> BatchedRequestsResult<T> {
             remaining: HashMap::new(),
             succeeded: HashMap::new(),
             errors: HashMap::new(),
-            faulty_peers: HashSet::new(),
+            faulty_peers: HashMap::new(),
         }
     }
 }
