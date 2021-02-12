@@ -437,7 +437,7 @@ fn should_succeed_mining_valid_txs() {
                         .flat_map(|a| a.events.clone())
                         .collect();
                     assert_eq!(events.len(), 2);
-                    }
+                }
                 3 => {
                     // Inspecting the chain at round 3.
                     // - Chain length should be 4.
