@@ -1076,7 +1076,16 @@ impl MemPoolDB {
         for txid in txids.iter() {
             mempool_tx.execute(sql, &[txid])?;
         }
+        mempool_tx.commit()?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn dump_txs(&self) {
+        let sql = "SELECT * FROM mempool";
+        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();
+
+        eprintln!("{:#?}", txs);
     }
 
     /// Do we have a transaction?

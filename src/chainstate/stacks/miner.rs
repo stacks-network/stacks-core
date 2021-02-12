@@ -655,9 +655,9 @@ impl StacksBlockBuilder {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
                 match &tx.payload {
                     TransactionPayload::ContractCall(cc) => {
-                        // once we've hit the runtime limit once, allow pox contract calls, but do not try to eval
+                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
                         //   other contract calls
-                        if !(cc.address.is_boot_code_addr() && cc.contract_name.as_str() == "pox") {
+                        if !cc.address.is_boot_code_addr() {
                             return Ok(());
                         }
                     }
@@ -1392,7 +1392,12 @@ impl StacksBlockBuilder {
                         }
                         Err(Error::TransactionTooBigError) => {
                             invalidated_txs.push(txinfo.metadata.txid);
-                            continue;
+                            if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                continue;
+                            } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                            }
                         }
                         Err(Error::InvalidStacksTransaction(_, true)) => {
                             // if we have an invalid transaction that was quietly ignored, don't warn here either
@@ -1440,7 +1445,10 @@ impl StacksBlockBuilder {
 
 #[cfg(test)]
 pub mod test {
+    use crate::chainstate::stacks::boot::boot_code_addr;
+
     use super::*;
+    use core::BLOCK_LIMIT_MAINNET;
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
@@ -8422,6 +8430,326 @@ pub mod test {
                     .unwrap()
             })
             .unwrap();
+        }
+    }
+
+    pub fn instantiate_and_exec(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+        balances: Vec<(StacksAddress, u64)>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    ) -> StacksChainState {
+        let path = chainstate_path(test_name);
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        StacksChainState::open_and_exec(
+            mainnet,
+            chain_id,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0
+    }
+
+    static CONTRACT: &'static str = "
+(define-map my-map int int)
+(define-private (do (input bool))
+  (begin
+    (map-set my-map 0 0)
+    (map-set my-map 1 0)
+    (map-set my-map 2 0)
+    (map-set my-map 3 0)
+    (map-set my-map 4 0)
+    (map-set my-map 5 0)
+    (map-set my-map 6 0)
+    (map-set my-map 7 0)
+    (map-set my-map 8 0)
+    (map-set my-map 9 0)))
+
+(define-public (call-it (input (list 200 bool)))
+  (begin
+    (map do input)
+    (map do input)
+    (map do input)
+    (map do input)
+    (map do input)
+    (ok 1)))
+";
+
+    lazy_static! {
+        static ref CONTRACT_IDENT: QualifiedContractIdentifier = QualifiedContractIdentifier::new(
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([1; 20]),
+            }
+            .into(),
+            "scalable-call".into(),
+        );
+    }
+
+    #[test]
+    fn test_mempool_mining_heuristics() {
+        let submitter_key_0 = StacksPrivateKey::new();
+        let submitter_key_1 = StacksPrivateKey::new();
+        let mut initial_balance_recipients: Vec<_> = vec![
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([1; 20]),
+            },
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&submitter_key_0)],
+            )
+            .unwrap(),
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([2; 20]),
+            },
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&submitter_key_1)],
+            )
+            .unwrap(),
+        ];
+
+        let initial_balances = initial_balance_recipients
+            .iter()
+            .map(|addr| (addr.clone(), 10_000_000_000))
+            .collect();
+        let chain_id = 8;
+        let mut chainstate = instantiate_and_exec(
+            false,
+            chain_id,
+            "test_mempool_mining_heuristics",
+            initial_balances,
+            Some(Box::new(|tx: &mut ClarityTx| {
+                tx.connection().as_transaction(|tx| {
+                    let (ct_ast, ct_analysis) = tx
+                        .analyze_smart_contract(&CONTRACT_IDENT, CONTRACT)
+                        .unwrap();
+                    tx.initialize_smart_contract(&CONTRACT_IDENT, &ct_ast, CONTRACT, |_, _| false)
+                        .unwrap();
+                    tx.save_analysis(&CONTRACT_IDENT, &ct_analysis).unwrap();
+                })
+            })),
+        );
+
+        let mut burndb = SortitionDB::connect(
+            "/tmp/test_mempool_mining_heuristics_sortdb",
+            0,
+            &BurnchainHeaderHash([1; 32]),
+            1,
+            true,
+        )
+        .unwrap();
+
+        let execution_limit = ExecutionCost {
+            write_length: 15_000_000, // roughly 15 mb
+            write_count: 500,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        };
+
+        let mut mempool = MemPoolDB::open(false, chain_id, &chainstate.root_path).unwrap();
+
+        let txs_to_push = vec![
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_0).unwrap(),
+                TransactionPayload::TokenTransfer(
+                    initial_balance_recipients[2].clone().into(),
+                    1000,
+                    TokenTransferMemo([0; 34]),
+                ),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_0).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: initial_balance_recipients[0].clone(),
+                    contract_name: CONTRACT_IDENT.name.clone(),
+                    function_name: "call-it".into(),
+                    function_args: vec![Value::list_from(vec![
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                    ])
+                    .unwrap()],
+                }),
+            ),
+        ];
+        let second_set_txs = vec![
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::TokenTransfer(
+                    initial_balance_recipients[2].clone().into(),
+                    1000,
+                    TokenTransferMemo([0; 34]),
+                ),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: boot_code_addr(false),
+                    contract_name: "pox".into(),
+                    function_name: "stack-stx".into(),
+                    function_args: vec![
+                        Value::UInt(10),
+                        Value::from(
+                            TupleData::from_data(vec![
+                                ("version".into(), Value::buff_from_byte(0)),
+                                ("hashbytes".into(), Value::buff_from(vec![0; 20]).unwrap()),
+                            ])
+                            .unwrap(),
+                        ),
+                        Value::UInt(2),
+                        Value::UInt(2),
+                    ],
+                }),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: initial_balance_recipients[0].clone(),
+                    contract_name: CONTRACT_IDENT.name.clone(),
+                    function_name: "call-it".into(),
+                    function_args: vec![Value::list_from(vec![Value::Bool(true)]).unwrap()],
+                }),
+            ),
+        ];
+
+        let (parent_header_info, parent_consensus_hash) = (
+            StacksHeaderInfo::genesis(TrieHash([0u8; 32]), &BurnchainHeaderHash([1; 32]), 0, 1),
+            FIRST_BURNCHAIN_CONSENSUS_HASH,
+        );
+
+        for (ix, mut tx) in txs_to_push.into_iter().enumerate() {
+            tx.chain_id = chain_id;
+            tx.set_origin_nonce(ix as u64);
+            tx.set_tx_fee(1000);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&submitter_key_0).unwrap();
+
+            let tx = tx_signer.get_tx().unwrap();
+
+            eprintln!("Mempool tx submitted {}", ix);
+
+            mempool
+                .submit(
+                    &mut chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_info.anchored_header.block_hash(),
+                    &tx,
+                )
+                .unwrap()
+        }
+
+        for (ix, mut tx) in second_set_txs.into_iter().enumerate() {
+            tx.chain_id = chain_id;
+            tx.set_origin_nonce(ix as u64);
+            tx.set_tx_fee(1000);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&submitter_key_1).unwrap();
+
+            let tx = tx_signer.get_tx().unwrap();
+
+            eprintln!("Mempool tx submitted {}", ix);
+
+            mempool
+                .submit(
+                    &mut chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_info.anchored_header.block_hash(),
+                    &tx,
+                )
+                .unwrap()
+        }
+
+        mempool.dump_txs();
+
+        // in the first attempt to mine a block, we should mine *4* transactions:
+        //  coinbase, a transfer, a stack-stx call, a transfer
+        // in the second attempt, because we've tossed out the large offender, *5*:
+        //  coinbase, a transfer, a stack-stx call, a transfer, a contract call
+
+        for block_index in 0u8..2u8 {
+            let miner_key = StacksPrivateKey::new();
+            let mut tx = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&miner_key).unwrap(),
+                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            );
+            tx.chain_id = chain_id;
+            tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&miner_key).unwrap();
+
+            let coinbase_tx = tx_signer.get_tx().unwrap();
+
+            let (block, _cost, _size) = StacksBlockBuilder::build_anchored_block(
+                &chainstate,
+                &burndb.index_conn(),
+                &mut mempool,
+                &parent_header_info,
+                block_index as u64,
+                VRFProof::empty(),
+                Hash160([block_index; 20]),
+                &coinbase_tx,
+                execution_limit.clone(),
+            )
+            .unwrap();
+
+            mempool.dump_txs();
+
+            eprintln!("BLOCK #{}, Tx Count: {}", block_index, block.txs.len());
+            if block_index == 0 {
+                assert_eq!(block.txs.len(), 4);
+            } else if block_index == 1 {
+                assert_eq!(block.txs.len(), 5);
+            }
         }
     }
 
