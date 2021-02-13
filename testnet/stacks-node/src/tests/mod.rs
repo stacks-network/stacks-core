@@ -365,13 +365,14 @@ fn should_succeed_mining_valid_txs() {
                     // Block #1 should only have 0 txs
                     assert!(chain_tip.block.txs.len() == 1);
 
-                    // 0 event should have been produced
+                    // 1 lockup event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
                         .receipts
                         .iter()
                         .flat_map(|a| a.events.clone())
                         .collect();
-                    assert!(events.len() == 0);
+                    println!("{:?}", events);
+                    assert_eq!(events.len(), 1);
                 }
                 1 => {
                     // Inspecting the chain at round 1.
@@ -429,13 +430,13 @@ fn should_succeed_mining_valid_txs() {
                         _ => false,
                     });
 
-                    // 0 event should have been produced
+                    // 2 lockup events should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
                         .receipts
                         .iter()
                         .flat_map(|a| a.events.clone())
                         .collect();
-                    assert!(events.len() == 0);
+                    assert_eq!(events.len(), 2);
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -461,14 +462,14 @@ fn should_succeed_mining_valid_txs() {
                         _ => false,
                     });
 
-                    // 1 event should have been produced
+                    // 2 lockup events + 1 contract event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
                         .receipts
                         .iter()
                         .flat_map(|a| a.events.clone())
                         .collect();
-                    assert!(events.len() == 1);
-                    assert!(match &events[0] {
+                    assert_eq!(events.len(), 3);
+                    assert!(match &events.last().unwrap() {
                         StacksTransactionEvent::SmartContractEvent(data) => {
                             format!("{}", data.key.0)
                                 == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store"
