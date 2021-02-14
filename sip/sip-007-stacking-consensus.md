@@ -432,7 +432,7 @@ delegate for many represented Stacks addresses, the delegate address
 must broadcast a Stacking message for each of the represented
 addresses.
 
-# Adressing Miner Consolidation in Stacking
+# Addressing Miner Consolidation in Stacking
 
 PoX when used for Stacking rewards could lead to miner
 consolidation. Because miners that _also_ participate as Stackers
