@@ -1356,7 +1356,7 @@ impl StacksChainState {
         let mut ret = vec![];
         let mut tip: Option<StacksMicroblock> = None;
         let mut fork_poison = None;
-        let mut expected_sequence = 0;
+        let mut expected_sequence = start_seq;
 
         // load associated staging microblock data, but best-effort.
         // Stop loading once we find a fork juncture.
