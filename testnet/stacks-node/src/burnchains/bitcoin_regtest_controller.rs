@@ -1012,14 +1012,27 @@ impl BitcoinRegtestController {
             return None;
         }
 
-        // Did a re-org occurred since we fetched our UTXOs
-        let sortdb = self.sortdb_mut();
-        let sort_id = SortitionId::stubbed(&ongoing_op.utxos.bhh);
-        let ic = sortdb.index_conn();
-        if let Err(e) = SortitionDB::get_block_snapshot(&ic, &sort_id) {
+        // Did a re-org occurred since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        let mut traversal_depth = 0;
+        let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
+        let mut found_last_mined_at = false;
+        while traversal_depth < 6 {
+            if &burn_chain_tip.block_hash == &ongoing_op.utxos.bhh {
+                found_last_mined_at = true;
+                break;
+            }
+
+            let parent = burnchain_db
+                .get_burnchain_block(&burn_chain_tip.parent_block_hash)
+                .ok()?;
+            burn_chain_tip = parent.header;
+            traversal_depth += 1;
+        }
+
+        if !found_last_mined_at {
             info!(
-                "Possible presence of fork, invalidating cached set of UTXOs - {:?}",
-                e
+                "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
+                "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
             );
             let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
