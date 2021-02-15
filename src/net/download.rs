@@ -2454,6 +2454,7 @@ pub mod test {
     use net::codec::*;
     use net::inv::*;
     use net::relay::*;
+    use net::strings::*;
     use net::test::*;
     use net::*;
     use rand::Rng;
@@ -2461,7 +2462,6 @@ pub mod test {
     use std::convert::TryFrom;
     use util::hash::*;
     use util::sleep_ms;
-    use net::strings::*;
     use util::test::*;
     use vm::costs::ExecutionCost;
     use vm::representations::*;

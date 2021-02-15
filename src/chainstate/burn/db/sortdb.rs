@@ -80,8 +80,8 @@ use util::log;
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
-use util::db::tx_busy_handler;
 use net::strings::StacksString;
+use util::db::tx_busy_handler;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 

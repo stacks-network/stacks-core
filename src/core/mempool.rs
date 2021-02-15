@@ -1109,7 +1109,7 @@ mod tests {
     use address::AddressHashMode;
     use burnchains::Address;
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
-    use net::{Error as NetError, StacksMessageCodec, strings::StacksString};
+    use net::{strings::StacksString, Error as NetError, StacksMessageCodec};
     use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
     use vm::{
         database::HeadersDB,

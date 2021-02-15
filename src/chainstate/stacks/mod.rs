@@ -34,6 +34,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use net::strings::StacksString;
 use sha2::{Digest, Sha512Trunc256};
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -42,7 +43,6 @@ use util::hash::Sha512Trunc256Sum;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1;
 use util::secp256k1::MessageSignature;
-use net::strings::StacksString;
 use util::vrf::VRFProof;
 
 use address::AddressHashMode;

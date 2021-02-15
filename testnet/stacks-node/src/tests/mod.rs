@@ -16,9 +16,9 @@ use stacks::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks::core::CHAIN_ID_TESTNET;
+use stacks::net::strings::StacksString;
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::hex_bytes;
-use stacks::net::strings::StacksString;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 

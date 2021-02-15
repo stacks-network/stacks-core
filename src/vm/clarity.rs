@@ -1561,9 +1561,9 @@ mod tests {
     pub fn test_post_condition_failure_contract_publish() {
         use chainstate::stacks::db::*;
         use chainstate::stacks::*;
+        use net::strings::StacksString;
         use util::hash::Hash160;
         use util::secp256k1::MessageSignature;
-        use net::strings::StacksString;
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());

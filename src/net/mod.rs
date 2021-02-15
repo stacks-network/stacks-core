@@ -96,10 +96,10 @@ use util::db::Error as db_error;
 
 use util::log;
 
+use net::strings::UrlString;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use net::strings::UrlString;
 
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
