@@ -42,7 +42,7 @@ use util::hash::Sha512Trunc256Sum;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1;
 use util::secp256k1::MessageSignature;
-use util::strings::StacksString;
+use net::strings::StacksString;
 use util::vrf::VRFProof;
 
 use address::AddressHashMode;

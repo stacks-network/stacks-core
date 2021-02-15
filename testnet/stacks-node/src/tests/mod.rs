@@ -18,7 +18,7 @@ use stacks::chainstate::stacks::{
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::hex_bytes;
-use stacks::util::strings::StacksString;
+use stacks::net::strings::StacksString;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 

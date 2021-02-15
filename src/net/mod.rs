@@ -31,6 +31,7 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod strings;
 
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
@@ -98,7 +99,7 @@ use util::log;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::strings::UrlString;
+use net::strings::UrlString;
 
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
@@ -1894,7 +1895,7 @@ pub mod test {
 
     use mio;
 
-    use util::strings::*;
+    use net::strings::*;
     use util::vrf::*;
 
     use vm::database::STXBalance;

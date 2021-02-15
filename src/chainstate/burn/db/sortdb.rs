@@ -81,7 +81,7 @@ use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
 use util::db::tx_busy_handler;
-use util::strings::StacksString;
+use net::strings::StacksString;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 

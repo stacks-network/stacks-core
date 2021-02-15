@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{query_count, query_rows, DBConn};
 
-use util::strings::{StacksString, VecDisplay};
+use net::strings::{StacksString, VecDisplay};
 
 use util::hash::to_hex;
 

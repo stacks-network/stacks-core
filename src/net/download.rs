@@ -2461,7 +2461,7 @@ pub mod test {
     use std::convert::TryFrom;
     use util::hash::*;
     use util::sleep_ms;
-    use util::strings::*;
+    use net::strings::*;
     use util::test::*;
     use vm::costs::ExecutionCost;
     use vm::representations::*;

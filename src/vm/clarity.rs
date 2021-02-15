@@ -1563,7 +1563,7 @@ mod tests {
         use chainstate::stacks::*;
         use util::hash::Hash160;
         use util::secp256k1::MessageSignature;
-        use util::strings::StacksString;
+        use net::strings::StacksString;
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());

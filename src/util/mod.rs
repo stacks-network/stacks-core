@@ -25,7 +25,6 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
-pub mod strings;
 pub mod uint;
 pub mod vrf;
 

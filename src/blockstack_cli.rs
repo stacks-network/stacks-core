@@ -33,7 +33,7 @@ use blockstack_lib::chainstate::stacks::{
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::util::{
-    hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
+    hash::hex_bytes, hash::to_hex, log, retry::LogReader
 };
 use blockstack_lib::vm;
 use blockstack_lib::vm::{
@@ -50,6 +50,7 @@ use blockstack_lib::address::b58;
 use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::net::strings::StacksString;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 

@@ -42,7 +42,7 @@ use stacks::chainstate::stacks::index::TrieHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
+use stacks::net::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
 
 #[derive(Debug, Clone)]

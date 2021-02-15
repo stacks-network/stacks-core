@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{query_count, query_rows, DBConn};
 
-use util::strings::StacksString;
+use net::strings::StacksString;
 
 use util::hash::to_hex;
 

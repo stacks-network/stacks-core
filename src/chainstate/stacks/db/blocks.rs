@@ -52,7 +52,7 @@ use util::db::u64_to_sql;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
-use util::strings::StacksString;
+use net::strings::StacksString;
 
 use util::retry::BoundReader;
 
