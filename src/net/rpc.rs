@@ -629,7 +629,7 @@ impl ConversationHttp {
                 match atlasdb.get_minmax_heights_window_for_page_index(*page_index) {
                     Ok(window) => window,
                     Err(e) => {
-                        let msg = format!("Unable to read Atlas DB");
+                        let msg = format!("Unable to read Atlas DB - {}", e);
                         warn!("{}", msg);
                         let response = HttpResponseType::ServerError(response_metadata, msg);
                         return response.send(http, fd);
@@ -660,11 +660,10 @@ impl ConversationHttp {
                     });
                 }
                 Err(e) => {
-                    let msg = format!("Unable to read Atlas DB");
+                    let msg = format!("Unable to read Atlas DB - {}", e);
                     warn!("{}", msg);
                     let response = HttpResponseType::ServerError(response_metadata, msg);
-                    response.send(http, fd);
-                    return Ok(());
+                    return response.send(http, fd);
                 }
             }
         }
