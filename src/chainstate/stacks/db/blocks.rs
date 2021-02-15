@@ -1356,6 +1356,7 @@ impl StacksChainState {
         let mut ret = vec![];
         let mut tip: Option<StacksMicroblock> = None;
         let mut fork_poison = None;
+        let mut expected_sequence = start_seq;
 
         // load associated staging microblock data, but best-effort.
         // Stop loading once we find a fork juncture.
@@ -1383,6 +1384,18 @@ impl StacksChainState {
                     break;
                 }
             };
+
+            if mblock.header.sequence > expected_sequence {
+                warn!(
+                    "Discontinuous microblock stream: expected seq {}, got {}",
+                    expected_sequence, mblock.header.sequence
+                );
+                break;
+            }
+
+            // expect forks, so expected_sequence may not always increase
+            expected_sequence =
+                cmp::min(mblock.header.sequence, expected_sequence).saturating_add(1);
 
             if let Some(tip_mblock) = tip {
                 if mblock.header.sequence == tip_mblock.header.sequence {
@@ -1619,7 +1632,7 @@ impl StacksChainState {
     /// order, this method does not check that.
     /// The consensus_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
-    fn store_staging_microblock<'a>(
+    pub fn store_staging_microblock<'a>(
         tx: &mut DBTx<'a>,
         parent_consensus_hash: &ConsensusHash,
         parent_anchored_block_hash: &BlockHeaderHash,
@@ -4453,8 +4466,21 @@ impl StacksChainState {
                 .expect("Overflow: Too many STX burnt");
 
             // unlock any uSTX
-            let (new_unlocked_ustx, _unlocked_events) =
+            let (new_unlocked_ustx, mut lockup_events) =
                 StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+
+            // if any, append lockups events to the coinbase receipt
+            if lockup_events.len() > 0 {
+                // Receipts are appended in order, so the first receipt should be
+                // the one of the coinbase transaction
+                if let Some(receipt) = receipts.get_mut(0) {
+                    if receipt.is_coinbase_tx() {
+                        receipt.events.append(&mut lockup_events);
+                    }
+                } else {
+                    warn!("Unable to attach lockups events, first block's transaction is not a coinbase transaction")
+                }
+            }
 
             clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
@@ -6900,6 +6926,133 @@ pub mod test {
     }
 
     #[test]
+    fn stacks_db_staging_microblock_stream_load_continuous_streams() {
+        let mut chainstate = instantiate_chainstate(
+            false,
+            0x80000000,
+            "stacks_db_staging_microblock_stream_load_continuous_streams",
+        );
+        let privk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let block = make_empty_coinbase_block(&privk);
+        let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
+        let mut child_block = make_empty_coinbase_block(&privk);
+
+        child_block.header.parent_block = block.block_hash();
+        child_block.header.parent_microblock = microblocks.first().as_ref().unwrap().block_hash();
+        child_block.header.parent_microblock_sequence =
+            microblocks.first().as_ref().unwrap().header.sequence;
+
+        assert!(StacksChainState::load_staging_microblock(
+            &chainstate.db(),
+            &ConsensusHash([2u8; 20]),
+            &block.block_hash(),
+            &microblocks[0].block_hash()
+        )
+        .unwrap()
+        .is_none());
+        assert!(StacksChainState::load_descendant_staging_microblock_stream(
+            &chainstate.db(),
+            &StacksBlockHeader::make_index_block_hash(
+                &ConsensusHash([2u8; 20]),
+                &block.block_hash()
+            ),
+            0,
+            u16::max_value()
+        )
+        .unwrap()
+        .is_none());
+
+        store_staging_block(
+            &mut chainstate,
+            &ConsensusHash([2u8; 20]),
+            &block,
+            &ConsensusHash([1u8; 20]),
+            1,
+            2,
+        );
+
+        // don't store the first microblock, but store the rest
+        for (i, mb) in microblocks.iter().enumerate() {
+            if i > 0 {
+                store_staging_microblock(
+                    &mut chainstate,
+                    &ConsensusHash([2u8; 20]),
+                    &block.block_hash(),
+                    mb,
+                );
+            }
+        }
+        store_staging_block(
+            &mut chainstate,
+            &ConsensusHash([3u8; 20]),
+            &child_block,
+            &ConsensusHash([2u8; 20]),
+            1,
+            2,
+        );
+
+        // block should be stored to staging
+        assert_block_staging_not_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
+        assert_block_staging_not_processed(
+            &mut chainstate,
+            &ConsensusHash([3u8; 20]),
+            &child_block,
+        );
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([3u8; 20]), &child_block);
+
+        // missing head
+        assert!(StacksChainState::load_staging_microblock(
+            &chainstate.db(),
+            &ConsensusHash([2u8; 20]),
+            &block.block_hash(),
+            &microblocks[0].block_hash()
+        )
+        .unwrap()
+        .is_none());
+
+        // subsequent microblock stream should be stored to staging
+        assert!(StacksChainState::load_staging_microblock(
+            &chainstate.db(),
+            &ConsensusHash([2u8; 20]),
+            &block.block_hash(),
+            &microblocks[1].block_hash()
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(
+            StacksChainState::load_staging_microblock(
+                &chainstate.db(),
+                &ConsensusHash([2u8; 20]),
+                &block.block_hash(),
+                &microblocks[1].block_hash()
+            )
+            .unwrap()
+            .unwrap()
+            .try_into_microblock()
+            .unwrap(),
+            microblocks[1]
+        );
+
+        // can't load descendent stream because missing head
+        assert!(StacksChainState::load_descendant_staging_microblock_stream(
+            &chainstate.db(),
+            &StacksBlockHeader::make_index_block_hash(
+                &ConsensusHash([2u8; 20]),
+                &block.block_hash()
+            ),
+            0,
+            u16::max_value()
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
     fn stacks_db_validate_parent_microblock_stream() {
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -8968,13 +9121,13 @@ pub mod test {
                         }
                     };
 
-                    let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
