@@ -130,6 +130,16 @@ fn inner_process_tenure(
 ) -> Result<bool, ChainstateError> {
     let stacks_blocks_processed = coord_comms.get_stacks_blocks_processed();
 
+    if StacksChainState::has_stored_block(
+        &chain_state.db(),
+        &chain_state.blocks_path,
+        consensus_hash,
+        &anchored_block.block_hash(),
+    )? {
+        // already processed my tenure
+        return Ok(true);
+    }
+
     let ic = burn_db.index_conn();
 
     // Preprocess the anchored block

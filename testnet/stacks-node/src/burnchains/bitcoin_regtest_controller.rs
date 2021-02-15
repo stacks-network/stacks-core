@@ -1005,10 +1005,11 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Stop as soon as the fee_rate is 1.25 higher, stop RBF
+        // Stop as soon as the fee_rate is 1.50 higher, stop RBF
         if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
-            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
-            return res;
+            warn!("RBF'd block commits reached 1.5x satoshi per byte fee rate, not resubmitting");
+            self.ongoing_block_commit = Some(ongoing_op);
+            return None;
         }
 
         // Did a re-org occurred since we fetched our UTXOs
@@ -1035,6 +1036,7 @@ impl BitcoinRegtestController {
         // Let's start by early returning 1)
         if payload == ongoing_op.payload {
             info!("Abort attempt to re-submit identical LeaderBlockCommit");
+            self.ongoing_block_commit = Some(ongoing_op);
             return None;
         }
 

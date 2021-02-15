@@ -1619,7 +1619,7 @@ impl StacksChainState {
     /// order, this method does not check that.
     /// The consensus_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
-    fn store_staging_microblock<'a>(
+    pub fn store_staging_microblock<'a>(
         tx: &mut DBTx<'a>,
         parent_consensus_hash: &ConsensusHash,
         parent_anchored_block_hash: &BlockHeaderHash,
