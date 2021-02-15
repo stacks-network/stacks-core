@@ -56,6 +56,12 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
 
+/// The number of bitcoin blocks that can have
+///  passed since the UTXO cache was last refreshed before
+///  the cache is force-reset.
+const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
+const DUST_UTXO_LIMIT: u64 = 5500;
+
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
@@ -178,8 +184,6 @@ impl LeaderBlockCommitFees {
         self.final_size = new_size;
     }
 }
-
-const DUST_UTXO_LIMIT: u64 = 5500;
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -1016,7 +1020,7 @@ impl BitcoinRegtestController {
         let mut traversal_depth = 0;
         let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
         let mut found_last_mined_at = false;
-        while traversal_depth < 6 {
+        while traversal_depth < UTXO_CACHE_STALENESS_LIMIT {
             if &burn_chain_tip.block_hash == &ongoing_op.utxos.bhh {
                 found_last_mined_at = true;
                 break;
