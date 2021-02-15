@@ -28,18 +28,17 @@ use net::StacksMessageCodec;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 
-pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
+pub const ATLASDB_VERSION: &'static str = "1";
 
-const ATLASDB_SETUP: &'static [&'static str] = &[
+const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(
         hash TEXT UNIQUE PRIMARY KEY,
         content BLOB NOT NULL,
         was_instantiated INTEGER NOT NULL,
         created_at INTEGER NOT NULL
-    );
-    CREATE INDEX index_was_instanciated ON attachments(was_instantiated);
-    "#,
+    );"#,
+    "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,9 +53,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         metadata TEXT NOT NULL,
         contract_id STRING NOT NULL
     );"#,
-    r#"
-    CREATE TABLE db_version(version TEXT NOT NULL);
-    "#,
+    "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
 
 impl FromRow<Attachment> for Attachment {
@@ -103,13 +100,12 @@ impl AtlasDB {
 
         let tx = self.tx_begin()?;
 
-        for row_text in ATLASDB_SETUP {
-            tx.execute(row_text, NO_PARAMS)
-                .map_err(db_error::SqliteError)?;
+        for row_text in ATLASDB_INITIAL_SCHEMA {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
         tx.execute(
-            "INSERT INTO db_version (version) VALUES (?1)",
+            "INSERT INTO db_config (version) VALUES (?1)",
             &[&ATLASDB_VERSION],
         )
         .map_err(db_error::SqliteError)?;

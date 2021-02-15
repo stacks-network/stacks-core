@@ -3573,7 +3573,7 @@ pub mod test {
                                     parent_tip.microblock_tail =
                                         Some(microblock_stream[i - 1].header.clone());
 
-                                    let mempool =
+                                    let mut mempool =
                                         MemPoolDB::open(false, 0x80000000, &chainstate_path)
                                             .unwrap();
                                     let coinbase_tx =
@@ -3583,7 +3583,7 @@ pub mod test {
                                         StacksBlockBuilder::build_anchored_block(
                                             chainstate,
                                             &sortdb.index_conn(),
-                                            &mempool,
+                                            &mut mempool,
                                             &parent_tip,
                                             parent_tip.anchored_header.total_work.burn + 1000,
                                             vrf_proof,
