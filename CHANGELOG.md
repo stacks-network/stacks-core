@@ -19,6 +19,8 @@ incompatible, however.
   transaction. Second, fix the "same chainstate hash" fallback check.
 - Winning block txid lookups in the SortitionDB have been corrected
   to use the txid during the lookup.
+- The miner will no longer attempt to mine a new Stacks block if it receives a
+  microblock in a discontinuous microblock stream.
 
 ## [2.0.5] - 2021-02-12
 
