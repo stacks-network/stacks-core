@@ -3149,21 +3149,24 @@ impl SortitionDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
+        let (sortition_id, winning_txid) = match SortitionDB::get_block_snapshot_consensus(
+            conn,
+            consensus_hash,
+        )? {
             Some(sn) => {
                 if !sn.pox_valid {
                     warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
                     return Err(db_error::InvalidPoxSortition);
                 }
-                sn.sortition_id
+                (sn.sortition_id, sn.winning_block_txid)
             }
             None => {
                 return Ok(None);
             }
         };
 
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&sortition_id, &block_hash];
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
+        let args: [&dyn ToSql; 3] = [&sortition_id, &block_hash, &winning_txid];
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
         })
