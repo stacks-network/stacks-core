@@ -5,14 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.6]
+## [2.0.6] - 2021-02-15
+
+The database schema has not changed since 2.0.5, so when spinning up a
+2.0.6 node from a 2.0.5 chainstate, you do not need to use a fresh
+working directory. Earlier versions' chainstate directories are
+incompatible, however.
 
 ### Fixed
 
+- Miner RBF logic has two "fallback" logic changes. First, if the RBF
+  logic has increased fees by more than 50%, do not submit a new
+  transaction. Second, fix the "same chainstate hash" fallback check.
+- Winning block txid lookups in the SortitionDB have been corrected
+  to use the txid during the lookup.
 - The miner will no longer attempt to mine a new Stacks block if it receives a
   microblock in a discontinuous microblock stream.
 
 ## [2.0.5] - 2021-02-12
+
+The database schema has changed since 2.0.4, so when spinning up a 2.0.5
+node from an earlier chainstate, you must use a fresh working directory.
 
 ### Added
 
