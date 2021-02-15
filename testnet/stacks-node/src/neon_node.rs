@@ -1392,28 +1392,21 @@ impl InitializedNeonNode {
                             u16::MAX,
                         )
                     {
-                        let max_seq = stream.iter().fold(0, |max_seq, mblock| {
-                            if mblock.header.sequence > max_seq {
-                                mblock.header.sequence
-                            } else {
-                                max_seq
-                            }
-                        });
                         if (prev_block.anchored_block.header.parent_microblock
                             == BlockHeaderHash([0u8; 32])
-                            && max_seq == 0)
+                            && stream.len() == 0)
                             || (prev_block.anchored_block.header.parent_microblock
                                 != BlockHeaderHash([0u8; 32])
-                                && (max_seq as u32)
+                                && stream.len()
                                     <= (prev_block.anchored_block.header.parent_microblock_sequence
-                                        as u32)
+                                        as usize)
                                         + 1)
                         {
                             // the chain tip hasn't changed since we attempted to build a block.  Use what we
                             // already have.
                             debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no new microblocks ({} <= {})",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
-                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, max_seq, prev_block.anchored_block.header.parent_microblock_sequence);
+                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             return None;
                         } else {
@@ -1423,7 +1416,7 @@ impl InitializedNeonNode {
                             // fee minus the old BTC fee
                             debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), but there are new microblocks ({} > {})",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
-                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, max_seq, prev_block.anchored_block.header.parent_microblock_sequence);
+                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             best_attempt = cmp::max(best_attempt, prev_block.attempt);
                         }
