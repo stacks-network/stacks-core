@@ -174,6 +174,23 @@ fn txid_tracking_db_contains(conn: &DBConn, txid: &Txid) -> Result<bool, Databas
 }
 
 #[allow(unused_variables)]
+pub fn mempool_accepted(txid: &Txid, chainstate_root_path: &str) -> Result<(), DatabaseError> {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let tracking_db = txid_tracking_db(chainstate_root_path)?;
+
+        if txid_tracking_db_contains(&tracking_db, txid)? {
+            // processed by a previous block, do not track again
+            return Ok(());
+        }
+
+        prometheus::MEMPOOL_OUTSTANDING_TXS.inc();
+    }
+
+    Ok(())
+}
+
+#[allow(unused_variables)]
 pub fn log_transaction_processed(
     txid: &Txid,
     chainstate_root_path: &str,

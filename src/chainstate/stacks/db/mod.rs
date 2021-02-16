@@ -93,7 +93,8 @@ use vm::types::TupleData;
 
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddress;
+use monitoring;
 
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
@@ -424,6 +425,12 @@ impl<'a> ChainstateTx<'a> {
                 }
             }
         }
+        for tx_event in events.iter() {
+            let txid = tx_event.transaction.txid();
+            if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
+                warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
+            }
+        }
     }
 }
 
@@ -458,7 +465,23 @@ pub struct BlockStreamData {
     num_mblocks_ptr: usize,
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "1";
+pub const CHAINSTATE_VERSION: &'static str = "2";
+
+pub const CHAINSTATE_VERSION_2: &'static str = "2";
+
+const CHAINSTATE_V2_SCHEMA: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );"#,
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
+];
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -498,17 +521,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
-    r#"
-    CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY,
-        txid TEXT NOT NULL,
-        index_block_hash TEXT NOT NULL,
-        tx_hex TEXT NOT NULL,
-        result TEXT NOT NULL,
-        UNIQUE (txid,index_block_hash)
-    );"#,
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -711,6 +723,10 @@ impl StacksChainState {
                 tx.execute_batch(cmd)?;
             }
 
+            for cmd in CHAINSTATE_V2_SCHEMA {
+                tx.execute_batch(cmd)?;
+            }
+
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
                 &[
@@ -726,6 +742,24 @@ impl StacksChainState {
         Ok(marf)
     }
 
+    fn state_migrate_v1_v2(marf: &mut MARF<StacksBlockId>) -> Result<(), Error> {
+        let mut dbtx = StacksDBTx::new(marf, ());
+
+        {
+            let tx = dbtx.tx();
+
+            for cmd in CHAINSTATE_V2_SCHEMA {
+                tx.execute_batch(cmd)?;
+            }
+
+            tx.execute("UPDATE db_config SET version = ?1", &[CHAINSTATE_VERSION_2])?;
+        }
+
+        dbtx.instantiate_index()?;
+        dbtx.commit()?;
+        Ok(())
+    }
+
     fn open_db(
         mainnet: bool,
         chain_id: u32,
@@ -737,7 +771,7 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path)?;
             // sanity check
             let db_config = query_row::<DBConfig, _>(
                 marf.sqlite_conn(),
@@ -755,11 +789,15 @@ impl StacksChainState {
             }
 
             if db_config.version != CHAINSTATE_VERSION {
-                error!(
-                    "Invalid chain state database: expected version = {}, got {}",
-                    CHAINSTATE_VERSION, db_config.version
-                );
-                return Err(Error::InvalidChainstateDB);
+                if db_config.version == "1" {
+                    StacksChainState::state_migrate_v1_v2(&mut marf)?;
+                } else {
+                    error!(
+                        "Invalid chain state database: expected version = {}, got {}",
+                        CHAINSTATE_VERSION, db_config.version
+                    );
+                    return Err(Error::InvalidChainstateDB);
+                }
             }
 
             if db_config.chain_id != chain_id {

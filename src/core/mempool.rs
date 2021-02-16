@@ -58,6 +58,8 @@ use rusqlite::Error as SqliteError;
 use chainstate::stacks::TransactionPayload;
 use vm::types::PrincipalData;
 
+use crate::monitoring;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
@@ -1010,7 +1012,7 @@ impl MemPoolDB {
             chainstate,
             &consensus_hash,
             &block_hash,
-            txid,
+            txid.clone(),
             tx_data,
             estimated_fee,
             tx_fee,
@@ -1020,6 +1022,10 @@ impl MemPoolDB {
             &sponsor_address,
             sponsor_nonce,
         )?;
+
+        if let Err(e) = monitoring::mempool_accepted(&txid, &chainstate.root_path) {
+            warn!("Failed to monitor TX receive: {:?}", e; "txid" => %txid);
+        }
 
         Ok(())
     }
