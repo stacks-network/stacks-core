@@ -66,6 +66,8 @@ use util::pipe::*;
 use util::secp256k1::Secp256k1PublicKey;
 use util::sleep_ms;
 
+use monitoring::{update_outbound_bandwidth, update_inbound_bandwidth};
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -931,7 +933,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         if socket_closed && total_read == 0 {
             return Err(net_error::PermanentlyDrained);
         }
-
+        // update_inbound_bandwidth(total_read as i64); //promserver
+        update_inbound_bandwidth("total".to_string(), total_read as i64); //promserver
         Ok(total_read)
     }
 
@@ -1146,6 +1149,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                 return Err(net_error::PeerNotConnected);
             }
         }
+        // update_outbound_bandwidth(total_sent as i64); //promserver
+        update_outbound_bandwidth("total".to_string(), total_sent as i64); //promserver
         Ok(total_sent)
     }
 

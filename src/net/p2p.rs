@@ -99,6 +99,8 @@ use net::inv::*;
 use net::relay::*;
 use net::rpc::RPCHandlerArgs;
 
+use monitoring::{update_outbound_neighbors, update_inbound_neighbors};
+
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
 pub enum NetworkRequest {
@@ -912,7 +914,8 @@ impl PeerNetwork {
             outbound_neighbors.len(),
             &outbound_dist
         );
-
+        update_outbound_neighbors(outbound_neighbors.len() as i64); //promserver
+        update_inbound_neighbors(inbound_neighbors.len() as i64); //promserver
         let mut outbound_sample =
             RelayerStats::sample_neighbors(outbound_dist, MAX_BROADCAST_OUTBOUND_RECEIVERS);
         let mut inbound_sample =

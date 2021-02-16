@@ -22,40 +22,40 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
-pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_authenticated_handshake_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_authenticated_handshake_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_get_neighbors_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_get_neighbors_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_get_blocks_inv_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_get_blocks_inv_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_nack_sent_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_NACK_SENT_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_nack_sent_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_NACK_SENT_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_ping_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_PING_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_ping_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_PING_RECEIVED_COUNTER.inc();
+// }
 
-pub fn increment_p2p_msg_nat_punch_request_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();
-}
+// pub fn increment_p2p_msg_nat_punch_request_received_counter() {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();
+// }
 
 pub fn increment_stx_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
@@ -123,7 +123,6 @@ pub fn update_active_miners_count_gauge(value: i64) {
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);
 }
 
-// promserver
 pub fn update_stacks_tip_height(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STACKS_TIP_HEIGHT_GAUGE.set(value);
@@ -132,4 +131,83 @@ pub fn update_stacks_tip_height(value: i64) {
 pub fn update_burnchain_height(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BURNCHAIN_HEIGHT_GAUGE.set(value);
+}
+
+pub fn update_inbound_neighbors(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::INBOUND_NEIGHBORS_GAUGE.set(value);
+}
+
+pub fn update_outbound_neighbors(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_NEIGHBORS_GAUGE.set(value);
+}
+
+// pub fn update_inbound_bandwidth(value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
+// }
+// pub fn update_outbound_bandwidth(value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
+// }
+pub fn update_inbound_bandwidth(name: String, value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::INBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+}
+
+pub fn update_outbound_bandwidth(name: String, value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+}
+
+// pub fn update_inbound_rpc_bandwidth(value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
+// }
+
+// pub fn update_outbound_rpc_bandwidth(value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
+// }
+
+pub fn update_anchor_block(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::ANCHOR_BLOCK_GAUGE.set(value);
+}
+
+pub fn update_reward_cycle(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::REWARD_CYCLES_GAUGE.set(value);
+}
+
+pub fn update_pox_inv(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::POX_INV_GAUGE.set(value);
+}
+
+pub fn increment_msg_counter(name: String) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::MSG_COUNTER_VEC.with_label_values(&[&name]).inc();
+}
+
+pub fn increment_rpc_request_counter(path: String, method: String) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::RPC_REQUEST_COUNTER_VEC.with_label_values(&[&path, &method]).inc();
+}
+
+// first_burnchain_block_height
+pub fn update_pox_first_burnchain_block(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::POX_FIRST_BURNCHAIN_BLOCK.set(value);
+}
+// first_burnchain_block_height
+pub fn update_pox_reward_cycle_countdown(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::POX_REWARD_CYCLE_COUNTDOWN.set(value);
+}
+// first_burnchain_block_height
+pub fn update_pox_reward_cycle_length(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::POX_REWARD_CYCLE_LENGTH.set(value);
 }

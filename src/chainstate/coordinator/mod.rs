@@ -47,8 +47,7 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
-//promserver
-use monitoring::{update_stacks_tip_height};
+use monitoring::{update_stacks_tip_height}; //promserver
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
@@ -615,8 +614,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
-        // promserver
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?; //promserver
         update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
 
         while let Some(block_result) = processed_blocks.pop() {
