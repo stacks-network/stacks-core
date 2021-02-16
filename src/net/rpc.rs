@@ -2474,8 +2474,7 @@ impl ConversationHttp {
                 break;
             }
         }
-        // monitoring::update_inbound_rpc_bandwidth(total_recv as i64);  //promserver
-        monitoring::update_inbound_bandwidth("rpc".to_string(), total_recv as i64);  //promserver
+        monitoring::update_inbound_rpc_bandwidth(total_recv as i64);  //promserver
         Ok(total_recv)
     }
 
@@ -2505,8 +2504,7 @@ impl ConversationHttp {
                 break;
             }
         }
-        // monitoring::update_inbound_rpc_bandwidth(total_sz as i64);  //promserver
-        monitoring::update_inbound_bandwidth("rpc".to_string(), total_sz as i64);  //promserver
+        monitoring::update_inbound_rpc_bandwidth(total_sz as i64);  //promserver
         Ok(total_sz)
     }
 

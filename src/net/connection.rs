@@ -933,8 +933,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         if socket_closed && total_read == 0 {
             return Err(net_error::PermanentlyDrained);
         }
-        // update_inbound_bandwidth(total_read as i64); //promserver
-        update_inbound_bandwidth("total".to_string(), total_read as i64); //promserver
+        update_inbound_bandwidth(total_read as i64); //promserver
         Ok(total_read)
     }
 
@@ -1149,8 +1148,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                 return Err(net_error::PeerNotConnected);
             }
         }
-        // update_outbound_bandwidth(total_sent as i64); //promserver
-        update_outbound_bandwidth("total".to_string(), total_sent as i64); //promserver
+        update_outbound_bandwidth(total_sent as i64); //promserver
         Ok(total_sent)
     }
 

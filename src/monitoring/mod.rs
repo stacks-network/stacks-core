@@ -143,33 +143,34 @@ pub fn update_outbound_neighbors(value: i64) {
     prometheus::OUTBOUND_NEIGHBORS_GAUGE.set(value);
 }
 
-// pub fn update_inbound_bandwidth(value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
-// }
-// pub fn update_outbound_bandwidth(value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
-// }
-pub fn update_inbound_bandwidth(name: String, value: i64) {
+pub fn update_inbound_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::INBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+    prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
+}
+pub fn update_outbound_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
 }
 
-pub fn update_outbound_bandwidth(name: String, value: i64) {
+// pub fn update_inbound_bandwidth(name: String, value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::INBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+// }
+
+// pub fn update_outbound_bandwidth(name: String, value: i64) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::OUTBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+// }
+
+pub fn update_inbound_rpc_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::OUTBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
+    prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
 }
 
-// pub fn update_inbound_rpc_bandwidth(value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
-// }
-
-// pub fn update_outbound_rpc_bandwidth(value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
-// }
+pub fn update_outbound_rpc_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
+}
 
 pub fn update_anchor_block(value: i64) {
     #[cfg(feature = "monitoring_prom")]

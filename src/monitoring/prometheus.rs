@@ -167,40 +167,41 @@ lazy_static! {
         labels! {"handler" => "all",}
     )).unwrap();
 
-    // pub static ref INBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-    //     "stacks_node_inbound_bandwidth",
-    //     "Inbound Bandwidth Total in bytes",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-    // pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-    //     "stacks_node_outbound_bandwidth",
-    //     "Outbound Bandwidth Total in bytes",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    pub static ref INBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
+    pub static ref INBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_inbound_bandwidth",
-        "Inbound Bandwidth in bytes",
-        &["type"]
-    ).unwrap();
-
-    pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
+        "Inbound Bandwidth Total in bytes",
+        labels! {"handler" => "all",}
+    )).unwrap();
+    
+    pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_outbound_bandwidth",
-        "Outbound Bandwidth in bytes",
-        &["type"]
-    ).unwrap();
+        "Outbound Bandwidth Total in bytes",
+        labels! {"handler" => "all",}
+    )).unwrap();
 
-    // pub static ref INBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-    //     "stacks_node_inbound_rpc_bandwidth",
-    //     "Inbound RPC Bandwidth in bytes",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
+    // pub static ref INBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
+    //     "stacks_node_inbound_bandwidth",
+    //     "Inbound Bandwidth in bytes",
+    //     &["type"]
+    // ).unwrap();
 
-    // pub static ref OUTBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-    //     "stacks_node_outbound_rpc_bandwidth",
-    //     "Outbound RPC Bandwidth in bytes",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
+    // pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
+    //     "stacks_node_outbound_bandwidth",
+    //     "Outbound Bandwidth in bytes",
+    //     &["type"]
+    // ).unwrap();
+
+    pub static ref INBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_inbound_rpc_bandwidth",
+        "Inbound RPC Bandwidth in bytes",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref OUTBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_outbound_rpc_bandwidth",
+        "Outbound RPC Bandwidth in bytes",
+        labels! {"handler" => "all",}
+    )).unwrap();
 
     pub static ref ANCHOR_BLOCK_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_anchor_block",
