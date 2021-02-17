@@ -88,7 +88,10 @@ use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
 
-use crate::{util::hash::Sha256Sum, version_string};
+use crate::{
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
+    version_string,
+};
 
 use vm::{
     clarity::ClarityConnection,
@@ -261,7 +264,7 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128() as u64;
 
-        let min_amount_ustx = res
+        let min_stacking_increment_ustx = res
             .get("min-amount-ustx")
             .expect(&format!("FATAL: no 'min-amount-ustx'"))
             .to_owned()
@@ -310,13 +313,45 @@ impl RPCPoxInfoData {
 
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
-        let next_reward_cycle_in = reward_cycle_length
-            - ((burnchain_tip.block_height - first_burnchain_block_height) % reward_cycle_length);
+        let effective_height = burnchain_tip.block_height - first_burnchain_block_height;
+        let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
+
+        let next_rewards_begin = burnchain_tip.block_height + next_reward_cycle_in;
+        let next_prepare_phase_start = next_rewards_begin - prepare_cycle_length;
+
+        let cur_cycle_stacked_ustx =
+            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
+        let next_cycle_stacked_ustx =
+            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
+
+        let reward_slots =
+            (reward_cycle_length - prepare_cycle_length) * (OUTPUTS_PER_COMMIT as u64);
+
+        let cur_cycle_threshold = StacksChainState::get_threshold_from_participation(
+            total_liquid_supply_ustx as u128,
+            cur_cycle_stacked_ustx,
+            reward_slots as u128,
+        ) as u64;
+
+        let next_threshold = StacksChainState::get_threshold_from_participation(
+            total_liquid_supply_ustx as u128,
+            next_cycle_stacked_ustx,
+            reward_slots as u128,
+        ) as u64;
 
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             first_burnchain_block_height,
-            min_amount_ustx,
+
+            min_stacking_increment_ustx,
+            next_cycle_cur_threshold: next_threshold,
+            cur_cycle_threshold,
+            next_cycle_stacked_ustx: next_cycle_stacked_ustx as u64,
+            cur_cycle_stacked_ustx: cur_cycle_stacked_ustx as u64,
+            reward_slots,
+            next_rewards_begin,
+            next_prepare_phase_start,
+
             prepare_cycle_length,
             rejection_fraction,
             reward_cycle_id,
@@ -562,6 +597,7 @@ impl ConversationHttp {
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
+
         match RPCPoxInfoData::from_db(sortdb, chainstate, tip, options) {
             Ok(pi) => {
                 let response = HttpResponseType::PoxInfo(response_metadata, pi);

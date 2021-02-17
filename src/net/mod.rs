@@ -1027,7 +1027,16 @@ pub struct RPCPeerInfoData {
 pub struct RPCPoxInfoData {
     pub contract_id: String,
     pub first_burnchain_block_height: u64,
-    pub min_amount_ustx: u64,
+
+    pub next_cycle_cur_threshold: u64,
+    pub cur_cycle_threshold: u64,
+    pub cur_cycle_stacked_ustx: u64,
+    pub next_cycle_stacked_ustx: u64,
+    pub reward_slots: u64,
+    pub next_rewards_begin: u64,
+    pub next_prepare_phase_start: u64,
+    pub min_stacking_increment_ustx: u64,
+
     pub prepare_cycle_length: u64,
     pub rejection_fraction: u64,
     pub reward_cycle_id: u64,
