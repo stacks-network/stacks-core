@@ -238,13 +238,14 @@ impl RPCPoxInfoData {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        _options: &ConnectionOptions,
+        burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let contract_identifier = boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
@@ -309,23 +310,42 @@ impl RPCPoxInfoData {
         let total_required = total_liquid_supply_ustx
             .checked_div(rejection_fraction)
             .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes");
+
         let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
 
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
+        let pox_consts = &burnchain.pox_constants;
+
+        if prepare_cycle_length != pox_consts.prepare_length as u64 {
+            error!(
+                "PoX Constants in config mismatched with PoX contract constants: {} != {}",
+                prepare_cycle_length, pox_consts.prepare_length
+            );
+            return Err(net_error::DBError(db_error::Corruption));
+        }
+
+        if reward_cycle_length != pox_consts.reward_cycle_length as u64 {
+            error!(
+                "PoX Constants in config mismatched with PoX contract constants: {} != {}",
+                reward_cycle_length, pox_consts.reward_cycle_length
+            );
+            return Err(net_error::DBError(db_error::Corruption));
+        }
+
         let effective_height = burnchain_tip.block_height - first_burnchain_block_height;
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
-        let next_rewards_begin = burnchain_tip.block_height + next_reward_cycle_in;
-        let next_prepare_phase_start = next_rewards_begin - prepare_cycle_length;
+        let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
+        let next_prepare_phase_start = next_rewards_start - prepare_cycle_length;
+        let next_prepare_phase_in = next_prepare_phase_start - burnchain_tip.block_height;
 
         let cur_cycle_stacked_ustx =
             chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
         let next_cycle_stacked_ustx =
             chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
 
-        let reward_slots =
-            (reward_cycle_length - prepare_cycle_length) * (OUTPUTS_PER_COMMIT as u64);
+        let reward_slots = pox_consts.reward_slots();
 
         let cur_cycle_threshold = StacksChainState::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
@@ -339,19 +359,24 @@ impl RPCPoxInfoData {
             reward_slots as u128,
         ) as u64;
 
+        let pox_activation_threshold = total_liquid_supply_ustx
+            .checked_mul(pox_consts.pox_participation_threshold_pct)
+            .map(|x| x / 100)
+            .ok_or_else(|| net_error::DBError(db_error::Overflow))?;
+
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             first_burnchain_block_height,
-
             min_stacking_increment_ustx,
             next_cycle_cur_threshold: next_threshold,
             cur_cycle_threshold,
             next_cycle_stacked_ustx: next_cycle_stacked_ustx as u64,
             cur_cycle_stacked_ustx: cur_cycle_stacked_ustx as u64,
-            reward_slots,
-            next_rewards_begin,
+            reward_slots: reward_slots as u64,
+            pox_activation_threshold,
+            next_rewards_start,
             next_prepare_phase_start,
-
+            next_prepare_phase_in,
             prepare_cycle_length,
             rejection_fraction,
             reward_cycle_id,
@@ -594,11 +619,11 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        options: &ConnectionOptions,
+        burnchain: &Burnchain,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, options) {
+        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, burnchain) {
             Ok(pi) => {
                 let response = HttpResponseType::PoxInfo(response_metadata, pi);
                 response.send(http, fd)
@@ -1796,7 +1821,7 @@ impl ConversationHttp {
                         sortdb,
                         chainstate,
                         &tip,
-                        &self.connection.options,
+                        &self.burnchain,
                     )?;
                 }
                 None
@@ -3300,7 +3325,7 @@ mod test {
                     &mut sortdb,
                     chainstate,
                     &stacks_block_id,
-                    &ConnectionOptions::default(),
+                    &peer_client.config.burnchain,
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
