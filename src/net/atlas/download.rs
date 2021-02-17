@@ -46,7 +46,7 @@ impl AttachmentsDownloader {
         dns_client: &mut DNSClient,
         chainstate: &mut StacksChainState,
         network: &mut PeerNetwork,
-    ) -> Result<Vec<AttachmentInstance>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
         let mut resolved_attachments = vec![];
 
         let ongoing_fsm = match self.ongoing_batch.take() {
@@ -84,7 +84,7 @@ impl AttachmentsDownloader {
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
                 for attachment in context.attachments.drain() {
-                    let mut attachments_instances = network
+                    let attachments_instances = network
                         .atlasdb
                         .find_all_attachment_instances(&attachment.hash())
                         .map_err(|e| net_error::DBError(e))?;
@@ -92,7 +92,9 @@ impl AttachmentsDownloader {
                         .atlasdb
                         .insert_instantiated_attachment(&attachment)
                         .map_err(|e| net_error::DBError(e))?;
-                    resolved_attachments.append(&mut attachments_instances);
+                    for attachment_instance in attachments_instances.into_iter() {
+                        resolved_attachments.push((attachment_instance, attachment.clone()));
+                    }
                     context
                         .attachments_batch
                         .resolve_attachment(&attachment.hash())
@@ -124,7 +126,7 @@ impl AttachmentsDownloader {
         &mut self,
         new_attachments: &mut HashSet<AttachmentInstance>,
         atlasdb: &mut AtlasDB,
-    ) -> Result<Vec<AttachmentInstance>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
         if new_attachments.is_empty() {
             return Ok(vec![]);
         }
@@ -139,19 +141,19 @@ impl AttachmentsDownloader {
                     .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
-                resolved_attachments.push(attachment_instance);
+                resolved_attachments.push((attachment_instance, Attachment::empty()));
                 continue;
             }
 
             // Do we already have a matching validated attachment
-            if let Ok(Some(_entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
+            if let Ok(Some(entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
                 atlasdb
                     .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
                 );
-                resolved_attachments.push(attachment_instance);
+                resolved_attachments.push((attachment_instance, entry));
                 continue;
             }
 
@@ -166,7 +168,7 @@ impl AttachmentsDownloader {
                     .insert_uninstantiated_attachment_instance(&attachment_instance, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
-                resolved_attachments.push(attachment_instance);
+                resolved_attachments.push((attachment_instance, attachment));
                 continue;
             }
 

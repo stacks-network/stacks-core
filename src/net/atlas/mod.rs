@@ -60,6 +60,10 @@ impl Attachment {
     pub fn hash(&self) -> Hash160 {
         Hash160::from_data(&self.content)
     }
+
+    pub fn empty() -> Attachment {
+        Attachment { content: vec![] }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
