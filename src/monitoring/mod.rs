@@ -17,11 +17,6 @@
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
-pub fn increment_rpc_calls_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::RPC_CALL_COUNTER.inc();
-}
-
 // pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
 //     #[cfg(feature = "monitoring_prom")]
 //     prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
@@ -56,6 +51,11 @@ pub fn increment_rpc_calls_counter() {
 //     #[cfg(feature = "monitoring_prom")]
 //     prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();
 // }
+
+pub fn increment_rpc_request_counter_total() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::RPC_REQUEST_COUNTER.inc();
+}
 
 pub fn increment_stx_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
@@ -147,20 +147,11 @@ pub fn update_inbound_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
 }
+
 pub fn update_outbound_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
 }
-
-// pub fn update_inbound_bandwidth(name: String, value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::INBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
-// }
-
-// pub fn update_outbound_bandwidth(name: String, value: i64) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::OUTBOUND_BANDWIDTH_GAUGE.with_label_values(&[&name]).add(value);
-// }
 
 pub fn update_inbound_rpc_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
@@ -170,21 +161,6 @@ pub fn update_inbound_rpc_bandwidth(value: i64) {
 pub fn update_outbound_rpc_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
-}
-
-pub fn update_anchor_block(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::ANCHOR_BLOCK_GAUGE.set(value);
-}
-
-pub fn update_reward_cycle(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::REWARD_CYCLES_GAUGE.set(value);
-}
-
-pub fn update_pox_inv(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::POX_INV_GAUGE.set(value);
 }
 
 pub fn increment_msg_counter(name: String) {
@@ -197,18 +173,32 @@ pub fn increment_rpc_request_counter(path: String, method: String) {
     prometheus::RPC_REQUEST_COUNTER_VEC.with_label_values(&[&path, &method]).inc();
 }
 
-// first_burnchain_block_height
-pub fn update_pox_first_burnchain_block(value: i64) {
+pub fn update_stx_mempool_size(value: i64) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::POX_FIRST_BURNCHAIN_BLOCK.set(value);
+    prometheus::STX_MEMPOOL_SIZE.set(value);
 }
-// first_burnchain_block_height
-pub fn update_pox_reward_cycle_countdown(value: i64) {
+
+pub fn increment_stx_mempool_gc() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::POX_REWARD_CYCLE_COUNTDOWN.set(value);
+    prometheus::STX_MEMPOOL_GC.inc();
 }
-// first_burnchain_block_height
-pub fn update_pox_reward_cycle_length(value: i64) {
+
+pub fn increment_stx_smart_contracts() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::POX_REWARD_CYCLE_LENGTH.set(value);
+    prometheus::STX_SMART_CONTRACT_COUNT.inc();
+}
+
+pub fn increment_stx_addresses_created() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_ADDRESSES_CREATED.inc();
+}
+
+pub fn increment_stack_stx_op() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STACK_STX_OP.inc();
+}
+
+pub fn increment_transfer_stx_op() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::TRANSFER_STX_OP.inc();
 }

@@ -105,6 +105,19 @@ use vm::{
 use rand::prelude::*;
 use rand::thread_rng;
 
+use std::time::{Duration, Instant};
+
+use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
+
+lazy_static! {
+    static ref RPC_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "stacks_node_rpc_request_duration",
+        "Stacks Node RPC Request Duration Histogram",
+        &["path"]
+    )
+    .unwrap();
+}
+
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 #[derive(Default)]
@@ -526,8 +539,8 @@ impl ConversationHttp {
         peerdb: &PeerDB,
         handler_args: &RPCHandlerArgs,
     ) -> Result<(), net_error> {
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/info"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
-
         match RPCPeerInfoData::from_db(
             burnchain,
             sortdb,
@@ -539,6 +552,7 @@ impl ConversationHttp {
             Ok(pi) => {
                 monitoring::increment_rpc_request_counter("/v2/info".to_string(), "GET".to_string());  //promserver
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
+                // timer.observe_duration(); //promserver
                 response.send(http, fd)
             }
             Err(e) => {
@@ -547,6 +561,7 @@ impl ConversationHttp {
                     response_metadata,
                     "Failed to query peer info".to_string(),
                 );
+                // timer.observe_duration(); //promserver
                 response.send(http, fd)
             }
         }
@@ -563,6 +578,7 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/pox"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         match RPCPoxInfoData::from_db(sortdb, chainstate, tip, options) {
             Ok(pi) => {
@@ -592,8 +608,9 @@ impl ConversationHttp {
         pages_indexes: &HashSet<u32>,
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
-        monitoring::increment_rpc_request_counter("/v2/attachments/inv".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/attachments/inv"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
+        monitoring::increment_rpc_request_counter("/v2/attachments/inv".to_string(), "GET".to_string());  //promserver
         let msg = format!("Atlas disabled");
         warn!("{}", msg);
         let response = HttpResponseType::NotFound(response_metadata, msg.clone());
@@ -693,6 +710,7 @@ impl ConversationHttp {
         atlasdb: &mut AtlasDB,
         content_hash: Hash160,
     ) -> Result<(), net_error> {
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/attachments"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
@@ -722,6 +740,7 @@ impl ConversationHttp {
         peerdb: &PeerDB,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/neighbors".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/neighbors"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let neighbor_data = RPCNeighborsInfo::from_p2p(network_id, peers, chain_view, peerdb)?;
         let response = HttpResponseType::Neighbors(response_metadata, neighbor_data);
@@ -766,7 +785,7 @@ impl ConversationHttp {
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
         monitoring::increment_rpc_request_counter("/v2/blocks".to_string(), "GET".to_string());  //promserver
-
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/blocks"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
@@ -811,7 +830,7 @@ impl ConversationHttp {
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
         monitoring::increment_rpc_request_counter("/v2/microblocks/confirmed".to_string(), "GET".to_string());  //promserver
-
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/microblocks/confirmed"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.has_processed_microblocks(index_anchor_block_hash) {
@@ -918,6 +937,7 @@ impl ConversationHttp {
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
         monitoring::increment_rpc_request_counter("/v2/microblocks".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/microblocks"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this processed microblock stream?
@@ -1000,6 +1020,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/fees/transfer".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/fees/transfer"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         // todo -- need to actually estimate the cost / length for token transfers
@@ -1022,6 +1043,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/accounts".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/accounts"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         let response =
@@ -1087,6 +1109,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/map_entry".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/map_entry"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -1147,6 +1170,7 @@ impl ConversationHttp {
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/contracts/call-read".to_string(), "POST".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/contracts/call-read"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -1213,6 +1237,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/contracts/source".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/contracts/source"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -1268,6 +1293,7 @@ impl ConversationHttp {
         contract_name: &ContractName,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/contracts/interface".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["/v2/contracts/interface"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -1306,6 +1332,7 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_rpc_request_counter("/v2/microblocks/unconfirmed".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["v2/microblocks/unconfirmed"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this unconfirmed microblock stream?
@@ -1392,6 +1419,7 @@ impl ConversationHttp {
         txid: &Txid,
     ) -> Result<(), net_error> {
         monitoring::increment_rpc_request_counter("/v2/transactions/unconfirmed".to_string(), "GET".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["v2/transactions/unconfirmed"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
 
         // present in the unconfirmed state?
@@ -1518,6 +1546,7 @@ impl ConversationHttp {
         attachment: Option<Attachment>,
     ) -> Result<bool, net_error> {
         monitoring::increment_rpc_request_counter("/v2/transactions".to_string(), "POST".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["v2/transactions"]).start_timer(); //promserver
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
         let (response, accepted) = if mempool.has_tx(&txid) {
@@ -1565,6 +1594,7 @@ impl ConversationHttp {
         block: &StacksBlock,
     ) -> Result<bool, net_error> {
         monitoring::increment_rpc_request_counter("/v2/blocks/upload".to_string(), "POST".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["v2/blocks/upload"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         // is this a consensus hash we recognize?
         let (response, accepted) =
@@ -1686,6 +1716,7 @@ impl ConversationHttp {
         microblock: &StacksMicroblock,
     ) -> Result<bool, net_error> {
         monitoring::increment_rpc_request_counter("/v2/microblocks".to_string(), "POST".to_string());  //promserver
+        // let timer = RPC_REQ_HISTOGRAM.with_label_values(&["v2/microblocks"]).start_timer(); //promserver
         let response_metadata = HttpResponseMetadata::from(req);
         let (response, accepted) =
             match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, microblock)
@@ -1741,7 +1772,8 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-        monitoring::increment_rpc_calls_counter();
+        monitoring::increment_rpc_request_counter_total();
+        let timer = RPC_REQ_HISTOGRAM.with_label_values(&["all"]).start_timer(); //promserver
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
@@ -2155,6 +2187,7 @@ impl ConversationHttp {
                 ));
             }
         }
+        timer.observe_duration();
         Ok(ret)
     }
 

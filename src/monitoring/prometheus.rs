@@ -17,12 +17,6 @@
 use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 
 lazy_static! {
-    pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_rpc_requests_total",
-        "Total number of RPC requests made.",
-        labels! {"handler" => "all",}
-    )).unwrap();
-
     // pub static ref P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
     //     "stacks_node_p2p_msg_unauthenticated_handshake_received_total",
     //     "Total number of authenticated Handshake messages received.",
@@ -65,173 +59,136 @@ lazy_static! {
     //     labels! {"handler" => "all",}
     // )).unwrap();
 
+    pub static ref RPC_REQUEST_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_rpc_request_total",
+        "Total number of RPC requests made."
+    )).unwrap();
+
     pub static ref STX_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_received_total",
-        "Total number of Stacks blocks received.",
-        labels! {"handler" => "all",}
+        "Total number of Stacks blocks received."
     )).unwrap();
 
     pub static ref STX_MICRO_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_micro_blocks_received_total",
-        "Total number of Stacks micro blocks received.",
-        labels! {"handler" => "all",}
+        "Total number of Stacks micro blocks received."
     )).unwrap();
 
     pub static ref STX_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_served_total",
-        "Total number of Stacks blocks served.",
-        labels! {"handler" => "all",}
+        "Total number of Stacks blocks served."
     )).unwrap();
 
     pub static ref STX_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_micro_blocks_served_total",
-        "Total number of Stacks micro blocks served.",
-        labels! {"handler" => "all",}
+        "Total number of Stacks micro blocks served."
     )).unwrap();
 
     pub static ref STX_CONFIRMED_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_confirmed_micro_blocks_served_total",
-        "Total number of Stacks blocks served.",
-        labels! {"handler" => "all",}
+        "Total number of Stacks blocks served."
     )).unwrap();
 
     pub static ref TXS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_transactions_received_total",
-        "Total number of transactions received and relayed.",
-        labels! {"handler" => "all",}
+        "Total number of transactions received and relayed."
     )).unwrap();
 
     pub static ref BTC_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_btc_blocks_received_total",
-        "Total number of blocks processed from the burnchain.",
-        labels! {"handler" => "all",}
+        "Total number of blocks processed from the burnchain."
     )).unwrap();
 
     pub static ref BTC_OPS_SENT_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_btc_ops_sent_total",
-        "Total number of ops (key registrations, block commits, user burn supports) submitted to the burnchain.",
-        labels! {"handler" => "all",}
+        "Total number of ops (key registrations, block commits, user burn supports) submitted to the burnchain."
     )).unwrap();
 
     pub static ref STX_BLOCKS_PROCESSED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_processed_total",
-        "Total number of stacks blocks processed.",
-        labels! {"handler" => "all",}
+        "Total number of stacks blocks processed."
     )).unwrap();
 
     pub static ref STX_BLOCKS_MINED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_mined_total",
-        "Total number of stacks blocks mined by node.",
-        labels! {"handler" => "all",}
+        "Total number of stacks blocks mined by node."
     )).unwrap();
 
     pub static ref WARNING_EMITTED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_warning_emitted_total",
-        "Total number of warning logs emitted by node.",
-        labels! {"handler" => "all",}
+        "Total number of warning logs emitted by node."
     )).unwrap();
 
     pub static ref ERRORS_EMITTED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_errors_emitted_total",
-        "Total number of error logs emitted by node.",
-        labels! {"handler" => "all",}
+        "Total number of error logs emitted by node."
     )).unwrap();
 
     pub static ref ACTIVE_MINERS_COUNT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_active_miners_total",
-        "Total number of active miners.",
-        labels! {"handler" => "all",}
+        "Total number of active miners."
     )).unwrap();
 
     pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_tip_height",
-        "Stacks Chain Tip Height",
-        labels! {"handler" => "all",}
+        "Stacks Chain Tip Height"
     )).unwrap();
     
     pub static ref BURNCHAIN_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_burn_block_height",
-        "Burnchain Tip Height",
-        labels! {"handler" => "all",}
+        "Burnchain Tip Height"
     )).unwrap();
 
     pub static ref INBOUND_NEIGHBORS_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_inbound_neighbors",
-        "Current Inbound Neighbors",
-        labels! {"handler" => "all",}
+        "Current Inbound Neighbors"
     )).unwrap();
 
     pub static ref OUTBOUND_NEIGHBORS_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_outbound_neighbors",
-        "Current Outbound Neighbors",
-        labels! {"handler" => "all",}
+        "Current Outbound Neighbors"
     )).unwrap();
 
     pub static ref INBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_inbound_bandwidth",
-        "Inbound Bandwidth Total in bytes",
-        labels! {"handler" => "all",}
+        "Inbound Bandwidth Total in bytes"
     )).unwrap();
     
     pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_outbound_bandwidth",
-        "Outbound Bandwidth Total in bytes",
-        labels! {"handler" => "all",}
+        "Outbound Bandwidth Total in bytes"
     )).unwrap();
 
-    // pub static ref INBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
-    //     "stacks_node_inbound_bandwidth",
-    //     "Inbound Bandwidth in bytes",
-    //     &["type"]
-    // ).unwrap();
-
-    // pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGaugeVec = register_int_gauge_vec!(
-    //     "stacks_node_outbound_bandwidth",
-    //     "Outbound Bandwidth in bytes",
-    //     &["type"]
-    // ).unwrap();
-
     pub static ref INBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_inbound_rpc_bandwidth",
-        "Inbound RPC Bandwidth in bytes",
-        labels! {"handler" => "all",}
+        "stacks_node_rpc_inbound_bandwidth",
+        "RPC Inbound Bandwidth in bytes"
     )).unwrap();
 
     pub static ref OUTBOUND_RPC_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_outbound_rpc_bandwidth",
-        "Outbound RPC Bandwidth in bytes",
-        labels! {"handler" => "all",}
+        "stacks_node_rpc_outbound_bandwidth",
+        "RPC Outbound Bandwidth in bytes"
     )).unwrap();
 
     pub static ref ANCHOR_BLOCK_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_anchor_block",
-        "Anchor Block",
-        labels! {"handler" => "all",}
+        "Anchor Block"
     )).unwrap();
 
     pub static ref REWARD_CYCLES_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_reward_cycles",
-        "Reward Cycles",
-        labels! {"handler" => "all",}
+        "Reward Cycles"
     )).unwrap();
 
     pub static ref POX_INV_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_pox_inv",
-        "POX Inventory",
-        labels! {"handler" => "all",}
+        "POX Inventory"
     )).unwrap();
 
     pub static ref MSG_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
         "stacks_node_messages", 
         "Stacks Node Messages", 
-        &["type"]
+        &["name"]
     ).unwrap();
-
-    // pub static ref RPC_REQUEST_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
-    //     "stacks_node_rpc_requests", 
-    //     "Stacks Node RPC Requests", 
-    //     &["path"]
-    // ).unwrap();
 
     pub static ref RPC_REQUEST_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
         "stacks_node_rpc_requests", 
@@ -239,27 +196,35 @@ lazy_static! {
         &["path", "method"]
     ).unwrap();
 
-    // first_burnchain_block_height
-    pub static ref POX_FIRST_BURNCHAIN_BLOCK: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_pox_first_burnchain_block",
-        "POX First Burnchain Block Height",
-        labels! {"handler" => "all",}
+    pub static ref STX_MEMPOOL_SIZE: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_mempool_size",
+        "Stacks Node Mempool Size"
     )).unwrap();
 
-    // next_reward_cycle_in
-    pub static ref POX_REWARD_CYCLE_COUNTDOWN: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_pox_reward_cycle",
-        "POX Next Reward Cycle in Blocks",
-        labels! {"handler" => "all",}
+    pub static ref STX_MEMPOOL_GC: IntCounter = register_int_counter!(opts!(
+        "stacks_node_mempool_gc",
+        "Stacks Node Mempool GC Count"
     )).unwrap();
 
-    // reward_cycle_length
-    pub static ref POX_REWARD_CYCLE_LENGTH: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_pox_reward_cycle_length",
-        "POX Reward Cycle Length",
-        labels! {"handler" => "all",}
+    pub static ref STX_SMART_CONTRACT_COUNT: IntCounter = register_int_counter!(opts!(
+        "stacks_node_smart_contracts",
+        "Stacks Node Smart Contract Count"
     )).unwrap();
 
+    pub static ref STX_ADDRESSES_CREATED: IntCounter = register_int_counter!(opts!(
+        "stacks_node_addresses",
+        "Stacks Node Addresses Created Count"
+    )).unwrap();
+
+    pub static ref STACK_STX_OP: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stack_stx_op",
+        "Stacks Node Stack Stx Op Count"
+    )).unwrap();
+
+    pub static ref TRANSFER_STX_OP: IntCounter = register_int_counter!(opts!(
+        "stacks_node_transfer_stx_op",
+        "Stacks Node Transfer Stx Op Count"
+    )).unwrap();
 }
 
 
