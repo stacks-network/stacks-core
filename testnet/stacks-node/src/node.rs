@@ -472,7 +472,7 @@ impl Node {
         }
         let atlas_config = AtlasConfig::default(false);
         let atlasdb =
-            AtlasDB::connect(atlas_config, &self.config.get_peer_db_path(), true).unwrap();
+            AtlasDB::connect(atlas_config, &self.config.get_atlas_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
