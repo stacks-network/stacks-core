@@ -73,6 +73,38 @@ Possible values for the "reason" field and "reason_data" field are:
 Reason types without additional information will not have a
 `reason_data` field.
 
+### GET /v2/pox
+
+Get current PoX-relevant information.
+
+Returns JSON data in the form:
+
+```
+{
+  "contract_id": "SP000000000000000000002Q6VF78.pox",
+  "first_burnchain_block_height": 666050,
+  "next_cycle_cur_threshold": 70000000000,
+  "cur_cycle_threshold": 70000000000,
+  "cur_cycle_stacked_ustx": 202157971547640,
+  "next_cycle_stacked_ustx": 151145372982580,
+  "reward_slots": 4000,
+  "next_rewards_begin": 672350,
+  "next_prepare_phase_start": 672250,
+  "min_stacking_increment_ustx": 52233941964,
+  "prepare_cycle_length": 100,
+  "rejection_fraction": 25,
+  "reward_cycle_id": 2,
+  "reward_cycle_length": 2100,
+  "rejection_votes_left_required": 41787153571510,
+  "total_liquid_supply_ustx": 1044678839287772,
+  "next_reward_cycle_in": 1322
+}
+```
+
+`next_cycle_cur_threshold` is the _current_ microstacks threshold for the
+next reward cycle. If more STX is locked for participation in that cycle,
+the threshold may increase.
+
 ### GET /v2/accounts/[Principal]
 
 Get the account data for the provided principal.

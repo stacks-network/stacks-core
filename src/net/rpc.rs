@@ -618,11 +618,11 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        atlasdb: &AtlasDB,
-        chainstate: &mut StacksChainState,
-        tip_consensus_hash: &ConsensusHash,
-        tip_block_hash: &BlockHeaderHash,
-        pages_indexes: &HashSet<u32>,
+        _atlasdb: &AtlasDB,
+        _chainstate: &mut StacksChainState,
+        _tip_consensus_hash: &ConsensusHash,
+        _tip_block_hash: &BlockHeaderHash,
+        _pages_indexes: &HashSet<u32>,
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);

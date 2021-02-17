@@ -2,10 +2,6 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
-use stacks::chainstate::stacks::{
-    db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, TransactionPayload,
-};
 use stacks::core;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
@@ -17,13 +13,20 @@ use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{
-        burn::{db::sortdb::SortitionDB, BlockHeaderHash, ConsensusHash},
-        stacks::{StacksBlockId, StacksMicroblock},
+        burn::{BlockHeaderHash, ConsensusHash},
+        stacks::StacksMicroblock,
     },
 };
 use stacks::{
     burnchains::{Address, Burnchain, PoxConstants},
     vm::costs::ExecutionCost,
+};
+use stacks::{
+    chainstate::stacks::{
+        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
+        StacksPublicKey, StacksTransaction, TransactionPayload,
+    },
+    net::RPCPoxInfoData,
 };
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -380,6 +383,17 @@ fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account 
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         nonce: res.nonce,
     }
+}
+
+fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/pox", http_origin);
+    client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPoxInfoData>()
+        .unwrap()
 }
 
 fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
@@ -2069,6 +2083,37 @@ fn pox_integration_test() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_stacked_ustx, 0);
+    assert_eq!(pox_info.next_cycle_stacked_ustx, 0);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_rewards_begin, 210);
+    assert_eq!(pox_info.next_prepare_phase_start, 205);
+    assert_eq!(pox_info.min_stacking_increment_ustx, 20845173515333);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 0);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.total_liquid_supply_ustx, 10005683287360023);
+    assert_eq!(pox_info.next_reward_cycle_in, 6);
+
     let tx = make_contract_call(
         &spender_sk,
         0,
@@ -2102,6 +2147,35 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.next_cycle_stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_rewards_begin, 225);
+    assert_eq!(pox_info.next_prepare_phase_start, 220);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.next_reward_cycle_in, 14);
 
     let blocks_observed = test_observer::get_blocks();
     assert!(
@@ -2201,6 +2275,34 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
+    assert_eq!(pox_info.cur_cycle_stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.next_cycle_stacked_ustx, 2000000000000000);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_rewards_begin, 225);
+    assert_eq!(pox_info.next_prepare_phase_start, 220);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.next_reward_cycle_in, 1);
 
     // we should have received _no_ Bitcoin commitments, because the pox participation threshold
     //   was not met!
