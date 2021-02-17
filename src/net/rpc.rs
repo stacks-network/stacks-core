@@ -307,9 +307,12 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128() as u64;
 
-        let total_required = total_liquid_supply_ustx
-            .checked_div(rejection_fraction)
-            .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes");
+        let total_required = (total_liquid_supply_ustx as u128)
+            .checked_div(100)
+            .expect("FATAL: unable to compute total_liquid_supply_ustx * 100")
+            .checked_mul(rejection_fraction as u128)
+            .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes")
+            as u64;
 
         let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
 
@@ -337,7 +340,17 @@ impl RPCPoxInfoData {
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
         let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
-        let next_prepare_phase_start = next_rewards_start - prepare_cycle_length;
+        let next_reward_cycle_prepare_phase_start = next_rewards_start - prepare_cycle_length;
+
+        let next_prepare_phase_start =
+            if burnchain_tip.block_height < next_reward_cycle_prepare_phase_start {
+                next_reward_cycle_prepare_phase_start
+            } else {
+                // currently in a prepare phase, so the next prepare phase start is actually the reward cycle after
+                //  next
+                next_reward_cycle_prepare_phase_start + reward_cycle_length
+            };
+
         let next_prepare_phase_in = next_prepare_phase_start - burnchain_tip.block_height;
 
         let cur_cycle_stacked_ustx =
@@ -345,7 +358,7 @@ impl RPCPoxInfoData {
         let next_cycle_stacked_ustx =
             chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
 
-        let reward_slots = pox_consts.reward_slots();
+        let reward_slots = pox_consts.reward_slots() as u64;
 
         let cur_cycle_threshold = StacksChainState::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
@@ -359,10 +372,11 @@ impl RPCPoxInfoData {
             reward_slots as u128,
         ) as u64;
 
-        let pox_activation_threshold = total_liquid_supply_ustx
-            .checked_mul(pox_consts.pox_participation_threshold_pct)
+        let pox_activation_threshold = (total_liquid_supply_ustx as u128)
+            .checked_mul(pox_consts.pox_participation_threshold_pct as u128)
             .map(|x| x / 100)
-            .ok_or_else(|| net_error::DBError(db_error::Overflow))?;
+            .ok_or_else(|| net_error::DBError(db_error::Overflow))?
+            as u64;
 
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
@@ -372,7 +386,7 @@ impl RPCPoxInfoData {
             cur_cycle_threshold,
             next_cycle_stacked_ustx: next_cycle_stacked_ustx as u64,
             cur_cycle_stacked_ustx: cur_cycle_stacked_ustx as u64,
-            reward_slots: reward_slots as u64,
+            reward_slots,
             pox_activation_threshold,
             next_rewards_start,
             next_prepare_phase_start,

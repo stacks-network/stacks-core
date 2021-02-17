@@ -86,25 +86,58 @@ Returns JSON data in the form:
   "next_cycle_cur_threshold": 70000000000,
   "cur_cycle_threshold": 70000000000,
   "cur_cycle_stacked_ustx": 202157971547640,
-  "next_cycle_stacked_ustx": 151145372982580,
+  "next_cycle_stacked_ustx": 151807880982060,
   "reward_slots": 4000,
   "next_rewards_start": 672350,
   "next_prepare_phase_start": 672250,
-  "min_stacking_increment_ustx": 52233941964,
-  "pox_activation_threshold": 52251576724388,
+  "min_stacking_increment_ustx": 52251700044,
+  "pox_activation_threshold": 52251700044388,
   "prepare_cycle_length": 100,
   "rejection_fraction": 25,
   "reward_cycle_id": 2,
   "reward_cycle_length": 2100,
-  "rejection_votes_left_required": 41787153571510,
-  "total_liquid_supply_ustx": 1044678839287772,
-  "next_reward_cycle_in": 1322
+  "rejection_votes_left_required": 261258500221925,
+  "total_liquid_supply_ustx": 1045034000887772,
+  "next_reward_cycle_in": 1318,
+  "next_prepare_phase_in": 1218
 }
 ```
 
-`next_cycle_cur_threshold` is the _current_ microstacks threshold for the
-next reward cycle. If more STX is locked for participation in that cycle,
-the threshold may increase.
+* `contract_id` is the contract identifier for the PoX contract.
+* `cur_cycle_threshold` is the threshold amount for obtaining a slot in the
+  active reward cycle.
+* `next_cycle_cur_threshold` is the _current_ microstacks threshold for the
+  _next_ reward cycle. If more STX is locked for participation in that cycle,
+  the threshold may increase.
+* `first_burnchain_block_height` is the first burn block evaluated in this Stacks
+  chain.
+* `cur_cycle_stacked_ustx` is the total amount of stacked microstacks in the
+  active reward cycle.
+* `next_cycle_stacked_ustx` is the total amount of stacked microstacks in the
+  next reward cycle.
+* `reward_slots` is the number of reward slots in a reward cycle
+* `next_rewards_start` is the burn block height when the next reward
+  cycle begins
+* `next_prepare_phase_start` is the burn block height when the next prepare
+  phase begins. Any eligible stacks _must_ be stacked before this block.
+* `min_stacking_increment_ustx` is the minimum amount that can be used to
+  submit a `stack-stx` call.
+* `pox_activation_threshold` is the threshold of stacking participation that
+  must be reached for PoX to activate in any cycle.
+* `prepare_cycle_length` is the length in burn blocks of the prepare phase
+* `rejection_fraction` is the fraction of liquid STX that must vote to reject
+  PoX in order to prevent the next reward cycle from activating.
+* `rejection_votes_left_required` is the remaining amount of liquid
+  STX that must vote to reject the next reward cycle to prevent the next
+  reward cycle from activating.
+* `reward_cycle_id` is the active reward cycle number
+* `reward_cycle_length` is the length in burn blocks of a whole PoX
+  cycle (reward phase and prepare phase)
+* `total_liquid_supply_ustx` is the current total amount of liquid microstacks.
+* `next_reward_cycle_in` is the number of burn blocks until the next reward
+  cycle begins.
+* `next_prepare_phase_in` is the number of burn blocks until the next prepare
+  phase starts.
 
 ### GET /v2/accounts/[Principal]
 
