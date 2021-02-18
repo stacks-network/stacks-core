@@ -56,6 +56,8 @@ use chainstate::stacks::{
 };
 use monitoring::{increment_stx_addresses_created, increment_stx_smart_contracts}; //promserver
 
+use chainstate::stacks::boot::boot_code_addr;
+
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.version)?;
@@ -103,6 +105,12 @@ impl StacksAddress {
             version,
             bytes: hash,
         }
+    }
+
+    /// is this a boot code address, if the supplied address is mainnet or testnet,
+    ///  it checks against the appropriate the boot code addr
+    pub fn is_boot_code_addr(&self) -> bool {
+        self == &boot_code_addr(self.is_mainnet())
     }
 
     pub fn is_mainnet(&self) -> bool {

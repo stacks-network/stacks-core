@@ -168,7 +168,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     }
 }
 
-const MEMPOOL_SQL: &'static [&'static str] = &[
+const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
@@ -189,14 +189,12 @@ const MEMPOOL_SQL: &'static [&'static str] = &[
         UNIQUE (sponsor_address,sponsor_nonce)
     );
     "#,
-    r#"
-    CREATE INDEX by_txid ON mempool(txid);
-    CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce),
-    CREATE INDEX by_origin ON mempool(origin_address, origin_nonce),
-    CREATE INDEX by_timestamp ON mempool(accept_time);
-    CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);
-    CREATE INDEX by_estimated_fee ON mempool(estimated_fee);
-    "#,
+    "CREATE INDEX by_txid ON mempool(txid);",
+    "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
+    "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
+    "CREATE INDEX by_timestamp ON mempool(accept_time);",
+    "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
+    "CREATE INDEX by_estimated_fee ON mempool(estimated_fee);",
 ];
 
 pub struct MemPoolDB {
@@ -310,8 +308,8 @@ impl MemPoolDB {
 
         let tx = tx_begin_immediate(conn)?;
 
-        for cmd in MEMPOOL_SQL {
-            tx.execute(cmd, NO_PARAMS).map_err(db_error::SqliteError)?;
+        for cmd in MEMPOOL_INITIAL_SCHEMA {
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
         }
 
         tx.commit().map_err(db_error::SqliteError)?;
@@ -1069,6 +1067,25 @@ impl MemPoolDB {
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
+    }
+
+    /// Drop transactions from the mempool
+    pub fn drop_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
+        let mempool_tx = self.tx_begin()?;
+        let sql = "DELETE FROM mempool WHERE txid = ?";
+        for txid in txids.iter() {
+            mempool_tx.execute(sql, &[txid])?;
+        }
+        mempool_tx.commit()?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn dump_txs(&self) {
+        let sql = "SELECT * FROM mempool";
+        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();
+
+        eprintln!("{:#?}", txs);
     }
 
     /// Do we have a transaction?

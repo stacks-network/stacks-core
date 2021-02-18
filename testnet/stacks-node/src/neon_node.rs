@@ -1,5 +1,4 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
-use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 use std::collections::HashMap;
 
@@ -130,6 +129,16 @@ fn inner_process_tenure(
     coord_comms: &CoordinatorChannels,
 ) -> Result<bool, ChainstateError> {
     let stacks_blocks_processed = coord_comms.get_stacks_blocks_processed();
+
+    if StacksChainState::has_stored_block(
+        &chain_state.db(),
+        &chain_state.blocks_path,
+        consensus_hash,
+        &anchored_block.block_hash(),
+    )? {
+        // already processed my tenure
+        return Ok(true);
+    }
 
     let ic = burn_db.index_conn();
 
@@ -1577,7 +1586,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            HELIUM_BLOCK_LIMIT.clone(),
+            config.block_limit.clone(),
         ) {
             Ok(block) => block,
             Err(e) => {
