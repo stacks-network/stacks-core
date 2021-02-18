@@ -307,11 +307,9 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128() as u64;
 
-        let total_required = (total_liquid_supply_ustx as u128)
-            .checked_div(100)
-            .expect("FATAL: unable to compute total_liquid_supply_ustx * 100")
+        let total_required = (total_liquid_supply_ustx as u128 / 100)
             .checked_mul(rejection_fraction as u128)
-            .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes")
+            .ok_or_else(|| net_error::DBError(db_error::Overflow))?
             as u64;
 
         let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
@@ -642,8 +640,16 @@ impl ConversationHttp {
                 let response = HttpResponseType::PoxInfo(response_metadata, pi);
                 response.send(http, fd)
             }
+            Err(net_error::NotFoundError) => {
+                debug!("Chain tip not found during get PoX info: {:?}", req);
+                let response = HttpResponseType::NotFound(
+                    response_metadata,
+                    "Failed to find chain tip".to_string(),
+                );
+                response.send(http, fd)
+            }
             Err(e) => {
-                warn!("Failed to get peer info {:?}: {:?}", req, &e);
+                warn!("Failed to get PoX info {:?}: {:?}", req, &e);
                 let response = HttpResponseType::ServerError(
                     response_metadata,
                     "Failed to query peer info".to_string(),
