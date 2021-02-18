@@ -2288,7 +2288,7 @@ fn pox_integration_test() {
     assert_eq!(pox_info.next_cycle_stacked_ustx, 2000000000000000);
     assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
     assert_eq!(pox_info.next_rewards_start, 225);
-    assert_eq!(pox_info.next_prepare_phase_start, 220);
+    assert_eq!(pox_info.next_prepare_phase_start, 235);
     assert_eq!(
         pox_info.prepare_cycle_length as u32,
         pox_constants.prepare_length
