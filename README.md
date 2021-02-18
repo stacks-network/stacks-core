@@ -83,7 +83,7 @@ cargo test testnet  -- --test-threads=1
 
 ### Encode and sign transactions
 
-Let's start by generating a keypair, that will be used for signing the upcoming transactions:
+Here, we have generated a keypair that will be used for signing the upcoming transactions:
 
 ```bash
 cargo run --bin blockstack-cli generate-sk --testnet
@@ -95,6 +95,7 @@ cargo run --bin blockstack-cli generate-sk --testnet
 #  stacksAddress: "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
 # }
 ```
+This keypair is already registered in the `Stacks.toml` file, so it can be used as presented here. 
 
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
@@ -124,17 +125,18 @@ cargo run --bin blockstack-cli publish --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet
 ```
 
-The `500` is the transaction fee, denominated in microSTX.  Right now, the
+The `515` is the transaction fee, denominated in microSTX.  Right now, the
 testnet requires one microSTX per byte minimum, and this transaction should be
-less than 500 bytes.
+less than 515 bytes.
+The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
 
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
 ```
 
 ### Run the testnet
@@ -187,7 +189,6 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 ```
 
 `contract-call` generates and signs a contract-call transaction.
-Note: the third argument `1` is a nonce, that must be increased monotonically with each new transaction.
 
 We can submit the transaction by moving it to the mempool path:
 
