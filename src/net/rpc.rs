@@ -107,8 +107,11 @@ use rand::thread_rng;
 
 use std::time::{Duration, Instant};
 
-use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
 
+pub const STREAM_CHUNK_SIZE: u64 = 4096;
+
+#[cfg(feature = "monitoring_prom")]
+use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
 lazy_static! {
     static ref RPC_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
         "stacks_node_rpc_request_duration_seconds",
@@ -118,7 +121,6 @@ lazy_static! {
     .unwrap();
 }
 
-pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
@@ -539,10 +541,12 @@ impl ConversationHttp {
         peerdb: &PeerDB,
         handler_args: &RPCHandlerArgs,
     ) -> Result<(), net_error> {
-        let timer = RPC_REQ_HISTOGRAM
-            .with_label_values(&["/v2/info"])
-            .start_timer(); //promserver
-        monitoring::increment_rpc_request_counter("/v2/info".to_string(), "get".to_string()); //promserver
+        if cfg!(feature = "monitoring_prom") {
+            let timer = RPC_REQ_HISTOGRAM
+                .with_label_values(&["/v2/info"])
+                .start_timer(); //promserver
+            monitoring::increment_rpc_request_counter("/v2/info".to_string(), "get".to_string()); //promserver
+        }
         let response_metadata = HttpResponseMetadata::from(req);
         match RPCPeerInfoData::from_db(
             burnchain,
@@ -554,7 +558,9 @@ impl ConversationHttp {
         ) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
-                timer.observe_duration();
+                if cfg!(feature = "monitoring_prom") {
+                    timer.observe_duration();
+                }
                 response.send(http, fd)
             }
             Err(e) => {
@@ -563,7 +569,9 @@ impl ConversationHttp {
                     response_metadata,
                     "Failed to query peer info".to_string(),
                 );
-                timer.observe_duration();
+                if cfg!(feature = "monitoring_prom") {
+                    timer.observe_duration();
+                }
                 response.send(http, fd)
             }
         }
@@ -1789,7 +1797,9 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-        let timer = RPC_REQ_HISTOGRAM.with_label_values(&["all"]).start_timer(); //promserver
+        if cfg!(feature = "monitoring_prom") {
+            let timer = RPC_REQ_HISTOGRAM.with_label_values(&["all"]).start_timer(); //promserver
+        }
         monitoring::increment_rpc_request_counter_total();
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
@@ -2204,7 +2214,9 @@ impl ConversationHttp {
                 ));
             }
         }
-        timer.observe_duration();
+        if cfg!(feature = "monitoring_prom") {
+            timer.observe_duration();
+        }
         Ok(ret)
     }
 
