@@ -99,7 +99,7 @@ use net::inv::*;
 use net::relay::*;
 use net::rpc::RPCHandlerArgs;
 
-use monitoring::{update_outbound_neighbors, update_inbound_neighbors};
+use monitoring::{update_inbound_neighbors, update_outbound_neighbors}; //promserver
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]

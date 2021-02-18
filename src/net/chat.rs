@@ -1170,7 +1170,6 @@ impl ConversationP2P {
         // monitoring::increment_p2p_msg_ping_received_counter();
         monitoring::increment_msg_counter("p2p_ping".to_string());
 
-
         let ping_data = match message.payload {
             StacksMessageType::Ping(ref data) => data,
             _ => panic!("Message is not a ping"),
@@ -1194,7 +1193,6 @@ impl ConversationP2P {
     ) -> Result<ReplyHandleP2P, net_error> {
         // monitoring::increment_p2p_msg_get_neighbors_received_counter();
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
-
 
         // get neighbors at random as long as they're fresh
         let mut neighbors = PeerDB::get_random_neighbors(

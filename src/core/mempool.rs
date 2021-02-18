@@ -56,8 +56,8 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use rusqlite::Error as SqliteError;
 
 use chainstate::stacks::TransactionPayload;
-use vm::types::PrincipalData;
-use monitoring::{update_stx_mempool_size,increment_stx_mempool_gc}; //promserver
+use monitoring::{increment_stx_mempool_gc, update_stx_mempool_size}; //promserver
+use vm::types::PrincipalData; //promserver
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;

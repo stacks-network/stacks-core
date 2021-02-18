@@ -66,7 +66,7 @@ use util::pipe::*;
 use util::secp256k1::Secp256k1PublicKey;
 use util::sleep_ms;
 
-use monitoring::{update_outbound_bandwidth, update_inbound_bandwidth};
+use monitoring::{update_inbound_bandwidth, update_outbound_bandwidth}; //promserver
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly

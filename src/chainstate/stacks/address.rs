@@ -54,10 +54,7 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use monitoring::{increment_stx_smart_contracts};
-
-use monitoring::{increment_stx_addresses_created};
-
+use monitoring::{increment_stx_addresses_created, increment_stx_smart_contracts}; //promserver
 
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {

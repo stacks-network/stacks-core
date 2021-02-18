@@ -36,7 +36,7 @@ use util::db::{
 
 use std::collections::HashMap;
 
-use monitoring::{update_burnchain_height}; //promserver
+use monitoring::update_burnchain_height; //promserver
 
 pub struct BurnchainDB {
     conn: Connection,

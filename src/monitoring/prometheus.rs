@@ -133,7 +133,7 @@ lazy_static! {
         "stacks_node_stacks_tip_height",
         "Stacks chain tip height"
     )).unwrap();
-    
+
     pub static ref BURNCHAIN_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_burn_block_height",
         "Burnchain tip height"
@@ -153,7 +153,7 @@ lazy_static! {
         "stacks_node_bandwidth_inbound",
         "Total inbound bandwidth total in bytes"
     )).unwrap();
-    
+
     pub static ref OUTBOUND_BANDWIDTH_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_bandwidth_outbound",
         "Total outbound bandwidth total in bytes"
@@ -170,13 +170,13 @@ lazy_static! {
     )).unwrap();
 
     pub static ref MSG_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
-        "stacks_node_message_count", 
-        "Stacks message count by type of message", 
+        "stacks_node_message_count",
+        "Stacks message count by type of message",
         &["name"]
     ).unwrap();
 
     pub static ref RPC_REQUEST_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
-        "stacks_node_rpc_request", 
+        "stacks_node_rpc_request",
         "Total number of RPC requests made by path",
         &["path", "method"]
     ).unwrap();
@@ -211,5 +211,3 @@ lazy_static! {
         "Total count of TransferStxOp"
     )).unwrap();
 }
-
-

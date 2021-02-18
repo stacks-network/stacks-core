@@ -165,12 +165,16 @@ pub fn update_outbound_rpc_bandwidth(value: i64) {
 
 pub fn increment_msg_counter(name: String) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::MSG_COUNTER_VEC.with_label_values(&[&name]).inc();
+    prometheus::MSG_COUNTER_VEC
+        .with_label_values(&[&name])
+        .inc();
 }
 
 pub fn increment_rpc_request_counter(path: String, method: String) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::RPC_REQUEST_COUNTER_VEC.with_label_values(&[&path, &method]).inc();
+    prometheus::RPC_REQUEST_COUNTER_VEC
+        .with_label_values(&[&path, &method])
+        .inc();
 }
 
 pub fn update_stx_mempool_size(value: i64) {

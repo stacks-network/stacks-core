@@ -44,8 +44,7 @@ use vm::representations::{ClarityName, ContractName};
 
 use vm::types::serialization::SerializationError as clarity_serialization_error;
 
-use monitoring::{increment_stx_smart_contracts};
-
+use monitoring::increment_stx_smart_contracts; //promserver
 
 impl StacksMessageCodec for Value {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {

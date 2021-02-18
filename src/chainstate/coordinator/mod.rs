@@ -39,7 +39,7 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     TransactionPayload,
 };
-use monitoring::increment_stx_blocks_processed_counter;
+use monitoring::{increment_stx_blocks_processed_counter, update_stacks_tip_height}; //promserver
 use net::atlas::{AtlasConfig, AttachmentInstance};
 use util::db::Error as DBError;
 use vm::{
@@ -47,7 +47,6 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
-use monitoring::{update_stacks_tip_height}; //promserver
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
