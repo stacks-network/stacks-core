@@ -1,5 +1,5 @@
 [package]
-name = "bitcoin-neon-controller"
+name = "puppet-chain"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"

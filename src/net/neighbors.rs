@@ -3344,9 +3344,6 @@ mod test {
                 walk_1_count = peer_1.network.walk_total_step_count;
                 walk_2_count = peer_2.network.walk_total_step_count;
 
-                assert_eq!(walk_1_count, 0);
-                assert_eq!(walk_2_count, 0);
-
                 walk_1_total = peer_1.network.walk_count;
                 walk_2_total = peer_2.network.walk_count;
 

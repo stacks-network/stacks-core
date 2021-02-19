@@ -64,6 +64,13 @@ struct MicroblockMinerRuntime {
     considered: Option<HashSet<Txid>>,
 }
 
+#[derive(PartialEq)]
+enum BlockLimitFunction {
+    NO_LIMIT_HIT,
+    CONTRACT_LIMIT_HIT,
+    LIMIT_REACHED,
+}
+
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
     fn from(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
         let considered = unconfirmed
@@ -287,6 +294,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Ok(_) => return Ok(true),
             Err(e) => match e {
                 Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                    // note: this path _does_ not perform the tx block budget % heuristic,
+                    //  because this code path is not directly called with a mempool handle.
                     warn!(
                         "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
@@ -626,20 +635,39 @@ impl StacksBlockBuilder {
         tx: &StacksTransaction,
     ) -> Result<(), Error> {
         let tx_len = tx.tx_len();
-        self.try_mine_tx_with_len(clarity_tx, tx, tx_len)
+        self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT)
     }
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Errors out if we exceed budget, or the transaction is invalid.
-    pub fn try_mine_tx_with_len(
+    fn try_mine_tx_with_len(
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         tx_len: u64,
+        limit_behavior: &BlockLimitFunction,
     ) -> Result<(), Error> {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }
+
+        match limit_behavior {
+            BlockLimitFunction::CONTRACT_LIMIT_HIT => {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(cc) => {
+                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
+                        //   other contract calls
+                        if !cc.address.is_boot_code_addr() {
+                            return Ok(());
+                        }
+                    }
+                    TransactionPayload::SmartContract(_) => return Ok(()),
+                    _ => {}
+                }
+            }
+            BlockLimitFunction::LIMIT_REACHED => return Ok(()),
+            BlockLimitFunction::NO_LIMIT_HIT => {}
+        };
 
         let quiet = !cfg!(test);
         if !self.anchored_done {
@@ -656,14 +684,24 @@ impl StacksBlockBuilder {
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, quiet)
                 .map_err(|e| match e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                        warn!(
-                            "Transaction {} reached block cost {}; budget was {}",
-                            tx.txid(),
-                            &cost_after,
-                            &total_budget
-                        );
-                        clarity_tx.reset_cost(cost_before);
-                        Error::BlockTooBigError
+                        clarity_tx.reset_cost(cost_before.clone());
+                        if total_budget.proportion_largest_dimension(&cost_before) < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
+                            warn!(
+                                "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                                tx.txid(),
+                                100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                                &total_budget
+                            );
+                            Error::TransactionTooBigError
+                        } else {
+                            warn!(
+                                "Transaction {} reached block cost {}; budget was {}",
+                                tx.txid(),
+                                &cost_after,
+                                &total_budget
+                            );
+                            Error::BlockTooBigError
+                        }
                     }
                     _ => e,
                 })?;
@@ -690,14 +728,24 @@ impl StacksBlockBuilder {
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, quiet)
                 .map_err(|e| match e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                        warn!(
-                            "Transaction {} reached block cost {}; budget was {}",
-                            tx.txid(),
-                            &cost_after,
-                            &total_budget
-                        );
-                        clarity_tx.reset_cost(cost_before);
-                        Error::BlockTooBigError
+                        clarity_tx.reset_cost(cost_before.clone());
+                        if total_budget.proportion_largest_dimension(&cost_before) < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
+                            warn!(
+                                "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                                tx.txid(),
+                                100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                                &total_budget
+                            );
+                            Error::TransactionTooBigError
+                        } else {
+                            warn!(
+                                "Transaction {} reached block cost {}; budget was {}",
+                                tx.txid(),
+                                &cost_after,
+                                &total_budget
+                            );
+                            Error::BlockTooBigError
+                        }
                     }
                     _ => e,
                 })?;
@@ -1101,7 +1149,8 @@ impl StacksBlockBuilder {
     }
 
     /// Unconditionally build an anchored block from a list of transactions.
-    /// Used when we are re-building a valid block after we exceed budget
+    ///  Used in test cases
+    #[cfg(test)]
     pub fn make_anchored_block_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
@@ -1242,7 +1291,7 @@ impl StacksBlockBuilder {
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
-        mempool: &MemPoolDB,
+        mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
         proof: VRFProof, // proof over the burnchain's last seed
@@ -1286,12 +1335,20 @@ impl StacksBlockBuilder {
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
+        let mut invalidated_txs = vec![];
+
+        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
+
         let result = mempool.iterate_candidates(
             &tip_consensus_hash,
             &tip_block_hash,
             tip_height,
             &mut header_reader_chainstate,
             |available_txs| {
+                if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                    return Ok(());
+                }
+
                 for txinfo in available_txs.into_iter() {
                     // skip transactions early if we can
                     if considered.contains(&txinfo.tx.txid()) {
@@ -1318,12 +1375,28 @@ impl StacksBlockBuilder {
                         &mut epoch_tx,
                         &txinfo.tx,
                         txinfo.metadata.len,
+                        &block_limit_hit,
                     ) {
                         Ok(_) => {}
                         Err(Error::BlockTooBigError) => {
                             // done mining -- our execution budget is exceeded.
                             // Make the block from the transactions we did manage to get
                             debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                            if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                continue;
+                            } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                            }
+                        }
+                        Err(Error::TransactionTooBigError) => {
+                            invalidated_txs.push(txinfo.metadata.txid);
+                            if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                continue;
+                            } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                                block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                            }
                         }
                         Err(Error::InvalidStacksTransaction(_, true)) => {
                             // if we have an invalid transaction that was quietly ignored, don't warn here either
@@ -1347,6 +1420,8 @@ impl StacksBlockBuilder {
             },
         );
 
+        mempool.drop_txs(&invalidated_txs)?;
+
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1369,7 +1444,10 @@ impl StacksBlockBuilder {
 
 #[cfg(test)]
 pub mod test {
+    use crate::chainstate::stacks::boot::boot_code_addr;
+
     use super::*;
+    use core::BLOCK_LIMIT_MAINNET;
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
@@ -6143,14 +6221,14 @@ pub mod test {
                         }
                     };
 
-                    let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -6274,7 +6352,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -6438,7 +6516,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -6664,7 +6742,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -6725,6 +6803,15 @@ pub mod test {
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
+
+        // make a blank chainstate and mempool so we can mine empty blocks
+        //  without punishing the correspondingly "too expensive" transactions
+        let blank_chainstate = instantiate_chainstate(
+            false,
+            1,
+            "test_build_anchored_blocks_multiple_chaintips_blank",
+        );
+        let mut blank_mempool = MemPoolDB::open(false, 1, &blank_chainstate.root_path).unwrap();
 
         let first_stacks_block_height = {
             let sn =
@@ -6799,32 +6886,28 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let execution_cost = if tenure_id < num_blocks - 1 {
-                        // doesn't allow it to get mined yet, but it'll sit in the mempool.
-                        ExecutionCost {
-                            write_length: 0,
-                            write_count: 0,
-                            read_length: 0,
-                            read_count: 0,
-                            runtime: 0,
-                        }
-                    } else {
-                        // last block allows _everything_ to get mined
-                        ExecutionCost::max_value()
-                    };
+                    let execution_cost = ExecutionCost::max_value();
 
-                    let anchored_block = StacksBlockBuilder::build_anchored_block(
-                        chainstate,
-                        &sortdb.index_conn(),
-                        &mempool,
-                        &parent_tip,
-                        tip.total_burn,
-                        vrf_proof,
-                        Hash160([tenure_id as u8; 20]),
-                        &coinbase_tx,
-                        execution_cost,
-                    )
-                    .unwrap();
+                    let anchored_block = {
+                        let mempool_to_use = if tenure_id < num_blocks - 1 {
+                            &mut blank_mempool
+                        } else {
+                            &mut mempool
+                        };
+
+                        StacksBlockBuilder::build_anchored_block(
+                            chainstate,
+                            &sortdb.index_conn(),
+                            mempool_to_use,
+                            &parent_tip,
+                            tip.total_burn,
+                            vrf_proof,
+                            Hash160([tenure_id as u8; 20]),
+                            &coinbase_tx,
+                            execution_cost,
+                        )
+                        .unwrap()
+                    };
                     (anchored_block.0, vec![])
                 },
             );
@@ -6922,7 +7005,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -7122,7 +7205,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -7281,11 +7364,11 @@ pub mod test {
                     miner.set_nonce(miner.get_nonce() - ((bad_block_tenure - bad_block_ancestor_tenure) as u64));
                 }
 
-                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
-                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
 
                 if tenure_id == bad_block_tenure {
                     // corrupt the block
@@ -7549,7 +7632,7 @@ pub mod test {
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -7816,7 +7899,7 @@ pub mod test {
                     let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
@@ -8237,7 +8320,7 @@ pub mod test {
                     let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
-                        &mempool,
+                        &mut mempool,
                         &parent_tip,
                         parent_tip.anchored_header.total_work.burn + 1000,
                         vrf_proof,
@@ -8351,6 +8434,326 @@ pub mod test {
                     .unwrap()
             })
             .unwrap();
+        }
+    }
+
+    pub fn instantiate_and_exec(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+        balances: Vec<(StacksAddress, u64)>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    ) -> StacksChainState {
+        let path = chainstate_path(test_name);
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        StacksChainState::open_and_exec(
+            mainnet,
+            chain_id,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0
+    }
+
+    static CONTRACT: &'static str = "
+(define-map my-map int int)
+(define-private (do (input bool))
+  (begin
+    (map-set my-map 0 0)
+    (map-set my-map 1 0)
+    (map-set my-map 2 0)
+    (map-set my-map 3 0)
+    (map-set my-map 4 0)
+    (map-set my-map 5 0)
+    (map-set my-map 6 0)
+    (map-set my-map 7 0)
+    (map-set my-map 8 0)
+    (map-set my-map 9 0)))
+
+(define-public (call-it (input (list 200 bool)))
+  (begin
+    (map do input)
+    (map do input)
+    (map do input)
+    (map do input)
+    (map do input)
+    (ok 1)))
+";
+
+    lazy_static! {
+        static ref CONTRACT_IDENT: QualifiedContractIdentifier = QualifiedContractIdentifier::new(
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([1; 20]),
+            }
+            .into(),
+            "scalable-call".into(),
+        );
+    }
+
+    #[test]
+    fn test_mempool_mining_heuristics() {
+        let submitter_key_0 = StacksPrivateKey::new();
+        let submitter_key_1 = StacksPrivateKey::new();
+        let mut initial_balance_recipients: Vec<_> = vec![
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([1; 20]),
+            },
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&submitter_key_0)],
+            )
+            .unwrap(),
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([2; 20]),
+            },
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&submitter_key_1)],
+            )
+            .unwrap(),
+        ];
+
+        let initial_balances = initial_balance_recipients
+            .iter()
+            .map(|addr| (addr.clone(), 10_000_000_000))
+            .collect();
+        let chain_id = 8;
+        let mut chainstate = instantiate_and_exec(
+            false,
+            chain_id,
+            "test_mempool_mining_heuristics",
+            initial_balances,
+            Some(Box::new(|tx: &mut ClarityTx| {
+                tx.connection().as_transaction(|tx| {
+                    let (ct_ast, ct_analysis) = tx
+                        .analyze_smart_contract(&CONTRACT_IDENT, CONTRACT)
+                        .unwrap();
+                    tx.initialize_smart_contract(&CONTRACT_IDENT, &ct_ast, CONTRACT, |_, _| false)
+                        .unwrap();
+                    tx.save_analysis(&CONTRACT_IDENT, &ct_analysis).unwrap();
+                })
+            })),
+        );
+
+        let mut burndb = SortitionDB::connect(
+            "/tmp/test_mempool_mining_heuristics_sortdb",
+            0,
+            &BurnchainHeaderHash([1; 32]),
+            1,
+            true,
+        )
+        .unwrap();
+
+        let execution_limit = ExecutionCost {
+            write_length: 15_000_000, // roughly 15 mb
+            write_count: 500,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        };
+
+        let mut mempool = MemPoolDB::open(false, chain_id, &chainstate.root_path).unwrap();
+
+        let txs_to_push = vec![
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_0).unwrap(),
+                TransactionPayload::TokenTransfer(
+                    initial_balance_recipients[2].clone().into(),
+                    1000,
+                    TokenTransferMemo([0; 34]),
+                ),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_0).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: initial_balance_recipients[0].clone(),
+                    contract_name: CONTRACT_IDENT.name.clone(),
+                    function_name: "call-it".into(),
+                    function_args: vec![Value::list_from(vec![
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                        Value::Bool(true),
+                    ])
+                    .unwrap()],
+                }),
+            ),
+        ];
+        let second_set_txs = vec![
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::TokenTransfer(
+                    initial_balance_recipients[2].clone().into(),
+                    1000,
+                    TokenTransferMemo([0; 34]),
+                ),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: boot_code_addr(false),
+                    contract_name: "pox".into(),
+                    function_name: "stack-stx".into(),
+                    function_args: vec![
+                        Value::UInt(10),
+                        Value::from(
+                            TupleData::from_data(vec![
+                                ("version".into(), Value::buff_from_byte(0)),
+                                ("hashbytes".into(), Value::buff_from(vec![0; 20]).unwrap()),
+                            ])
+                            .unwrap(),
+                        ),
+                        Value::UInt(2),
+                        Value::UInt(2),
+                    ],
+                }),
+            ),
+            StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&submitter_key_1).unwrap(),
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: initial_balance_recipients[0].clone(),
+                    contract_name: CONTRACT_IDENT.name.clone(),
+                    function_name: "call-it".into(),
+                    function_args: vec![Value::list_from(vec![Value::Bool(true)]).unwrap()],
+                }),
+            ),
+        ];
+
+        let (parent_header_info, parent_consensus_hash) = (
+            StacksHeaderInfo::genesis(TrieHash([0u8; 32]), &BurnchainHeaderHash([1; 32]), 0, 1),
+            FIRST_BURNCHAIN_CONSENSUS_HASH,
+        );
+
+        for (ix, mut tx) in txs_to_push.into_iter().enumerate() {
+            tx.chain_id = chain_id;
+            tx.set_origin_nonce(ix as u64);
+            tx.set_tx_fee(1000);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&submitter_key_0).unwrap();
+
+            let tx = tx_signer.get_tx().unwrap();
+
+            eprintln!("Mempool tx submitted {}", ix);
+
+            mempool
+                .submit(
+                    &mut chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_info.anchored_header.block_hash(),
+                    &tx,
+                )
+                .unwrap()
+        }
+
+        for (ix, mut tx) in second_set_txs.into_iter().enumerate() {
+            tx.chain_id = chain_id;
+            tx.set_origin_nonce(ix as u64);
+            tx.set_tx_fee(1000);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&submitter_key_1).unwrap();
+
+            let tx = tx_signer.get_tx().unwrap();
+
+            eprintln!("Mempool tx submitted {}", ix);
+
+            mempool
+                .submit(
+                    &mut chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_info.anchored_header.block_hash(),
+                    &tx,
+                )
+                .unwrap()
+        }
+
+        mempool.dump_txs();
+
+        // in the first attempt to mine a block, we should mine *4* transactions:
+        //  coinbase, a transfer, a stack-stx call, a transfer
+        // in the second attempt, because we've tossed out the large offender, *5*:
+        //  coinbase, a transfer, a stack-stx call, a transfer, a contract call
+
+        for block_index in 0u8..2u8 {
+            let miner_key = StacksPrivateKey::new();
+            let mut tx = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&miner_key).unwrap(),
+                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            );
+            tx.chain_id = chain_id;
+            tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&miner_key).unwrap();
+
+            let coinbase_tx = tx_signer.get_tx().unwrap();
+
+            let (block, _cost, _size) = StacksBlockBuilder::build_anchored_block(
+                &chainstate,
+                &burndb.index_conn(),
+                &mut mempool,
+                &parent_header_info,
+                block_index as u64,
+                VRFProof::empty(),
+                Hash160([block_index; 20]),
+                &coinbase_tx,
+                execution_limit.clone(),
+            )
+            .unwrap();
+
+            mempool.dump_txs();
+
+            eprintln!("BLOCK #{}, Tx Count: {}", block_index, block.txs.len());
+            if block_index == 0 {
+                assert_eq!(block.txs.len(), 4);
+            } else if block_index == 1 {
+                assert_eq!(block.txs.len(), 5);
+            }
         }
     }
 

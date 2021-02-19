@@ -33,6 +33,7 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
+use net::BlocksData;
 use net::ClientError;
 use net::Error as net_error;
 use net::HttpRequestMetadata;
@@ -589,89 +590,96 @@ impl ConversationHttp {
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
-            let msg = format!(
-                "Number of attachment inv pages is limited by {} per request",
-                MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
-            );
-            warn!("{}", msg);
-            let response = HttpResponseType::ServerError(response_metadata, msg);
-            response.send(http, fd)?;
-            return Ok(());
-        }
+        let msg = format!("Atlas disabled");
+        warn!("{}", msg);
+        let response = HttpResponseType::NotFound(response_metadata, msg.clone());
+        response.send(http, fd)?;
+        Ok(())
 
-        let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
-        pages_indexes.sort();
-        let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
+        // let response_metadata = HttpResponseMetadata::from(req);
+        // if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
+        //     let msg = format!(
+        //         "Number of attachment inv pages is limited by {} per request",
+        //         MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+        //     );
+        //     warn!("{}", msg);
+        //     let response = HttpResponseType::ServerError(response_metadata, msg);
+        //     response.send(http, fd)?;
+        //     return Ok(());
+        // }
 
-        let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
-            (
-                *pages_indexes.first().unwrap(),
-                *pages_indexes.last().unwrap(),
-                pages_indexes.clone(),
-            )
-        } else {
-            // Pages indexes not provided, aborting
-            let msg = format!("Page indexes missing");
-            warn!("{}", msg);
-            let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
-            response.send(http, fd)?;
-            return Err(net_error::ClientError(ClientError::Message(msg)));
-        };
+        // let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        // pages_indexes.sort();
+        // let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
 
-        // We need to rebuild an ancestry tree, but we're still missing some informations at this point
-        let (min_block_height, max_block_height) = match atlasdb
-            .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
-        {
-            Ok(window) => window,
-            Err(e) => {
-                let msg = format!("Unable to read Atlas DB");
-                warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
-                response.send(http, fd)?;
-                return Err(net_error::DBError(e));
-            }
-        };
+        // let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
+        //     (
+        //         *pages_indexes.first().unwrap(),
+        //         *pages_indexes.last().unwrap(),
+        //         pages_indexes.clone(),
+        //     )
+        // } else {
+        //     // Pages indexes not provided, aborting
+        //     let msg = format!("Page indexes missing");
+        //     warn!("{}", msg);
+        //     let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
+        //     response.send(http, fd)?;
+        //     return Err(net_error::ClientError(ClientError::Message(msg)));
+        // };
 
-        let mut blocks_ids = vec![];
-        let mut headers_tx = chainstate.index_tx_begin()?;
-        let tip_index_hash =
-            StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
+        // // We need to rebuild an ancestry tree, but we're still missing some informations at this point
+        // let (min_block_height, max_block_height) = match atlasdb
+        //     .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
+        // {
+        //     Ok(window) => window,
+        //     Err(e) => {
+        //         let msg = format!("Unable to read Atlas DB");
+        //         warn!("{}", msg);
+        //         let response = HttpResponseType::ServerError(response_metadata, msg);
+        //         response.send(http, fd)?;
+        //         return Err(net_error::DBError(e));
+        //     }
+        // };
 
-        for block_height in min_block_height..=max_block_height {
-            match StacksChainState::get_index_tip_ancestor(
-                &mut headers_tx,
-                &tip_index_hash,
-                block_height,
-            )? {
-                Some(header) => blocks_ids.push(header.index_block_hash()),
-                _ => {}
-            }
-        }
+        // let mut blocks_ids = vec![];
+        // let mut headers_tx = chainstate.index_tx_begin()?;
+        // let tip_index_hash =
+        //     StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
 
-        match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
-            Ok(pages) => {
-                let pages = pages
-                    .into_iter()
-                    .zip(pages_indexes)
-                    .map(|(inventory, index)| AttachmentPage { index, inventory })
-                    .collect();
+        // for block_height in min_block_height..=max_block_height {
+        //     match StacksChainState::get_index_tip_ancestor(
+        //         &mut headers_tx,
+        //         &tip_index_hash,
+        //         block_height,
+        //     )? {
+        //         Some(header) => blocks_ids.push(header.index_block_hash()),
+        //         _ => {}
+        //     }
+        // }
 
-                let content = GetAttachmentsInvResponse {
-                    block_id: tip.clone(),
-                    pages,
-                };
-                let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
-                response.send(http, fd)
-            }
-            Err(e) => {
-                let msg = format!("Unable to read Atlas DB");
-                warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
-                response.send(http, fd)?;
-                return Err(net_error::DBError(e));
-            }
-        }
+        // match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
+        //     Ok(pages) => {
+        //         let pages = pages
+        //             .into_iter()
+        //             .zip(pages_indexes)
+        //             .map(|(inventory, index)| AttachmentPage { index, inventory })
+        //             .collect();
+
+        //         let content = GetAttachmentsInvResponse {
+        //             block_id: tip.clone(),
+        //             pages,
+        //         };
+        //         let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
+        //         response.send(http, fd)
+        //     }
+        //     Err(e) => {
+        //         let msg = format!("Unable to read Atlas DB");
+        //         warn!("{}", msg);
+        //         let response = HttpResponseType::ServerError(response_metadata, msg);
+        //         response.send(http, fd)?;
+        //         return Err(net_error::DBError(e));
+        //     }
+        // }
     }
 
     fn handle_getattachment<W: Write>(
@@ -1529,6 +1537,125 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
+    /// Handle a block.  Directly submit a Stacks block to this node's chain state.
+    /// Indicate whether or not the block was accepted (i.e. it was new, and valid)
+    fn handle_post_block<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+    ) -> Result<bool, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // is this a consensus hash we recognize?
+        let (response, accepted) =
+            match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
+                Ok(Some(_)) => {
+                    // we recognize this consensus hash
+                    let ic = sortdb.index_conn();
+                    match Relayer::process_new_anchored_block(
+                        &ic,
+                        chainstate,
+                        consensus_hash,
+                        block,
+                        0,
+                    ) {
+                        Ok(true) => {
+                            debug!(
+                                "Accepted Stacks block {}/{}",
+                                consensus_hash,
+                                &block.block_hash()
+                            );
+                            (
+                                HttpResponseType::StacksBlockAccepted(
+                                    response_metadata,
+                                    StacksBlockHeader::make_index_block_hash(
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                    ),
+                                    true,
+                                ),
+                                true,
+                            )
+                        }
+                        Ok(false) => {
+                            debug!(
+                                "Did not accept Stacks block {}/{}",
+                                consensus_hash,
+                                &block.block_hash()
+                            );
+                            (
+                                HttpResponseType::StacksBlockAccepted(
+                                    response_metadata,
+                                    StacksBlockHeader::make_index_block_hash(
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                    ),
+                                    false,
+                                ),
+                                false,
+                            )
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to process anchored block {}/{}: {:?}",
+                                consensus_hash,
+                                &block.block_hash(),
+                                &e
+                            );
+                            (
+                                HttpResponseType::ServerError(
+                                    response_metadata,
+                                    format!(
+                                        "Failed to process anchored block {}/{}: {:?}",
+                                        consensus_hash,
+                                        &block.block_hash(),
+                                        &e
+                                    ),
+                                ),
+                                false,
+                            )
+                        }
+                    }
+                }
+                Ok(None) => {
+                    debug!(
+                        "Unrecognized consensus hash {} for block {}",
+                        consensus_hash,
+                        &block.block_hash()
+                    );
+                    (
+                        HttpResponseType::NotFound(
+                            response_metadata,
+                            format!("No such consensus hash '{}'", consensus_hash),
+                        ),
+                        false,
+                    )
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to query sortition ID by consensus '{}'",
+                        consensus_hash
+                    );
+                    (
+                        HttpResponseType::ServerError(
+                            response_metadata,
+                            format!(
+                                "Failed to query sortition ID for consensus hash '{}': {:?}",
+                                consensus_hash, &e
+                            ),
+                        ),
+                        false,
+                    )
+                }
+            };
+
+        response.send(http, fd).and_then(|_| Ok(accepted))
+    }
+
     /// Handle a microblock.  Directly submit it to the microblock store so the client can see any
     /// rejection reasons up-front (different from how the peer network handles it).  Indicate
     /// whether or not the microblock was accepted (and thus needs to be forwarded) in the return
@@ -1537,44 +1664,45 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        consensus_hash: ConsensusHash,
-        block_hash: BlockHeaderHash,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
         chainstate: &mut StacksChainState,
-        microblock: StacksMicroblock,
+        microblock: &StacksMicroblock,
     ) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted) = match chainstate.preprocess_streamed_microblock(
-            &consensus_hash,
-            &block_hash,
-            &microblock,
-        ) {
-            Ok(accepted) => {
-                if accepted {
-                    debug!(
-                        "Accepted uploaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &microblock.block_hash()
-                    );
-                } else {
-                    debug!(
-                        "Did not accept microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &microblock.block_hash()
-                    );
-                }
+        let (response, accepted) =
+            match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, microblock)
+            {
+                Ok(accepted) => {
+                    if accepted {
+                        debug!(
+                            "Accepted uploaded microblock {}/{}-{}",
+                            &consensus_hash,
+                            &block_hash,
+                            &microblock.block_hash()
+                        );
+                    } else {
+                        debug!(
+                            "Did not accept microblock {}/{}-{}",
+                            &consensus_hash,
+                            &block_hash,
+                            &microblock.block_hash()
+                        );
+                    }
 
-                (
-                    HttpResponseType::MicroblockHash(response_metadata, microblock.block_hash()),
-                    accepted,
-                )
-            }
-            Err(e) => (
-                HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
-                false,
-            ),
-        };
+                    (
+                        HttpResponseType::MicroblockHash(
+                            response_metadata,
+                            microblock.block_hash(),
+                        ),
+                        accepted,
+                    )
+                }
+                Err(e) => (
+                    HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
+                    false,
+                ),
+            };
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
@@ -1919,6 +2047,24 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::PostBlock(ref _md, ref consensus_hash, ref block) => {
+                let accepted = ConversationHttp::handle_post_block(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    chainstate,
+                    consensus_hash,
+                    block,
+                )?;
+                if accepted {
+                    // inform the peer network so it can announce its presence
+                    ret = Some(StacksMessageType::Blocks(BlocksData {
+                        blocks: vec![(consensus_hash.clone(), block.clone())],
+                    }));
+                }
+                None
+            }
             HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
                 if let Some((consensus_hash, block_hash)) =
                     ConversationHttp::handle_load_stacks_chain_tip_hashes(
@@ -1934,10 +2080,10 @@ impl ConversationHttp {
                         &mut self.connection.protocol,
                         &mut reply,
                         &req,
-                        consensus_hash,
-                        block_hash,
+                        &consensus_hash,
+                        &block_hash,
                         chainstate,
-                        mblock.clone(),
+                        mblock,
                     )?;
                     if accepted {
                         // forward to peer network
@@ -2419,6 +2565,15 @@ impl ConversationHttp {
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             tx,
             None,
+        )
+    }
+
+    /// Make a new post-block request
+    pub fn new_post_block(&self, ch: ConsensusHash, block: StacksBlock) -> HttpRequestType {
+        HttpRequestType::PostBlock(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            ch,
+            block,
         )
     }
 

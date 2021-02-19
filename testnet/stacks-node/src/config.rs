@@ -7,7 +7,8 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -18,6 +19,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
+const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 
@@ -238,7 +240,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X5".into()),
+            magic_bytes: Some("X6".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -410,14 +412,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     runtime: 100_000_000_000,
 };
 
-pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
-
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
@@ -581,6 +575,9 @@ impl Config {
                     block_commit_tx_estimated_size: burnchain
                         .block_commit_tx_estimated_size
                         .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+                    rbf_fee_increment: burnchain
+                        .rbf_fee_increment
+                        .unwrap_or(default_burnchain_config.rbf_fee_increment),
                 }
             }
             None => default_burnchain_config,
@@ -801,7 +798,7 @@ impl Config {
         };
 
         let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            MAINNET_BLOCK_LIMIT.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
             match config_file.block_limit {
                 Some(opts) => ExecutionCost {
@@ -946,6 +943,7 @@ pub struct BurnchainConfig {
     pub satoshis_per_byte: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
+    pub rbf_fee_increment: u64,
 }
 
 impl BurnchainConfig {
@@ -972,6 +970,7 @@ impl BurnchainConfig {
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
         }
     }
 
@@ -1024,6 +1023,7 @@ pub struct BurnchainConfigFile {
     pub satoshis_per_byte: Option<u64>,
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
+    pub rbf_fee_increment: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1081,7 +1081,7 @@ impl NodeConfig {
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
-            wait_time_for_microblocks: 60_000,
+            wait_time_for_microblocks: 30_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,

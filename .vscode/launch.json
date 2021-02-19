@@ -58,15 +58,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "executable 'bitcoin-neon-controller'",
+            "name": "executable 'puppet-chain'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=bitcoin-neon-controller",
-                    "--package=bitcoin-neon-controller"
+                    "--bin=puppet-chain",
+                    "--package=puppet-chain"
                 ],
                 "filter": {
-                    "name": "bitcoin-neon-controller",
+                    "name": "puppet-chain",
                     "kind": "bin"
                 }
             },
@@ -189,16 +189,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "unit tests in executable 'bitcoin-neon-controller'",
+            "name": "unit tests in executable 'puppet-chain'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=bitcoin-neon-controller",
-                    "--package=bitcoin-neon-controller"
+                    "--bin=puppet-chain",
+                    "--package=puppet-chain"
                 ],
                 "filter": {
-                    "name": "bitcoin-neon-controller",
+                    "name": "puppet-chain",
                     "kind": "bin"
                 }
             },

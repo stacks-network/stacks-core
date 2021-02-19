@@ -45,7 +45,6 @@ use chainstate::burn::{
 };
 
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
@@ -431,7 +430,9 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
     }
 }
 
-const BURNDB_SETUP: &'static [&'static str] = &[
+pub const SORTITION_DB_VERSION: &'static str = "1";
+
+const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -470,21 +471,18 @@ const BURNDB_SETUP: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    r#"
-    CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
-    CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
-    CREATE UNIQUE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);
-    CREATE UNIQUE INDEX snapshots_burn_hashes ON snapshots(block_height,burn_header_hash)
-    CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);
-    CREATE INDEX arrival_indexes ON snapshots(arrival_index);
-    "#,
+    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
+    "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
+    "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
       accepted_ops TEXT NOT NULL,
       consumed_keys TEXT NOT NULL
-    );
-    "#,
+    );"#,
     r#"
     -- all leader keys registered in the blockchain.
     -- contains pointers to the burn block and fork in which they occur
@@ -591,14 +589,9 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         stacks_block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL,
         PRIMARY KEY(consensus_hash, stacks_block_hash)
-    );
-    CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);
-    "#,
-    r#"
-    CREATE TABLE db_config(
-        version TEXT NOT NULL
-    );
-    "#,
+    );"#,
+    "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
+    "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
 
 pub struct SortitionDB {
@@ -767,9 +760,19 @@ impl db_keys {
         format!("sortition_db::stacks::block::{}", stacks_block_hash)
     }
 
+    /// MARF index value for a processed stacks block
+    fn stacks_block_index_value(height: u64) -> String {
+        format!("{}", height)
+    }
+
     /// MARF index key for the highest arrival index processed in a fork
     pub fn stacks_block_max_arrival_index() -> String {
         "sortition_db::stacks::block::max_arrival_index".to_string()
+    }
+
+    /// MARF index value for the highest arrival index processed in a fork
+    fn stacks_block_max_arrival_index_value(index: u64) -> String {
+        format!("{}", index)
     }
 
     pub fn reward_set_size_to_string(size: usize) -> String {
@@ -1756,6 +1759,19 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
+            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Err(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn get_chosen_pox_anchor_check_position(
+        &self,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+        check_position: bool,
+    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
                 .ok_or_else(|| {
@@ -1773,7 +1789,9 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Err(CoordinatorError::NotPrepareEndBlock);
+            if check_position {
+                return Err(CoordinatorError::NotPrepareEndBlock);
+            }
         }
 
         if effective_height == 0 {
@@ -1781,7 +1799,7 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Ok(None);
+            return Ok(Err(0));
         }
 
         let prepare_end = block_height;
@@ -1846,7 +1864,11 @@ impl<'a> SortitionHandleConn<'a> {
 
         // did any candidate receive >= F*w?
         let mut result = None;
+        let mut max_confirmed_by = 0;
         for (candidate, confirmed_by) in candidate_anchors.into_iter() {
+            if confirmed_by > max_confirmed_by {
+                max_confirmed_by = confirmed_by;
+            }
             if confirmed_by >= pox_consts.anchor_threshold {
                 // find the sortition at height
                 let sn =
@@ -1854,7 +1876,11 @@ impl<'a> SortitionHandleConn<'a> {
                         .expect("BUG: cannot find chosen PoX candidate's sortition");
                 assert!(
                     result
-                        .replace((sn.consensus_hash, sn.winning_stacks_block_hash))
+                        .replace((
+                            sn.consensus_hash,
+                            sn.winning_stacks_block_hash,
+                            confirmed_by
+                        ))
                         .is_none(),
                     "BUG: multiple anchor blocks received more confirmations than anchor_threshold"
                 );
@@ -1862,16 +1888,19 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         let reward_cycle_id = effective_height / pox_consts.reward_cycle_length;
-        if result.is_none() {
-            info!(
-                "Reward cycle #{} ({}): (F*w) not reached, expecting consensus over proof of burn",
-                reward_cycle_id, block_height
-            );
-        } else {
-            info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
+        match result {
+            None => {
+                info!(
+                    "Reward cycle #{} ({}): (F*w) not reached, expecting consensus over proof of burn",
+                    reward_cycle_id, block_height
+                );
+                Ok(Err(max_confirmed_by))
+            }
+            Some(response) => {
+                info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
+                Ok(Ok(response))
+            }
         }
-
-        Ok(result)
     }
 }
 
@@ -2174,13 +2203,13 @@ impl SortitionDB {
             BurnchainHeaderHash::sentinel()
         );
 
-        for row_text in BURNDB_SETUP {
-            db_tx.execute(row_text, NO_PARAMS)?;
+        for row_text in SORTITION_DB_INITIAL_SCHEMA {
+            db_tx.execute_batch(row_text)?;
         }
 
         db_tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&CHAINSTATE_VERSION],
+            &[&SORTITION_DB_VERSION],
         )?;
 
         db_tx.instantiate_index()?;
@@ -2306,12 +2335,14 @@ impl<'a> SortitionDBConn<'a> {
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
 
-            let ancestor_snapshot_parent = db_handle
-                .get_block_snapshot(&ancestor_snapshot.parent_burn_header_hash)?
-                .expect(&format!(
-                    "Discontiguous index: missing parent block of parent burn header hash {}",
-                    &ancestor_snapshot.parent_burn_header_hash
-                ));
+            let ancestor_snapshot_parent = SortitionDB::get_block_snapshot(
+                db_handle.conn(),
+                &ancestor_snapshot.parent_sortition_id,
+            )?
+            .expect(&format!(
+                "Discontiguous index: missing parent block of parent burn header hash {}",
+                &ancestor_snapshot.parent_burn_header_hash
+            ));
 
             ancestor_consensus_hash = ancestor_snapshot_parent.consensus_hash;
         }
@@ -2827,24 +2858,6 @@ impl SortitionDB {
         }
     }
 
-    /// Get the maximum arrival index for any known snapshot.
-    fn get_arrival_index_for(
-        conn: &Connection,
-        sortition_id: &SortitionId,
-    ) -> Result<u64, db_error> {
-        match conn
-            .query_row(
-                "SELECT arrival_index FROM snapshots WHERE sortition_id = ?",
-                &[sortition_id],
-                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
-            )
-            .optional()?
-        {
-            Some(arrival_index) => Ok(arrival_index),
-            None => Err(db_error::NotFoundError),
-        }
-    }
-
     /// Get a snapshot with an arrived block (i.e. a block that was marked as processed)
     fn get_snapshot_by_arrival_index(
         conn: &Connection,
@@ -2852,7 +2865,7 @@ impl SortitionDB {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         query_row_panic(
             conn,
-            "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0",
+            "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0 AND pox_valid = 1",
             &[&u64_to_sql(arrival_index)?],
             || "BUG: multiple snapshots have the same non-zero arrival index".to_string(),
         )
@@ -2862,7 +2875,7 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<SortitionId>, db_error> {
-        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1";
+        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
         let args = [&consensus_hash];
         query_row_panic(conn, qry, &args, || {
             format!(
@@ -2886,16 +2899,6 @@ impl SortitionDB {
                 consensus_hash
             )
         })
-    }
-
-    /// MARF index value for a processed stacks block
-    fn stacks_block_index_value(height: u64) -> String {
-        format!("{}", height)
-    }
-
-    /// MARF index value for the highest arrival index processed in a fork
-    fn stacks_block_max_arrival_index_value(index: u64) -> String {
-        format!("{}", index)
     }
 
     /// Get a snapshot for an processed sortition.
@@ -3141,21 +3144,24 @@ impl SortitionDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
+        let (sortition_id, winning_txid) = match SortitionDB::get_block_snapshot_consensus(
+            conn,
+            consensus_hash,
+        )? {
             Some(sn) => {
                 if !sn.pox_valid {
                     warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
                     return Err(db_error::InvalidPoxSortition);
                 }
-                sn.sortition_id
+                (sn.sortition_id, sn.winning_block_txid)
             }
             None => {
                 return Ok(None);
             }
         };
 
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&sortition_id, &block_hash];
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
+        let args: [&dyn ToSql; 3] = [&sortition_id, &block_hash, &winning_txid];
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
         })
@@ -3897,7 +3903,6 @@ impl<'a> SortitionHandleTx<'a> {
             if let Some(sn) =
                 self.get_block_snapshot(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)?
             {
-                // this block arrived on an ancestor block
                 assert_eq!(sn, arrival_sn);
 
                 debug!(
@@ -3927,7 +3932,7 @@ impl<'a> SortitionHandleTx<'a> {
         // ordered by block height!
         for (consensus_hash, block_bhh, height) in new_block_arrivals.into_iter() {
             keys.push(db_keys::stacks_block_index(&block_bhh));
-            values.push(SortitionDB::stacks_block_index_value(height));
+            values.push(db_keys::stacks_block_index_value(height));
 
             if height > best_tip_height {
                 debug!(
@@ -3957,7 +3962,7 @@ impl<'a> SortitionHandleTx<'a> {
             &parent_tip.consensus_hash, &parent_tip.burn_header_hash, &max_arrival_index
         );
         keys.push(db_keys::stacks_block_max_arrival_index());
-        values.push(SortitionDB::stacks_block_max_arrival_index_value(
+        values.push(db_keys::stacks_block_max_arrival_index_value(
             max_arrival_index,
         ));
 
