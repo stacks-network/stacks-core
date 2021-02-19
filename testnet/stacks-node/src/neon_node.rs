@@ -981,7 +981,7 @@ enum LeaderKeyRegistrationState {
 impl InitializedNeonNode {
     fn new(
         config: Config,
-        keychain: Keychain,
+        mut keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
         miner: bool,
@@ -1130,7 +1130,7 @@ impl InitializedNeonNode {
 
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
-            let vrf_public_key = keychain.clone().rotate_vrf_keypair(1);
+            let vrf_public_key = keychain.rotate_vrf_keypair(1);
             LeaderKeyRegistrationState::Active(RegisteredKey {
                 block_height: 1,
                 op_vtxindex: 1,
