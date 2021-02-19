@@ -981,7 +981,7 @@ enum LeaderKeyRegistrationState {
 impl InitializedNeonNode {
     fn new(
         config: Config,
-        mut keychain: Keychain,
+        keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
         miner: bool,
@@ -1128,7 +1128,17 @@ impl InitializedNeonNode {
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
-        let vrf_public_key = keychain.rotate_vrf_keypair(1);
+        let leader_key_registration_state = if config.node.mock_mining {
+            // mock mining, pretend to have a registered key
+            let vrf_public_key = keychain.clone().rotate_vrf_keypair(1);
+            LeaderKeyRegistrationState::Active(RegisteredKey {
+                block_height: 1,
+                op_vtxindex: 1,
+                vrf_public_key,
+            })
+        } else {
+            LeaderKeyRegistrationState::Inactive
+        };
 
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
         spawn_miner_relayer(
@@ -1137,7 +1147,7 @@ impl InitializedNeonNode {
             relayer,
             local_peer,
             config.clone(),
-            keychain.clone(),
+            keychain,
             config.get_burn_db_file_path(),
             config.get_chainstate_path(),
             relay_recv,
@@ -1172,18 +1182,14 @@ impl InitializedNeonNode {
 
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
-            config: config,
+            config,
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::Active(RegisteredKey {
-                block_height: 1,
-                op_vtxindex: 1,
-                vrf_public_key,
-            }),
+            leader_key_registration_state,
         }
     }
 

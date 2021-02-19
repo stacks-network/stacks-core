@@ -551,18 +551,16 @@ impl BitcoinRegtestController {
 
     pub fn get_utxos(
         &self,
-        _public_key: &Secp256k1PublicKey,
-        _total_required: u64,
-    ) -> Option<Vec<UTXO>> {
-        return Some(vec![]);
-    }
-    pub fn get_utxos_old(
-        &self,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
+        // if mock mining, do not even both requesting UTXOs
+        if self.config.node.mock_mining {
+            return None;
+        }
+
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()

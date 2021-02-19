@@ -443,6 +443,7 @@ impl Config {
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
+                    mock_mining: node.miner.unwrap_or(default_node_config.mock_mining),
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
@@ -1039,6 +1040,7 @@ pub struct NodeConfig {
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
+    pub mock_mining: bool,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -1078,6 +1080,7 @@ impl NodeConfig {
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
+            mock_mining: false,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
