@@ -112,10 +112,10 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 // #[cfg(feature = "monitoring_prom")]
 // lazy_static! {
-//     static ref RPC_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+//     static ref RPC_REQ_HISTOGRAM: prometheus::monitoring::HistogramVec = register_histogram_vec!(
 //         "stacks_node_rpc_request_duration_seconds",
 //         "Stacks RPC request latencies in seconds",
-//         &["path"]
+//         &["handler"]
 //     )
 //     .unwrap();
 // }
@@ -540,7 +540,7 @@ impl ConversationHttp {
         peerdb: &PeerDB,
         handler_args: &RPCHandlerArgs,
     ) -> Result<(), net_error> {
-        // let timer = RPC_REQ_HISTOGRAM
+        // let timer = HTTP_REQ_HISTOGRAM
         //     .with_label_values(&["/v2/info"])
         //     .start_timer(); //promserver
         monitoring::increment_rpc_request_counter("/v2/info".to_string(), "get".to_string()); //promserver
@@ -2205,7 +2205,7 @@ impl ConversationHttp {
                 ));
             }
         }
-        // timer.observe_duration();
+        // timer.observe_duration(); //promserver
         Ok(ret)
     }
 

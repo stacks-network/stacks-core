@@ -210,4 +210,10 @@ lazy_static! {
         "stacks_node_transfer_stx_op",
         "Total count of TransferStxOp"
     )).unwrap();
+
+    // pub static ref RPC_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+    //     "stacks_node_rpc_request_duration_seconds",
+    //     "Stacks RPC request latencies in seconds",
+    //     &["path"]
+    // ).unwrap();
 }

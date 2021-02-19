@@ -165,11 +165,13 @@ pub fn update_inbound_rpc_bandwidth(value: i64) {
     prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_outbound_rpc_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
 }
 
+#[allow(unused_variables)]
 pub fn increment_msg_counter(name: String) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::MSG_COUNTER_VEC
@@ -177,6 +179,7 @@ pub fn increment_msg_counter(name: String) {
         .inc();
 }
 
+#[allow(unused_variables)]
 pub fn increment_rpc_request_counter(path: String, method: String) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::RPC_REQUEST_COUNTER_VEC
@@ -184,6 +187,7 @@ pub fn increment_rpc_request_counter(path: String, method: String) {
         .inc();
 }
 
+#[allow(unused_variables)]
 pub fn update_stx_mempool_size(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MEMPOOL_SIZE.set(value);
@@ -213,3 +217,12 @@ pub fn increment_transfer_stx_op() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::TRANSFER_STX_OP.inc();
 }
+
+// #[allow(unused_variables)]
+// pub fn rpc_req_histogram(path: String) {
+//     #[cfg(feature = "monitoring_prom")]
+//     prometheus::RPC_REQ_HISTOGRAM
+//         .with_label_values(&[&path])
+//         .start_timer();
+// }
+
