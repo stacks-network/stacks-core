@@ -20,18 +20,20 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 
 ## Roadmap
 
-- [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
-- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
-- [X] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md)
-- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
-- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
-- [ ] SIP 006: Clarity Execution Cost Assessment
-- [x] [SIP 007: Stacking Consensus](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-007-stacking-consensus.md)
-- [ ] SIP 008: Clarity Parsing and Analysis Cost Assessment
+- [x] [SIP 001: Burn Election](https://github.com/stacksgov/sips/blob/main/sips/sip-001/sip-001-burn-election.md)
+- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/stacksgov/sips/blob/main/sips/sip-002/sip-002-smart-contract-language.md)
+- [X] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
+- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/stacksgov/sips/blob/main/sips/sip-004/sip-004-materialized-view.md)
+- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
+- [X] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
+- [x] [SIP 007: Stacking Consensus](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md)
+- [X] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
-See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-000-stacks-improvement-proposal-process.md) for more details.
+See [SIP 000](https://github.com/stacksgov/sips/blob/main/sips/sip-000/sip-000-stacks-improvement-proposal-process.md) for more details.
+
+The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/sips) repository as part of the [Stacks Community Governance organization](https://github.com/stacksgov).
 
 ### Testnet versions
 
@@ -43,9 +45,9 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [X] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007.  It allows developers to test a simple version of Stacking and PoX consensus.
 
-- [ ] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet.  It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
+- [X] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet.  It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
 
-- [ ] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
+- [X] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
 
 See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
 
@@ -83,7 +85,7 @@ cargo test testnet  -- --test-threads=1
 
 ### Encode and sign transactions
 
-Let's start by generating a keypair, that will be used for signing the upcoming transactions:
+Here, we have generated a keypair that will be used for signing the upcoming transactions:
 
 ```bash
 cargo run --bin blockstack-cli generate-sk --testnet
@@ -95,6 +97,7 @@ cargo run --bin blockstack-cli generate-sk --testnet
 #  stacksAddress: "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
 # }
 ```
+This keypair is already registered in the `Stacks.toml` file, so it can be used as presented here. 
 
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
@@ -124,17 +127,18 @@ cargo run --bin blockstack-cli publish --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet
 ```
 
-The `500` is the transaction fee, denominated in microSTX.  Right now, the
+The `515` is the transaction fee, denominated in microSTX.  Right now, the
 testnet requires one microSTX per byte minimum, and this transaction should be
-less than 500 bytes.
+less than 515 bytes.
+The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
 
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
 ```
 
 ### Run the testnet
@@ -187,7 +191,6 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 ```
 
 `contract-call` generates and signs a contract-call transaction.
-Note: the third argument `1` is a nonce, that must be increased monotonically with each new transaction.
 
 We can submit the transaction by moving it to the mempool path:
 
