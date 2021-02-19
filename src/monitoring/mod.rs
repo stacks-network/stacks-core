@@ -123,36 +123,43 @@ pub fn update_active_miners_count_gauge(value: i64) {
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_stacks_tip_height(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STACKS_TIP_HEIGHT_GAUGE.set(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_burnchain_height(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BURNCHAIN_HEIGHT_GAUGE.set(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_inbound_neighbors(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_NEIGHBORS_GAUGE.set(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_outbound_neighbors(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_NEIGHBORS_GAUGE.set(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_inbound_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_outbound_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
 }
 
+#[allow(unused_variables)]
 pub fn update_inbound_rpc_bandwidth(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
