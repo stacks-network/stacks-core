@@ -7,12 +7,9 @@ import {
     uintCV,
     standardPrincipalCV,
     makeContractCall,
-    sponsorTransaction,
     PostConditionMode,
-    makeSTXTokenTransfer,
-    
+    makeSTXTokenTransfer,    
     SignedTokenTransferOptions,
-    SponsorOptions,
     AnchorMode
 } from '@stacks/transactions';
 import {
@@ -20,19 +17,21 @@ import {
 } from '@stacks/stacking';
 import { seeders } from './seeders';
 import { sponsors } from './sponsors';
-import { users } from './users';2
+import { users as all_users } from './users';
 import BN = require("bn.js");
 import { StacksTestnet } from '@stacks/network';
 import ripemd160 from 'ripemd160';
 import shajs from 'sha.js';
 
-const NUMBER_OF_NODES = 10;
+const NUMBER_OF_NODES = 9;
+const NUMBER_OF_USERS = 2000;
 
 let nodes = [...Array(NUMBER_OF_NODES)].map((_, i) => {
     let node = new StacksTestnet();
-    node.coreApiUrl = `http://localhost:2${i}443`;
+    node.coreApiUrl = `http://localhost:2${i+1}443`;
     return node;
 });
+
 const BNS_CONTRACT_ADDRESS = "ST000000000000000000002AMW42H";
 const BNS_CONTRACT_NAME = "bns";
 
@@ -139,6 +138,7 @@ makeContractCall(options).then(async (transaction) => {
     }
 
     round_robin = 0;
+    let users = all_users.slice(0, NUMBER_OF_USERS);
     for (let user of users) {
         let index = round_robin % sponsors.length;
         let nonce = sponsors_nonces[index] as BN;
@@ -172,8 +172,10 @@ makeContractCall(options).then(async (transaction) => {
         await sleep(5000);
     }
 
+    round_robin = 0;
     for (let user of users) {
-
+        let index = round_robin % nodes.length;
+        let node = nodes[index];
         let salt = "0000";
         let name = user.keyInfo.address.toLowerCase();
         var sha256 = new shajs.sha256().update(`${name}.${namespace}${salt}`).digest();
@@ -193,7 +195,7 @@ makeContractCall(options).then(async (transaction) => {
             anchorMode: AnchorMode.OnChainOnly
         });
         
-        var txid = await broadcastTransaction(contractCall, nodes[0]);
+        var txid = await broadcastTransaction(contractCall, node);
         console.log(`TX 'name-preorder(${name})' broadcasted ${txid}`)
 
         let attachment = `${name}@${namespace}`;
@@ -213,8 +215,9 @@ makeContractCall(options).then(async (transaction) => {
             anchorMode: AnchorMode.OnChainOnly
         });
         
-        txid = await broadcastTransaction(contractCall, nodes[0]/*, Buffer.from(attachment, 'utf8')*/);
-        console.log(`TX 'name-register(${name})' broadcasted ${txid}`)
+        txid = await broadcastTransaction(contractCall, node, Buffer.from(attachment, 'utf8'));
+        console.log(`TX 'name-register(${name})' broadcasted ${txid} on ${node.coreApiUrl}`)
+        round_robin += 1;
     }
 })
 
