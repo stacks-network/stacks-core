@@ -892,9 +892,9 @@ fn spawn_miner_relayer(
                     let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
                         .burn_header_hash;
-                    if failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
-                        warn!(
-                            "Previously failed to mine in block, not attempting again until burnchain advances";
+                    if config.node.mock_mining && failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
+                        debug!(
+                            "Previously mock-mined in block, not attempting again until burnchain advances";
                             "burn_header_hash" => %burn_chain_tip
                         );
                         continue;
