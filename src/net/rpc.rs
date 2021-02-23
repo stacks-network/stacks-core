@@ -17,11 +17,11 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fmt;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::{convert::TryFrom, fmt};
 
 use core::mempool::*;
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
@@ -107,6 +107,8 @@ use vm::{
 
 use rand::prelude::*;
 use rand::thread_rng;
+
+use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -338,18 +340,13 @@ impl RPCPoxInfoData {
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
         let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
-        let next_reward_cycle_prepare_phase_start = next_rewards_start - prepare_cycle_length;
+        let next_prepare_phase_start = next_rewards_start - prepare_cycle_length;
 
-        let next_prepare_phase_start =
-            if burnchain_tip.block_height < next_reward_cycle_prepare_phase_start {
-                next_reward_cycle_prepare_phase_start
-            } else {
-                // currently in a prepare phase, so the next prepare phase start is actually the reward cycle after
-                //  next
-                next_reward_cycle_prepare_phase_start + reward_cycle_length
-            };
-
-        let next_prepare_phase_in = next_prepare_phase_start - burnchain_tip.block_height;
+        let next_prepare_phase_in = i64::try_from(next_prepare_phase_start)
+            .map_err(|_| net_error::ChainstateError("Burn block height overflowed i64".into()))?
+            - i64::try_from(burnchain_tip.block_height).map_err(|_| {
+                net_error::ChainstateError("Burn block height overflowed i64".into())
+            })?;
 
         let cur_cycle_stacked_ustx =
             chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
@@ -370,31 +367,45 @@ impl RPCPoxInfoData {
             reward_slots as u128,
         ) as u64;
 
-        let pox_activation_threshold = (total_liquid_supply_ustx as u128)
+        let pox_activation_threshold_ustx = (total_liquid_supply_ustx as u128)
             .checked_mul(pox_consts.pox_participation_threshold_pct as u128)
             .map(|x| x / 100)
             .ok_or_else(|| net_error::DBError(db_error::Overflow))?
             as u64;
 
+        let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            pox_activation_threshold_ustx,
             first_burnchain_block_height,
-            min_stacking_increment_ustx,
-            next_cycle_cur_threshold: next_threshold,
-            cur_cycle_threshold,
-            next_cycle_stacked_ustx: next_cycle_stacked_ustx as u64,
-            cur_cycle_stacked_ustx: cur_cycle_stacked_ustx as u64,
+            prepare_phase_block_length: prepare_cycle_length,
+            reward_phase_block_length: reward_cycle_length - prepare_cycle_length,
             reward_slots,
-            pox_activation_threshold,
-            next_rewards_start,
-            next_prepare_phase_start,
-            next_prepare_phase_in,
-            prepare_cycle_length,
             rejection_fraction,
+            total_liquid_supply_ustx,
+            current_cycle: RPCPoxCurrentCycleInfo {
+                id: reward_cycle_id,
+                min_threshold_ustx: cur_cycle_threshold,
+                stacked_ustx: cur_cycle_stacked_ustx as u64,
+                is_pox_active: cur_cycle_pox_active,
+            },
+            next_cycle: RPCPoxNextCycleInfo {
+                id: reward_cycle_id + 1,
+                min_threshold_ustx: next_threshold,
+                min_increment_ustx: min_stacking_increment_ustx,
+                stacked_ustx: next_cycle_stacked_ustx as u64,
+                prepare_phase_start_block_height: next_prepare_phase_start,
+                blocks_until_prepare_phase: next_prepare_phase_in,
+                reward_phase_start_block_height: next_rewards_start,
+                blocks_until_reward_phase: next_reward_cycle_in,
+                ustx_until_pox_rejection: rejection_votes_left_required,
+            },
+            min_amount_ustx: next_threshold,
+            prepare_cycle_length,
             reward_cycle_id,
             reward_cycle_length,
             rejection_votes_left_required,
-            total_liquid_supply_ustx,
             next_reward_cycle_in,
         })
     }

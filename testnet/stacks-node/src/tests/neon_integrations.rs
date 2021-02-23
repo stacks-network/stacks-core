@@ -2090,14 +2090,15 @@ fn pox_integration_test() {
         &format!("ST000000000000000000002AMW42H.pox")
     );
     assert_eq!(pox_info.first_burnchain_block_height, 0);
-    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_stacked_ustx, 0);
-    assert_eq!(pox_info.next_cycle_stacked_ustx, 0);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 0);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 0);
     assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
-    assert_eq!(pox_info.next_rewards_start, 210);
-    assert_eq!(pox_info.next_prepare_phase_start, 205);
-    assert_eq!(pox_info.min_stacking_increment_ustx, 20845173515333);
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 210);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 205);
+    assert_eq!(pox_info.next_cycle.min_increment_ustx, 20845173515333);
     assert_eq!(
         pox_info.prepare_cycle_length as u32,
         pox_constants.prepare_length
@@ -2107,6 +2108,8 @@ fn pox_integration_test() {
         pox_constants.pox_rejection_fraction
     );
     assert_eq!(pox_info.reward_cycle_id, 0);
+    assert_eq!(pox_info.current_cycle.id, 0);
+    assert_eq!(pox_info.next_cycle.id, 1);
     assert_eq!(
         pox_info.reward_cycle_length as u32,
         pox_constants.reward_cycle_length
@@ -2155,13 +2158,15 @@ fn pox_integration_test() {
         &format!("ST000000000000000000002AMW42H.pox")
     );
     assert_eq!(pox_info.first_burnchain_block_height, 0);
-    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_stacked_ustx, 1000000000000000);
-    assert_eq!(pox_info.next_cycle_stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 1000000000000000);
+    assert!(pox_info.pox_activation_threshold_ustx > 1500000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 1000000000000000);
     assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
-    assert_eq!(pox_info.next_rewards_start, 225);
-    assert_eq!(pox_info.next_prepare_phase_start, 220);
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 225);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 220);
     assert_eq!(
         pox_info.prepare_cycle_length as u32,
         pox_constants.prepare_length
@@ -2171,6 +2176,8 @@ fn pox_integration_test() {
         pox_constants.pox_rejection_fraction
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(pox_info.current_cycle.id, 14);
+    assert_eq!(pox_info.next_cycle.id, 15);
     assert_eq!(
         pox_info.reward_cycle_length as u32,
         pox_constants.reward_cycle_length
@@ -2277,18 +2284,21 @@ fn pox_integration_test() {
     }
 
     let pox_info = get_pox_info(&http_origin);
+
     assert_eq!(
         &pox_info.contract_id,
         &format!("ST000000000000000000002AMW42H.pox")
     );
     assert_eq!(pox_info.first_burnchain_block_height, 0);
-    assert_eq!(pox_info.next_cycle_cur_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_threshold, 125080000000000);
-    assert_eq!(pox_info.cur_cycle_stacked_ustx, 1000000000000000);
-    assert_eq!(pox_info.next_cycle_stacked_ustx, 2000000000000000);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 2000000000000000);
     assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
-    assert_eq!(pox_info.next_rewards_start, 225);
-    assert_eq!(pox_info.next_prepare_phase_start, 235);
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 225);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 220);
+    assert_eq!(pox_info.next_cycle.blocks_until_prepare_phase, -4);
     assert_eq!(
         pox_info.prepare_cycle_length as u32,
         pox_constants.prepare_length
@@ -2298,6 +2308,8 @@ fn pox_integration_test() {
         pox_constants.pox_rejection_fraction
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(pox_info.current_cycle.id, 14);
+    assert_eq!(pox_info.next_cycle.id, 15);
     assert_eq!(
         pox_info.reward_cycle_length as u32,
         pox_constants.reward_cycle_length
@@ -2322,6 +2334,21 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 2000000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 240);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 235);
+    assert_eq!(pox_info.next_cycle.blocks_until_prepare_phase, -4);
+    assert_eq!(pox_info.next_reward_cycle_in, 1);
 
     // we should have received _seven_ Bitcoin commitments, because our commitment was 7 * threshold
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);

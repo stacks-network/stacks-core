@@ -1455,6 +1455,15 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(anchor_block_hash)
     }
 
+    fn get_reward_set_size(&self) -> Result<u16, db_error> {
+        self.get_tip_indexed(&db_keys::pox_reward_set_size())
+            .map(|x| {
+                db_keys::reward_set_size_from_string(
+                    &x.expect("CORRUPTION: no current reward set size written"),
+                )
+            })
+    }
+
     pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
         let pox_id = self
             .get_tip_indexed(db_keys::pox_identifier())?
@@ -2936,6 +2945,24 @@ impl SortitionDB {
             }
             Some(snapshot) => Ok(snapshot),
         }
+    }
+
+    pub fn is_pox_active(
+        &self,
+        burnchain: &Burnchain,
+        block: &BlockSnapshot,
+    ) -> Result<bool, db_error> {
+        let reward_start_height = burnchain.reward_cycle_to_block_height(
+            burnchain
+                .block_height_to_reward_cycle(block.block_height)
+                .ok_or_else(|| db_error::NotFoundError)?,
+        );
+        let sort_id_of_start =
+            get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+
+        let handle = self.index_handle(&sort_id_of_start);
+        Ok(handle.get_reward_set_size()? > 0)
     }
 
     /// Find out how any burn tokens were destroyed in a given block on a given fork.
