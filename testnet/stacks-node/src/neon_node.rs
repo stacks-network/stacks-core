@@ -8,7 +8,10 @@ use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
@@ -681,7 +684,6 @@ fn spawn_peer(
             debug!("P2P thread exit!");
         })
         .unwrap();
-
 
     let _jh = thread::Builder::new()
         .name("dns-resolver".to_string())

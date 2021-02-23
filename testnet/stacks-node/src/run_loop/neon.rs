@@ -17,11 +17,11 @@ use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
+use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
-use std::cmp;
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
@@ -110,7 +110,7 @@ impl RunLoop {
             keep_running_writer.store(false, Ordering::SeqCst);
         })
         .expect("Error setting termination handler");
-    
+
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
@@ -340,7 +340,7 @@ impl RunLoop {
                 coordinator_thread_handle.join().unwrap();
                 node.relayer_thread_handle.join().unwrap();
                 node.p2p_thread_handle.join().unwrap();
-        
+
                 info!("Exiting stacks-node");
                 break;
             }
