@@ -634,7 +634,10 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     Some(queue) => queue,
                     None => unreachable!(),
                 };
-                let mut requests = HashMap::new();
+                let mut results = match results.take() {
+                    Some(results) => results,
+                    None => BatchedRequestsResult::new(HashMap::new()),
+                };
 
                 // We want to limit the number of requests in flight,
                 // so we will be batching our requests.
@@ -649,17 +652,12 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                             chainstate,
                         );
                         if let Some((request, event_id)) = res {
-                            requests.insert(event_id, request);
+                            results.remaining.insert(event_id, request);
                         }
                     }
                 }
 
-                let results = if results.is_none() {
-                    Some(BatchedRequestsResult::new(requests))
-                } else {
-                    results.take()
-                };
-                BatchedRequestsState::PollRequests(Some(queue), results)
+                BatchedRequestsState::PollRequests(Some(queue), Some(results))
             }
             BatchedRequestsState::PollRequests(ref mut queue, ref mut results) => {
                 let mut pending_requests = HashMap::new();
