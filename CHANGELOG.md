@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2021-02-15
+
+The database schema has not changed since 2.0.5, so when spinning up a
+2.0.6 node from a 2.0.5 chainstate, you do not need to use a fresh
+working directory. Earlier versions' chainstate directories are
+incompatible, however.
+
+### Fixed
+
+- Miner RBF logic has two "fallback" logic changes. First, if the RBF
+  logic has increased fees by more than 50%, do not submit a new
+  transaction. Second, fix the "same chainstate hash" fallback check.
+- Winning block txid lookups in the SortitionDB have been corrected
+  to use the txid during the lookup.
+- The miner will no longer attempt to mine a new Stacks block if it receives a
+  microblock in a discontinuous microblock stream.
+
+## [2.0.5] - 2021-02-12
+
+The database schema has changed since 2.0.4, so when spinning up a 2.0.5
+node from an earlier chainstate, you must use a fresh working directory.
+
+### Added
+
+- Miner heuristic for handling relatively large or computationally
+  expensive transactions: such transactions will be dropped from the
+  mempool to prevent miners from re-attempting them once they fail.
+  Miners can also now continue processing transactions that are
+  behind those transactions in the mempool "queue".
+
+### Fixed
+
+- Miner block assembly now uses the correct block limit available via
+  the node config
+- `tx_fees_streamed_produced` fees are included in miner coinbase
+  events for event observers
+- SQLite indexes are now correctly created on database instantion
+
+### Changed
+
+- STX unlock events are now sent over the events endpoint bundled
+  into an associated unlock transaction
+- Atlas attachments networking endpoints are disabled for this
+  release, while networking issues are addressed in the
+  implementation
+
+## [2.0.4] - 2021-02-07
+
+### Changed
+
+- Atlas attachments networking endpoints are disabled for this
+  release, while networking issues are addressed in the
+  implementation.
+
 ## [2.0.3] - 2021-02-04
 
 ### Added

@@ -1,5 +1,4 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
-use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 use std::collections::HashMap;
 
@@ -136,6 +135,16 @@ fn inner_process_tenure(
     coord_comms: &CoordinatorChannels,
 ) -> Result<bool, ChainstateError> {
     let stacks_blocks_processed = coord_comms.get_stacks_blocks_processed();
+
+    if StacksChainState::has_stored_block(
+        &chain_state.db(),
+        &chain_state.blocks_path,
+        consensus_hash,
+        &anchored_block.block_hash(),
+    )? {
+        // already processed my tenure
+        return Ok(true);
+    }
 
     let ic = burn_db.index_conn();
 
@@ -1087,6 +1096,14 @@ impl InitializedNeonNode {
             _ => panic!("Unable to retrieve local peer"),
         };
 
+        // force early mempool instantiation
+        let _ = MemPoolDB::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &config.get_chainstate_path(),
+        )
+        .expect("BUG: failed to instantiate mempool");
+
         // now we're ready to instantiate a p2p network object, the relayer, and the event dispatcher
         let mut p2p_net = PeerNetwork::new(
             peerdb,
@@ -1582,7 +1599,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            HELIUM_BLOCK_LIMIT.clone(),
+            config.block_limit.clone(),
         ) {
             Ok(block) => block,
             Err(e) => {

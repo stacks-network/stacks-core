@@ -56,6 +56,12 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
 
+/// The number of bitcoin blocks that can have
+///  passed since the UTXO cache was last refreshed before
+///  the cache is force-reset.
+const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
+const DUST_UTXO_LIMIT: u64 = 5500;
+
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
@@ -178,8 +184,6 @@ impl LeaderBlockCommitFees {
         self.final_size = new_size;
     }
 }
-
-const DUST_UTXO_LIMIT: u64 = 5500;
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -1005,20 +1009,34 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Stop as soon as the fee_rate is 1.25 higher, stop RBF
+        // Stop as soon as the fee_rate is 1.50 higher, stop RBF
         if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
-            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
-            return res;
+            warn!("RBF'd block commits reached 1.5x satoshi per byte fee rate, not resubmitting");
+            self.ongoing_block_commit = Some(ongoing_op);
+            return None;
         }
 
-        // Did a re-org occurred since we fetched our UTXOs
-        let sortdb = self.sortdb_mut();
-        let sort_id = SortitionId::stubbed(&ongoing_op.utxos.bhh);
-        let ic = sortdb.index_conn();
-        if let Err(e) = SortitionDB::get_block_snapshot(&ic, &sort_id) {
+        // Did a re-org occurred since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        let mut traversal_depth = 0;
+        let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
+        let mut found_last_mined_at = false;
+        while traversal_depth < UTXO_CACHE_STALENESS_LIMIT {
+            if &burn_chain_tip.block_hash == &ongoing_op.utxos.bhh {
+                found_last_mined_at = true;
+                break;
+            }
+
+            let parent = burnchain_db
+                .get_burnchain_block(&burn_chain_tip.parent_block_hash)
+                .ok()?;
+            burn_chain_tip = parent.header;
+            traversal_depth += 1;
+        }
+
+        if !found_last_mined_at {
             info!(
-                "Possible presence of fork, invalidating cached set of UTXOs - {:?}",
-                e
+                "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
+                "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
             );
             let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
@@ -1035,6 +1053,7 @@ impl BitcoinRegtestController {
         // Let's start by early returning 1)
         if payload == ongoing_op.payload {
             info!("Abort attempt to re-submit identical LeaderBlockCommit");
+            self.ongoing_block_commit = Some(ongoing_op);
             return None;
         }
 
