@@ -1116,9 +1116,26 @@ pub struct PostTransactionRequestBody {
     pub attachment: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetAttachmentResponse {
     pub attachment: Attachment,
+}
+
+impl Serialize for GetAttachmentResponse {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let hex_encoded = to_hex(&self.attachment.content[..]);
+        s.serialize_str(hex_encoded.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GetAttachmentResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GetAttachmentResponse, D::Error> {
+        let payload = String::deserialize(d)?;
+        let hex_encoded = payload.parse::<String>().map_err(de_Error::custom)?;
+        let bytes = hex_bytes(&hex_encoded).map_err(de_Error::custom)?;
+        let attachment = Attachment::new(bytes);
+        Ok(GetAttachmentResponse { attachment })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
