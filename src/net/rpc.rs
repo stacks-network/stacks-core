@@ -605,14 +605,14 @@ impl ConversationHttp {
                 MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
             );
             warn!("{}", msg);
-            let response = HttpResponseType::ServerError(response_metadata, msg);
+            let response = HttpResponseType::NotFound(response_metadata, msg);
             response.send(http, fd)?;
             return Ok(());
         }
         if pages_indexes.len() == 0 {
             let msg = format!("Page indexes missing");
             warn!("{}", msg);
-            let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
+            let response = HttpResponseType::NotFound(response_metadata, msg.clone());
             response.send(http, fd)?;
             return Ok(());
         }
@@ -629,9 +629,12 @@ impl ConversationHttp {
                 match atlasdb.get_minmax_heights_window_for_page_index(*page_index) {
                     Ok(window) => window,
                     Err(e) => {
-                        let msg = format!("Unable to read Atlas DB - {}", e);
+                        let msg = format!(
+                            "Unable to read min/max heights for page index {} - {}",
+                            page_index, e
+                        );
                         warn!("{}", msg);
-                        let response = HttpResponseType::ServerError(response_metadata, msg);
+                        let response = HttpResponseType::NotFound(response_metadata, msg);
                         return response.send(http, fd);
                     }
                 };
@@ -662,7 +665,7 @@ impl ConversationHttp {
                 Err(e) => {
                     let msg = format!("Unable to read Atlas DB - {}", e);
                     warn!("{}", msg);
-                    let response = HttpResponseType::ServerError(response_metadata, msg);
+                    let response = HttpResponseType::NotFound(response_metadata, msg);
                     return response.send(http, fd);
                 }
             }
@@ -693,7 +696,7 @@ impl ConversationHttp {
             _ => {
                 let msg = format!("Unable to find attachment");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
+                let response = HttpResponseType::NotFound(response_metadata, msg);
                 response.send(http, fd)
             }
         }
