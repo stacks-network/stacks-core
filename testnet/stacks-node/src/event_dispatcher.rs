@@ -125,6 +125,7 @@ impl EventObserver {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        slot_holders: Vec<StacksAddress>,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -136,10 +137,16 @@ impl EventObserver {
             })
             .collect();
 
+        let reward_slot_holders = slot_holders
+            .into_iter()
+            .map(|stx_addr| json!(stx_addr.to_b58()))
+            .collect();
+
         json!({
             "burn_block_hash": format!("0x{}", burn_block),
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
+            "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
             "burn_amount": burns
         })
     }
@@ -299,8 +306,15 @@ impl BlockEventDispatcher for EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        recipient_info: Vec<StacksAddress>,
     ) {
-        self.process_burn_block(burn_block, burn_block_height, rewards, burns)
+        self.process_burn_block(
+            burn_block,
+            burn_block_height,
+            rewards,
+            burns,
+            recipient_info,
+        )
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -328,6 +342,7 @@ impl EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        recipient_info: Vec<StacksAddress>,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -348,6 +363,7 @@ impl EventDispatcher {
             burn_block_height,
             rewards,
             burns,
+            recipient_info,
         );
 
         for (_, observer) in interested_observers.iter() {

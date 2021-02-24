@@ -100,9 +100,21 @@ Example:
       "amt": 5000
     }
   ],
+  "reward_slot_holders": [
+    "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
+    "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6"
+  ],
   "burn_amount": 12000
 }
 ```
+
+* `reward_recipients` is an array of all the rewards received during this burn block. It may
+  include recipients who did _not_ have reward slots during the block. This could happen if
+  a miner's commitment was included a block or two later than intended. Such commitments would
+  not be valid, but the reward recipient would still receive the burn `amt`.
+* `reward_slot_holders` is an array of the Bitcoin addresses that would validly receive
+  PoX commitments during this block. These addresses may not actually receive rewards during
+  this block if the block is faster than miners have an opportunity to commit.
 
 ### `POST /new_mempool_tx`
 

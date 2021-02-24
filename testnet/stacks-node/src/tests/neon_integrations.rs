@@ -38,10 +38,13 @@ use stacks::net::{
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::{get_epoch_time_secs, sleep_ms};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use std::{env, thread};
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
@@ -1976,6 +1979,13 @@ fn pox_integration_test() {
             .to_vec(),
     );
 
+    let pox_2_address = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Testnet,
+        BitcoinAddressType::PublicKeyHash,
+        &Hash160::from_node_public_key(&pox_2_pubkey).to_bytes(),
+    )
+    .unwrap();
+
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
@@ -2212,6 +2222,9 @@ fn pox_integration_test() {
         "Should have received no outputs during PoX reward cycle"
     );
 
+    // let's test the reward information in the observer
+    test_observer::clear();
+
     // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
@@ -2228,19 +2241,56 @@ fn pox_integration_test() {
     assert_eq!(
         utxos.len(),
         7,
-        "Should have received three outputs during PoX reward cycle"
+        "Should have received outputs during PoX reward cycle"
     );
 
-    // we should have received _three_ Bitcoin commitments to pox_2_pubkey, because our commitment was 3 * threshold
-    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _2_ slots,
-    //         because each `stack-stx` call only received enough to get 1 slot individually.
+    // we should have received _seven_ Bitcoin commitments to pox_2_pubkey, because our commitment was 7 * threshold
+    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _6_ slots,
+    //         because each `stack-stx` call only received enough to get 3 slot individually.
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
         7,
-        "Should have received three outputs during PoX reward cycle"
+        "Should have received outputs during PoX reward cycle"
+    );
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let mut recipient_slots: HashMap<String, u64> = HashMap::new();
+
+    for block in burn_blocks.iter() {
+        let reward_slot_holders = block
+            .get("reward_slot_holders")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string());
+        for holder in reward_slot_holders {
+            if let Some(current) = recipient_slots.get_mut(&holder) {
+                *current += 1;
+            } else {
+                recipient_slots.insert(holder, 1);
+            }
+        }
+    }
+
+    let pox_1_address = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Testnet,
+        BitcoinAddressType::PublicKeyHash,
+        &Hash160::from_node_public_key(&pox_pubkey).to_bytes(),
+    )
+    .unwrap();
+
+    assert_eq!(recipient_slots.len(), 2);
+    assert_eq!(
+        recipient_slots.get(&pox_2_address.to_b58()).cloned(),
+        Some(7u64)
+    );
+    assert_eq!(
+        recipient_slots.get(&pox_1_address.to_b58()).cloned(),
+        Some(7u64)
     );
 
     // get the canonical chain tip
