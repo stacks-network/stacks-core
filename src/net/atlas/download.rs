@@ -101,6 +101,9 @@ impl AttachmentsDownloader {
                         .resolve_attachment(&attachment.hash())
                 }
 
+                // Carrying events for centralized deregistration
+                events_to_deregister.append(&mut context.events_to_deregister);
+
                 // Every once in a while, we delete uninstantiated attachments
                 network.atlasdb.evict_expired_uninstantiated_attachments()?;
 
