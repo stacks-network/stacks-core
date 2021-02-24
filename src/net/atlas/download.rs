@@ -46,8 +46,9 @@ impl AttachmentsDownloader {
         dns_client: &mut DNSClient,
         chainstate: &mut StacksChainState,
         network: &mut PeerNetwork,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+    ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
+        let mut events_to_deregister = vec![];
 
         let ongoing_fsm = match self.ongoing_batch.take() {
             Some(batch) => batch,
@@ -73,7 +74,7 @@ impl AttachmentsDownloader {
                 }
                 None => {
                     // Nothing to do!
-                    return Ok(vec![]);
+                    return Ok((vec![], vec![]));
                 }
             },
         };
@@ -119,7 +120,7 @@ impl AttachmentsDownloader {
             }
         };
 
-        Ok(resolved_attachments)
+        Ok((resolved_attachments, events_to_deregister))
     }
 
     pub fn enqueue_new_attachments(
@@ -197,6 +198,7 @@ pub struct AttachmentsBatchStateContext {
     pub inventories:
         HashMap<AttachmentsInventoryRequest, HashMap<UrlString, GetAttachmentsInvResponse>>,
     pub attachments: HashSet<Attachment>,
+    pub events_to_deregister: Vec<usize>,
 }
 
 impl AttachmentsBatchStateContext {
@@ -212,6 +214,7 @@ impl AttachmentsBatchStateContext {
             dns_lookups: HashMap::new(),
             inventories: HashMap::new(),
             attachments: HashSet::new(),
+            events_to_deregister: vec![],
         }
     }
 
@@ -340,6 +343,9 @@ impl AttachmentsBatchStateContext {
             }
             self.inventories.insert(k, inventories);
         }
+        let mut events_ids = results.faulty_peers.iter().map(|(k, _)| *k).collect::<Vec<usize>>();
+        self.events_to_deregister.append(&mut events_ids);
+
         self
     }
 
@@ -361,6 +367,9 @@ impl AttachmentsBatchStateContext {
                 }
             }
         }
+        let mut events_ids = results.faulty_peers.iter().map(|(k, _)| *k).collect::<Vec<usize>>();
+        self.events_to_deregister.append(&mut events_ids);
+
         self
     }
 }
@@ -680,8 +689,9 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                 None => {
                                     // still waiting
                                     info!(
-                                        "Atlas: Request {} is still waiting for a response",
-                                        request
+                                        "Atlas: Request {} (event_id: {}) is still waiting for a response",
+                                        request,
+                                        event_id
                                     );
                                     pending_requests.insert(event_id, request);
                                     continue;
@@ -694,8 +704,8 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                         continue;
                                     }
                                     info!(
-                                        "Atlas: Request {} received response {:?}",
-                                        request, response
+                                        "Atlas: Request {} (event_id: {}) received response {:?}",
+                                        request, event_id, response
                                     );
                                     match state.succeeded.entry(request) {
                                         Entry::Occupied(responses) => {
@@ -720,19 +730,10 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                     return fsm;
                 }
-
-                let _ = PeerNetwork::with_network_state(
-                    network,
-                    |ref mut network, ref mut network_state| {
-                        for (event_id, peer) in state.faulty_peers.drain() {
-                            debug!(
-                                "Atlas: Deregistering faulty connection (event_id: {}, peer: {})",
-                                event_id, peer
-                            );
-                            network.http.deregister_http(network_state, event_id);
-                        }
-                        Ok(())
-                    },
+                debug!(
+                    "Atlas: Processed request batch ({} succeess, {} faults)",
+                    state.succeeded.len(),
+                    state.faulty_peers.len()
                 );
 
                 // Requests completed!

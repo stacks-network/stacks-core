@@ -3076,12 +3076,14 @@ impl PeerNetwork {
 
         match dns_client_opt {
             Some(ref mut dns_client) => {
-                PeerNetwork::with_attachments_downloader(
+                let mut dead_events = PeerNetwork::with_attachments_downloader(
                     self,
                     |network, attachments_downloader| {
+                        let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, chainstate, network) {
-                            Ok(ref mut attachments) => {
+                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
+                                dead_events.append(events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(
@@ -3090,9 +3092,23 @@ impl PeerNetwork {
                                 );
                             }
                         }
-                        Ok(())
+                        Ok(dead_events)
                     },
                 )?;
+
+                let _ = PeerNetwork::with_network_state(
+                    self,
+                    |ref mut network, ref mut network_state| {
+                        for event_id in dead_events.drain(..) {
+                            debug!(
+                                "Atlas: Deregistering faulty connection (event_id: {})",
+                                event_id
+                            );
+                            network.http.deregister_http(network_state, event_id);
+                        }
+                        Ok(())
+                    },
+                );
             }
             None => {
                 // skip this step -- no DNS client available
