@@ -791,6 +791,9 @@ impl Config {
                     max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
+                    connect_timeout: opts.connect_timeout.unwrap_or(10),
+                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     ..ConnectionOptions::default()
                 }
             }
@@ -1176,6 +1179,8 @@ impl NodeConfig {
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
+    pub connect_timeout: Option<u64>,
+    pub handshake_timeout: Option<u64>,
     pub timeout: Option<u64>,
     pub idle_timeout: Option<u64>,
     pub heartbeat: Option<u32>,
@@ -1190,6 +1195,7 @@ pub struct ConnectionOptionsFile {
     pub soft_max_neighbors_per_host: Option<u64>,
     pub soft_max_neighbors_per_org: Option<u64>,
     pub soft_max_clients_per_host: Option<u64>,
+    pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
