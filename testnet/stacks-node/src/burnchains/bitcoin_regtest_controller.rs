@@ -556,6 +556,11 @@ impl BitcoinRegtestController {
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
+        // if mock mining, do not even both requesting UTXOs
+        if self.config.node.mock_mining {
+            return None;
+        }
+
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
