@@ -443,7 +443,7 @@ impl Config {
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
-                    mock_mining: node.miner.unwrap_or(default_node_config.mock_mining),
+                    mock_mining: node.mock_mining.unwrap_or(default_node_config.mock_mining),
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
@@ -1239,6 +1239,7 @@ pub struct NodeConfigFile {
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
+    pub mock_mining: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
