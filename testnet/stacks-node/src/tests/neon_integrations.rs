@@ -17,8 +17,8 @@ use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{
-        burn::{db::sortdb::SortitionDB, BlockHeaderHash, ConsensusHash},
-        stacks::{StacksBlockId, StacksMicroblock},
+        burn::{BlockHeaderHash, ConsensusHash},
+        stacks::StacksMicroblock,
     },
 };
 use stacks::{

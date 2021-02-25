@@ -24,6 +24,7 @@ use stacks::chainstate::stacks::events::{
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
 };
+use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -42,6 +43,7 @@ const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
+pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
@@ -211,6 +213,10 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
+    fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MEMPOOL_TX_DROP);
+    }
+
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
@@ -273,6 +279,12 @@ pub struct EventDispatcher {
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
     boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
+}
+
+impl MemPoolEventDispatcher for EventDispatcher {
+    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
+        self.process_dropped_mempool_txs(txids, reason)
+    }
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -535,6 +547,36 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_mempool_txs(&payload);
+        }
+    }
+
+    pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.mempool_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let dropped_txids: Vec<_> = txs
+            .into_iter()
+            .map(|tx| serde_json::Value::String(format!("0x{}", &tx)))
+            .collect();
+
+        let payload = json!({
+            "dropped_txids": serde_json::Value::Array(dropped_txids),
+            "reason": reason.to_string(),
+        });
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_dropped_mempool_txs(&payload);
         }
     }
 

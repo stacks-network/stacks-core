@@ -94,6 +94,7 @@ impl<'a> Tenure {
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
             self.config.block_limit.clone(),
+            None,
         )
         .unwrap();
 

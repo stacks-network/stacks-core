@@ -60,6 +60,8 @@ use rand::Rng;
 
 use vm::costs::ExecutionCost;
 
+use crate::chainstate::coordinator::BlockEventDispatcher;
+
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
@@ -1040,6 +1042,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
         let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
             Some(tip) => tip.height,
@@ -1052,8 +1055,13 @@ impl Relayer {
             }
         };
 
-        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, network_result)
-        {
+        if let Err(e) = PeerNetwork::store_transactions(
+            mempool,
+            chainstate,
+            sortdb,
+            network_result,
+            event_observer,
+        ) {
             warn!("Failed to store transactions: {:?}", &e);
         }
 
@@ -1081,7 +1089,7 @@ impl Relayer {
                 "Remove all transactions beneath block height {}",
                 min_height
             );
-            MemPoolDB::garbage_collect(&mut mempool_tx, min_height)?;
+            MemPoolDB::garbage_collect(&mut mempool_tx, min_height, event_observer)?;
             mempool_tx.commit()?;
         }
 
@@ -1195,6 +1203,7 @@ impl Relayer {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         coord_comms: Option<&CoordinatorChannels>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
         match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
@@ -1266,7 +1275,13 @@ impl Relayer {
             &_local_peer,
             network_result.pushed_transactions.len()
         );
-        let new_txs = Relayer::process_transactions(network_result, sortdb, chainstate, mempool)?;
+        let new_txs = Relayer::process_transactions(
+            network_result,
+            sortdb,
+            chainstate,
+            mempool,
+            event_observer,
+        )?;
 
         if new_txs.len() > 0 {
             debug!(

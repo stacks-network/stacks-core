@@ -481,6 +481,7 @@ simulating a miner.
             Hash160([0; 20]),
             &coinbase_tx,
             core::BLOCK_LIMIT_MAINNET.clone(),
+            None,
         );
 
         println!(

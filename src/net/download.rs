@@ -2769,6 +2769,7 @@ pub mod test {
                         chainstate,
                         mempool,
                         None,
+                        None,
                     )
                 })
                 .unwrap();
@@ -3590,6 +3591,7 @@ pub mod test {
                                             Hash160([i as u8; 20]),
                                             &coinbase_tx,
                                             ExecutionCost::max_value(),
+                                            None,
                                         )
                                         .unwrap();
                                     (anchored_block, vec![])
