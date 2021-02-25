@@ -346,7 +346,11 @@ impl AttachmentsBatchStateContext {
             }
             self.inventories.insert(k, inventories);
         }
-        let mut events_ids = results.faulty_peers.iter().map(|(k, _)| *k).collect::<Vec<usize>>();
+        let mut events_ids = results
+            .faulty_peers
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 
         self
@@ -370,7 +374,11 @@ impl AttachmentsBatchStateContext {
                 }
             }
         }
-        let mut events_ids = results.faulty_peers.iter().map(|(k, _)| *k).collect::<Vec<usize>>();
+        let mut events_ids = results
+            .faulty_peers
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 
         self
@@ -669,17 +677,25 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     Some(state) => state,
                     None => unreachable!(),
                 };
+                debug!(
+                    "Atlas: will poll {} remaining requests",
+                    state.remaining.len()
+                );
 
                 for (event_id, request) in state.remaining.drain() {
                     match network.http.get_conversation(event_id) {
                         None => {
                             if network.http.is_connecting(event_id) {
-                                info!("Atlas: Request {} is still connecting", request);
+                                info!(
+                                    "Atlas: Request {} (event_id: {}) is still connecting",
+                                    request, event_id
+                                );
                                 pending_requests.insert(event_id, request);
                             } else {
                                 info!(
-                                    "Atlas: Request {} failed to connect. Temporarily blocking URL",
-                                    request
+                                    "Atlas: Request {} (event_id: {}) failed to connect. Temporarily blocking URL",
+                                    request,
+                                    event_id
                                 );
                                 let peer_url = request.get_url().clone();
                                 state.faulty_peers.insert(event_id, peer_url);

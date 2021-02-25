@@ -672,10 +672,14 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         }
                     }
                     if !attachments_instances.is_empty() {
+                        info!(
+                            "Atlas: {} attachment instances emitted from events",
+                            attachments_instances.len()
+                        );
                         match self.attachments_tx.send(attachments_instances) {
                             Ok(_) => {}
                             Err(e) => {
-                                error!("Error dispatching attachments {}", e);
+                                error!("Atlas: error dispatching attachments {}", e);
                                 panic!();
                             }
                         };
