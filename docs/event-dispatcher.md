@@ -128,3 +128,25 @@ Example:
   "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000"
 ]
 ```
+
+
+### `POST /drop_mempool_tx`
+
+This payload includes raw transactions newly received in the
+node's mempool.
+
+Example:
+
+```json
+{
+  "dropped_txids": ["d7b667bb93898b1d3eba4fee86617b06b95772b192f3643256dd0821b476e36f"],
+  "reason": "ReplaceByFee"
+}
+```
+
+Reason can be one of:
+
+* `ReplaceByFee` - replaced by a transaction with the same nonce, but a higher fee
+* `ReplaceAcrossFork` - replaced by a transaction with the same nonce but in the canonical fork
+* `TooExpensive` - the transaction is too expensive to include in a block
+* `StaleGarbageCollect` - transaction was dropped because it became stale
