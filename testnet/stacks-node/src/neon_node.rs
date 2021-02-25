@@ -582,9 +582,13 @@ fn spawn_peer(
             let mut disconnected = false;
             let mut num_p2p_state_machine_passes = 0;
             let mut num_inv_sync_passes = 0;
+            let mut num_download_passes = 0;
             let mut mblock_deadline = 0;
 
             while !disconnected {
+                // initial block download?
+                let ibd = sync_comms.get_ibd();
+
                 let download_backpressure = results_with_data.len() > 0;
                 let poll_ms = if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
@@ -615,6 +619,7 @@ fn spawn_peer(
                     &mut mem_pool,
                     Some(&mut dns_client),
                     download_backpressure,
+                    ibd,
                     poll_ms,
                     &handler_args,
                     &mut expected_attachments,
@@ -630,6 +635,12 @@ fn spawn_peer(
                             // inv-sync state-machine did a full pass. Notify anyone listening.
                             sync_comms.notify_inv_sync_pass();
                             num_inv_sync_passes = network_result.num_inv_sync_passes;
+                        }
+
+                        if num_download_passes < network_result.num_download_passes {
+                            // download state-machine did a full pass.  Notify anyone listening.
+                            sync_comms.notify_download_pass();
+                            num_download_passes = network_result.num_download_passes;
                         }
 
                         if network_result.has_data_to_store() {
