@@ -4,6 +4,7 @@ use crate::{
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
+use ctrlc as termination;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -17,7 +18,9 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainS
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
 use std::thread;
 use stx_genesis::GenesisData;
 
@@ -98,6 +101,15 @@ impl RunLoop {
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
+
+        let should_keep_running = Arc::new(AtomicBool::new(true));
+        let keep_running_writer = should_keep_running.clone();
+
+        termination::set_handler(move || {
+            info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
+            keep_running_writer.store(false, Ordering::SeqCst);
+        })
+        .expect("Error setting termination handler");
 
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(
@@ -239,7 +251,7 @@ impl RunLoop {
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
 
-        thread::Builder::new()
+        let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
                 ChainsCoordinator::run(
@@ -282,6 +294,7 @@ impl RunLoop {
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
+                should_keep_running.clone(),
             )
         } else {
             node.into_initialized_node(
@@ -291,6 +304,7 @@ impl RunLoop {
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
+                should_keep_running.clone(),
             )
         };
 
@@ -319,6 +333,22 @@ impl RunLoop {
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
 
         loop {
+            // Orchestrating graceful termination
+            if !should_keep_running.load(Ordering::SeqCst) {
+                // The p2p thread relies on the same atomic_bool, it will
+                // discontinue its execution after completing its ongoing runloop epoch.
+                info!("Terminating p2p process");
+                info!("Terminating relayer");
+                info!("Terminating chains-coordinator");
+                coordinator_senders.stop_chains_coordinator();
+
+                coordinator_thread_handle.join().unwrap();
+                node.relayer_thread_handle.join().unwrap();
+                node.p2p_thread_handle.join().unwrap();
+
+                info!("Exiting stacks-node");
+                break;
+            }
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions

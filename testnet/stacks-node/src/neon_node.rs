@@ -7,7 +7,10 @@ use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
@@ -84,6 +87,7 @@ enum RelayerDirective {
     RunTenure(RegisteredKey, BlockSnapshot),
     RegisterKey(BlockSnapshot),
     RunMicroblockTenure,
+    Exit,
 }
 
 pub struct InitializedNeonNode {
@@ -95,6 +99,8 @@ pub struct InitializedNeonNode {
     is_miner: bool,
     pub atlas_config: AtlasConfig,
     leader_key_registration_state: LeaderKeyRegistrationState,
+    pub p2p_thread_handle: JoinHandle<()>,
+    pub relayer_thread_handle: JoinHandle<()>,
 }
 
 pub struct NeonGenesisNode {
@@ -541,6 +547,7 @@ fn spawn_peer(
     mut sync_comms: PoxSyncWatchdogComms,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
+    should_keep_running: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -579,16 +586,14 @@ fn spawn_peer(
                 ..RPCHandlerArgs::default()
             };
 
-            let mut disconnected = false;
             let mut num_p2p_state_machine_passes = 0;
             let mut num_inv_sync_passes = 0;
             let mut num_download_passes = 0;
             let mut mblock_deadline = 0;
 
-            while !disconnected {
+            while should_keep_running.load(Ordering::SeqCst) {
                 // initial block download?
                 let ibd = sync_comms.get_ibd();
-
                 let download_backpressure = results_with_data.len() > 0;
                 let poll_ms = if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
@@ -684,7 +689,7 @@ fn spawn_peer(
                             }
                             TrySendError::Disconnected(_) => {
                                 info!("P2P: Relayer hang up with p2p channel");
-                                disconnected = true;
+                                should_keep_running.store(false, Ordering::SeqCst);
                                 break;
                             }
                         }
@@ -693,6 +698,8 @@ fn spawn_peer(
                     }
                 }
             }
+
+            relay_channel.try_send(RelayerDirective::Exit).unwrap();
             debug!("P2P thread exit!");
         })
         .unwrap();
@@ -722,7 +729,7 @@ fn spawn_miner_relayer(
     burnchain: Burnchain,
     coord_comms: CoordinatorChannels,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
-) -> Result<(), NetError> {
+) -> Result<JoinHandle<()>, NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
@@ -755,7 +762,7 @@ fn spawn_miner_relayer(
     let mut miner_tip = None;
     let mut last_microblock_tenure_time = 0;
 
-    let _relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
+    let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -975,12 +982,13 @@ fn spawn_miner_relayer(
                     // synchronize unconfirmed tx index to p2p thread
                     send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
+                RelayerDirective::Exit => break
             }
         }
         debug!("Relayer exit!");
     }).unwrap();
 
-    Ok(())
+    Ok(relayer_handle)
 }
 
 enum LeaderKeyRegistrationState {
@@ -1002,6 +1010,7 @@ impl InitializedNeonNode {
         burnchain: Burnchain,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
         atlas_config: AtlasConfig,
+        should_keep_running: Arc<AtomicBool>,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1152,7 +1161,7 @@ impl InitializedNeonNode {
         };
 
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
-        spawn_miner_relayer(
+        let relayer_thread_handle = spawn_miner_relayer(
             config.is_mainnet(),
             config.burnchain.chain_id,
             relayer,
@@ -1170,7 +1179,7 @@ impl InitializedNeonNode {
         )
         .expect("Failed to initialize mine/relay thread");
 
-        spawn_peer(
+        let p2p_thread_handle = spawn_peer(
             config.is_mainnet(),
             p2p_net,
             &p2p_sock,
@@ -1181,6 +1190,7 @@ impl InitializedNeonNode {
             sync_comms,
             attachments_rx,
             shared_unconfirmed_txs,
+            should_keep_running,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1201,6 +1211,8 @@ impl InitializedNeonNode {
             sleep_before_tenure,
             atlas_config,
             leader_key_registration_state,
+            p2p_thread_handle,
+            relayer_thread_handle,
         }
     }
 
@@ -1853,6 +1865,7 @@ impl NeonGenesisNode {
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
         atlas_config: AtlasConfig,
+        should_keep_running: Arc<AtomicBool>,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1870,6 +1883,7 @@ impl NeonGenesisNode {
             self.burnchain,
             attachments_rx,
             atlas_config,
+            should_keep_running,
         )
     }
 
@@ -1881,6 +1895,7 @@ impl NeonGenesisNode {
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
         atlas_config: AtlasConfig,
+        should_keep_running: Arc<AtomicBool>,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1898,6 +1913,7 @@ impl NeonGenesisNode {
             self.burnchain,
             attachments_rx,
             atlas_config,
+            should_keep_running,
         )
     }
 }
