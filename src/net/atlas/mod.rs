@@ -7,9 +7,9 @@ pub use self::download::AttachmentsDownloader;
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
+use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use burnchains::Txid;
 use net::StacksMessageCodec;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
