@@ -200,6 +200,7 @@ fn spawn_peer(
                     &mut mem_pool,
                     None,
                     false,
+                    false,
                     poll_timeout,
                     &handler_args,
                     &mut attachments,
