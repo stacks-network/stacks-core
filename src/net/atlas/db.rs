@@ -24,6 +24,7 @@ use vm::types::QualifiedContractIdentifier;
 
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::StacksBlockId;
+use burnchains::Txid;
 use net::StacksMessageCodec;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
@@ -51,7 +52,8 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
         metadata TEXT NOT NULL,
-        contract_id STRING NOT NULL
+        contract_id STRING NOT NULL,
+        tx_id STRING NOT NULL
     );"#,
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
@@ -74,6 +76,8 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let metadata: String = row.get_unwrap("metadata");
         let contract_id = QualifiedContractIdentifier::from_column(row, "contract_id")?;
+        let hex_tx_id: String = row.get_unwrap("tx_id");
+        let tx_id = Txid::from_hex(&hex_tx_id).map_err(|_| db_error::TypeError)?;
 
         Ok(AttachmentInstance {
             content_hash,
@@ -83,6 +87,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             block_height,
             metadata,
             contract_id,
+            tx_id,
         })
     }
 }
@@ -391,10 +396,11 @@ impl AtlasDB {
         is_available: bool,
     ) -> Result<(), db_error> {
         let hex_content_hash = to_hex(&attachment.content_hash.0[..]);
+        let hex_tx_id = to_hex(&attachment.tx_id.0[..]);
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id, tx_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             &[
                 &hex_content_hash as &dyn ToSql,
                 &now as &dyn ToSql,
@@ -406,6 +412,7 @@ impl AtlasDB {
                 &attachment.consensus_hash as &dyn ToSql,
                 &attachment.block_header_hash as &dyn ToSql,
                 &attachment.contract_id.to_string() as &dyn ToSql,
+                &hex_tx_id as &dyn ToSql,
             ]
         );
         res.map_err(db_error::SqliteError)?;

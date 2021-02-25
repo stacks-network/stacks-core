@@ -3,6 +3,7 @@ use super::download::{
     BatchedRequestsResult, ReliabilityReport,
 };
 use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+use burnchains::Txid;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
@@ -39,6 +40,7 @@ fn new_attachment_instance_from(
         metadata: "".to_string(),
         contract_id: QualifiedContractIdentifier::transient(),
         block_header_hash: BlockHeaderHash([0x00; 32]),
+        tx_id: Txid([0; 32]),
     }
 }
 
@@ -146,6 +148,7 @@ fn test_attachment_instance_parsing() {
         &consensus_hash,
         block_header_hash.clone(),
         block_height,
+        Txid([0; 32]),
     )
     .unwrap();
     assert_eq!(attachment_instance_1.attachment_index, 1);
@@ -172,6 +175,7 @@ fn test_attachment_instance_parsing() {
         &consensus_hash,
         block_header_hash.clone(),
         block_height,
+        Txid([0; 32]),
     )
     .unwrap();
     assert_eq!(attachment_instance_2.attachment_index, 2);
@@ -198,6 +202,7 @@ fn test_attachment_instance_parsing() {
         &consensus_hash,
         block_header_hash.clone(),
         block_height,
+        Txid([0; 32]),
     )
     .unwrap();
     assert_eq!(attachment_instance_3.attachment_index, 3);
@@ -255,6 +260,7 @@ fn test_attachment_instance_parsing() {
             &consensus_hash,
             block_header_hash.clone(),
             block_height,
+            Txid([0; 32]),
         )
         .is_none());
     }

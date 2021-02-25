@@ -192,7 +192,9 @@ impl EventObserver {
         })
     }
 
-    fn make_new_attachment_payload(attachment: &(AttachmentInstance, Attachment)) -> serde_json::Value {
+    fn make_new_attachment_payload(
+        attachment: &(AttachmentInstance, Attachment),
+    ) -> serde_json::Value {
         json!({
             "attachment_index": attachment.0.attachment_index,
             "block_header_hash": format!("0x{}", attachment.0.block_header_hash),
@@ -201,6 +203,7 @@ impl EventObserver {
             "content_hash": format!("0x{}", attachment.0.content_hash),
             "contract_id": format!("{}", attachment.0.contract_id),
             "metadata": format!("0x{}", attachment.0.metadata),
+            "tx_id": format!("0x{}", attachment.0.tx_id),
             "content": format!("0x{}", bytes_to_hex(&attachment.1.content)),
         })
     }

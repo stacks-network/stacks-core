@@ -9,6 +9,7 @@ use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use burnchains::Txid;
 use net::StacksMessageCodec;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
@@ -75,6 +76,7 @@ pub struct AttachmentInstance {
     pub block_header_hash: BlockHeaderHash,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,
+    pub tx_id: Txid,
 }
 
 impl AttachmentInstance {
@@ -90,6 +92,7 @@ impl AttachmentInstance {
         consensus_hash: &ConsensusHash,
         block_header_hash: BlockHeaderHash,
         block_height: u64,
+        tx_id: Txid,
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
@@ -127,6 +130,7 @@ impl AttachmentInstance {
                             block_height,
                             metadata,
                             contract_id: contract_id.clone(),
+                            tx_id,
                         };
                         return Some(instance);
                     }
