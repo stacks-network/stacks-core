@@ -99,6 +99,7 @@ mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     }
 
@@ -129,6 +130,25 @@ mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    async fn handle_mempool_drop_txs(
+        txs: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let dropped_txids = txs
+            .get("dropped_txids")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.as_str().unwrap().to_string());
+        let reason = txs.get("reason").unwrap().as_str().unwrap().to_string();
+
+        let mut memtxs = MEMTXS_DROPPED.lock().unwrap();
+        for new_tx in dropped_txids {
+            memtxs.push((new_tx, reason.clone()));
+        }
+        Ok(warp::http::StatusCode::OK)
+    }
+
     async fn handle_attachments(
         attachments: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -142,6 +162,10 @@ mod test_observer {
 
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
+    }
+
+    pub fn get_memtx_drops() -> Vec<(String, String)> {
+        MEMTXS_DROPPED.lock().unwrap().clone()
     }
 
     pub fn get_blocks() -> Vec<serde_json::Value> {
@@ -165,6 +189,10 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mempool_txs);
+        let mempool_drop_txs = warp::path!("drop_mempool_tx")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mempool_drop_txs);
         let new_burn_blocks = warp::path!("new_burn_block")
             .and(warp::post())
             .and(warp::body::json())
@@ -178,6 +206,7 @@ mod test_observer {
         warp::serve(
             new_blocks
                 .or(mempool_txs)
+                .or(mempool_drop_txs)
                 .or(new_burn_blocks)
                 .or(new_attachments),
         )
@@ -198,6 +227,7 @@ mod test_observer {
         BURN_BLOCKS.lock().unwrap().clear();
         NEW_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
+        MEMTXS_DROPPED.lock().unwrap().clear();
     }
 }
 
@@ -238,7 +268,8 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
+/// returns Txid string
+fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -257,6 +288,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
                 .txid()
                 .to_string()
         );
+        return res;
     } else {
         eprintln!("{}", res.text().unwrap());
         panic!("");
@@ -481,7 +513,15 @@ fn liquid_ustx_integration() {
 
     let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
 
+    let replaced_txid = submit_tx(&http_origin, &publish);
+
+    let publish = make_contract_publish(&spender_sk, 0, 1100, "caller", caller_src);
     submit_tx(&http_origin, &publish);
+
+    let dropped_txs = test_observer::get_memtx_drops();
+    assert_eq!(dropped_txs.len(), 1);
+    assert_eq!(&dropped_txs[0].1, "ReplaceByFee");
+    assert_eq!(&dropped_txs[0].0, &format!("0x{}", replaced_txid));
 
     // mine 1 burn block for the miner to issue the next block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
