@@ -97,7 +97,7 @@ Example:
   "reward_recipients": [
     {
       "recipient": "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
-      "amount": 5000
+      "amt": 5000
     }
   ],
   "burn_amount": 12000
