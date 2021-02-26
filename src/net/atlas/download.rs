@@ -269,6 +269,8 @@ impl AttachmentsBatchStateContext {
                     attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
                 for (peer_url, response) in peers_responses.iter() {
+                    // Considering the response, look for the page with the index
+                    // we're looking for.
                     let index = response
                         .pages
                         .iter()
@@ -686,13 +688,13 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     match network.http.get_conversation(event_id) {
                         None => {
                             if network.http.is_connecting(event_id) {
-                                info!(
+                                debug!(
                                     "Atlas: Request {} (event_id: {}) is still connecting",
                                     request, event_id
                                 );
                                 pending_requests.insert(event_id, request);
                             } else {
-                                info!(
+                                debug!(
                                     "Atlas: Request {} (event_id: {}) failed to connect. Temporarily blocking URL",
                                     request,
                                     event_id
@@ -705,7 +707,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                             match convo.try_get_response() {
                                 None => {
                                     // still waiting
-                                    info!(
+                                    debug!(
                                         "Atlas: Request {} (event_id: {}) is still waiting for a response",
                                         request,
                                         event_id
@@ -720,7 +722,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                         state.faulty_peers.insert(event_id, peer_url);
                                         continue;
                                     }
-                                    info!(
+                                    debug!(
                                         "Atlas: Request {} (event_id: {}) received response {:?}",
                                         request, event_id, response
                                     );
