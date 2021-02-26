@@ -80,7 +80,7 @@ pub struct AttachmentInstance {
 }
 
 impl AttachmentInstance {
-    const ATTACHMENTS_INV_PAGE_SIZE: u32 = 8;
+    const ATTACHMENTS_INV_PAGE_SIZE: u32 = 64;
 
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
         StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
