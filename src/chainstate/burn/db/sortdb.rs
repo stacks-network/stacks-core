@@ -45,7 +45,6 @@ use chainstate::burn::{
 };
 
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
@@ -431,7 +430,9 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
     }
 }
 
-const BURNDB_SETUP: &'static [&'static str] = &[
+pub const SORTITION_DB_VERSION: &'static str = "1";
+
+const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -470,22 +471,18 @@ const BURNDB_SETUP: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    r#"
-    CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
-    CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
-    CREATE UNIQUE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);
-    CREATE UNIQUE INDEX snapshots_burn_hashes ON snapshots(block_height,burn_header_hash)
-    CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);
-    CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);
-    CREATE INDEX arrival_indexes ON snapshots(arrival_index);
-    "#,
+    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
+    "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
+    "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
       accepted_ops TEXT NOT NULL,
       consumed_keys TEXT NOT NULL
-    );
-    "#,
+    );"#,
     r#"
     -- all leader keys registered in the blockchain.
     -- contains pointers to the burn block and fork in which they occur
@@ -592,14 +589,9 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         stacks_block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL,
         PRIMARY KEY(consensus_hash, stacks_block_hash)
-    );
-    CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);
-    "#,
-    r#"
-    CREATE TABLE db_config(
-        version TEXT NOT NULL
-    );
-    "#,
+    );"#,
+    "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
+    "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
 
 pub struct SortitionDB {
@@ -2211,13 +2203,13 @@ impl SortitionDB {
             BurnchainHeaderHash::sentinel()
         );
 
-        for row_text in BURNDB_SETUP {
-            db_tx.execute(row_text, NO_PARAMS)?;
+        for row_text in SORTITION_DB_INITIAL_SCHEMA {
+            db_tx.execute_batch(row_text)?;
         }
 
         db_tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&CHAINSTATE_VERSION],
+            &[&SORTITION_DB_VERSION],
         )?;
 
         db_tx.instantiate_index()?;
@@ -3152,21 +3144,24 @@ impl SortitionDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
+        let (sortition_id, winning_txid) = match SortitionDB::get_block_snapshot_consensus(
+            conn,
+            consensus_hash,
+        )? {
             Some(sn) => {
                 if !sn.pox_valid {
                     warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
                     return Err(db_error::InvalidPoxSortition);
                 }
-                sn.sortition_id
+                (sn.sortition_id, sn.winning_block_txid)
             }
             None => {
                 return Ok(None);
             }
         };
 
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&sortition_id, &block_hash];
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
+        let args: [&dyn ToSql; 3] = [&sortition_id, &block_hash, &winning_txid];
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
         })

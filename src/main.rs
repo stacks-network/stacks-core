@@ -519,7 +519,7 @@ simulating a miner.
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let mempool_db =
+        let mut mempool_db =
             MemPoolDB::open(true, chain_id, &chain_state_path).expect("Failed to open mempool db");
 
         let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
@@ -550,7 +550,7 @@ simulating a miner.
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
-            &mempool_db,
+            &mut mempool_db,
             &parent_header,
             chain_tip.total_burn,
             VRFProof::empty(),
