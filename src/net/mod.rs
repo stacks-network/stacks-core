@@ -2301,7 +2301,7 @@ pub mod test {
             )
             .unwrap();
 
-            let chainstate_path = get_chainstate_path(&test_path);
+            let chainstate_path = get_chainstate_path_str(&test_path);
             let peerdb_path = format!("{}/peers.sqlite", &test_path);
 
             let mut peerdb = PeerDB::connect(

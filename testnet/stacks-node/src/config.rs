@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
 
 use rand::RngCore;
 
@@ -828,38 +829,71 @@ impl Config {
         }
     }
 
-    pub fn get_burnchain_path(&self) -> String {
-        format!(
-            "{}/{}/burnchain/",
-            self.node.working_dir, self.burnchain.mode
-        )
+    fn get_burnchain_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("burnchain");
+        path
+    }
+
+    fn get_chainstate_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("chainstate");
+        path
+    }
+
+    pub fn get_chainstate_path_str(&self) -> String {
+        self.get_chainstate_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
+    }
+
+    pub fn get_burnchain_path_str(&self) -> String {
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_path(&self) -> String {
-        format!("{}", self.get_burnchain_path())
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        format!("{}sortition/", self.get_burnchain_path(),)
+        let mut path = self.get_burnchain_path();
+        path.push("sortition");
+        path.to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
-    pub fn get_spv_headers_path(&self) -> String {
-        format!("{}headers.sqlite", self.get_burnchain_path())
+    pub fn get_spv_headers_file_path(&self) -> String {
+        let mut path = self.get_burnchain_path();
+        path.set_file_name("headers.sqlite");
+        path.to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
-    pub fn get_chainstate_path(&self) -> String {
-        format!(
-            "{}/{}/chainstate/",
-            self.node.working_dir, self.burnchain.mode
-        )
+    pub fn get_peer_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("peer.sqlite");
+        path.to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
-    pub fn get_peer_db_path(&self) -> String {
-        format!("{}/peer.sqlite", self.get_chainstate_path())
-    }
-
-    pub fn get_atlas_db_path(&self) -> String {
-        format!("{}/atlas.sqlite", self.get_chainstate_path())
+    pub fn get_atlas_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("atlas.sqlite");
+        path.to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {

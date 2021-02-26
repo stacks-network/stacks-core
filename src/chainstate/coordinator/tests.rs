@@ -380,13 +380,13 @@ pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> Burncha
     BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap()
 }
 
-pub fn get_chainstate_path(path: &str) -> String {
+pub fn get_chainstate_path_str(path: &str) -> String {
     format!("{}/chainstate/", path)
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
     let (chainstate, _) =
-        StacksChainState::open(false, 0x80000000, &get_chainstate_path(path)).unwrap();
+        StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path)).unwrap();
     chainstate
 }
 
