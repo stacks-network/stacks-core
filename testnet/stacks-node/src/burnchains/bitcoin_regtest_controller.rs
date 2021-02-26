@@ -191,7 +191,8 @@ impl BitcoinRegtestController {
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
     ) -> Self {
-        std::fs::create_dir_all(&config.get_burnchain_path_str()).expect("Unable to create workdir");
+        std::fs::create_dir_all(&config.get_burnchain_path_str())
+            .expect("Unable to create workdir");
         let (network, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(

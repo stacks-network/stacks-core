@@ -897,7 +897,8 @@ fn microblock_integration_test() {
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
-            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str()).unwrap();
+            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str())
+                .unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)

@@ -867,33 +867,25 @@ impl Config {
     pub fn get_burn_db_file_path(&self) -> String {
         let mut path = self.get_burnchain_path();
         path.push("sortition");
-        path.to_str()
-            .expect("Unable to produce path")
-            .to_string()
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn get_spv_headers_file_path(&self) -> String {
         let mut path = self.get_burnchain_path();
         path.set_file_name("headers.sqlite");
-        path.to_str()
-            .expect("Unable to produce path")
-            .to_string()
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn get_peer_db_file_path(&self) -> String {
         let mut path = self.get_chainstate_path();
         path.set_file_name("peer.sqlite");
-        path.to_str()
-            .expect("Unable to produce path")
-            .to_string()
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn get_atlas_db_file_path(&self) -> String {
         let mut path = self.get_chainstate_path();
         path.set_file_name("atlas.sqlite");
-        path.to_str()
-            .expect("Unable to produce path")
-            .to_string()
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {

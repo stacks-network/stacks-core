@@ -1031,7 +1031,11 @@ impl InitializedNeonNode {
             Some(&initial_neighbors),
         )
         .map_err(|e| {
-            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_file_path(), &e);
+            eprintln!(
+                "Failed to open {}: {:?}",
+                &config.get_peer_db_file_path(),
+                &e
+            );
             panic!();
         })
         .unwrap();
@@ -1070,7 +1074,8 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
+        let atlasdb =
+            AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
