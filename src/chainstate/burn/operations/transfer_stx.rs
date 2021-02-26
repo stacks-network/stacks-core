@@ -37,9 +37,9 @@ use burnchains::Txid;
 use burnchains::{BurnchainRecipient, BurnchainSigner};
 use burnchains::{BurnchainTransaction, PublicKey};
 
-use net::codec::write_next;
+use crate::codec::write_next;
 use net::Error as net_error;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 use util::hash::to_hex;

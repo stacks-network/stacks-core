@@ -7,7 +7,7 @@ use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksTransaction,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use stacks::net::StacksMessageCodec;
+use stacks::codec::StacksMessageCodec;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::util::hash::hex_bytes;
 use stacks::vm::clarity::ClarityConnection;

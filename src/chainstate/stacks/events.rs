@@ -17,7 +17,7 @@
 use super::StacksAddress;
 use burnchains::Txid;
 use chainstate::stacks::StacksTransaction;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 use vm::analysis::ContractAnalysis;
 use vm::costs::ExecutionCost;
 use vm::types::{

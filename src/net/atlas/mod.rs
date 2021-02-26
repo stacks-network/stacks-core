@@ -9,7 +9,7 @@ use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 

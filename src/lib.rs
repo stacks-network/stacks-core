@@ -76,6 +76,9 @@ pub mod vm;
 #[macro_use]
 pub mod chainstate;
 
+#[macro_use]
+pub mod codec;
+
 #[cfg(test)]
 extern crate stx_genesis;
 
@@ -83,6 +86,7 @@ pub mod address;
 pub mod burnchains;
 pub mod core;
 pub mod deps;
+pub mod types;
 
 pub mod clarity;
 

@@ -68,7 +68,7 @@ pub trait MarfTrieId:
     + rusqlite::types::FromSql
     + std::convert::From<[u8; 32]>
     + std::convert::From<MARFValue>
-    + ::net::StacksMessageCodec
+    + crate::codec::StacksMessageCodec
 {
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];

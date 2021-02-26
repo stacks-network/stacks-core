@@ -19,122 +19,46 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::prelude::*;
 use std::io::Read;
+use std::mem;
+
+use rand;
+use rand::Rng;
+use sha2::Digest;
+use sha2::Sha512Trunc256;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainView;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
-
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::ConsensusHash;
-
+use chainstate::stacks::MAX_BLOCK_LEN;
 use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksTransaction;
-
-use chainstate::stacks::MAX_BLOCK_LEN;
-
 use chainstate::stacks::StacksPublicKey;
-
+use chainstate::stacks::StacksTransaction;
+use core::PEER_VERSION_TESTNET;
+use net::*;
+use net::db::LocalPeer;
+use net::Error as net_error;
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::MerkleHashFunc;
-use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-
-use net::db::LocalPeer;
-use net::Error as net_error;
-use net::*;
-
-use core::PEER_VERSION_TESTNET;
-
-use sha2::Digest;
-use sha2::Sha512Trunc256;
-
-use util::secp256k1::MessageSignature;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-
+use util::hash::to_hex;
 use util::log;
 use util::retry::BoundReader;
+use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::secp256k1::MessageSignature;
 
-use util::hash::to_hex;
-
-use rand;
-use rand::Rng;
-
-use std::mem;
+use crate::codec::StacksMessageCodec;
 
 // macro for determining how big an inv bitvec can be, given its bitlen
 macro_rules! BITVEC_LEN {
     ($bitvec:expr) => {
         (($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32
     };
-}
-
-pub fn write_next<T: StacksMessageCodec, W: Write>(fd: &mut W, item: &T) -> Result<(), net_error> {
-    item.consensus_serialize(fd)
-}
-
-pub fn read_next<T: StacksMessageCodec, R: Read>(fd: &mut R) -> Result<T, net_error> {
-    let item: T = T::consensus_deserialize(fd)?;
-    Ok(item)
-}
-
-fn read_next_vec<T: StacksMessageCodec + Sized, R: Read>(
-    fd: &mut R,
-    num_items: u32,
-    max_items: u32,
-) -> Result<Vec<T>, net_error> {
-    let len = u32::consensus_deserialize(fd)?;
-
-    if max_items > 0 {
-        if len > max_items {
-            // too many items
-            return Err(net_error::DeserializeError(format!(
-                "Array has too many items ({} > {}",
-                len, max_items
-            )));
-        }
-    } else {
-        if len != num_items {
-            // inexact item count
-            return Err(net_error::DeserializeError(format!(
-                "Array has incorrect number of items ({} != {})",
-                len, num_items
-            )));
-        }
-    }
-
-    if (mem::size_of::<T>() as u128) * (len as u128) > MAX_MESSAGE_LEN as u128 {
-        return Err(net_error::DeserializeError(format!(
-            "Message occupies too many bytes (tried to allocate {}*{}={})",
-            mem::size_of::<T>() as u128,
-            len,
-            (mem::size_of::<T>() as u128) * (len as u128)
-        )));
-    }
-
-    let mut ret = Vec::with_capacity(len as usize);
-    for _i in 0..len {
-        let next_item = T::consensus_deserialize(fd)?;
-        ret.push(next_item);
-    }
-
-    Ok(ret)
-}
-
-pub fn read_next_at_most<R: Read, T: StacksMessageCodec + Sized>(
-    fd: &mut R,
-    max_items: u32,
-) -> Result<Vec<T>, net_error> {
-    read_next_vec::<T, R>(fd, 0, max_items)
-}
-
-pub fn read_next_exact<R: Read, T: StacksMessageCodec + Sized>(
-    fd: &mut R,
-    num_items: u32,
-) -> Result<Vec<T>, net_error> {
-    read_next_vec::<T, R>(fd, num_items, 0)
 }
 
 macro_rules! impl_stacks_message_codec_for_int {
@@ -180,15 +104,15 @@ where
 {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         let len = self.len() as u32;
-        write_next(fd, &len)?;
+        crate::codec::write_next(fd, &len)?;
         for i in 0..self.len() {
-            write_next(fd, &self[i])?;
+            crate::codec::write_next(fd, &self[i])?;
         }
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Vec<T>, net_error> {
-        read_next_at_most::<R, T>(fd, u32::max_value())
+        crate::codec::read_next_at_most::<R, T>(fd, u32::max_value())
     }
 }
 
@@ -287,30 +211,30 @@ impl Preamble {
 
 impl StacksMessageCodec for Preamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.peer_version)?;
-        write_next(fd, &self.network_id)?;
-        write_next(fd, &self.seq)?;
-        write_next(fd, &self.burn_block_height)?;
-        write_next(fd, &self.burn_block_hash)?;
-        write_next(fd, &self.burn_stable_block_height)?;
-        write_next(fd, &self.burn_stable_block_hash)?;
-        write_next(fd, &self.additional_data)?;
-        write_next(fd, &self.signature)?;
-        write_next(fd, &self.payload_len)?;
+        crate::codec::write_next(fd, &self.peer_version)?;
+        crate::codec::write_next(fd, &self.network_id)?;
+        crate::codec::write_next(fd, &self.seq)?;
+        crate::codec::write_next(fd, &self.burn_block_height)?;
+        crate::codec::write_next(fd, &self.burn_block_hash)?;
+        crate::codec::write_next(fd, &self.burn_stable_block_height)?;
+        crate::codec::write_next(fd, &self.burn_stable_block_hash)?;
+        crate::codec::write_next(fd, &self.additional_data)?;
+        crate::codec::write_next(fd, &self.signature)?;
+        crate::codec::write_next(fd, &self.payload_len)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Preamble, net_error> {
-        let peer_version: u32 = read_next(fd)?;
-        let network_id: u32 = read_next(fd)?;
-        let seq: u32 = read_next(fd)?;
-        let burn_block_height: u64 = read_next(fd)?;
-        let burn_block_hash: BurnchainHeaderHash = read_next(fd)?;
-        let burn_stable_block_height: u64 = read_next(fd)?;
-        let burn_stable_block_hash: BurnchainHeaderHash = read_next(fd)?;
-        let additional_data: u32 = read_next(fd)?;
-        let signature: MessageSignature = read_next(fd)?;
-        let payload_len: u32 = read_next(fd)?;
+        let peer_version: u32 = crate::codec::read_next(fd)?;
+        let network_id: u32 = crate::codec::read_next(fd)?;
+        let seq: u32 = crate::codec::read_next(fd)?;
+        let burn_block_height: u64 = crate::codec::read_next(fd)?;
+        let burn_block_hash: BurnchainHeaderHash = crate::codec::read_next(fd)?;
+        let burn_stable_block_height: u64 = crate::codec::read_next(fd)?;
+        let burn_stable_block_hash: BurnchainHeaderHash = crate::codec::read_next(fd)?;
+        let additional_data: u32 = crate::codec::read_next(fd)?;
+        let signature: MessageSignature = crate::codec::read_next(fd)?;
+        let payload_len: u32 = crate::codec::read_next(fd)?;
 
         // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type identifier (1 byte)
         if payload_len < 5 {
@@ -358,14 +282,14 @@ impl StacksMessageCodec for Preamble {
 
 impl StacksMessageCodec for GetBlocksInv {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.consensus_hash)?;
-        write_next(fd, &self.num_blocks)?;
+        crate::codec::write_next(fd, &self.consensus_hash)?;
+        crate::codec::write_next(fd, &self.num_blocks)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetBlocksInv, net_error> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let num_blocks: u16 = read_next(fd)?;
+        let consensus_hash: ConsensusHash = crate::codec::read_next(fd)?;
+        let num_blocks: u16 = crate::codec::read_next(fd)?;
         if num_blocks == 0 {
             return Err(net_error::DeserializeError(
                 "GetBlocksInv must request at least one block".to_string(),
@@ -381,22 +305,22 @@ impl StacksMessageCodec for GetBlocksInv {
 
 impl StacksMessageCodec for BlocksInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.bitlen)?;
-        write_next(fd, &self.block_bitvec)?;
-        write_next(fd, &self.microblocks_bitvec)?;
+        crate::codec::write_next(fd, &self.bitlen)?;
+        crate::codec::write_next(fd, &self.block_bitvec)?;
+        crate::codec::write_next(fd, &self.microblocks_bitvec)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksInvData, net_error> {
-        let bitlen: u16 = read_next(fd)?;
+        let bitlen: u16 = crate::codec::read_next(fd)?;
         if bitlen == 0 {
             return Err(net_error::DeserializeError(
                 "BlocksInv must contain at least one block/microblock bit".to_string(),
             ));
         }
 
-        let block_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
-        let microblocks_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let block_bitvec: Vec<u8> = crate::codec::read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let microblocks_bitvec: Vec<u8> = crate::codec::read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
 
         Ok(BlocksInvData {
             bitlen,
@@ -462,14 +386,14 @@ impl BlocksInvData {
 
 impl StacksMessageCodec for GetPoxInv {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.consensus_hash)?;
-        write_next(fd, &self.num_cycles)?;
+        crate::codec::write_next(fd, &self.consensus_hash)?;
+        crate::codec::write_next(fd, &self.num_cycles)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetPoxInv, net_error> {
-        let ch: ConsensusHash = read_next(fd)?;
-        let num_rcs: u16 = read_next(fd)?;
+        let ch: ConsensusHash = crate::codec::read_next(fd)?;
+        let num_rcs: u16 = crate::codec::read_next(fd)?;
         if num_rcs == 0 || num_rcs as u64 > GETPOXINV_MAX_BITLEN {
             return Err(net_error::DeserializeError(
                 "Invalid GetPoxInv bitlen".to_string(),
@@ -496,20 +420,20 @@ impl PoxInvData {
 
 impl StacksMessageCodec for PoxInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.bitlen)?;
-        write_next(fd, &self.pox_bitvec)?;
+        crate::codec::write_next(fd, &self.bitlen)?;
+        crate::codec::write_next(fd, &self.pox_bitvec)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PoxInvData, net_error> {
-        let bitlen: u16 = read_next(fd)?;
+        let bitlen: u16 = crate::codec::read_next(fd)?;
         if bitlen == 0 || (bitlen as u64) > GETPOXINV_MAX_BITLEN {
             return Err(net_error::DeserializeError(
                 "Invalid PoxInvData bitlen".to_string(),
             ));
         }
 
-        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let pox_bitvec: Vec<u8> = crate::codec::read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
         Ok(PoxInvData {
             bitlen: bitlen,
             pox_bitvec: pox_bitvec,
@@ -519,29 +443,29 @@ impl StacksMessageCodec for PoxInvData {
 
 impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
+        crate::codec::write_next(fd, &self.0)?;
+        crate::codec::write_next(fd, &self.1)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(
         fd: &mut R,
     ) -> Result<(ConsensusHash, BurnchainHeaderHash), net_error> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
+        let consensus_hash: ConsensusHash = crate::codec::read_next(fd)?;
+        let burn_header_hash: BurnchainHeaderHash = crate::codec::read_next(fd)?;
         Ok((consensus_hash, burn_header_hash))
     }
 }
 
 impl StacksMessageCodec for BlocksAvailableData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.available)?;
+        crate::codec::write_next(fd, &self.available)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksAvailableData, net_error> {
         let available: Vec<(ConsensusHash, BurnchainHeaderHash)> =
-            read_next_at_most::<_, (ConsensusHash, BurnchainHeaderHash)>(
+            crate::codec::read_next_at_most::<_, (ConsensusHash, BurnchainHeaderHash)>(
                 fd,
                 BLOCKS_AVAILABLE_MAX_LEN,
             )?;
@@ -572,18 +496,18 @@ impl BlocksAvailableData {
 
 impl StacksMessageCodec for (ConsensusHash, StacksBlock) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
+        crate::codec::write_next(fd, &self.0)?;
+        crate::codec::write_next(fd, &self.1)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(
         fd: &mut R,
     ) -> Result<(ConsensusHash, StacksBlock), net_error> {
-        let ch: ConsensusHash = read_next(fd)?;
+        let ch: ConsensusHash = crate::codec::read_next(fd)?;
         let block = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
-            read_next(&mut bound_read)
+            crate::codec::read_next(&mut bound_read)
         }?;
 
         Ok((ch, block))
@@ -602,7 +526,7 @@ impl BlocksData {
 
 impl StacksMessageCodec for BlocksData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.blocks)?;
+        crate::codec::write_next(fd, &self.blocks)?;
         Ok(())
     }
 
@@ -610,7 +534,7 @@ impl StacksMessageCodec for BlocksData {
         let blocks: Vec<(ConsensusHash, StacksBlock)> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next_at_most::<_, (ConsensusHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
+            crate::codec::read_next_at_most::<_, (ConsensusHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
         }?;
 
         // only valid if there are no dups
@@ -632,17 +556,17 @@ impl StacksMessageCodec for BlocksData {
 
 impl StacksMessageCodec for MicroblocksData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.index_anchor_block)?;
-        write_next(fd, &self.microblocks)?;
+        crate::codec::write_next(fd, &self.index_anchor_block)?;
+        crate::codec::write_next(fd, &self.microblocks)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MicroblocksData, net_error> {
-        let index_anchor_block = read_next(fd)?;
+        let index_anchor_block = crate::codec::read_next(fd)?;
         let microblocks: Vec<StacksMicroblock> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
+            crate::codec::read_next(&mut bound_read)
         }?;
 
         Ok(MicroblocksData {
@@ -664,16 +588,16 @@ impl NeighborAddress {
 
 impl StacksMessageCodec for NeighborAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.addrbytes)?;
-        write_next(fd, &self.port)?;
-        write_next(fd, &self.public_key_hash)?;
+        crate::codec::write_next(fd, &self.addrbytes)?;
+        crate::codec::write_next(fd, &self.port)?;
+        crate::codec::write_next(fd, &self.public_key_hash)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<NeighborAddress, net_error> {
-        let addrbytes: PeerAddress = read_next(fd)?;
-        let port: u16 = read_next(fd)?;
-        let public_key_hash: Hash160 = read_next(fd)?;
+        let addrbytes: PeerAddress = crate::codec::read_next(fd)?;
+        let port: u16 = crate::codec::read_next(fd)?;
+        let public_key_hash: Hash160 = crate::codec::read_next(fd)?;
 
         Ok(NeighborAddress {
             addrbytes,
@@ -685,14 +609,14 @@ impl StacksMessageCodec for NeighborAddress {
 
 impl StacksMessageCodec for NeighborsData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.neighbors)?;
+        crate::codec::write_next(fd, &self.neighbors)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<NeighborsData, net_error> {
         // don't allow list of more than the pre-set number of neighbors
         let neighbors: Vec<NeighborAddress> =
-            read_next_at_most::<_, NeighborAddress>(fd, MAX_NEIGHBORS_DATA_LEN)?;
+            crate::codec::read_next_at_most::<_, NeighborAddress>(fd, MAX_NEIGHBORS_DATA_LEN)?;
         Ok(NeighborsData { neighbors })
     }
 }
@@ -731,28 +655,28 @@ impl HandshakeData {
 
 impl StacksMessageCodec for HandshakeData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.addrbytes)?;
-        write_next(fd, &self.port)?;
-        write_next(fd, &self.services)?;
-        write_next(fd, &self.node_public_key)?;
-        write_next(fd, &self.expire_block_height)?;
-        write_next(fd, &self.data_url)?;
+        crate::codec::write_next(fd, &self.addrbytes)?;
+        crate::codec::write_next(fd, &self.port)?;
+        crate::codec::write_next(fd, &self.services)?;
+        crate::codec::write_next(fd, &self.node_public_key)?;
+        crate::codec::write_next(fd, &self.expire_block_height)?;
+        crate::codec::write_next(fd, &self.data_url)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeData, net_error> {
-        let addrbytes: PeerAddress = read_next(fd)?;
-        let port: u16 = read_next(fd)?;
+        let addrbytes: PeerAddress = crate::codec::read_next(fd)?;
+        let port: u16 = crate::codec::read_next(fd)?;
         if port == 0 {
             return Err(net_error::DeserializeError(
                 "Invalid handshake data: port is 0".to_string(),
             ));
         }
 
-        let services: u16 = read_next(fd)?;
-        let node_public_key: StacksPublicKeyBuffer = read_next(fd)?;
-        let expire_block_height: u64 = read_next(fd)?;
-        let data_url: UrlString = read_next(fd)?;
+        let services: u16 = crate::codec::read_next(fd)?;
+        let node_public_key: StacksPublicKeyBuffer = crate::codec::read_next(fd)?;
+        let expire_block_height: u64 = crate::codec::read_next(fd)?;
+        let data_url: UrlString = crate::codec::read_next(fd)?;
         Ok(HandshakeData {
             addrbytes,
             port,
@@ -775,14 +699,14 @@ impl HandshakeAcceptData {
 
 impl StacksMessageCodec for HandshakeAcceptData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.handshake)?;
-        write_next(fd, &self.heartbeat_interval)?;
+        crate::codec::write_next(fd, &self.handshake)?;
+        crate::codec::write_next(fd, &self.heartbeat_interval)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeAcceptData, net_error> {
-        let handshake: HandshakeData = read_next(fd)?;
-        let heartbeat_interval: u32 = read_next(fd)?;
+        let handshake: HandshakeData = crate::codec::read_next(fd)?;
+        let heartbeat_interval: u32 = crate::codec::read_next(fd)?;
         Ok(HandshakeAcceptData {
             handshake,
             heartbeat_interval,
@@ -798,12 +722,12 @@ impl NackData {
 
 impl StacksMessageCodec for NackData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.error_code)?;
+        crate::codec::write_next(fd, &self.error_code)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<NackData, net_error> {
-        let error_code: u32 = read_next(fd)?;
+        let error_code: u32 = crate::codec::read_next(fd)?;
         Ok(NackData { error_code })
     }
 }
@@ -818,12 +742,12 @@ impl PingData {
 
 impl StacksMessageCodec for PingData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
+        crate::codec::write_next(fd, &self.nonce)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PingData, net_error> {
-        let nonce: u32 = read_next(fd)?;
+        let nonce: u32 = crate::codec::read_next(fd)?;
         Ok(PingData { nonce })
     }
 }
@@ -836,28 +760,28 @@ impl PongData {
 
 impl StacksMessageCodec for PongData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
+        crate::codec::write_next(fd, &self.nonce)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PongData, net_error> {
-        let nonce: u32 = read_next(fd)?;
+        let nonce: u32 = crate::codec::read_next(fd)?;
         Ok(PongData { nonce })
     }
 }
 
 impl StacksMessageCodec for NatPunchData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.addrbytes)?;
-        write_next(fd, &self.port)?;
-        write_next(fd, &self.nonce)?;
+        crate::codec::write_next(fd, &self.addrbytes)?;
+        crate::codec::write_next(fd, &self.port)?;
+        crate::codec::write_next(fd, &self.nonce)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<NatPunchData, net_error> {
-        let addrbytes: PeerAddress = read_next(fd)?;
-        let port: u16 = read_next(fd)?;
-        let nonce: u32 = read_next(fd)?;
+        let addrbytes: PeerAddress = crate::codec::read_next(fd)?;
+        let port: u16 = crate::codec::read_next(fd)?;
+        let nonce: u32 = crate::codec::read_next(fd)?;
         Ok(NatPunchData {
             addrbytes,
             port,
@@ -868,14 +792,14 @@ impl StacksMessageCodec for NatPunchData {
 
 impl StacksMessageCodec for RelayData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.peer)?;
-        write_next(fd, &self.seq)?;
+        crate::codec::write_next(fd, &self.peer)?;
+        crate::codec::write_next(fd, &self.seq)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<RelayData, net_error> {
-        let peer: NeighborAddress = read_next(fd)?;
-        let seq: u32 = read_next(fd)?;
+        let peer: NeighborAddress = crate::codec::read_next(fd)?;
+        let seq: u32 = crate::codec::read_next(fd)?;
         Ok(RelayData { peer, seq })
     }
 }
@@ -992,11 +916,11 @@ impl StacksMessageType {
 
 impl StacksMessageCodec for StacksMessageID {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &(*self as u8))
+        crate::codec::write_next(fd, &(*self as u8))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMessageID, net_error> {
-        let as_u8: u8 = read_next(fd)?;
+        let as_u8: u8 = crate::codec::read_next(fd)?;
         let id = match as_u8 {
             x if x == StacksMessageID::Handshake as u8 => StacksMessageID::Handshake,
             x if x == StacksMessageID::HandshakeAccept as u8 => StacksMessageID::HandshakeAccept,
@@ -1031,102 +955,102 @@ impl StacksMessageCodec for StacksMessageID {
 
 impl StacksMessageCodec for StacksMessageType {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &(self.get_message_id() as u8))?;
+        crate::codec::write_next(fd, &(self.get_message_id() as u8))?;
         match *self {
-            StacksMessageType::Handshake(ref m) => write_next(fd, m)?,
-            StacksMessageType::HandshakeAccept(ref m) => write_next(fd, m)?,
+            StacksMessageType::Handshake(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::HandshakeAccept(ref m) => crate::codec::write_next(fd, m)?,
             StacksMessageType::HandshakeReject => {}
             StacksMessageType::GetNeighbors => {}
-            StacksMessageType::Neighbors(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetPoxInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::PoxInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetBlocksInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::BlocksInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::BlocksAvailable(ref m) => write_next(fd, m)?,
-            StacksMessageType::MicroblocksAvailable(ref m) => write_next(fd, m)?,
-            StacksMessageType::Blocks(ref m) => write_next(fd, m)?,
-            StacksMessageType::Microblocks(ref m) => write_next(fd, m)?,
-            StacksMessageType::Transaction(ref m) => write_next(fd, m)?,
-            StacksMessageType::Nack(ref m) => write_next(fd, m)?,
-            StacksMessageType::Ping(ref m) => write_next(fd, m)?,
-            StacksMessageType::Pong(ref m) => write_next(fd, m)?,
-            StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
-            StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
+            StacksMessageType::Neighbors(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::GetPoxInv(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::PoxInv(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::GetBlocksInv(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::BlocksInv(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::BlocksAvailable(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::MicroblocksAvailable(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Blocks(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Microblocks(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Transaction(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Nack(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Ping(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::Pong(ref m) => crate::codec::write_next(fd, m)?,
+            StacksMessageType::NatPunchRequest(ref nonce) => crate::codec::write_next(fd, nonce)?,
+            StacksMessageType::NatPunchReply(ref m) => crate::codec::write_next(fd, m)?,
         }
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMessageType, net_error> {
-        let message_id: StacksMessageID = read_next(fd)?;
+        let message_id: StacksMessageID = crate::codec::read_next(fd)?;
         let message = match message_id {
             StacksMessageID::Handshake => {
-                let m: HandshakeData = read_next(fd)?;
+                let m: HandshakeData = crate::codec::read_next(fd)?;
                 StacksMessageType::Handshake(m)
             }
             StacksMessageID::HandshakeAccept => {
-                let m: HandshakeAcceptData = read_next(fd)?;
+                let m: HandshakeAcceptData = crate::codec::read_next(fd)?;
                 StacksMessageType::HandshakeAccept(m)
             }
             StacksMessageID::HandshakeReject => StacksMessageType::HandshakeReject,
             StacksMessageID::GetNeighbors => StacksMessageType::GetNeighbors,
             StacksMessageID::Neighbors => {
-                let m: NeighborsData = read_next(fd)?;
+                let m: NeighborsData = crate::codec::read_next(fd)?;
                 StacksMessageType::Neighbors(m)
             }
             StacksMessageID::GetPoxInv => {
-                let m: GetPoxInv = read_next(fd)?;
+                let m: GetPoxInv = crate::codec::read_next(fd)?;
                 StacksMessageType::GetPoxInv(m)
             }
             StacksMessageID::PoxInv => {
-                let m: PoxInvData = read_next(fd)?;
+                let m: PoxInvData = crate::codec::read_next(fd)?;
                 StacksMessageType::PoxInv(m)
             }
             StacksMessageID::GetBlocksInv => {
-                let m: GetBlocksInv = read_next(fd)?;
+                let m: GetBlocksInv = crate::codec::read_next(fd)?;
                 StacksMessageType::GetBlocksInv(m)
             }
             StacksMessageID::BlocksInv => {
-                let m: BlocksInvData = read_next(fd)?;
+                let m: BlocksInvData = crate::codec::read_next(fd)?;
                 StacksMessageType::BlocksInv(m)
             }
             StacksMessageID::BlocksAvailable => {
-                let m: BlocksAvailableData = read_next(fd)?;
+                let m: BlocksAvailableData = crate::codec::read_next(fd)?;
                 StacksMessageType::BlocksAvailable(m)
             }
             StacksMessageID::MicroblocksAvailable => {
-                let m: BlocksAvailableData = read_next(fd)?;
+                let m: BlocksAvailableData = crate::codec::read_next(fd)?;
                 StacksMessageType::MicroblocksAvailable(m)
             }
             StacksMessageID::Blocks => {
-                let m: BlocksData = read_next(fd)?;
+                let m: BlocksData = crate::codec::read_next(fd)?;
                 StacksMessageType::Blocks(m)
             }
             StacksMessageID::Microblocks => {
-                let m: MicroblocksData = read_next(fd)?;
+                let m: MicroblocksData = crate::codec::read_next(fd)?;
                 StacksMessageType::Microblocks(m)
             }
             StacksMessageID::Transaction => {
-                let m: StacksTransaction = read_next(fd)?;
+                let m: StacksTransaction = crate::codec::read_next(fd)?;
                 StacksMessageType::Transaction(m)
             }
             StacksMessageID::Nack => {
-                let m: NackData = read_next(fd)?;
+                let m: NackData = crate::codec::read_next(fd)?;
                 StacksMessageType::Nack(m)
             }
             StacksMessageID::Ping => {
-                let m: PingData = read_next(fd)?;
+                let m: PingData = crate::codec::read_next(fd)?;
                 StacksMessageType::Ping(m)
             }
             StacksMessageID::Pong => {
-                let m: PongData = read_next(fd)?;
+                let m: PongData = crate::codec::read_next(fd)?;
                 StacksMessageType::Pong(m)
             }
             StacksMessageID::NatPunchRequest => {
-                let nonce: u32 = read_next(fd)?;
+                let nonce: u32 = crate::codec::read_next(fd)?;
                 StacksMessageType::NatPunchRequest(nonce)
             }
             StacksMessageID::NatPunchReply => {
-                let m: NatPunchData = read_next(fd)?;
+                let m: NatPunchData = crate::codec::read_next(fd)?;
                 StacksMessageType::NatPunchReply(m)
             }
             StacksMessageID::Reserved => {
@@ -1141,22 +1065,22 @@ impl StacksMessageCodec for StacksMessageType {
 
 impl StacksMessageCodec for StacksMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.preamble)?;
-        write_next(fd, &self.relayers)?;
-        write_next(fd, &self.payload)?;
+        crate::codec::write_next(fd, &self.preamble)?;
+        crate::codec::write_next(fd, &self.relayers)?;
+        crate::codec::write_next(fd, &self.payload)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMessage, net_error> {
-        let preamble: Preamble = read_next(fd)?;
+        let preamble: Preamble = crate::codec::read_next(fd)?;
         if preamble.payload_len > MAX_MESSAGE_LEN - PREAMBLE_ENCODED_SIZE {
             return Err(net_error::DeserializeError(
                 "Message would be too big".to_string(),
             ));
         }
 
-        let relayers: Vec<RelayData> = read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
-        let payload: StacksMessageType = read_next(fd)?;
+        let relayers: Vec<RelayData> = crate::codec::read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
+        let payload: StacksMessageType = crate::codec::read_next(fd)?;
 
         let message = StacksMessage {
             preamble,
@@ -1283,8 +1207,8 @@ impl StacksMessage {
     pub fn deserialize_body<R: Read>(
         fd: &mut R,
     ) -> Result<(Vec<RelayData>, StacksMessageType), net_error> {
-        let relayers: Vec<RelayData> = read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
-        let payload: StacksMessageType = read_next(fd)?;
+        let relayers: Vec<RelayData> = crate::codec::read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
+        let payload: StacksMessageType = crate::codec::read_next(fd)?;
         Ok((relayers, payload))
     }
 
@@ -1343,7 +1267,7 @@ impl ProtocolFamily for StacksP2P {
             ));
         }
 
-        let preamble: Preamble = read_next(&mut &buf[0..(PREAMBLE_ENCODED_SIZE as usize)])?;
+        let preamble: Preamble = crate::codec::read_next(&mut &buf[0..(PREAMBLE_ENCODED_SIZE as usize)])?;
         Ok((preamble, PREAMBLE_ENCODED_SIZE as usize))
     }
 
@@ -1404,10 +1328,10 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-
     use util::hash::hex_bytes;
     use util::secp256k1::*;
+
+    use super::*;
 
     fn check_overflow<T>(r: Result<T, net_error>) -> bool {
         match r {

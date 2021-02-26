@@ -24,7 +24,7 @@ use stacks::chainstate::stacks::events::{
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
 };
-use stacks::net::StacksMessageCodec;
+use stacks::codec::StacksMessageCodec;
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};

@@ -44,7 +44,7 @@ use net::Preamble;
 use net::ProtocolFamily;
 use net::RelayData;
 use net::StacksHttp;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 use net::StacksP2P;
 use net::MAX_MESSAGE_LEN;
 

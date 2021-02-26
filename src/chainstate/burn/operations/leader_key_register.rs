@@ -45,9 +45,9 @@ use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 
-use net::codec::write_next;
+use crate::codec::write_next;
 use net::Error as net_error;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 
 use util::hash::DoubleSha256;
 use util::log;

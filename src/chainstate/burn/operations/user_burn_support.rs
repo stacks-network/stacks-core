@@ -37,9 +37,9 @@ use burnchains::BurnchainTransaction;
 use burnchains::PublicKey;
 use burnchains::Txid;
 
-use net::codec::write_next;
+use crate::codec::write_next;
 use net::Error as net_error;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 
 use util::hash::Hash160;
 use util::log;
