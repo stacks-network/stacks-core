@@ -535,13 +535,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] (vm-state.db)",
+                    "Usage: {} {} [program-file.clar] (vm-state.db) (contract-identifier)",
                     invoked_by, args[0]
                 );
                 panic_test!();
             }
 
-            let contract_id = QualifiedContractIdentifier::transient();
+            let contract_id = if args.len() >= 4 {
+                friendly_expect(
+                    QualifiedContractIdentifier::parse(&args[3]),
+                    &format!("Error parsing contract identifier '{}", &args[3])
+                )
+            } else {
+                QualifiedContractIdentifier::transient()
+            };
 
             let content: String = if &args[1] == "-" {
                 let mut buffer = String::new();
