@@ -544,7 +544,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_id = if args.len() >= 4 {
                 friendly_expect(
                     QualifiedContractIdentifier::parse(&args[3]),
-                    &format!("Error parsing contract identifier '{}", &args[3])
+                    &format!("Error parsing contract identifier '{}", &args[3]),
                 )
             } else {
                 QualifiedContractIdentifier::transient()
