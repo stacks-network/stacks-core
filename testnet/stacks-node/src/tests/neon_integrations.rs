@@ -892,9 +892,12 @@ fn bitcoind_resubmission_test() {
     //  this behavior is not guaranteed to continue to work like this, so at some point this
     //  test will need to be updated to handle that.
     {
-        let (mut chainstate, _) =
-            StacksChainState::open(false, conf.burnchain.chain_id, &conf.get_chainstate_path_str())
-                .unwrap();
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+        )
+        .unwrap();
         let mut tx = chainstate.db_tx_begin().unwrap();
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
