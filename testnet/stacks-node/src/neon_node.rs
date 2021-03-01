@@ -588,9 +588,12 @@ fn spawn_peer(
 
             let mut num_p2p_state_machine_passes = 0;
             let mut num_inv_sync_passes = 0;
+            let mut num_download_passes = 0;
             let mut mblock_deadline = 0;
 
             while should_keep_running.load(Ordering::SeqCst) {
+                // initial block download?
+                let ibd = sync_comms.get_ibd();
                 let download_backpressure = results_with_data.len() > 0;
                 let poll_ms = if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
@@ -621,6 +624,7 @@ fn spawn_peer(
                     &mut mem_pool,
                     Some(&mut dns_client),
                     download_backpressure,
+                    ibd,
                     poll_ms,
                     &handler_args,
                     &mut expected_attachments,
@@ -636,6 +640,12 @@ fn spawn_peer(
                             // inv-sync state-machine did a full pass. Notify anyone listening.
                             sync_comms.notify_inv_sync_pass();
                             num_inv_sync_passes = network_result.num_inv_sync_passes;
+                        }
+
+                        if num_download_passes < network_result.num_download_passes {
+                            // download state-machine did a full pass.  Notify anyone listening.
+                            sync_comms.notify_download_pass();
+                            num_download_passes = network_result.num_download_passes;
                         }
 
                         if network_result.has_data_to_store() {
@@ -744,6 +754,8 @@ fn spawn_miner_relayer(
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
+
+    let mut failed_to_mine_in_block: Option<BurnchainHeaderHash> = None;
 
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state = None;
@@ -894,6 +906,18 @@ fn spawn_miner_relayer(
                         "height" => last_burn_block.block_height,
                         "burn_header_hash" => %burn_header_hash
                     );
+
+                    let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                        .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
+                        .burn_header_hash;
+                    if config.node.mock_mining && failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
+                        debug!(
+                            "Previously mock-mined in block, not attempting again until burnchain advances";
+                            "burn_header_hash" => %burn_chain_tip
+                        );
+                        continue;
+                    }
+
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
@@ -917,6 +941,8 @@ fn spawn_miner_relayer(
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
+                    } else {
+                        failed_to_mine_in_block = Some(burn_chain_tip);
                     }
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
                 }
@@ -974,7 +1000,7 @@ enum LeaderKeyRegistrationState {
 impl InitializedNeonNode {
     fn new(
         config: Config,
-        keychain: Keychain,
+        mut keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
         miner: bool,
@@ -1122,6 +1148,18 @@ impl InitializedNeonNode {
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
+        let leader_key_registration_state = if config.node.mock_mining {
+            // mock mining, pretend to have a registered key
+            let vrf_public_key = keychain.rotate_vrf_keypair(1);
+            LeaderKeyRegistrationState::Active(RegisteredKey {
+                block_height: 1,
+                op_vtxindex: 1,
+                vrf_public_key,
+            })
+        } else {
+            LeaderKeyRegistrationState::Inactive
+        };
+
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
         let relayer_thread_handle = spawn_miner_relayer(
             config.is_mainnet(),
@@ -1165,14 +1203,14 @@ impl InitializedNeonNode {
 
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
-            config: config,
+            config,
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
+            leader_key_registration_state,
             p2p_thread_handle,
             relayer_thread_handle,
         }
