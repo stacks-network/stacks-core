@@ -420,7 +420,7 @@ impl AtlasDB {
         is_available: bool,
     ) -> Result<(), db_error> {
         let hex_content_hash = to_hex(&attachment.content_hash.0[..]);
-        let hex_tx_id = to_hex(&attachment.tx_id.0[..]);
+        let hex_tx_id = attachment.tx_id.to_hex();
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
