@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaction has been removed the mempool.
 - `"reward_slot_holders"` field to the `new_burn_block` event
 
+## [2.0.7] - 2021-02-26
+
+This is an emergency hotfix that prevents the node from accidentally deleting
+valid block data if its descendant microblock stream is invalid for some reason.
+
+## Fixed
+
+- Do not delete a valid parent Stacks block.
+
 ## [2.0.6] - 2021-02-15
 
 The database schema has not changed since 2.0.5, so when spinning up a
