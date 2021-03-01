@@ -893,7 +893,7 @@ fn bitcoind_resubmission_test() {
     //  test will need to be updated to handle that.
     {
         let (mut chainstate, _) =
-            StacksChainState::open(false, conf.burnchain.chain_id, &conf.get_chainstate_path())
+            StacksChainState::open(false, conf.burnchain.chain_id, &conf.get_chainstate_path_str())
                 .unwrap();
         let mut tx = chainstate.db_tx_begin().unwrap();
 

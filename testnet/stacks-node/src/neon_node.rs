@@ -1131,7 +1131,7 @@ impl InitializedNeonNode {
         let _ = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
         )
         .expect("BUG: failed to instantiate mempool");
 
