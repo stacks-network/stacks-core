@@ -64,30 +64,35 @@ impl AttachmentsDownloader {
 
         let ongoing_fsm = match self.ongoing_batch.take() {
             Some(batch) => batch,
-            None => match self.priority_queue.pop() {
-                Some(attachments_batch) => {
-                    // Build a brand new set of peer
-                    let mut peers = HashMap::new();
-                    for peer in network.get_outbound_sync_peers() {
-                        if let Some(peer_url) = network.get_data_url(&peer) {
-                            let report = match self.reliability_reports.get(&peer_url) {
-                                Some(report) => report.clone(),
-                                None => ReliabilityReport::empty(),
-                            };
-                            peers.insert(peer_url, report);
-                        }
-                    }
-                    let ctx = AttachmentsBatchStateContext::new(
-                        attachments_batch,
-                        peers,
-                        &network.connection_opts,
-                    );
-                    AttachmentsBatchStateMachine::new(ctx)
-                }
-                None => {
+            None => {
+                if self.priority_queue.is_empty() {
                     // Nothing to do!
                     return Ok((vec![], vec![]));
                 }
+
+                let mut peers = HashMap::new();
+                for peer in network.get_outbound_sync_peers() {
+                    if let Some(peer_url) = network.get_data_url(&peer) {
+                        let report = match self.reliability_reports.get(&peer_url) {
+                            Some(report) => report.clone(),
+                            None => ReliabilityReport::empty(),
+                        };
+                        peers.insert(peer_url, report);
+                    }
+                }
+                if peers.is_empty() {
+                    warn!("Atlas: could not get a peer to sync with");
+                    // Nothing can be done!
+                    return Ok((vec![], vec![]));
+                }
+
+                let attachments_batch = self.priority_queue.pop().expect("Unable to pop attachments bactch from queue");
+                let ctx = AttachmentsBatchStateContext::new(
+                    attachments_batch,
+                    peers,
+                    &network.connection_opts,
+                );
+                AttachmentsBatchStateMachine::new(ctx)
             },
         };
 
@@ -781,7 +786,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     return fsm;
                 }
                 info!(
-                    "Atlas: Processed request batch ({} succeess, {} faults)",
+                    "Atlas: Processed request batch ({} success, {} faults)",
                     state.succeeded.len(),
                     state.faulty_peers.len()
                 );
