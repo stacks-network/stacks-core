@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
 
 ### Changed
@@ -12,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `/v2/pox` RPC endpoint was updated to include more useful
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
+
+
+## [2.0.7] - 2021-02-26
+
+This is an emergency hotfix that prevents the node from accidentally deleting
+valid block data if its descendant microblock stream is invalid for some reason.
+
+## Fixed
+
+- Do not delete a valid parent Stacks block.
+
 
 ## [2.0.6] - 2021-02-15
 

@@ -2333,18 +2333,6 @@ impl StacksChainState {
 
             tx.execute(&update_block_children_sql, &update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-            // mark the block as empty if we haven't already
-            let block_path =
-                StacksChainState::get_block_path(blocks_path, consensus_hash, anchored_block_hash)?;
-            match fs::metadata(&block_path) {
-                Ok(_) => {
-                    StacksChainState::free_block(blocks_path, consensus_hash, anchored_block_hash);
-                }
-                Err(_) => {
-                    StacksChainState::atomic_file_write(&block_path, &vec![])?;
-                }
-            }
         }
 
         Ok(())
