@@ -44,7 +44,7 @@ impl AtlasConfig {
             attachments_max_size: 1_048_576,
             max_uninstantiated_attachments: 10_000,
             uninstantiated_attachments_expire_after: 3_600,
-            unresolved_attachment_instances_expire_after: 172_800, 
+            unresolved_attachment_instances_expire_after: 172_800,
             genesis_attachments: None,
         }
     }

@@ -369,7 +369,10 @@ impl AtlasDB {
 
     pub fn evict_expired_unresolved_attachment_instances(&mut self) -> Result<(), db_error> {
         let now = util::get_epoch_time_secs() as i64;
-        let cut_off = now - self.atlas_config.unresolved_attachment_instances_expire_after as i64;
+        let cut_off = now
+            - self
+                .atlas_config
+                .unresolved_attachment_instances_expire_after as i64;
         let tx = self.tx_begin()?;
         let res = tx.execute(
             "DELETE FROM attachment_instances WHERE is_available = 0 AND created_at < ?",
@@ -380,7 +383,9 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn find_unresolved_attachment_instances(&mut self) -> Result<Vec<AttachmentInstance>, db_error> {
+    pub fn find_unresolved_attachment_instances(
+        &mut self,
+    ) -> Result<Vec<AttachmentInstance>, db_error> {
         let qry = "SELECT * FROM attachment_instances WHERE is_available = 0".to_string();
         let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, NO_PARAMS)?;
         Ok(rows)
