@@ -445,6 +445,7 @@ impl Config {
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
+                    mock_mining: node.mock_mining.unwrap_or(default_node_config.mock_mining),
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
@@ -790,6 +791,9 @@ impl Config {
                     max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
+                    connect_timeout: opts.connect_timeout.unwrap_or(10),
+                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     ..ConnectionOptions::default()
                 }
             }
@@ -1059,6 +1063,7 @@ pub struct NodeConfig {
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
+    pub mock_mining: bool,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -1099,6 +1104,7 @@ impl NodeConfig {
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
+            mock_mining: false,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
@@ -1189,6 +1195,8 @@ impl NodeConfig {
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
+    pub connect_timeout: Option<u64>,
+    pub handshake_timeout: Option<u64>,
     pub timeout: Option<u64>,
     pub idle_timeout: Option<u64>,
     pub heartbeat: Option<u32>,
@@ -1203,6 +1211,7 @@ pub struct ConnectionOptionsFile {
     pub soft_max_neighbors_per_host: Option<u64>,
     pub soft_max_neighbors_per_org: Option<u64>,
     pub soft_max_clients_per_host: Option<u64>,
+    pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
@@ -1243,6 +1252,7 @@ pub struct NodeConfigFile {
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
+    pub mock_mining: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,

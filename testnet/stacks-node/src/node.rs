@@ -200,6 +200,7 @@ fn spawn_peer(
                     &mut mem_pool,
                     None,
                     false,
+                    false,
                     poll_timeout,
                     &handler_args,
                     &mut attachments,
@@ -274,6 +275,15 @@ impl Node {
                 err
             ),
         };
+
+        // avoid race to create condition on mempool db
+        let _mem_pool = MemPoolDB::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &chain_state.root_path,
+        )
+        .expect("FATAL: failed to initiate mempool");
+
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
