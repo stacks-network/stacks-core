@@ -12,6 +12,12 @@ use std::sync::{
     Arc,
 };
 
+// amount of time to wait for an inv or download sync to complete.
+// These _really should_ complete before the PoX sync watchdog permits processing the next reward
+// cycle, so this number is intentionally high (like, there's something really wrong with your
+// network if your node is actualy waiting a day in-between reward cycles).
+const SYNC_WAIT_SECS: u64 = 24 * 3600;
+
 #[derive(Clone)]
 pub struct PoxSyncWatchdogComms {
     /// how many passes in the p2p state machine have taken place since startup?
@@ -441,7 +447,7 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
-            sleep_ms(10_000);
+            sleep_ms(self.steady_state_burnchain_sync_interval);
 
             return ibbd;
         }
@@ -456,7 +462,7 @@ impl PoxSyncWatchdog {
             // so make sure the downloader knows about blocks it doesn't have yet so we can go and
             // fetch its blocks before proceeding.
             debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait an hour at most
+            self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS);
             waited = true;
         } else {
             debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
@@ -621,7 +627,7 @@ impl PoxSyncWatchdog {
 
             if ibbd || !steady_state {
                 debug!("PoX watchdog: Wait for at least one downloader state-machine pass before resetting...");
-                self.relayer_comms.wait_for_download_pass(3600); // wait at most an hour, but should be far, far less
+                self.relayer_comms.wait_for_download_pass(SYNC_WAIT_SECS);
             } else {
                 debug!("PoX watchdog: in steady-state, so not waiting for download pass");
             }

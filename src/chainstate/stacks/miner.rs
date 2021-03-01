@@ -257,7 +257,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         info!(
-            "\n\nMiner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)\n",
+            "Miner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)",
             microblock.block_hash(),
             microblock.header.sequence,
             self.anchor_block_consensus_hash,
