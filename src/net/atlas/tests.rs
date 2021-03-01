@@ -433,16 +433,17 @@ fn test_attachment_requests_ordering() {
 
 #[test]
 fn test_attachments_batch_constructs() {
+    let page_size = AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
     let attachment_instance_1 =
-        new_attachment_instance_from(&new_attachment_from("facade11"), 1, 1);
+        new_attachment_instance_from(&new_attachment_from("facade11"), page_size*0+1, 1);
     let attachment_instance_2 =
-        new_attachment_instance_from(&new_attachment_from("facade12"), 2, 1);
+        new_attachment_instance_from(&new_attachment_from("facade12"), page_size*0+2, 1);
     let attachment_instance_3 =
-        new_attachment_instance_from(&new_attachment_from("facade13"), 3, 1);
+        new_attachment_instance_from(&new_attachment_from("facade13"), page_size*0+3, 1);
     let attachment_instance_4 =
-        new_attachment_instance_from(&new_attachment_from("facade14"), 4, 1);
+        new_attachment_instance_from(&new_attachment_from("facade14"), page_size*0+4, 1);
     let attachment_instance_5 =
-        new_attachment_instance_from(&new_attachment_from("facade15"), 9, 1);
+        new_attachment_instance_from(&new_attachment_from("facade15"), page_size*1+1, 1);
 
     let mut attachments_batch = AttachmentsBatch::new();
     attachments_batch.track_attachment(&attachment_instance_1);
@@ -491,26 +492,27 @@ fn test_attachments_batch_constructs() {
 
 #[test]
 fn test_attachments_batch_pages() {
+    let page_size = AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
     let attachment_instance_1 =
-        new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1);
+        new_attachment_instance_from(&new_attachment_from("facade11"), page_size*0, 1);
     let attachment_instance_2 =
-        new_attachment_instance_from(&new_attachment_from("facade12"), 8, 1);
+        new_attachment_instance_from(&new_attachment_from("facade12"), page_size*1, 1);
     let attachment_instance_3 =
-        new_attachment_instance_from(&new_attachment_from("facade13"), 16, 1);
+        new_attachment_instance_from(&new_attachment_from("facade13"), page_size*2, 1);
     let attachment_instance_4 =
-        new_attachment_instance_from(&new_attachment_from("facade14"), 24, 1);
+        new_attachment_instance_from(&new_attachment_from("facade14"), page_size*3, 1);
     let attachment_instance_5 =
-        new_attachment_instance_from(&new_attachment_from("facade15"), 32, 1);
+        new_attachment_instance_from(&new_attachment_from("facade15"), page_size*4, 1);
     let attachment_instance_6 =
-        new_attachment_instance_from(&new_attachment_from("facade16"), 40, 1);
+        new_attachment_instance_from(&new_attachment_from("facade16"), page_size*5, 1);
     let attachment_instance_7 =
-        new_attachment_instance_from(&new_attachment_from("facade17"), 48, 1);
+        new_attachment_instance_from(&new_attachment_from("facade17"), page_size*6, 1);
     let attachment_instance_8 =
-        new_attachment_instance_from(&new_attachment_from("facade18"), 56, 1);
+        new_attachment_instance_from(&new_attachment_from("facade18"), page_size*7, 1);
     let attachment_instance_9 =
-        new_attachment_instance_from(&new_attachment_from("facade19"), 64, 1);
+        new_attachment_instance_from(&new_attachment_from("facade19"), page_size*8, 1);
     let attachment_instance_10 =
-        new_attachment_instance_from(&new_attachment_from("facade20"), 72, 1);
+        new_attachment_instance_from(&new_attachment_from("facade20"), page_size*9, 1);
 
     let mut attachments_batch = AttachmentsBatch::new();
     attachments_batch.track_attachment(&attachment_instance_1);
@@ -557,12 +559,13 @@ fn test_attachments_batch_pages() {
 #[test]
 fn test_downloader_context_attachment_inventories_requests() {
     let localhost = PeerHost::from_host_port("127.0.0.1".to_string(), 1024);
+    let page_size = AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
     let attachments_batch = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&new_attachment_from("facade01"), 8, 1),
-            new_attachment_instance_from(&new_attachment_from("facade02"), 9, 1),
-            new_attachment_instance_from(&new_attachment_from("facade03"), 10, 1),
-            new_attachment_instance_from(&new_attachment_from("facade04"), 16, 1),
+            new_attachment_instance_from(&new_attachment_from("facade01"), page_size*1+1, 1),
+            new_attachment_instance_from(&new_attachment_from("facade02"), page_size*1+2, 1),
+            new_attachment_instance_from(&new_attachment_from("facade03"), page_size*1+3, 1),
+            new_attachment_instance_from(&new_attachment_from("facade04"), page_size*2+1, 1),
         ],
         0,
     );
@@ -608,12 +611,14 @@ fn test_downloader_context_attachment_requests() {
     let attachment_4 = new_attachment_from("facade04");
 
     let localhost = PeerHost::from_host_port("127.0.0.1".to_string(), 1024);
+    let page_size = AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+
     let attachments_batch = new_attachments_batch_from(
         vec![
-            new_attachment_instance_from(&attachment_1, 0, 1),
-            new_attachment_instance_from(&attachment_2, 1, 1),
-            new_attachment_instance_from(&attachment_3, 2, 1),
-            new_attachment_instance_from(&attachment_4, 8, 1),
+            new_attachment_instance_from(&attachment_1, page_size*0, 1),
+            new_attachment_instance_from(&attachment_2, page_size*0+1, 1),
+            new_attachment_instance_from(&attachment_3, page_size*0+2, 1),
+            new_attachment_instance_from(&attachment_4, page_size*1, 1),
         ],
         0,
     );
@@ -702,6 +707,7 @@ fn test_keep_uninstantiated_attachments() {
         attachments_max_size: 16,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 10,
+        unresolved_attachment_instances_expire_after: 10,
         genesis_attachments: None,
     };
 
@@ -733,6 +739,7 @@ fn test_evict_k_oldest_uninstantiated_attachments() {
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 0,
+        unresolved_attachment_instances_expire_after: 10,
         genesis_attachments: None,
     };
 
@@ -880,6 +887,7 @@ fn test_evict_expired_uninstantiated_attachments() {
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
+        unresolved_attachment_instances_expire_after: 10,
         genesis_attachments: None,
     };
 
@@ -948,6 +956,7 @@ fn test_get_minmax_heights_atlasdb() {
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
+        unresolved_attachment_instances_expire_after: 10,
         genesis_attachments: None,
     };
 

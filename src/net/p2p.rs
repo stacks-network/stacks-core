@@ -3071,7 +3071,11 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
     ) -> Result<(), net_error> {
         if self.attachments_downloader.is_none() {
-            self.init_attachments_downloader();
+            self.atlasdb.evict_expired_uninstantiated_attachments()?;
+            self.atlasdb.evict_expired_unresolved_attachment_instances()?;
+            let initial_batch = self.atlasdb.find_unresolved_attachment_instances()?;
+    
+            self.init_attachments_downloader(initial_batch);
         }
 
         match dns_client_opt {

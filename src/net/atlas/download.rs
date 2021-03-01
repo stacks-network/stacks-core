@@ -26,18 +26,20 @@ use std::net::{IpAddr, SocketAddr};
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
+    initial_batch: Vec<AttachmentInstance>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
     processed_batches: Vec<AttachmentsBatch>,
     reliability_reports: HashMap<UrlString, ReliabilityReport>,
 }
 
 impl AttachmentsDownloader {
-    pub fn new() -> AttachmentsDownloader {
+    pub fn new(initial_batch: Vec<AttachmentInstance>) -> AttachmentsDownloader {
         AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
             processed_batches: vec![],
             reliability_reports: HashMap::new(),
+            initial_batch,
         }
     }
 
@@ -49,6 +51,16 @@ impl AttachmentsDownloader {
     ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
         let mut events_to_deregister = vec![];
+
+        // Handle initial batch
+        if self.initial_batch.len() > 0 {
+            let mut batch = HashSet::new();
+            for attachment_instance in self.initial_batch.drain(..) {
+                batch.insert(attachment_instance);
+            }
+            let mut resolved = self.enqueue_new_attachments(&mut batch, &mut network.atlasdb)?;
+            resolved_attachments.append(&mut resolved);
+        }
 
         let ongoing_fsm = match self.ongoing_batch.take() {
             Some(batch) => batch,
@@ -107,6 +119,9 @@ impl AttachmentsDownloader {
                 // Every once in a while, we delete uninstantiated attachments
                 network.atlasdb.evict_expired_uninstantiated_attachments()?;
 
+                // Every once in a while, we delete outdated, unresolved attachments instances
+                network.atlasdb.evict_expired_unresolved_attachment_instances()?;
+
                 // Update reliability reports
                 for (peer_url, report) in context.peers.drain() {
                     self.reliability_reports.insert(peer_url, report);
@@ -115,7 +130,13 @@ impl AttachmentsDownloader {
                 // Re-insert AttachmentsBatch back to the queue if not fully processed
                 if !context.attachments_batch.has_fully_succeed() {
                     context.attachments_batch.bump_retry_count();
-                    self.priority_queue.push(context.attachments_batch.clone());
+                    // If max_attachment_retry_count not reached, we'll re-enqueue the batch
+                    if context.attachments_batch.retry_count < context.connection_options.max_attachment_retry_count {
+                        info!("Atlas: re-enqueuing batch {:?} for retry", context.attachments_batch);
+                        self.priority_queue.push(context.attachments_batch.clone());
+                    } else {
+                        info!("Atlas: dropping batch {:?} retries count exceeded", context.attachments_batch);
+                    }
                 }
             }
             next_state => {

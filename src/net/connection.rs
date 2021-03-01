@@ -351,6 +351,7 @@ pub struct ConnectionOptions {
     pub dns_timeout: u128,
     pub max_inflight_blocks: u64,
     pub max_inflight_attachments: u64,
+    pub max_attachment_retry_count: u64,
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
     pub max_block_push_bandwidth: u64,
@@ -423,6 +424,7 @@ impl std::default::Default for ConnectionOptions {
             dns_timeout: 15_000,         // DNS timeout, in millis
             max_inflight_blocks: 6,      // number of parallel block downloads
             max_inflight_attachments: 6, // number of parallel attachments downloads
+            max_attachment_retry_count: 32, // how many attempt to get an attachment before giving up
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
