@@ -949,6 +949,61 @@ fn test_evict_expired_uninstantiated_attachments() {
     assert_eq!(atlas_db.count_uninstantiated_attachments().unwrap(), 10);
 }
 
+
+#[test]
+fn test_evict_expired_unresolved_attachment_instances() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 100,
+        uninstantiated_attachments_expire_after: 200,
+        unresolved_attachment_instances_expire_after: 10,
+        genesis_attachments: None,
+    };
+    let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+    
+    // Insert some uninstanciated attachments
+    let uninstantiated_attachment_instances =
+        [new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
+        new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
+        new_attachment_instance_from(&new_attachment_from("facade13"), 2, 1),
+        new_attachment_instance_from(&new_attachment_from("facade14"), 3, 1),
+        new_attachment_instance_from(&new_attachment_from("facade15"), 4, 1),
+        new_attachment_instance_from(&new_attachment_from("facade16"), 5, 1),
+        new_attachment_instance_from(&new_attachment_from("facade17"), 6, 1),
+        new_attachment_instance_from(&new_attachment_from("facade18"), 7, 1)];
+    for attachment_instance in uninstantiated_attachment_instances.iter() {
+        atlas_db.insert_uninstantiated_attachment_instance(attachment_instance, false).unwrap();
+    }
+
+    // Insert some instanciated attachments
+    let instantiated_attachment_instances =
+        [new_attachment_instance_from(&new_attachment_from("facade21"), 0, 1),
+        new_attachment_instance_from(&new_attachment_from("facade22"), 1, 1),
+        new_attachment_instance_from(&new_attachment_from("facade23"), 2, 1),
+        new_attachment_instance_from(&new_attachment_from("facade24"), 3, 1)];
+    for attachment_instance in instantiated_attachment_instances.iter() {
+        atlas_db.insert_uninstantiated_attachment_instance(attachment_instance, true).unwrap();
+    }
+
+    thread::sleep(time::Duration::from_secs(11));
+
+    // Insert more uninstanciated attachments
+    let uninstantiated_attachment_instances =
+        [new_attachment_instance_from(&new_attachment_from("facade31"), 0, 1),
+        new_attachment_instance_from(&new_attachment_from("facade32"), 1, 1),
+        new_attachment_instance_from(&new_attachment_from("facade33"), 2, 1)];
+    for attachment_instance in uninstantiated_attachment_instances.iter() {
+        atlas_db.insert_uninstantiated_attachment_instance(attachment_instance, false).unwrap();
+    }
+
+    // Count before eviction should be 11
+    assert_eq!(atlas_db.count_unresolved_attachment_instances().unwrap(), 11);
+    atlas_db.evict_expired_unresolved_attachment_instances().unwrap();
+    // Count after eviction should be 3
+    assert_eq!(atlas_db.count_unresolved_attachment_instances().unwrap(), 3);
+}
+
 #[test]
 fn test_get_minmax_heights_atlasdb() {
     let atlas_config = AtlasConfig {

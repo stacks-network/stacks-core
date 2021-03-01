@@ -331,6 +331,13 @@ impl AtlasDB {
         Ok(count)
     }
 
+    pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
+        let qry = "SELECT COUNT(rowid) FROM attachment_instances
+                   WHERE is_available = 0";
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        Ok(count)
+    }
+
     pub fn insert_instantiated_attachment(
         &mut self,
         attachment: &Attachment,
