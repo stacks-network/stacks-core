@@ -2082,6 +2082,7 @@ impl PeerNetwork {
     pub fn sync_inventories(
         &mut self,
         sortdb: &SortitionDB,
+        ibd: bool,
     ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
@@ -2227,12 +2228,21 @@ impl PeerNetwork {
                     }
                 }
 
-                let num_good_peers = good_sync_peers_set.len();
-                for i in 0..cmp::min(
-                    random_sync_peers_list.len(),
-                    (network.connection_opts.num_neighbors as usize).saturating_sub(num_good_peers),
-                ) {
-                    good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                if !ibd {
+                    // not in initial-block download, so we can add random neighbors as well
+                    let num_good_peers = good_sync_peers_set.len();
+                    for i in 0..cmp::min(
+                        random_sync_peers_list.len(),
+                        (network.connection_opts.num_neighbors as usize)
+                            .saturating_sub(num_good_peers),
+                    ) {
+                        good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                    }
+                } else {
+                    debug!(
+                        "{:?}: in initial block download; only inv-sync with always-allowed peers",
+                        &network.local_peer
+                    );
                 }
 
                 inv_state.reset_sync_peers(
@@ -2264,7 +2274,6 @@ impl PeerNetwork {
     }
 
     /// Get a list of outbound neighbors we can sync with.
-    /// It will be no larger than connection_opts.num_neighbors
     pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
