@@ -86,14 +86,17 @@ impl AttachmentsDownloader {
                     return Ok((vec![], vec![]));
                 }
 
-                let attachments_batch = self.priority_queue.pop().expect("Unable to pop attachments bactch from queue");
+                let attachments_batch = self
+                    .priority_queue
+                    .pop()
+                    .expect("Unable to pop attachments bactch from queue");
                 let ctx = AttachmentsBatchStateContext::new(
                     attachments_batch,
                     peers,
                     &network.connection_opts,
                 );
                 AttachmentsBatchStateMachine::new(ctx)
-            },
+            }
         };
 
         let mut progress =
