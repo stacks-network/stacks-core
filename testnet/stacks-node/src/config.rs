@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
 
 use rand::RngCore;
 
@@ -12,7 +13,8 @@ use stacks::core::{
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::util::get_epoch_time_ms;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
@@ -551,9 +553,6 @@ impl Config {
                     timeout: burnchain
                         .timeout
                         .unwrap_or(default_burnchain_config.timeout),
-                    spv_headers_path: burnchain
-                        .spv_headers_path
-                        .unwrap_or(node.get_default_spv_headers_path()),
                     magic_bytes: burnchain
                         .magic_bytes
                         .map(|magic_ascii| {
@@ -834,37 +833,63 @@ impl Config {
         }
     }
 
-    pub fn get_burnchain_path(&self) -> String {
-        format!("{}/burnchain/", self.node.working_dir)
+    fn get_burnchain_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("burnchain");
+        path
+    }
+
+    fn get_chainstate_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("chainstate");
+        path
+    }
+
+    pub fn get_chainstate_path_str(&self) -> String {
+        self.get_chainstate_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
+    }
+
+    pub fn get_burnchain_path_str(&self) -> String {
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_path(&self) -> String {
-        format!("{}/burnchain/db", self.node.working_dir)
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        let dir_name = if self.burnchain.mode.as_str() == "mocknet" {
-            "mocknet".to_string()
-        } else {
-            let (network, _) = self.burnchain.get_bitcoin_network();
-            network
-        };
-        format!(
-            "{}/burnchain/db/{}/{}/sortition.db/",
-            self.node.working_dir, self.burnchain.chain, dir_name
-        )
+        let mut path = self.get_burnchain_path();
+        path.push("sortition");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_chainstate_path(&self) -> String {
-        format!("{}/chainstate/", self.node.working_dir)
+    pub fn get_spv_headers_file_path(&self) -> String {
+        let mut path = self.get_burnchain_path();
+        path.set_file_name("headers.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_peer_db_path(&self) -> String {
-        format!("{}/peer_db.sqlite", self.node.working_dir)
+    pub fn get_peer_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("peer.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_atlas_db_path(&self) -> String {
-        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
+    pub fn get_atlas_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("atlas.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
@@ -904,11 +929,9 @@ impl std::default::Default for Config {
             ..NodeConfig::default()
         };
 
-        let mut burnchain = BurnchainConfig {
+        let burnchain = BurnchainConfig {
             ..BurnchainConfig::default()
         };
-
-        burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
@@ -939,7 +962,6 @@ pub struct BurnchainConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub timeout: u32,
-    pub spv_headers_path: String,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -966,7 +988,6 @@ impl BurnchainConfig {
             username: None,
             password: None,
             timeout: 300,
-            spv_headers_path: "./spv-headers.dat".to_string(),
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
@@ -1019,7 +1040,6 @@ pub struct BurnchainConfigFile {
     pub username: Option<String>,
     pub password: Option<String>,
     pub timeout: Option<u32>,
-    pub spv_headers_path: Option<String>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -1059,7 +1079,8 @@ impl NodeConfig {
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
 
-        let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
+        let now = get_epoch_time_ms();
+        let testnet_id = format!("stacks-node-{}", now);
 
         let rpc_port = 20443;
         let p2p_port = 20444;
@@ -1092,14 +1113,6 @@ impl NodeConfig {
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
         }
-    }
-
-    pub fn get_burnchain_path(&self) -> String {
-        format!("{}/burnchain", self.working_dir)
-    }
-
-    pub fn get_default_spv_headers_path(&self) -> String {
-        format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 
     fn default_neighbor(

@@ -340,7 +340,7 @@ impl MemPoolDB {
 
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
-        path.push("mempool.db");
+        path.push("mempool.sqlite");
         let db_path = path
             .to_str()
             .ok_or_else(|| db_error::ParseError)?

@@ -550,7 +550,7 @@ fn spawn_peer(
     should_keep_running: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
-    let stacks_chainstate_path = config.get_chainstate_path();
+    let stacks_chainstate_path = config.get_chainstate_path_str();
     let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
@@ -1063,7 +1063,7 @@ impl InitializedNeonNode {
         };
 
         let mut peerdb = PeerDB::connect(
-            &config.get_peer_db_path(),
+            &config.get_peer_db_file_path(),
             true,
             config.burnchain.chain_id,
             burnchain.network_id,
@@ -1076,7 +1076,11 @@ impl InitializedNeonNode {
             Some(&initial_neighbors),
         )
         .map_err(|e| {
-            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_path(), &e);
+            eprintln!(
+                "Failed to open {}: {:?}",
+                &config.get_peer_db_file_path(),
+                &e
+            );
             panic!();
         })
         .unwrap();
@@ -1115,7 +1119,8 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(atlas_config, &config.get_atlas_db_path(), true).unwrap();
+        let atlasdb =
+            AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -1126,7 +1131,7 @@ impl InitializedNeonNode {
         let _ = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
         )
         .expect("BUG: failed to instantiate mempool");
 
@@ -1169,7 +1174,7 @@ impl InitializedNeonNode {
             config.clone(),
             keychain,
             config.get_burn_db_file_path(),
-            config.get_chainstate_path(),
+            config.get_chainstate_path_str(),
             relay_recv,
             event_dispatcher,
             blocks_processed.clone(),
@@ -1835,14 +1840,14 @@ impl NeonGenesisNode {
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
             Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(
                 "Error while opening chain state at path {}: {:?}",
-                config.get_chainstate_path(),
+                config.get_chainstate_path_str(),
                 err
             ),
         };
