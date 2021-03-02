@@ -127,8 +127,8 @@ use self::TypeSignature::{
 
 pub const BUFF_64: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(64)));
 pub const BUFF_65: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(65)));
-pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
 pub const BUFF_33: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(33)));
+pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 

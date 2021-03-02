@@ -81,13 +81,13 @@ fn test_emit_print_nok() {
 
 #[test]
 fn test_emit_stx_transfer_ok() {
-    let contract = "(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+    let contract = r#"(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-ok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient))
-                (ok u1)))";
+                (unwrap-panic (stx-transfer? u10 sender recipient "a memo here"))
+                (ok u1)))"#;
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -110,13 +110,13 @@ fn test_emit_stx_transfer_ok() {
 
 #[test]
 fn test_emit_stx_transfer_nok() {
-    let contract = "(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+    let contract = r#"(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-nok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient))
-                (err u1)))";
+                (unwrap-panic (stx-transfer? u10 sender recipient "memo"))
+                (err u1)))"#;
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());

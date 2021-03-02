@@ -342,7 +342,7 @@ impl SequenceData {
         macro_rules! drain_filter {
             ($data:expr, $seq_type:ident) => {
                 let mut i = 0;
-                while i != $data.data.len() {
+                while i < $data.data.len() {
                     let atom_value =
                         SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]));
                     match filter(atom_value) {
@@ -993,6 +993,10 @@ impl ASCIIData {
 
     pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
+    }
+
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
     }
 }
 

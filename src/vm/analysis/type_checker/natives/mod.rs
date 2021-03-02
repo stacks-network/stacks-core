@@ -22,12 +22,13 @@ use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
 use vm::types::{
-    BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    PrincipalData, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature, Value,
+    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
+use chainstate::stacks::TOKEN_TRANSFER_MEMO_LENGTH;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
@@ -626,30 +627,6 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            StxTransfer => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
-                args: vec![
-                    FunctionArg::new(
-                        TypeSignature::UIntType,
-                        ClarityName::try_from("amount".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                    FunctionArg::new(
-                        TypeSignature::PrincipalType,
-                        ClarityName::try_from("sender".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                    FunctionArg::new(
-                        TypeSignature::PrincipalType,
-                        ClarityName::try_from("recipient".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                ],
-                returns: TypeSignature::new_response(
-                    TypeSignature::BoolType,
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
@@ -669,6 +646,7 @@ impl TypedNativeFunction {
                 )
                 .unwrap(),
             }))),
+            StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

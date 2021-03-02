@@ -1515,9 +1515,10 @@ principal isn't materialized, it returns 0.
 ",
 };
 
-const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(stx-transfer? amount sender recipient)",
+const STX_TRANSFER: SpecialAPI = SpecialAPI {
+    input_type: "uint, principal, principal, string-ascii",
+    output_type: "(response bool uint)",
+    signature: "(stx-transfer? amount sender recipient memo)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
 
@@ -1529,12 +1530,14 @@ one of the following error codes:
 `(err u3)` -- amount to send is non-positive
 `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
-    example: "
+    example: r#"
 (as-contract
   (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
-"
+  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR "a memo here")) ;; Returns (ok true)
+(as-contract
+  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender "a memo here")) ;; Returns (err u4)
+"#
 };
 
 const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -1642,7 +1645,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
-        StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
+        StxTransfer => make_for_special(&STX_TRANSFER, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }

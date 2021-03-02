@@ -15,11 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
+use chainstate::stacks::TOKEN_TRANSFER_MEMO_LENGTH;
 use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
 use vm::representations::SymbolicExpression;
-use vm::types::{BlockInfoProperty, TupleTypeSignature, TypeSignature, MAX_VALUE_SIZE};
+use vm::types::{
+    BlockInfoProperty, BufferLength, SequenceSubtype, StringSubtype, TupleTypeSignature,
+    TypeSignature, MAX_VALUE_SIZE,
+};
 
 pub fn check_special_get_owner(
     checker: &mut TypeChecker,
@@ -178,6 +182,41 @@ pub fn check_special_transfer_token(
 
     if !checker.contract_context.ft_exists(token_name) {
         return Err(CheckErrors::NoSuchFT(token_name.to_string()).into());
+    }
+
+    Ok(
+        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
+            .into(),
+    )
+}
+
+pub fn check_special_stx_transfer(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    let memo_passed;
+    if let Ok(()) = check_argument_count(4, args) {
+        memo_passed = true;
+    } else {
+        check_argument_count(3, args)?;
+        memo_passed = false;
+    }
+
+    let amount_type: TypeSignature = TypeSignature::UIntType;
+    let from_type: TypeSignature = TypeSignature::PrincipalType;
+    let to_type: TypeSignature = TypeSignature::PrincipalType;
+    let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::StringType(
+        StringSubtype::ASCII(BufferLength(TOKEN_TRANSFER_MEMO_LENGTH as u32)),
+    ));
+
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
+
+    checker.type_check_expects(&args[0], context, &amount_type)?;
+    checker.type_check_expects(&args[1], context, &from_type)?;
+    checker.type_check_expects(&args[2], context, &to_type)?;
+    if memo_passed {
+        checker.type_check_expects(&args[3], context, &memo_type)?;
     }
 
     Ok(

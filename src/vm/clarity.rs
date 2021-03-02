@@ -28,7 +28,7 @@ use vm::database::{
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    ASCIIData, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
 use chainstate::burn::BlockHeaderHash;
@@ -841,9 +841,14 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &ASCIIData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
         self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount).map_err(Error::from),
+            |vm_env| {
+                vm_env
+                    .stx_transfer(from, to, amount, memo)
+                    .map_err(Error::from)
+            },
             |_, _| false,
         )
         .and_then(|(value, assets, events, _)| Ok((value, assets, events)))

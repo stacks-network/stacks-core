@@ -40,7 +40,7 @@ use chainstate::burn::db::sortdb::*;
 use net::Error as net_error;
 
 use vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    ASCIIData, AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
@@ -823,7 +823,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
-            TransactionPayload::TokenTransfer(ref addr, ref amount, ref _memo) => {
+            TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -841,7 +841,14 @@ impl StacksChainState {
 
                 let cost_before = clarity_tx.cost_so_far();
                 let (value, _asset_map, events) = clarity_tx
-                    .run_stx_transfer(&origin_account.principal, addr, *amount as u128)
+                    .run_stx_transfer(
+                        &origin_account.principal,
+                        addr,
+                        *amount as u128,
+                        &ASCIIData {
+                            data: Vec::from(memo.0.clone()),
+                        },
+                    )
                     .map_err(Error::ClarityError)?;
 
                 let mut total_cost = clarity_tx.cost_so_far();
