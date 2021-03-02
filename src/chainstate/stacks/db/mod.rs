@@ -564,6 +564,12 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                           PRIMARY KEY(block_hash)
     );"#,
     r#"
+    -- Invalidated staging microblocks data
+    CREATE TABLE invalidated_microblocks_data(block_hash TEXT NOT NULL,
+                                              block_data BLOB NOT NULL,
+                                              PRIMARY KEY(block_hash)
+    );"#,
+    r#"
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
@@ -789,27 +795,22 @@ impl StacksChainState {
     }
 
     /// Idempotent `mkdir -p`
-    fn mkdirs(path: &PathBuf) -> Result<String, Error> {
+    fn mkdirs(path: &PathBuf) -> Result<(), Error> {
         match fs::metadata(path) {
             Ok(md) => {
                 if !md.is_dir() {
                     error!("Not a directory: {:?}", path);
                     return Err(Error::DBError(db_error::ExistsError));
                 }
+                Ok(())
             }
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(Error::DBError(db_error::IOError(e)));
                 }
-                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
+                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))
             }
         }
-
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-        Ok(path_str)
     }
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
