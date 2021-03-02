@@ -70,6 +70,7 @@ use net::StacksHttpMessage;
 use net::StacksHttpPreamble;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
+use codec::Error as codec_error;
 use util::hash::Hash160;
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -910,7 +911,7 @@ fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
 }
 
 impl StacksMessageCodec for HttpRequestPreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         HttpRequestPreamble::new_serialized(
             fd,
             &self.version,
@@ -921,10 +922,10 @@ impl StacksMessageCodec for HttpRequestPreamble {
             self.content_length.clone(),
             self.content_type.as_ref(),
             |ref mut fd| write_headers(fd, &self.headers),
-        )
+        ).into()
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, codec_error> {
         // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
         let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut req = httparse::Request::new(&mut headers);
@@ -937,7 +938,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
         })? {
             httparse::Status::Partial => {
                 // partial
-                return Err(net_error::UnderflowError(
+                return Err(codec_error::UnderflowError(
                     "Not enough bytes to form a HTTP request preamble".to_string(),
                 ));
             }
@@ -950,7 +951,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     0 => HttpVersion::Http10,
                     1 => HttpVersion::Http11,
                     _ => {
-                        return Err(net_error::DeserializeError(
+                        return Err(codec_error::DeserializeError(
                             "Invalid HTTP version".to_string(),
                         ));
                     }
@@ -983,19 +984,19 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         )
                     })?;
                     if !value.is_ascii() {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is not ASCII-US"
                         )));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is too big"
                         )));
                     }
 
                     let key = req.headers[i].name.to_string().to_lowercase();
                     if headers.contains_key(&key) || all_headers.contains(&key) {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: duplicate header \"{}\"",
                             key
                         )));
@@ -1024,7 +1025,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         } else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         } else {
-                            return Err(net_error::DeserializeError(
+                            return Err(codec_error::DeserializeError(
                                 "Inavlid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
@@ -1034,7 +1035,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 }
 
                 if peerhost.is_none() {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Missing Host header".to_string(),
                     ));
                 };
@@ -1241,7 +1242,7 @@ fn rfc7231_now() -> String {
 }
 
 impl StacksMessageCodec for HttpResponsePreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         HttpResponsePreamble::new_serialized(
             fd,
             self.status_code,
@@ -1250,10 +1251,10 @@ impl StacksMessageCodec for HttpResponsePreamble {
             &self.content_type,
             self.request_id,
             |ref mut fd| write_headers(fd, &self.headers),
-        )
+        ).into()
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, codec_error> {
         // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
         let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut resp = httparse::Response::new(&mut headers);
@@ -1266,7 +1267,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         })? {
             httparse::Status::Partial => {
                 // try again
-                return Err(net_error::UnderflowError(
+                return Err(codec_error::UnderflowError(
                     "Not enough bytes to form a HTTP response preamble".to_string(),
                 ));
             }
@@ -1302,19 +1303,19 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             )
                         })?;
                     if !value.is_ascii() {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is not ASCII-US"
                         )));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is too big"
                         )));
                     }
 
                     let key = resp.headers[i].name.to_string().to_lowercase();
                     if headers.contains_key(&key) || all_headers.contains(&key) {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: duplicate header \"{}\"",
                             key
                         )));
@@ -1345,7 +1346,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         } else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         } else {
-                            return Err(net_error::DeserializeError(
+                            return Err(codec_error::DeserializeError(
                                 "Inavlid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
@@ -1353,7 +1354,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         if value.to_lowercase() == "chunked" {
                             chunked_encoding = true;
                         } else {
-                            return Err(net_error::DeserializeError(format!(
+                            return Err(codec_error::DeserializeError(format!(
                                 "Unsupported transfer-encoding '{}'",
                                 value
                             )));
@@ -1364,14 +1365,14 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 }
 
                 if content_length.is_some() && chunked_encoding {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Invalid HTTP response: incompatible transfer-encoding and content-length"
                             .to_string(),
                     ));
                 }
 
                 if content_type.is_none() || (content_length.is_none() && !chunked_encoding) {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Invalid HTTP response: missing Content-Type, Content-Length".to_string(),
                     ));
                 }
@@ -3617,14 +3618,14 @@ impl HttpResponseType {
 }
 
 impl StacksMessageCodec for StacksHttpPreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             StacksHttpPreamble::Request(ref req) => req.consensus_serialize(fd),
             StacksHttpPreamble::Response(ref res) => res.consensus_serialize(fd),
         }
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, codec_error> {
         let mut retry_fd = RetryReader::new(fd);
 
         // the byte stream can decode to a http request or a http response, but not both.
@@ -3638,16 +3639,16 @@ impl StacksMessageCodec for StacksHttpPreamble {
                     Err(e) => {
                         // underflow?
                         match (e_request, e) {
-                            (net_error::ReadError(ref ioe1), net_error::ReadError(ref ioe2)) => {
+                            (codec_error::ReadError(ref ioe1), net_error::ReadError(ref ioe2)) => {
                                 if ioe1.kind() == io::ErrorKind::UnexpectedEof && ioe2.kind() == io::ErrorKind::UnexpectedEof {
                                     // out of bytes
-                                    Err(net_error::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
+                                    Err(codec_error::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
                                 }
                                 else {
-                                    Err(net_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
+                                    Err(codec_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
                                 }
                             },
-                            (e_req, e_res) => Err(net_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                            (e_req, e_res) => Err(codec_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
                         }
                     }
                 }

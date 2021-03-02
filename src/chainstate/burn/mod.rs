@@ -14,6 +14,37 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+use std::fmt;
+use std::io::{Read, Write};
+
+use rand::Rng;
+use rand::SeedableRng;
+use rand::seq::index::sample;
+use rand_chacha::ChaCha20Rng;
+use ripemd160::Ripemd160;
+use rusqlite::Connection;
+use rusqlite::Transaction;
+use sha2::Sha256;
+
+use burnchains::Address;
+use burnchains::BurnchainHeaderHash;
+use burnchains::PublicKey;
+use burnchains::Txid;
+use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
+use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::{StacksBlock, MAX_BLOCK_LEN};
+use codec::{StacksMessageCodec, write_next, read_next, Error as codec_error};
+use core::SYSTEM_FORK_SET_VERSION;
+use util::db::Error as db_error;
+use util::hash::{Hash160, to_hex};
+use util::hash::Hash32;
+use util::hash::Sha512Trunc256Sum;
+use util::log;
+use util::uint::Uint256;
+use util::vrf::VRFProof;
+use util::retry::BoundReader;
+
 /// This module contains the code for processing the burn chain state database
 pub mod db;
 pub mod distribution;
@@ -22,45 +53,47 @@ pub mod sortition;
 
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
 
-use std::convert::TryInto;
-use std::fmt;
-use std::io::Write;
-
-use burnchains::Address;
-use burnchains::BurnchainHeaderHash;
-use burnchains::PublicKey;
-use burnchains::Txid;
-
-use util::hash::{to_hex, Hash160};
-use util::vrf::VRFProof;
-
-use rand::seq::index::sample;
-use rand::Rng;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use ripemd160::Ripemd160;
-use rusqlite::Connection;
-use rusqlite::Transaction;
-use sha2::Sha256;
-
-use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
-
-use util::db::Error as db_error;
-
-use core::SYSTEM_FORK_SET_VERSION;
-
-use util::hash::Hash32;
-use util::hash::Sha512Trunc256Sum;
-use util::log;
-use util::uint::Uint256;
-
-use chainstate::stacks::index::TrieHash;
-
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
 pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
+
+impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<(ConsensusHash, BurnchainHeaderHash), codec_error> {
+        let consensus_hash: ConsensusHash = read_next(fd)?;
+        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
+        Ok((consensus_hash, burn_header_hash))
+    }
+}
+
+impl StacksMessageCodec for (ConsensusHash, StacksBlock) {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<(ConsensusHash, StacksBlock), codec_error> {
+        let ch: ConsensusHash = read_next(fd)?;
+        let block = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+
+        Ok((ch, block))
+    }
+}
 
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
@@ -384,23 +417,18 @@ impl ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-
-    use super::*;
-
-    use chainstate::burn::db::sortdb::*;
-
-    use burnchains::BurnchainHeaderHash;
+    use rusqlite::Connection;
 
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-
+    use burnchains::BurnchainHeaderHash;
+    use chainstate::burn::db::sortdb::*;
     use util::db::Error as db_error;
-    use util::hash::{hex_bytes, Hash160};
+    use util::get_epoch_time_secs;
+    use util::hash::{Hash160, hex_bytes};
     use util::log;
 
-    use rusqlite::Connection;
-
-    use util::get_epoch_time_secs;
+    use super::*;
 
     #[test]
     fn get_prev_consensus_hashes() {

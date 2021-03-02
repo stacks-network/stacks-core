@@ -68,6 +68,9 @@ pub extern crate prometheus;
 pub mod util;
 
 #[macro_use]
+pub mod codec;
+
+#[macro_use]
 pub mod net;
 
 #[macro_use]
@@ -75,9 +78,6 @@ pub mod vm;
 
 #[macro_use]
 pub mod chainstate;
-
-#[macro_use]
-pub mod codec;
 
 #[cfg(test)]
 extern crate stx_genesis;

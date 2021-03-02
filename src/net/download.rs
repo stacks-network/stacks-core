@@ -34,7 +34,6 @@ use net::NeighborKey;
 use net::PeerAddress;
 use std::hash::{Hash, Hasher};
 
-use net::codec::*;
 use net::dns::*;
 use net::rpc::*;
 use net::*;

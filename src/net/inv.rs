@@ -24,7 +24,6 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 
-use net::codec::*;
 use net::*;
 
 use net::chat::ConversationP2P;

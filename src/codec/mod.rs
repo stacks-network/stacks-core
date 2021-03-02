@@ -1,10 +1,21 @@
 use std::io::{Read, Write};
-use std::mem;
+use std::{mem, io};
 
-use net::{Error, MAX_MESSAGE_LEN};
+use net::{MAX_MESSAGE_LEN};
 
 #[macro_use]
 pub mod macros;
+
+pub enum Error {
+    /// Failed to encode
+    SerializeError(String),
+    /// Failed to read
+    ReadError(io::Error),
+    /// Failed to decode
+    DeserializeError(String),
+    /// Failed to write
+    WriteError(io::Error),
+}
 
 /// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
@@ -94,3 +105,28 @@ pub fn read_next_exact<R: Read, T: StacksMessageCodec + Sized>(
 ) -> Result<Vec<T>, Error> {
     read_next_vec::<T, R>(fd, num_items, 0)
 }
+
+impl_stacks_message_codec_for_int!(u8; [0; 1]);
+impl_stacks_message_codec_for_int!(u16; [0; 2]);
+impl_stacks_message_codec_for_int!(u32; [0; 4]);
+impl_stacks_message_codec_for_int!(u64; [0; 8]);
+impl_stacks_message_codec_for_int!(i64; [0; 8]);
+
+impl<T> StacksMessageCodec for Vec<T>
+    where
+        T: StacksMessageCodec + Sized,
+{
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        let len = self.len() as u32;
+        write_next(fd, &len)?;
+        for i in 0..self.len() {
+            write_next(fd, &self[i])?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Vec<T>, Error> {
+        read_next_at_most::<R, T>(fd, u32::max_value())
+    }
+}
+

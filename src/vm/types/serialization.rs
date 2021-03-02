@@ -22,7 +22,7 @@ use std::io::{Read, Write};
 
 use serde_json::Value as JSONValue;
 
-use net::Error as NetError;
+use codec::Error as codec_error;
 use util::hash::{hex_bytes, to_hex};
 use util::retry::BoundReader;
 use vm::database::{ClarityDeserializable, ClaritySerializable};
@@ -262,14 +262,14 @@ impl PrincipalData {
 }
 
 impl StacksMessageCodec for PrincipalData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.inner_consensus_serialize(fd)
-            .map_err(NetError::WriteError)
+            .map_err(codec_error::WriteError)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, NetError> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, codec_error> {
         PrincipalData::inner_consensus_deserialize(fd)
-            .map_err(|e| NetError::DeserializeError(e.to_string()))
+            .map_err(|e| codec_error::DeserializeError(e.to_string()))
     }
 }
 

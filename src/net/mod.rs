@@ -33,7 +33,8 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use rand::RngCore;
+use sha2::{Sha512Trunc256, Digest};
+use rand::{RngCore, Rng};
 use rand::thread_rng;
 use regex::Regex;
 use rusqlite;
@@ -43,7 +44,7 @@ use serde::ser::Error as ser_Error;
 use serde_json;
 use url;
 
-use burnchains::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use burnchains::{BURNCHAIN_HEADER_HASH_ENCODED_SIZE, PrivateKey, PublicKey, BurnchainView};
 use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
 use chainstate::burn::BlockHeaderHash;
@@ -67,7 +68,7 @@ use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::log;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::secp256k1::{MESSAGE_SIGNATURE_ENCODED_SIZE, Secp256k1PrivateKey};
 use util::secp256k1::MessageSignature;
 use util::secp256k1::Secp256k1PublicKey;
 use util::strings::UrlString;
@@ -77,16 +78,26 @@ use vm::{
 };
 use vm::clarity::Error as clarity_error;
 
-use crate::codec::StacksMessageCodec;
+use codec::{StacksMessageCodec, Error as codec_error, read_next_exact, read_next, write_next, read_next_at_most};
 use crate::util::hash::Sha256Sum;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
+use util::retry::BoundReader;
+use net::db::LocalPeer;
+
+#[macro_use]
+// macro for determining how big an inv bitvec can be, given its bitlen
+macro_rules! BITVEC_LEN {
+    ($bitvec:expr) => {
+        (($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32
+    };
+}
 
 pub mod asn;
 pub mod atlas;
 pub mod chat;
-pub mod oldcodec;
+pub mod codec;
 pub mod connection;
 pub mod db;
 pub mod dns;
@@ -205,6 +216,25 @@ pub enum Error {
     ConnectionCycle,
     /// Requested data not found
     NotFoundError,
+}
+
+impl From<codec_error> for Error {
+    fn from(e: codec_error) -> Self {
+        match e {
+            codec_error::ReadError(e) => {
+                Error::ReadError(e)
+            },
+            codec_error::WriteError(e) => {
+                Error::WriteError(e)
+            },
+            codec_error::SerializeError(s) => {
+                Error::SerializeError(s)
+            },
+            codec_error::DeserializeError(s) => {
+                Error::DeserializeError(s)
+            }
+        }
+    }
 }
 
 /// Enum for passing data for ClientErrors
@@ -569,6 +599,22 @@ impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
 impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 
+impl StacksPublicKeyBuffer {
+    pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
+        let pubkey_bytes_vec = pubkey.to_bytes_compressed();
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes.copy_from_slice(&pubkey_bytes_vec[..]);
+        StacksPublicKeyBuffer(pubkey_bytes)
+    }
+
+    pub fn to_public_key(&self) -> Result<Secp256k1PublicKey, codec_error> {
+        Secp256k1PublicKey::from_slice(&self.0).map_err(|_e_str| {
+            codec_error::DeserializeError("Failed to decode Stacks public key".to_string())
+        })
+    }
+}
+
+
 pub const STACKS_PUBLIC_KEY_ENCODED_SIZE: u32 = 33;
 
 /// supported HTTP content types
@@ -670,6 +716,99 @@ pub const PREAMBLE_ENCODED_SIZE: u32 = 4
     + MESSAGE_SIGNATURE_ENCODED_SIZE
     + 4;
 
+impl Preamble {
+    /// Make an empty preamble with the given version and fork-set identifier, and payload length.
+    pub fn new(
+        peer_version: u32,
+        network_id: u32,
+        block_height: u64,
+        burn_block_hash: &BurnchainHeaderHash,
+        stable_block_height: u64,
+        stable_burn_block_hash: &BurnchainHeaderHash,
+        payload_len: u32,
+    ) -> Preamble {
+        Preamble {
+            peer_version: peer_version,
+            network_id: network_id,
+            seq: 0,
+            burn_block_height: block_height,
+            burn_block_hash: burn_block_hash.clone(),
+            burn_stable_block_height: stable_block_height,
+            burn_stable_block_hash: stable_burn_block_hash.clone(),
+            additional_data: 0,
+            signature: MessageSignature::empty(),
+            payload_len: payload_len,
+        }
+    }
+
+    /// Given the serialized message type and bits, sign the resulting message and store the
+    /// signature.  message_bits includes the relayers, payload type, and payload.
+    pub fn sign(
+        &mut self,
+        message_bits: &[u8],
+        privkey: &Secp256k1PrivateKey,
+    ) -> Result<(), codec_error> {
+        let mut digest_bits = [0u8; 32];
+        let mut sha2 = Sha512Trunc256::new();
+
+        // serialize the premable with a blank signature
+        let old_signature = self.signature.clone();
+        self.signature = MessageSignature::empty();
+
+        let mut preamble_bits = vec![];
+        self.consensus_serialize(&mut preamble_bits)?;
+        self.signature = old_signature;
+
+        sha2.input(&preamble_bits[..]);
+        sha2.input(message_bits);
+
+        digest_bits.copy_from_slice(sha2.result().as_slice());
+
+        let sig = privkey
+            .sign(&digest_bits)
+            .map_err(|se| codec_error::SigningError(se.to_string()))?;
+
+        self.signature = sig;
+        Ok(())
+    }
+
+    /// Given the serialized message type and bits, verify the signature.
+    /// message_bits includes the relayers, payload type, and payload
+    pub fn verify(
+        &mut self,
+        message_bits: &[u8],
+        pubkey: &Secp256k1PublicKey,
+    ) -> Result<(), codec_error> {
+        let mut digest_bits = [0u8; 32];
+        let mut sha2 = Sha512Trunc256::new();
+
+        // serialize the preamble with a blank signature
+        let sig_bits = self.signature.clone();
+        self.signature = MessageSignature::empty();
+
+        let mut preamble_bits = vec![];
+        self.consensus_serialize(&mut preamble_bits)?;
+        self.signature = sig_bits;
+
+        sha2.input(&preamble_bits[..]);
+        sha2.input(message_bits);
+
+        digest_bits.copy_from_slice(sha2.result().as_slice());
+
+        let res = pubkey
+            .verify(&digest_bits, &self.signature)
+            .map_err(|_ve| codec_error::VerifyingError("Failed to verify signature".to_string()))?;
+
+        if res {
+            Ok(())
+        } else {
+            Err(codec_error::VerifyingError(
+                "Invalid message signature".to_string(),
+            ))
+        }
+    }
+}
+
 /// Request for a block inventory or a list of blocks.
 /// Aligned to a PoX reward cycle.
 #[derive(Debug, Clone, PartialEq)]
@@ -687,6 +826,61 @@ pub struct BlocksInvData {
     pub microblocks_bitvec: Vec<u8>, // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
 }
 
+impl BlocksInvData {
+    pub fn empty() -> BlocksInvData {
+        BlocksInvData {
+            bitlen: 0,
+            block_bitvec: vec![],
+            microblocks_bitvec: vec![],
+        }
+    }
+
+    pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
+        let mut bitvec = vec![];
+        for i in 0..(bits.len() / 8) {
+            let mut next_octet = 0;
+            for j in 0..8 {
+                if bits[8 * i + j] {
+                    next_octet |= 1 << j;
+                }
+            }
+            bitvec.push(next_octet);
+        }
+        if bits.len() % 8 != 0 {
+            let mut last_octet = 0;
+            let idx = (bits.len() as u64) & 0xfffffffffffffff8; // (bits.len() / 8) * 8
+            for (j, bit) in bits[(idx as usize)..].iter().enumerate() {
+                if *bit {
+                    last_octet |= 1 << j;
+                }
+            }
+            bitvec.push(last_octet);
+        }
+        bitvec
+    }
+
+    pub fn has_ith_block(&self, block_index: u16) -> bool {
+        if block_index >= self.bitlen {
+            return false;
+        }
+
+        let idx = block_index / 8;
+        let bit = block_index % 8;
+        (self.block_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+
+    pub fn has_ith_microblock_stream(&self, block_index: u16) -> bool {
+        if block_index >= self.bitlen {
+            return false;
+        }
+
+        let idx = block_index / 8;
+        let bit = block_index % 8;
+        (self.microblocks_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+}
+
+
 /// Request for a PoX bitvector range.
 /// Requests bits for [start_reward_cycle, start_reward_cycle + num_anchor_blocks)
 #[derive(Debug, Clone, PartialEq)]
@@ -702,11 +896,57 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+impl PoxInvData {
+    pub fn has_ith_reward_cycle(&self, index: u16) -> bool {
+        if index >= self.bitlen {
+            return false;
+        }
+
+        let idx = index / 8;
+        let bit = index % 8;
+        (self.pox_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+}
+
+impl StacksMessageCodec for PoxInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.bitlen)?;
+        write_next(fd, &self.pox_bitvec)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PoxInvData, codec_error> {
+        let bitlen: u16 = read_next(fd)?;
+        if bitlen == 0 || (bitlen as u64) > GETPOXINV_MAX_BITLEN {
+            return Err(codec_error::DeserializeError(
+                "Invalid PoxInvData bitlen".to_string(),
+            ));
+        }
+
+        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        Ok(PoxInvData {
+            bitlen: bitlen,
+            pox_bitvec: pox_bitvec,
+        })
+    }
+}
+
 /// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<(ConsensusHash, StacksBlock)>,
 }
+
+impl BlocksData {
+    pub fn new() -> BlocksData {
+        BlocksData { blocks: vec![] }
+    }
+
+    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
+        self.blocks.push((ch, block))
+    }
+}
+
 
 /// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
@@ -721,6 +961,25 @@ pub struct BlocksAvailableData {
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
 
+impl BlocksAvailableData {
+    pub fn new() -> BlocksAvailableData {
+        BlocksAvailableData { available: vec![] }
+    }
+
+    pub fn try_push(
+        &mut self,
+        ch: ConsensusHash,
+        bhh: BurnchainHeaderHash,
+    ) -> Result<(), codec_error> {
+        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
+            self.available.push((ch, bhh));
+            return Ok(());
+        } else {
+            return Err(codec_error::InvalidMessage);
+        }
+    }
+}
+
 /// A descriptor of a peer
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NeighborAddress {
@@ -728,6 +987,16 @@ pub struct NeighborAddress {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub public_key_hash: Hash160, // used as a hint; useful for when a node trusts another node to be honest about this
+}
+
+impl NeighborAddress {
+    pub fn from_neighbor(n: &Neighbor) -> NeighborAddress {
+        NeighborAddress {
+            addrbytes: n.addr.addrbytes.clone(),
+            port: n.addr.port,
+            public_key_hash: Hash160::from_node_public_key(&n.public_key),
+        }
+    }
 }
 
 impl fmt::Display for NeighborAddress {
@@ -791,6 +1060,38 @@ pub struct HandshakeData {
     pub data_url: UrlString,
 }
 
+impl HandshakeData {
+    pub fn from_local_peer(local_peer: &LocalPeer) -> HandshakeData {
+        let (addrbytes, port) = match local_peer.public_ip_address {
+            Some((ref public_addrbytes, ref port)) => (public_addrbytes.clone(), *port),
+            None => (local_peer.addrbytes.clone(), local_peer.port),
+        };
+
+        // transmit the empty string if our data URL compels us to bind to the anynet address
+        let data_url = if local_peer.data_url.has_routable_host() {
+            local_peer.data_url.clone()
+        } else if let Some(data_port) = local_peer.data_url.get_port() {
+            // deduce from public IP
+            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port)).as_str())
+                .unwrap()
+        } else {
+            // unroutable, so don't bother
+            UrlString::try_from("").unwrap()
+        };
+
+        HandshakeData {
+            addrbytes: addrbytes,
+            port: port,
+            services: local_peer.services,
+            node_public_key: StacksPublicKeyBuffer::from_public_key(
+                &Secp256k1PublicKey::from_private(&local_peer.private_key),
+            ),
+            expire_block_height: local_peer.private_key_expire,
+            data_url: data_url,
+        }
+    }
+}
+
 #[repr(u8)]
 pub enum ServiceFlags {
     RELAY = 0x01,
@@ -801,6 +1102,15 @@ pub enum ServiceFlags {
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData, // this peer's handshake information
     pub heartbeat_interval: u32,  // hint as to how long this peer will remember you
+}
+
+impl HandshakeAcceptData {
+    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32) -> HandshakeAcceptData {
+        HandshakeAcceptData {
+            handshake: HandshakeData::from_local_peer(local_peer),
+            heartbeat_interval: heartbeat_interval,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -815,14 +1125,34 @@ pub mod NackErrorCodes {
     pub const InvalidMessage: u32 = 5;
 }
 
+impl NackData {
+    pub fn new(error_code: u32) -> NackData {
+        NackData { error_code }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PingData {
     pub nonce: u32,
 }
 
+impl PingData {
+    pub fn new() -> PingData {
+        let mut rng = rand::thread_rng();
+        let n = rng.gen();
+        PingData { nonce: n }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PongData {
     pub nonce: u32,
+}
+
+impl PongData {
+    pub fn from_ping(p: &PingData) -> PongData {
+        PongData { nonce: p.nonce }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -862,6 +1192,116 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
+}
+
+impl StacksMessageType {
+    pub fn get_message_id(&self) -> StacksMessageID {
+        match *self {
+            StacksMessageType::Handshake(ref _m) => StacksMessageID::Handshake,
+            StacksMessageType::HandshakeAccept(ref _m) => StacksMessageID::HandshakeAccept,
+            StacksMessageType::HandshakeReject => StacksMessageID::HandshakeReject,
+            StacksMessageType::GetNeighbors => StacksMessageID::GetNeighbors,
+            StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
+            StacksMessageType::GetPoxInv(ref _m) => StacksMessageID::GetPoxInv,
+            StacksMessageType::PoxInv(ref _m) => StacksMessageID::PoxInv,
+            StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
+            StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
+            StacksMessageType::BlocksAvailable(ref _m) => StacksMessageID::BlocksAvailable,
+            StacksMessageType::MicroblocksAvailable(ref _m) => {
+                StacksMessageID::MicroblocksAvailable
+            }
+            StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
+            StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
+            StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
+            StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
+            StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
+            StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
+            StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
+            StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
+        }
+    }
+
+    pub fn get_message_name(&self) -> &'static str {
+        match *self {
+            StacksMessageType::Handshake(ref _m) => "Handshake",
+            StacksMessageType::HandshakeAccept(ref _m) => "HandshakeAccept",
+            StacksMessageType::HandshakeReject => "HandshakeReject",
+            StacksMessageType::GetNeighbors => "GetNeighbors",
+            StacksMessageType::Neighbors(ref _m) => "Neighbors",
+            StacksMessageType::GetPoxInv(ref _m) => "GetPoxInv",
+            StacksMessageType::PoxInv(ref _m) => "PoxInv",
+            StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
+            StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
+            StacksMessageType::BlocksAvailable(ref _m) => "BlocksAvailable",
+            StacksMessageType::MicroblocksAvailable(ref _m) => "MicroblocksAvailable",
+            StacksMessageType::Blocks(ref _m) => "Blocks",
+            StacksMessageType::Microblocks(ref _m) => "Microblocks",
+            StacksMessageType::Transaction(ref _m) => "Transaction",
+            StacksMessageType::Nack(ref _m) => "Nack",
+            StacksMessageType::Ping(ref _m) => "Ping",
+            StacksMessageType::Pong(ref _m) => "Pong",
+            StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
+            StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
+        }
+    }
+
+    pub fn get_message_description(&self) -> String {
+        match *self {
+            StacksMessageType::Handshake(ref m) => {
+                format!("Handshake({})", &to_hex(&m.node_public_key.to_bytes()))
+            }
+            StacksMessageType::HandshakeAccept(ref m) => format!(
+                "HandshakeAccept({},{})",
+                &to_hex(&m.handshake.node_public_key.to_bytes()),
+                m.heartbeat_interval
+            ),
+            StacksMessageType::HandshakeReject => "HandshakeReject".to_string(),
+            StacksMessageType::GetNeighbors => "GetNeighbors".to_string(),
+            StacksMessageType::Neighbors(ref m) => format!("Neighbors({:?})", m.neighbors),
+            StacksMessageType::GetPoxInv(ref m) => {
+                format!("GetPoxInv({},{}))", &m.consensus_hash, m.num_cycles)
+            }
+            StacksMessageType::PoxInv(ref m) => {
+                format!("PoxInv({},{:?})", &m.bitlen, &m.pox_bitvec)
+            }
+            StacksMessageType::GetBlocksInv(ref m) => {
+                format!("GetBlocksInv({},{})", &m.consensus_hash, m.num_blocks)
+            }
+            StacksMessageType::BlocksInv(ref m) => format!(
+                "BlocksInv({},{:?},{:?})",
+                m.bitlen, &m.block_bitvec, &m.microblocks_bitvec
+            ),
+            StacksMessageType::BlocksAvailable(ref m) => {
+                format!("BlocksAvailable({:?})", &m.available)
+            }
+            StacksMessageType::MicroblocksAvailable(ref m) => {
+                format!("MicroblocksAvailable({:?})", &m.available)
+            }
+            StacksMessageType::Blocks(ref m) => format!(
+                "Blocks({:?})",
+                m.blocks
+                    .iter()
+                    .map(|(ch, blk)| (ch.clone(), blk.block_hash()))
+                    .collect::<Vec<(ConsensusHash, BlockHeaderHash)>>()
+            ),
+            StacksMessageType::Microblocks(ref m) => format!(
+                "Microblocks({},{:?})",
+                &m.index_anchor_block,
+                m.microblocks
+                    .iter()
+                    .map(|mblk| mblk.block_hash())
+                    .collect::<Vec<BlockHeaderHash>>()
+            ),
+            StacksMessageType::Transaction(ref m) => format!("Transaction({})", m.txid()),
+            StacksMessageType::Nack(ref m) => format!("Nack({})", m.error_code),
+            StacksMessageType::Ping(ref m) => format!("Ping({})", m.nonce),
+            StacksMessageType::Pong(ref m) => format!("Pong({})", m.nonce),
+            StacksMessageType::NatPunchRequest(ref m) => format!("NatPunchRequest({})", m),
+            StacksMessageType::NatPunchReply(ref m) => {
+                format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
+            }
+        }
+    }
 }
 
 /// Peer address variants
@@ -1365,6 +1805,154 @@ pub struct StacksMessage {
     pub payload: StacksMessageType,
 }
 
+impl StacksMessage {
+    /// Create an unsigned Stacks p2p message
+    pub fn new(
+        peer_version: u32,
+        network_id: u32,
+        block_height: u64,
+        burn_header_hash: &BurnchainHeaderHash,
+        stable_block_height: u64,
+        stable_burn_header_hash: &BurnchainHeaderHash,
+        message: StacksMessageType,
+    ) -> StacksMessage {
+        let preamble = Preamble::new(
+            peer_version,
+            network_id,
+            block_height,
+            burn_header_hash,
+            stable_block_height,
+            stable_burn_header_hash,
+            0,
+        );
+        StacksMessage {
+            preamble: preamble,
+            relayers: vec![],
+            payload: message,
+        }
+    }
+
+    /// Create an unsigned Stacks message
+    pub fn from_chain_view(
+        peer_version: u32,
+        network_id: u32,
+        chain_view: &BurnchainView,
+        message: StacksMessageType,
+    ) -> StacksMessage {
+        StacksMessage::new(
+            peer_version,
+            network_id,
+            chain_view.burn_block_height,
+            &chain_view.burn_block_hash,
+            chain_view.burn_stable_block_height,
+            &chain_view.burn_stable_block_hash,
+            message,
+        )
+    }
+
+    /// represent as neighbor key
+    pub fn to_neighbor_key(&self, addrbytes: &PeerAddress, port: u16) -> NeighborKey {
+        NeighborKey {
+            peer_version: self.preamble.peer_version,
+            network_id: self.preamble.network_id,
+            addrbytes: addrbytes.clone(),
+            port: port,
+        }
+    }
+
+    /// Sign the stacks message
+    fn do_sign(&mut self, private_key: &Secp256k1PrivateKey) -> Result<(), codec_error> {
+        let mut message_bits = vec![];
+        self.relayers.consensus_serialize(&mut message_bits)?;
+        self.payload.consensus_serialize(&mut message_bits)?;
+
+        self.preamble.payload_len = message_bits.len() as u32;
+        self.preamble.sign(&message_bits[..], private_key)
+    }
+
+    /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
+    /// originating this messsage).
+    pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), codec_error> {
+        if self.relayers.len() > 0 {
+            return Err(codec_error::InvalidMessage);
+        }
+        self.preamble.seq = seq;
+        self.do_sign(private_key)
+    }
+
+    /// Sign the StacksMessage and add ourselves as a relayer.
+    pub fn sign_relay(
+        &mut self,
+        private_key: &Secp256k1PrivateKey,
+        our_seq: u32,
+        our_addr: &NeighborAddress,
+    ) -> Result<(), codec_error> {
+        if self.relayers.len() >= MAX_RELAYERS_LEN as usize {
+            warn!(
+                "Message {:?} has too many relayers; will not sign",
+                self.payload.get_message_description()
+            );
+            return Err(codec_error::InvalidMessage);
+        }
+
+        // don't sign if signed more than once
+        for relayer in &self.relayers {
+            if relayer.peer.public_key_hash == our_addr.public_key_hash {
+                warn!(
+                    "Message {:?} already signed by {}",
+                    self.payload.get_message_description(),
+                    &our_addr.public_key_hash
+                );
+                return Err(codec_error::InvalidMessage);
+            }
+        }
+
+        // save relayer state
+        let our_relay = RelayData {
+            peer: our_addr.clone(),
+            seq: self.preamble.seq,
+        };
+
+        self.relayers.push(our_relay);
+        self.preamble.seq = our_seq;
+        self.do_sign(private_key)
+    }
+
+    pub fn deserialize_body<R: Read>(
+        fd: &mut R,
+    ) -> Result<(Vec<RelayData>, StacksMessageType), codec_error> {
+        let relayers: Vec<RelayData> = crate::codec::read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
+        let payload: StacksMessageType = crate::codec::read_next(fd)?;
+        Ok((relayers, payload))
+    }
+
+    /// Verify this message by treating the public key buffer as a secp256k1 public key.
+    /// Fails if:
+    /// * the signature doesn't match
+    /// * the buffer doesn't encode a secp256k1 public key
+    pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), codec_error> {
+        let secp256k1_pubkey = public_key.to_public_key()?;
+
+        let mut message_bits = vec![];
+        self.relayers.consensus_serialize(&mut message_bits)?;
+        self.payload.consensus_serialize(&mut message_bits)?;
+
+        let mut p = self.preamble.clone();
+        p.verify(&message_bits, &secp256k1_pubkey)
+            .and_then(|_m| Ok(()))
+    }
+}
+
+impl MessageSequence for StacksMessage {
+    fn request_id(&self) -> u32 {
+        self.preamble.seq
+    }
+
+    fn get_message_name(&self) -> &'static str {
+        self.payload.get_message_name()
+    }
+}
+
 /// Message type for HTTP
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksHttpMessage {
@@ -1438,6 +2026,94 @@ pub trait ProtocolFamily {
 // these implement the ProtocolFamily trait
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksP2P {}
+
+impl StacksP2P {
+    pub fn new() -> StacksP2P {
+        StacksP2P {}
+    }
+}
+
+impl ProtocolFamily for StacksP2P {
+    type Preamble = Preamble;
+    type Message = StacksMessage;
+
+    /// How big can a P2P preamble get?
+    fn preamble_size_hint(&mut self) -> usize {
+        PREAMBLE_ENCODED_SIZE as usize
+    }
+
+    /// How long is an encoded message payload going to be, if we can tell at all?
+    fn payload_len(&mut self, preamble: &Preamble) -> Option<usize> {
+        Some(preamble.payload_len as usize)
+    }
+
+    /// StacksP2P deals with Preambles
+    fn read_preamble(&mut self, buf: &[u8]) -> Result<(Preamble, usize), Error> {
+        if buf.len() < PREAMBLE_ENCODED_SIZE as usize {
+            return Err(codec_error::UnderflowError(
+                "Not enough bytes to form a P2P preamble".to_string(),
+            ));
+        }
+
+        let preamble: Preamble = crate::codec::read_next(&mut &buf[0..(PREAMBLE_ENCODED_SIZE as usize)])?;
+        Ok((preamble, PREAMBLE_ENCODED_SIZE as usize))
+    }
+
+    /// StacksP2P messages are never streamed, since we always know how long they are.
+    /// This should be unreachable, since payload_len() always returns Some(...)
+    fn stream_payload<R: Read>(
+        &mut self,
+        _preamble: &Preamble,
+        _fd: &mut R,
+    ) -> Result<(Option<(StacksMessage, usize)>, usize), Error> {
+        panic!(
+            "BUG: tried to stream a StacksP2P message, even though their lengths are always known"
+        )
+    }
+
+    /// StacksP2P deals with StacksMessages
+    fn read_payload(
+        &mut self,
+        preamble: &Preamble,
+        bytes: &[u8],
+    ) -> Result<(StacksMessage, usize), Error> {
+        if bytes.len() < preamble.payload_len as usize {
+            return Err(Error::UnderflowError(
+                "Not enough bytes to form a StacksMessage".to_string(),
+            ));
+        }
+
+        let mut cursor = io::Cursor::new(&bytes[0..(preamble.payload_len as usize)]);
+        let (relayers, payload) = StacksMessage::deserialize_body(&mut cursor)?;
+        let message = StacksMessage {
+            preamble: preamble.clone(),
+            relayers: relayers,
+            payload: payload,
+        };
+        Ok((message, cursor.position() as usize))
+    }
+
+    fn verify_payload_bytes(
+        &mut self,
+        key: &StacksPublicKey,
+        preamble: &Preamble,
+        bytes: &[u8],
+    ) -> Result<(), Error> {
+        preamble
+            .clone()
+            .verify(&bytes[0..(preamble.payload_len as usize)], key)
+            .and_then(|_m| Ok(()))
+            .into()
+    }
+
+    fn write_message<W: Write>(
+        &mut self,
+        fd: &mut W,
+        message: &StacksMessage,
+    ) -> Result<(), Error> {
+        message.consensus_serialize(fd).into()
+    }
+}
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();

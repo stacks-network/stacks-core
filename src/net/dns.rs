@@ -34,7 +34,6 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 
-use net::codec::*;
 use net::*;
 
 use util::db::Error as db_error;
