@@ -315,6 +315,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
+        chain_id: u32,
         path: &str,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
@@ -328,7 +329,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
-            0x80000000,
+            chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
             ExecutionCost::max_value(),

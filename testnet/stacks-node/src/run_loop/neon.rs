@@ -192,7 +192,7 @@ impl RunLoop {
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
@@ -269,7 +269,7 @@ impl RunLoop {
 
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(
             mainnet,
             chainid,

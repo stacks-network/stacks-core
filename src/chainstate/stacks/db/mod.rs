@@ -1311,15 +1311,8 @@ impl StacksChainState {
         boot_data: Option<&mut ChainStateBootData>,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        let mut path = PathBuf::from(path_str);
+        let path = PathBuf::from(path_str);
 
-        let chain_id_str = if mainnet {
-            format!("chain-{}-mainnet", &to_hex(&chain_id.to_le_bytes()))
-        } else {
-            format!("chain-{}-testnet", &to_hex(&chain_id.to_le_bytes()))
-        };
-
-        path.push(chain_id_str);
         StacksChainState::mkdirs(&path)?;
 
         let mut blocks_path = path.clone();
@@ -1343,7 +1336,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        state_path.push("marf");
+        state_path.push("marf.sqlite");
         let clarity_state_index_marf = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -1352,7 +1345,7 @@ impl StacksChainState {
         state_path.pop();
         state_path.pop();
 
-        state_path.push("index");
+        state_path.push("index.sqlite");
         let header_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?

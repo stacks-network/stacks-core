@@ -2322,8 +2322,8 @@ pub mod test {
             )
             .unwrap();
 
-            let chainstate_path = get_chainstate_path(&test_path);
-            let peerdb_path = format!("{}/peers.db", &test_path);
+            let chainstate_path = get_chainstate_path_str(&test_path);
+            let peerdb_path = format!("{}/peers.sqlite", &test_path);
 
             let mut peerdb = PeerDB::connect(
                 &peerdb_path,
@@ -2355,7 +2355,7 @@ pub mod test {
                 tx.commit().unwrap();
             }
 
-            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb =
                 AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
@@ -2433,8 +2433,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
+            let mut coord = ChainsCoordinator::test_new(
+                &burnchain,
+                config.network_id,
+                &test_path,
+                OnChainRewardSetProvider(),
+                tx,
+            );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);

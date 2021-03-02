@@ -284,7 +284,7 @@ impl Node {
         let chain_state_result = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
             Some(&mut boot_data),
             config.block_limit.clone(),
         );
@@ -293,7 +293,7 @@ impl Node {
             Ok(res) => res,
             Err(err) => panic!(
                 "Error while opening chain state at path {}: {:?}",
-                config.get_chainstate_path(),
+                config.get_chainstate_path_str(),
                 err
             ),
         };
@@ -343,7 +343,7 @@ impl Node {
             event_dispatcher.register_observer(observer);
         }
 
-        let chainstate_path = config.get_chainstate_path();
+        let chainstate_path = config.get_chainstate_path_str();
         let sortdb_path = config.get_burn_db_file_path();
 
         let (chain_state, _) = match StacksChainState::open(
@@ -442,7 +442,7 @@ impl Node {
         };
 
         let mut peerdb = PeerDB::connect(
-            &self.config.get_peer_db_path(),
+            &self.config.get_peer_db_file_path(),
             true,
             self.config.burnchain.chain_id,
             burnchain.network_id,
@@ -473,7 +473,7 @@ impl Node {
         }
         let atlas_config = AtlasConfig::default(false);
         let atlasdb =
-            AtlasDB::connect(atlas_config, &self.config.get_atlas_db_path(), true).unwrap();
+            AtlasDB::connect(atlas_config, &self.config.get_atlas_db_file_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -499,7 +499,7 @@ impl Node {
             &p2p_sock,
             &rpc_sock,
             self.config.get_burn_db_file_path(),
-            self.config.get_chainstate_path(),
+            self.config.get_chainstate_path_str(),
             event_dispatcher,
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
