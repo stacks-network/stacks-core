@@ -210,7 +210,7 @@ pub fn check_special_stx_transfer(
         StringSubtype::ASCII(BufferLength(TOKEN_TRANSFER_MEMO_LENGTH as u32)),
     ));
 
-    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;
 
     checker.type_check_expects(&args[0], context, &amount_type)?;
     checker.type_check_expects(&args[1], context, &from_type)?;
