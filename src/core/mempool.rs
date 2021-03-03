@@ -347,6 +347,8 @@ impl MemPoolDB {
         let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
+        let mut path = PathBuf::from(chainstate.root_path);
+
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
         path.push("mempool.sqlite");
