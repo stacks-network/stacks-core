@@ -639,20 +639,30 @@ impl ConversationHttp {
                     }
                 };
 
-            let mut blocks_ids = vec![];
-            let headers_conn = chainstate.index_conn()?;
             let tip_index_hash =
                 StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
 
-            for block_height in min_block_height..=max_block_height {
-                match StacksChainState::get_index_tip_ancestor_conn(
-                    &headers_conn,
-                    &tip_index_hash,
-                    block_height,
-                )? {
-                    Some(header) => blocks_ids.push(header.index_block_hash()),
-                    _ => {}
-                }
+            let headers_conn = chainstate.index_conn()?;
+
+            let upper_bound_header = StacksChainState::get_index_tip_ancestor_conn(
+                &headers_conn,
+                &tip_index_hash,
+                max_block_height,
+            )?;
+
+            let mut blocks_ids = vec![];
+            if let Some(upper_bound_header) = upper_bound_header {
+                let ancestors = StacksChainState::get_ancestors_headers(
+                    chainstate.db(),
+                    upper_bound_header,
+                    min_block_height,
+                )?;
+                blocks_ids.append(
+                    &mut ancestors
+                        .iter()
+                        .map(|h| h.index_block_hash())
+                        .collect::<_>(),
+                );
             }
 
             match atlasdb.get_attachments_available_at_page_index(*page_index, &blocks_ids) {
