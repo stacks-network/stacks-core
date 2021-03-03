@@ -348,7 +348,12 @@ impl MemPoolDB {
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
-        let db_path = MemPoolDB::db_path(&chainstate.root_path)?;
+
+        path.push("mempool.sqlite");
+        let db_path = path
+            .to_str()
+            .ok_or_else(|| db_error::ParseError)?
+            .to_string();
 
         let mut create_flag = false;
         let open_flags = if fs::metadata(&db_path).is_err() {
