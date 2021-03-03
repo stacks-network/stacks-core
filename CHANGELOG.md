@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The chainstate directory has been restructured in this release. It is not
+compatible with prior chainstate directories.
+
+## Added
+
+- CTRL-C handler for safe shutdown of `stacks-node`
+- Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
+- New prometheus metrics for mempool transaction processing times and
+  outstanding mempool transactions
+
+## Changed
+
+- Improved chainstate directory layout
+- Improved node boot up time
+- Better handling of flash blocks
+
 ## [2.0.8] - 2021-03-02
 
 This is a hotfix release for improved handling of static analysis storage and

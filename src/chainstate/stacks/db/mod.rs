@@ -93,7 +93,13 @@ use vm::types::TupleData;
 
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddress;
+use monitoring;
+
+lazy_static! {
+    pub static ref TRANSACTION_LOG: bool =
+        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
 
 pub struct StacksChainState {
     pub mainnet: bool,
@@ -371,14 +377,21 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub blocks_path: String,
     pub tx: StacksDBTx<'a>,
+    pub root_path: String,
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+    pub fn new(
+        tx: StacksDBTx<'a>,
+        blocks_path: String,
+        root_path: String,
+        config: DBConfig,
+    ) -> ChainstateTx<'a> {
         ChainstateTx {
             config,
             blocks_path,
             tx,
+            root_path,
         }
     }
 
@@ -394,31 +407,30 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    #[cfg(feature = "tx_log")]
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        let insert =
-            "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-        for tx_event in events.iter() {
-            let txid = tx_event.transaction.txid();
-            let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
-            let result = tx_event.result.to_string();
-            let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.tx.tx().execute(insert, params) {
-                warn!("Failed to log TX: {}", e);
+        if *TRANSACTION_LOG {
+            let insert =
+                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
+            for tx_event in events.iter() {
+                let txid = tx_event.transaction.txid();
+                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let result = tx_event.result.to_string();
+                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                if let Err(e) = self.tx.tx().execute(insert, params) {
+                    warn!("Failed to log TX: {}", e);
+                }
             }
         }
-    }
-
-    #[cfg(not(feature = "tx_log"))]
-    pub fn log_transactions_processed(
-        &self,
-        _block_id: &StacksBlockId,
-        _events: &[StacksTransactionReceipt],
-    ) {
+        for tx_event in events.iter() {
+            let txid = tx_event.transaction.txid();
+            if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
+                warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
+            }
+        }
     }
 }
 
@@ -493,20 +505,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
-    #[cfg(feature = "tx_log")]
-    r#"
-    CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY,
-        txid TEXT NOT NULL,
-        index_block_hash TEXT NOT NULL,
-        tx_hex TEXT NOT NULL,
-        result TEXT NOT NULL,
-        UNIQUE (txid,index_block_hash)
-    );"#,
-    #[cfg(feature = "tx_log")]
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    #[cfg(feature = "tx_log")]
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -600,6 +598,17 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
     );"#,
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );"#,
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -735,7 +744,7 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path)?;
             // sanity check
             let db_config = query_row::<DBConfig, _>(
                 marf.sqlite_conn(),
@@ -1434,7 +1443,8 @@ impl StacksChainState {
         let clarity_instance = &mut self.clarity_state;
         let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
+        let chainstate_tx =
+            ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
         Ok((chainstate_tx, clarity_instance))
     }
