@@ -1039,7 +1039,13 @@ impl StacksChainState {
                     .expect("BUG: total block cost decreased");
 
                 let (asset_map, events) = match initialize_resp {
-                    Ok(x) => x,
+                    Ok(x) => {
+                        // store analysis -- if this fails, then the have some pretty bad problems
+                        clarity_tx
+                            .save_analysis(&contract_id, &contract_analysis)
+                            .expect("FATAL: failed to store contract analysis");
+                        x
+                    }
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Smart-contract processed with {}", err_type;
@@ -1075,11 +1081,6 @@ impl StacksChainState {
                         }
                     },
                 };
-
-                // store analysis -- if this fails, then the have some pretty bad problems
-                clarity_tx
-                    .save_analysis(&contract_id, &contract_analysis)
-                    .expect("FATAL: failed to store contract analysis");
 
                 let receipt = StacksTransactionReceipt::from_smart_contract(
                     tx.clone(),
