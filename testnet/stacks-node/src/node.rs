@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -24,6 +23,7 @@ use stacks::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::net::{
@@ -772,40 +772,8 @@ impl Node {
                         for block in blocks.iter() {
                             match block {
                                 (Some(epoch_receipt), _) => {
-                                    let mut attachments_instances = HashSet::new();
-                                    for receipt in epoch_receipt.tx_receipts.iter() {
-                                        if let TransactionOrigin::Stacks(ref transaction) =
-                                            receipt.transaction
-                                        {
-                                            if let TransactionPayload::ContractCall(
-                                                ref contract_call,
-                                            ) = transaction.payload
-                                            {
-                                                let contract_id =
-                                                    contract_call.to_clarity_contract_id();
-                                                if atlas_config.contracts.contains(&contract_id) {
-                                                    for event in receipt.events.iter() {
-                                                        if let StacksTransactionEvent::SmartContractEvent(
-                                                            ref event_data,
-                                                        ) = event
-                                                        {
-                                                            let res = AttachmentInstance::try_new_from_value(
-                                                                &event_data.value,
-                                                                &contract_id,
-                                                                &epoch_receipt.header.consensus_hash,
-                                                                epoch_receipt.header.anchored_header.block_hash(),
-                                                                epoch_receipt.header.block_height,
-                                                                receipt.transaction.txid(),
-                                                            );
-                                                            if let Some(attachment_instance) = res {
-                                                                attachments_instances.insert(attachment_instance);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    let attachments_instances =
+                                        self.get_attachment_instances(epoch_receipt, &atlas_config);
                                     if !attachments_instances.is_empty() {
                                         match self.attachments_tx.send(attachments_instances) {
                                             Ok(_) => {}
@@ -870,6 +838,41 @@ impl Node {
         }
 
         chain_tip
+    }
+
+    pub fn get_attachment_instances(
+        &self,
+        epoch_receipt: &StacksEpochReceipt,
+        atlas_config: &AtlasConfig,
+    ) -> HashSet<AttachmentInstance> {
+        let mut attachments_instances = HashSet::new();
+        for receipt in epoch_receipt.tx_receipts.iter() {
+            if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
+                if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload {
+                    let contract_id = contract_call.to_clarity_contract_id();
+                    if atlas_config.contracts.contains(&contract_id) {
+                        for event in receipt.events.iter() {
+                            if let StacksTransactionEvent::SmartContractEvent(ref event_data) =
+                                event
+                            {
+                                let res = AttachmentInstance::try_new_from_value(
+                                    &event_data.value,
+                                    &contract_id,
+                                    &epoch_receipt.header.consensus_hash,
+                                    epoch_receipt.header.anchored_header.block_hash(),
+                                    epoch_receipt.header.block_height,
+                                    receipt.transaction.txid(),
+                                );
+                                if let Some(attachment_instance) = res {
+                                    attachments_instances.insert(attachment_instance);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        attachments_instances
     }
 
     /// Returns the Stacks address of the node
