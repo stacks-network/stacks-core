@@ -465,23 +465,7 @@ pub struct BlockStreamData {
     num_mblocks_ptr: usize,
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "2";
-
-pub const CHAINSTATE_VERSION_2: &'static str = "2";
-
-const CHAINSTATE_V2_SCHEMA: &'static [&'static str] = &[
-    r#"
-    CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY,
-        txid TEXT NOT NULL,
-        index_block_hash TEXT NOT NULL,
-        tx_hex TEXT NOT NULL,
-        result TEXT NOT NULL,
-        UNIQUE (txid,index_block_hash)
-    );"#,
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
-];
+pub const CHAINSTATE_VERSION: &'static str = "1";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -614,6 +598,17 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
     );"#,
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );"#,
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -723,10 +718,6 @@ impl StacksChainState {
                 tx.execute_batch(cmd)?;
             }
 
-            for cmd in CHAINSTATE_V2_SCHEMA {
-                tx.execute_batch(cmd)?;
-            }
-
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
                 &[
@@ -740,24 +731,6 @@ impl StacksChainState {
         dbtx.instantiate_index()?;
         dbtx.commit()?;
         Ok(marf)
-    }
-
-    fn state_migrate_v1_v2(marf: &mut MARF<StacksBlockId>) -> Result<(), Error> {
-        let mut dbtx = StacksDBTx::new(marf, ());
-
-        {
-            let tx = dbtx.tx();
-
-            for cmd in CHAINSTATE_V2_SCHEMA {
-                tx.execute_batch(cmd)?;
-            }
-
-            tx.execute("UPDATE db_config SET version = ?1", &[CHAINSTATE_VERSION_2])?;
-        }
-
-        dbtx.instantiate_index()?;
-        dbtx.commit()?;
-        Ok(())
     }
 
     fn open_db(
@@ -789,15 +762,11 @@ impl StacksChainState {
             }
 
             if db_config.version != CHAINSTATE_VERSION {
-                if db_config.version == "1" {
-                    StacksChainState::state_migrate_v1_v2(&mut marf)?;
-                } else {
-                    error!(
-                        "Invalid chain state database: expected version = {}, got {}",
-                        CHAINSTATE_VERSION, db_config.version
-                    );
-                    return Err(Error::InvalidChainstateDB);
-                }
+                error!(
+                    "Invalid chain state database: expected version = {}, got {}",
+                    CHAINSTATE_VERSION, db_config.version
+                );
+                return Err(Error::InvalidChainstateDB);
             }
 
             if db_config.chain_id != chain_id {
