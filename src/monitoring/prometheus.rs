@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use prometheus::{IntCounter, IntGauge};
+use prometheus::{Histogram, IntCounter, IntGauge};
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -141,5 +141,18 @@ lazy_static! {
         "stacks_node_active_miners_total",
         "Total number of active miners.",
         labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref MEMPOOL_OUTSTANDING_TXS: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_mempool_outstanding_txs",
+        "Number of still-unprocessed transactions received by this node since it started",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref MEMPOOL_TX_CONFIRM_TIME: Histogram = register_histogram!(histogram_opts!(
+        "stacks_node_mempool_tx_confirm_times",
+        "Time (seconds) between when a tx was received by this node's mempool and when a tx was first processed in a block",
+        vec![300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0, 3600.0, 4200.0, 4800.0, 6000.0],
+        labels! {"handler".to_string() => "all".to_string(),}
     )).unwrap();
 }

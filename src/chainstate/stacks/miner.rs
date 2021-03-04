@@ -256,8 +256,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             txs: txs,
         };
 
-        debug!(
-            "\n\nMiner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)\n",
+        info!(
+            "Miner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)",
             microblock.block_hash(),
             microblock.header.sequence,
             self.anchor_block_consensus_hash,
@@ -706,11 +706,10 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            info!(
-                "Include tx {} ({}) in anchor block",
-                tx.txid(),
-                tx.payload.name()
-            );
+            info!("Include tx";
+                  "tx" => %tx.txid(),
+                  "payload" => tx.payload.name(),
+                  "origin" => %tx.origin_address());
 
             // save
             self.txs.push(tx.clone());

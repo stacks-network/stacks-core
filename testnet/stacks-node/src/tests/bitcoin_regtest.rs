@@ -32,7 +32,7 @@ impl BitcoinCoreController {
     }
 
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
-        std::fs::create_dir_all(&self.config.get_burnchain_path()).unwrap();
+        std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
 
         let mut command = Command::new("bitcoind");
         command
@@ -46,7 +46,10 @@ impl BitcoinCoreController {
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
             .arg(&format!("-port={}", self.config.burnchain.peer_port))
-            .arg(&format!("-datadir={}", self.config.get_burnchain_path()))
+            .arg(&format!(
+                "-datadir={}",
+                self.config.get_burnchain_path_str()
+            ))
             .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
 
         match (
