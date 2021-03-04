@@ -8,12 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+The chainstate directory has been restructured in this release. It is not
+compatible with prior chainstate directories.
 
+## Added
+
+- CTRL-C handler for safe shutdown of `stacks-node`
+- Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
+- New prometheus metrics for mempool transaction processing times and
+  outstanding mempool transactions
+
+## Changed
+
+- Improved chainstate directory layout
+- Improved node boot up time
+- Better handling of flash blocks
 - The `/v2/pox` RPC endpoint was updated to include more useful
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
 
+## [2.0.8] - 2021-03-02
+
+This is a hotfix release for improved handling of static analysis storage and
+improved `at-block` behavior. The chainstate directory of 2.0.8 is compatible with
+the 2.0.7 chainstate.
+
+## Fixed
+
+- Improved static analysis storage
+- `at-block` behavior in `clarity-cli` and unit tests (no changes in `stacks-node`
+  behavior).
 
 ## [2.0.7] - 2021-02-26
 

@@ -593,9 +593,9 @@ impl PeerAddress {
     pub fn is_in_private_range(&self) -> bool {
         if self.is_ipv4() {
             // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
-            self.0[13] == 10
-                || (self.0[13] == 172 && self.0[14] >= 16 && self.0[14] <= 31)
-                || (self.0[13] == 192 && self.0[14] == 168)
+            self.0[12] == 10
+                || (self.0[12] == 172 && self.0[13] >= 16 && self.0[13] <= 31)
+                || (self.0[12] == 192 && self.0[13] == 168)
         } else {
             self.0[0] >= 0xfc
         }
@@ -1722,10 +1722,15 @@ pub struct NetworkResult {
     pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
+    pub num_download_passes: u64,
 }
 
 impl NetworkResult {
-    pub fn new(num_state_machine_passes: u64, num_inv_sync_passes: u64) -> NetworkResult {
+    pub fn new(
+        num_state_machine_passes: u64,
+        num_inv_sync_passes: u64,
+        num_download_passes: u64,
+    ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
@@ -1741,6 +1746,7 @@ impl NetworkResult {
             attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
+            num_download_passes: num_download_passes,
         }
     }
 
@@ -2330,8 +2336,8 @@ pub mod test {
             )
             .unwrap();
 
-            let chainstate_path = get_chainstate_path(&test_path);
-            let peerdb_path = format!("{}/peers.db", &test_path);
+            let chainstate_path = get_chainstate_path_str(&test_path);
+            let peerdb_path = format!("{}/peers.sqlite", &test_path);
 
             let mut peerdb = PeerDB::connect(
                 &peerdb_path,
@@ -2363,7 +2369,7 @@ pub mod test {
                 tx.commit().unwrap();
             }
 
-            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb =
                 AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
@@ -2441,8 +2447,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
+            let mut coord = ChainsCoordinator::test_new(
+                &burnchain,
+                config.network_id,
+                &test_path,
+                OnChainRewardSetProvider(),
+                tx,
+            );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2569,6 +2580,7 @@ pub mod test {
                 &mut mempool,
                 None,
                 false,
+                false,
                 10,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2591,6 +2603,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
+                false,
                 false,
                 10,
                 &RPCHandlerArgs::default(),

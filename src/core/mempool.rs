@@ -58,6 +58,8 @@ use rusqlite::Error as SqliteError;
 use chainstate::stacks::TransactionPayload;
 use vm::types::PrincipalData;
 
+use crate::monitoring;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
@@ -315,6 +317,15 @@ impl MemPoolDB {
         Ok(())
     }
 
+    pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
+        let mut path = PathBuf::from(chainstate_root_path);
+
+        path.push("mempool.sqlite");
+        path.to_str()
+            .ok_or_else(|| db_error::ParseError)
+            .map(String::from)
+    }
+
     /// Open the mempool db within the chainstate directory.
     /// The chainstate must be instantiated already.
     pub fn open(
@@ -336,15 +347,9 @@ impl MemPoolDB {
         let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
-        let mut path = PathBuf::from(chainstate.root_path);
-
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
-        path.push("mempool.db");
-        let db_path = path
-            .to_str()
-            .ok_or_else(|| db_error::ParseError)?
-            .to_string();
+        let db_path = MemPoolDB::db_path(&chainstate.root_path)?;
 
         let mut create_flag = false;
         let open_flags = if fs::metadata(&db_path).is_err() {
@@ -1008,7 +1013,7 @@ impl MemPoolDB {
             chainstate,
             &consensus_hash,
             &block_hash,
-            txid,
+            txid.clone(),
             tx_data,
             estimated_fee,
             tx_fee,
@@ -1018,6 +1023,10 @@ impl MemPoolDB {
             &sponsor_address,
             sponsor_nonce,
         )?;
+
+        if let Err(e) = monitoring::mempool_accepted(&txid, &chainstate.root_path) {
+            warn!("Failed to monitor TX receive: {:?}", e; "txid" => %txid);
+        }
 
         Ok(())
     }

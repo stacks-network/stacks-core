@@ -136,8 +136,13 @@ impl RunLoop {
             let utxos =
                 burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
             if utxos.is_none() {
-                error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                false
+                if self.config.node.mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
+                    true
+                } else {
+                    error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
+                    false
+                }
             } else {
                 info!("UTXOs found - will run as a Miner node");
                 true
@@ -185,7 +190,7 @@ impl RunLoop {
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
@@ -262,7 +267,7 @@ impl RunLoop {
 
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(
             mainnet,
             chainid,

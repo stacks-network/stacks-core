@@ -194,12 +194,12 @@ impl BitcoinRegtestController {
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
     ) -> Self {
-        std::fs::create_dir_all(&config.node.get_burnchain_path())
+        std::fs::create_dir_all(&config.get_burnchain_path_str())
             .expect("Unable to create workdir");
         let (network, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(
-            &config.burnchain.spv_headers_path,
+            &config.get_spv_headers_file_path(),
             0,
             None,
             network_id,
@@ -224,7 +224,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
-                spv_headers_path: burnchain_config.spv_headers_path,
+                spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
@@ -259,7 +259,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
-                spv_headers_path: burnchain_config.spv_headers_path,
+                spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
             }
@@ -555,6 +555,11 @@ impl BitcoinRegtestController {
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
+        // if mock mining, do not even both requesting UTXOs
+        if self.config.node.mock_mining {
+            return None;
+        }
+
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
