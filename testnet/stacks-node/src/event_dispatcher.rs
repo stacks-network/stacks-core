@@ -283,7 +283,9 @@ pub struct EventDispatcher {
 
 impl MemPoolEventDispatcher for EventDispatcher {
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
-        self.process_dropped_mempool_txs(txids, reason)
+        if !txids.is_empty() {
+            self.process_dropped_mempool_txs(txids, reason)
+        }
     }
 }
 
