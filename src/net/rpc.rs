@@ -116,6 +116,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
     pub genesis_chainstate_hash: Sha256Sum,
+    pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
 }
 
 pub struct ConversationHttp {
@@ -1593,6 +1594,7 @@ impl ConversationHttp {
         tx: StacksTransaction,
         atlasdb: &mut AtlasDB,
         attachment: Option<Attachment>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1602,7 +1604,13 @@ impl ConversationHttp {
                 false,
             )
         } else {
-            match mempool.submit(chainstate, &consensus_hash, &block_hash, &tx) {
+            match mempool.submit(
+                chainstate,
+                &consensus_hash,
+                &block_hash,
+                &tx,
+                event_observer,
+            ) {
                 Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
                     true,
@@ -2086,6 +2094,7 @@ impl ConversationHttp {
                             tx.clone(),
                             atlasdb,
                             attachment.clone(),
+                            handler_opts.event_observer.as_deref(),
                         )?;
                         if accepted {
                             // forward to peer network

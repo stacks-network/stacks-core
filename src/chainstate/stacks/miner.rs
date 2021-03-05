@@ -1298,6 +1298,7 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
         coinbase_tx: &StacksTransaction,
         execution_budget: ExecutionCost,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -1421,6 +1422,9 @@ impl StacksBlockBuilder {
         );
 
         mempool.drop_txs(&invalidated_txs)?;
+        if let Some(observer) = event_observer {
+            observer.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
+        }
 
         match result {
             Ok(_) => {}
@@ -6235,6 +6239,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6346,6 +6351,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
+                                None,
                             )
                             .unwrap();
                     }
@@ -6359,6 +6365,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6484,6 +6491,7 @@ pub mod test {
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     &stx_transfer,
+                                    None,
                                 )
                                 .unwrap();
                         }
@@ -6506,6 +6514,7 @@ pub mod test {
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     &stx_transfer,
+                                    None,
                                 )
                                 .unwrap();
                         }
@@ -6523,6 +6532,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6688,6 +6698,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
+                                None,
                             )
                             .unwrap();
 
@@ -6706,6 +6717,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &contract_tx,
+                                None,
                             )
                             .unwrap();
 
@@ -6723,6 +6735,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
+                                None,
                             )
                             .unwrap();
 
@@ -6749,6 +6762,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         execution_cost,
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6882,6 +6896,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &contract_tx,
+                                None,
                             )
                             .unwrap();
                     }
@@ -6905,6 +6920,7 @@ pub mod test {
                             Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
                             execution_cost,
+                            None,
                         )
                         .unwrap()
                     };
@@ -7012,6 +7028,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
 
@@ -7036,6 +7053,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &contract_tx,
+                                None,
                             )
                             .unwrap();
                     }
@@ -7212,6 +7230,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
 
@@ -7368,7 +7387,8 @@ pub mod test {
 
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
-                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value(), None
+                ).unwrap();
 
                 if tenure_id == bad_block_tenure {
                     // corrupt the block
@@ -7639,6 +7659,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
 
@@ -7906,6 +7927,7 @@ pub mod test {
                         mblock_pubkey_hash,
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
 
@@ -8327,6 +8349,7 @@ pub mod test {
                         mblock_pubkey_hash,
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
 
@@ -8686,6 +8709,7 @@ pub mod test {
                     &parent_consensus_hash,
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
+                    None,
                 )
                 .unwrap()
         }
@@ -8708,6 +8732,7 @@ pub mod test {
                     &parent_consensus_hash,
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
+                    None,
                 )
                 .unwrap()
         }
@@ -8743,6 +8768,7 @@ pub mod test {
                 Hash160([block_index; 20]),
                 &coinbase_tx,
                 execution_limit.clone(),
+                None,
             )
             .unwrap();
 
