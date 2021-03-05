@@ -313,6 +313,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(StacksAddress, u64)>,
         _burns: u64,
+        _slot_holders: Vec<StacksAddress>,
     ) {
     }
 

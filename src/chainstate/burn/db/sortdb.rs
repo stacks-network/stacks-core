@@ -2530,7 +2530,14 @@ impl SortitionDB {
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    ) -> Result<
+        (
+            BlockSnapshot,
+            BurnchainStateTransition,
+            Option<RewardSetInfo>,
+        ),
+        BurnchainError,
+    > {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2591,7 +2598,7 @@ impl SortitionDB {
 
         // commit everything!
         sortition_db_handle.commit()?;
-        Ok(new_snapshot)
+        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
     }
 
     #[cfg(test)]

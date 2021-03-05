@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
 
 The chainstate directory has been restructured in this release. It is not
@@ -12,6 +13,9 @@ compatible with prior chainstate directories.
 
 ## Added
 
+- `/drop_mempool_tx` endpoint to notify event observers when a mempool
+  transaction has been removed the mempool.
+- `"reward_slot_holders"` field to the `new_burn_block` event
 - CTRL-C handler for safe shutdown of `stacks-node`
 - Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
 - New prometheus metrics for mempool transaction processing times and

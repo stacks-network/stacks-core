@@ -97,6 +97,28 @@ impl MemPoolAdmitter {
     }
 }
 
+pub enum MemPoolDropReason {
+    REPLACE_ACROSS_FORK,
+    REPLACE_BY_FEE,
+    STALE_COLLECT,
+    TOO_EXPENSIVE,
+}
+
+impl std::fmt::Display for MemPoolDropReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemPoolDropReason::STALE_COLLECT => write!(f, "StaleGarbageCollect"),
+            MemPoolDropReason::TOO_EXPENSIVE => write!(f, "TooExpensive"),
+            MemPoolDropReason::REPLACE_ACROSS_FORK => write!(f, "ReplaceAcrossFork"),
+            MemPoolDropReason::REPLACE_BY_FEE => write!(f, "ReplaceByFee"),
+        }
+    }
+}
+
+pub trait MemPoolEventDispatcher {
+    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct MemPoolTxInfo {
     pub tx: StacksTransaction,
@@ -117,6 +139,12 @@ pub struct MemPoolTxMetadata {
     pub sponsor_address: StacksAddress,
     pub sponsor_nonce: u64,
     pub accept_time: u64,
+}
+
+impl FromRow<Txid> for Txid {
+    fn from_row<'a>(row: &'a Row) -> Result<Txid, db_error> {
+        row.get(0).map_err(db_error::SqliteError)
+    }
 }
 
 impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
@@ -796,8 +824,8 @@ impl MemPoolDB {
     /// is higher than the one that's already there.
     /// Carry out the mempool admission test before adding.
     /// Don't call directly; use submit()
-    fn try_add_tx<'a>(
-        tx: &mut MemPoolTx<'a>,
+    fn try_add_tx(
+        tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
@@ -810,6 +838,7 @@ impl MemPoolDB {
         origin_nonce: u64,
         sponsor_address: &StacksAddress,
         sponsor_nonce: u64,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), MemPoolRejection> {
         let length = tx_bytes.len() as u64;
 
@@ -826,10 +855,13 @@ impl MemPoolDB {
             }
         };
 
+        let mut replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
+
         // if so, is this a replace-by-fee? or a replace-in-chain-tip?
-        let add_tx = if let Some(prior_tx) = prior_tx {
+        let add_tx = if let Some(ref prior_tx) = prior_tx {
             if estimated_fee > prior_tx.estimated_fee {
                 // is this a replace-by-fee ?
+                replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
             } else if !tx.is_block_in_fork(
                 chainstate,
@@ -839,6 +871,7 @@ impl MemPoolDB {
                 block_header_hash,
             )? {
                 // is this a replace-across-fork ?
+                replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
                 true
             } else {
                 // there's a >= fee tx in this fork, cannot add
@@ -896,22 +929,40 @@ impl MemPoolDB {
 
         tx.execute(sql, args)
             .map_err(|e| MemPoolRejection::DBError(db_error::SqliteError(e)))?;
+
+        // broadcast drop event if a tx is being replaced
+        if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
+            event_observer.mempool_txs_dropped(vec![prior_tx.txid], replace_reason);
+        };
+
         Ok(())
     }
 
     /// Garbage-collect the mempool.  Remove transactions that have a given number of
     /// confirmations.
-    pub fn garbage_collect<'a>(tx: &mut MemPoolTx<'a>, min_height: u64) -> Result<(), db_error> {
-        let sql = "DELETE FROM mempool WHERE height < ?1";
+    pub fn garbage_collect(
+        tx: &mut MemPoolTx,
+        min_height: u64,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?];
 
-        tx.execute(sql, args).map_err(db_error::SqliteError)?;
+        if let Some(event_observer) = event_observer {
+            let sql = "SELECT txid FROM mempool WHERE height < ?1";
+            let txids = query_rows(tx, sql, args)?;
+            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+        }
+
+        let sql = "DELETE FROM mempool WHERE height < ?1";
+
+        tx.execute(sql, args)?;
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn clear_before_height(&mut self, min_height: u64) -> Result<(), db_error> {
         let mut tx = self.tx_begin()?;
-        MemPoolDB::garbage_collect(&mut tx, min_height)?;
+        MemPoolDB::garbage_collect(&mut tx, min_height, None)?;
         tx.commit()?;
         Ok(())
     }
@@ -945,13 +996,14 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    pub fn tx_submit(
+    fn tx_submit(
         mempool_tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         do_admission_checks: bool,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -1022,6 +1074,7 @@ impl MemPoolDB {
             origin_nonce,
             &sponsor_address,
             sponsor_nonce,
+            event_observer,
         )?;
 
         if let Err(e) = monitoring::mempool_accepted(&txid, &chainstate.root_path) {
@@ -1038,6 +1091,7 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
         MemPoolDB::tx_submit(
@@ -1047,6 +1101,7 @@ impl MemPoolDB {
             block_hash,
             tx,
             true,
+            event_observer,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -1071,6 +1126,7 @@ impl MemPoolDB {
             block_hash,
             &tx,
             false,
+            None,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -1330,6 +1386,7 @@ mod tests {
                 origin_nonce,
                 &sponsor_address,
                 sponsor_nonce,
+                None,
             )
             .unwrap();
 
@@ -1457,6 +1514,7 @@ mod tests {
             origin_nonce,
             &sponsor_address,
             sponsor_nonce,
+            None,
         )
         .unwrap();
 
@@ -1647,6 +1705,7 @@ mod tests {
             origin_nonce,
             &sponsor_address,
             sponsor_nonce,
+            None,
         )
         .unwrap();
 
@@ -1676,6 +1735,7 @@ mod tests {
             origin_nonce,
             &sponsor_address,
             sponsor_nonce,
+            None,
         )
         .unwrap_err();
         assert!(match err_resp {
@@ -1750,6 +1810,7 @@ mod tests {
                 origin_nonce,
                 &sponsor_address,
                 sponsor_nonce,
+                None,
             )
             .unwrap();
 
@@ -1812,6 +1873,7 @@ mod tests {
                 origin_nonce,
                 &sponsor_address,
                 sponsor_nonce,
+                None,
             )
             .unwrap();
 
@@ -1876,7 +1938,8 @@ mod tests {
                 &origin_address,
                 origin_nonce,
                 &sponsor_address,
-                sponsor_nonce
+                sponsor_nonce,
+                None,
             )
             .unwrap_err()
             {
@@ -1925,7 +1988,7 @@ mod tests {
 
         eprintln!("garbage-collect");
         let mut mempool_tx = mempool.tx_begin().unwrap();
-        MemPoolDB::garbage_collect(&mut mempool_tx, 101).unwrap();
+        MemPoolDB::garbage_collect(&mut mempool_tx, 101, None).unwrap();
         mempool_tx.commit().unwrap();
 
         let txs = MemPoolDB::get_txs_after(
