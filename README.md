@@ -17,6 +17,21 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 | Use a Blockstack App     | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
 | Blockstack PBC the company   | [our website](https://blockstack.org)                                             |
 
+## Release Schedule and Hotfixes
+
+Normal releases in this repository that add features such as improved RPC endpoints, improved boot-up time, new event
+observer fields or event types, etc., are released on a monthly schedule. The currently staged changes for such releases
+are in the [develop branch](https://github.com/blockstack/stacks-blockchain/tree/develop). It is generally safe to run
+a `stacks-node` from that branch, though it has received less rigorous testing than release tags. If bugs are found in
+the `develop` branch, please do report them as issues on this repository.
+
+For fixes that impact the correct functioning or liveness of the network, _hotfixes_ may be issued. These are patches
+to the main branch which are backported to the develop branch after merging. These hotfixes are categorized by priority
+according to the following rubric:
+
+- **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes
 
 ## Roadmap
 
