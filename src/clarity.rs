@@ -449,6 +449,40 @@ struct InitialAllocation {
     amount: u64,
 }
 
+fn find_arg(args: &mut Vec<String>, argnames: &[&str], has_optarg: bool) -> Option<Option<String>> {
+    let mut idx = None;
+    let mut argval = None;
+    for (i, arg) in args.iter().enumerate() {
+        for argname in argnames.iter() {
+            if &arg == argname {
+                if has_optarg {
+                    // following argument is the argument value
+                    if i + 1 < args.len() {
+                        argval = Some(args[i + 1].clone());
+                        idx = Some(i);
+                    } else {
+                        // invalid usage -- expected argument
+                        return None;
+                    }
+                } else {
+                    // only care about presence of this option
+                    argval = Some("".to_string());
+                    idx = Some(i);
+                }
+                break;
+            }
+        }
+    }
+    if let Some(idx) = idx {
+        args.remove(idx);
+        if has_optarg && argval.is_some() {
+            // also clear the argument
+            args.remove(idx);
+        }
+    }
+    Some(argval)
+}
+
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
@@ -535,15 +569,36 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] (vm-state.db)",
+                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] (vm-state.db)",
                     invoked_by, args[0]
                 );
                 panic_test!();
             }
 
-            let contract_id = QualifiedContractIdentifier::transient();
+            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let contract_id = if let Some(optarg) = find_arg(&mut argv, &["--contract_id"], true) {
+                optarg
+                    .map(|optarg_str| {
+                        friendly_expect(
+                            QualifiedContractIdentifier::parse(&optarg_str),
+                            &format!("Error parsing contract identifier '{}", &optarg_str),
+                        )
+                    })
+                    .unwrap_or(QualifiedContractIdentifier::transient())
+            } else {
+                eprintln!("Expected argument for --contract-id");
+                panic_test!();
+            };
 
-            let content: String = if &args[1] == "-" {
+            let output_analysis =
+                if let Some(optarg) = find_arg(&mut argv, &["--output_analysis"], false) {
+                    optarg.is_some()
+                } else {
+                    eprintln!("BUG: failed to parse arguments for --output_analysis");
+                    panic_test!();
+                };
+
+            let content: String = if &argv[1] == "-" {
                 let mut buffer = String::new();
                 friendly_expect(
                     io::stdin().read_to_string(&mut buffer),
@@ -552,21 +607,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             } else {
                 friendly_expect(
-                    fs::read_to_string(&args[1]),
-                    &format!("Error reading file: {}", args[1]),
+                    fs::read_to_string(&argv[1]),
+                    &format!("Error reading file: {}", argv[1]),
                 )
             };
 
             let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
 
             let contract_analysis = {
-                if args.len() >= 3 {
+                if argv.len() >= 3 {
                     // use a persisted marf
                     let marf_kv = friendly_expect(
-                        MarfedKV::open(&args[2], None),
+                        MarfedKV::open(&argv[2], None),
                         "Failed to open VM database.",
                     );
-                    let result = at_chaintip(&args[2], marf_kv, |mut marf| {
+                    let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
                         let result = {
                             let mut db = marf.as_analysis_db();
                             run_analysis(&contract_id, &mut ast, &mut db, false)
@@ -585,16 +640,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             });
 
-            match args.last() {
-                Some(s) if s == "--output_analysis" => {
-                    println!(
-                        "{}",
-                        build_contract_interface(&contract_analysis).serialize()
-                    );
-                }
-                _ => {
-                    println!("Checks passed.");
-                }
+            if output_analysis {
+                println!(
+                    "{}",
+                    build_contract_interface(&contract_analysis).serialize()
+                );
+            } else {
+                println!("Checks passed.");
             }
         }
         "repl" => {
