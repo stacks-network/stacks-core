@@ -270,13 +270,17 @@ impl StacksChainState {
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
             info!(
                 "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
-                &address, slots_taken, stacked_amt, threshold
+                &address.clone().to_b58(),
+                slots_taken,
+                stacked_amt,
+                threshold
             );
             for _i in 0..slots_taken {
                 test_debug!("Add to PoX reward set: {:?}", &address);
                 reward_set.push(address.clone());
             }
         }
+        info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
         reward_set
     }
 

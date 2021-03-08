@@ -407,11 +407,11 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
         }
     }
 
-    path.push("marf");
+    path.push("marf.sqlite");
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
     path.pop();
-    path.push("data.db");
+    path.push("data.sqlite");
     let data_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
     Ok((data_path, marf_path))

@@ -4,7 +4,6 @@ mod integrations;
 mod mempool;
 mod neon_integrations;
 
-use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
 use stacks::chainstate::stacks::{
@@ -17,10 +16,12 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
 use stacks::util::strings::StacksString;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
+use stacks::{address::AddressHashMode, util::hash::to_hex};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::Config;
@@ -167,18 +168,22 @@ pub fn new_test_conf() -> Config {
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
 
     let mut conf = Config::default();
+    conf.node.working_dir = format!(
+        "/tmp/stacks-node-tests/{}-{}",
+        get_epoch_time_secs(),
+        to_hex(&buf)
+    );
     conf.node.seed =
         hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
     conf.add_initial_balance(
         "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(),
         10000,
     );
-
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
 
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534

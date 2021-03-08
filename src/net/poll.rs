@@ -48,8 +48,6 @@ use std::net::Shutdown;
 use rand;
 use rand::RngCore;
 
-pub const NUM_NEIGHBORS: u32 = 32;
-
 const SERVER: Token = mio::Token(0);
 
 pub struct NetworkPollState {
@@ -232,7 +230,7 @@ impl NetworkState {
             })?;
 
         self.event_map.insert(event_id, server_event_id);
-        test_debug!(
+        debug!(
             "Register socket {:?} as event {} ({}) on server {}.  Events total (max {}): {}",
             sock,
             event_id,
