@@ -20,6 +20,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
+use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
@@ -449,38 +450,42 @@ struct InitialAllocation {
     amount: u64,
 }
 
-fn find_arg(args: &mut Vec<String>, argnames: &[&str], has_optarg: bool) -> Option<Option<String>> {
-    let mut idx = None;
-    let mut argval = None;
-    for (i, arg) in args.iter().enumerate() {
-        for argname in argnames.iter() {
-            if &arg == argname {
-                if has_optarg {
-                    // following argument is the argument value
-                    if i + 1 < args.len() {
-                        argval = Some(args[i + 1].clone());
-                        idx = Some(i);
-                    } else {
-                        // invalid usage -- expected argument
-                        return None;
-                    }
-                } else {
-                    // only care about presence of this option
-                    argval = Some("".to_string());
-                    idx = Some(i);
-                }
-                break;
+fn consume_arg(
+    args: &mut Vec<String>,
+    argnames: &[&str],
+    has_optarg: bool,
+) -> Result<Option<String>, String> {
+    if let Some(ref switch) = args
+        .iter()
+        .find(|ref arg| argnames.iter().find(|ref argname| argname == arg).is_some())
+    {
+        let idx = args
+            .iter()
+            .position(|ref arg| arg == switch)
+            .expect("BUG: did not find the thing that was just found");
+        let argval = if has_optarg {
+            // following argument is the argument value
+            if idx + 1 < args.len() {
+                Some(args[idx + 1].clone())
+            } else {
+                // invalid usage -- expected argument
+                return Err("Expected argument".to_string());
             }
-        }
-    }
-    if let Some(idx) = idx {
+        } else {
+            // only care about presence of this option
+            Some("".to_string())
+        };
+
         args.remove(idx);
-        if has_optarg && argval.is_some() {
+        if has_optarg {
             // also clear the argument
             args.remove(idx);
         }
+        Ok(argval)
+    } else {
+        // not found
+        Ok(None)
     }
-    Some(argval)
 }
 
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
@@ -576,7 +581,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
 
             let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
-            let contract_id = if let Some(optarg) = find_arg(&mut argv, &["--contract_id"], true) {
+            let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
                 optarg
                     .map(|optarg_str| {
                         friendly_expect(
@@ -591,7 +596,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             };
 
             let output_analysis =
-                if let Some(optarg) = find_arg(&mut argv, &["--output_analysis"], false) {
+                if let Ok(optarg) = consume_arg(&mut argv, &["--output_analysis"], false) {
                     optarg.is_some()
                 } else {
                     eprintln!("BUG: failed to parse arguments for --output_analysis");
@@ -1122,6 +1127,18 @@ mod test {
                 "check".to_string(),
                 "sample-contracts/names.clar".to_string(),
                 db_name.clone(),
+            ],
+        );
+
+        eprintln!("check names with different contract ID");
+        invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                "sample-contracts/names.clar".to_string(),
+                db_name.clone(),
+                "--contract_id".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
             ],
         );
 
