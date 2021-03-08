@@ -2365,7 +2365,7 @@ mod test {
         fs::create_dir_all(&test_path).unwrap();
 
         let sortdb_path = format!("{}/burn", &test_path);
-        let peerdb_path = format!("{}/peers.db", &test_path);
+        let peerdb_path = format!("{}/peers.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let peerdb = PeerDB::connect(

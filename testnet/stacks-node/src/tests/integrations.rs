@@ -754,6 +754,7 @@ fn contract_stx_transfer() {
                             &consensus_hash,
                             &header_hash,
                             &xfer_to_contract,
+                            None,
                         )
                         .unwrap();
                 }
@@ -769,6 +770,7 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         &xfer_to_contract,
+                        None,
                     )
                     .unwrap_err()
                 {

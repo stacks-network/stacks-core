@@ -131,6 +131,7 @@ pub trait BlockEventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        reward_recipients: Vec<StacksAddress>,
     );
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
@@ -317,6 +318,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
+        chain_id: u32,
         path: &str,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
@@ -330,7 +332,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
-            0x80000000,
+            chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
             ExecutionCost::max_value(),
@@ -439,11 +441,12 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     }
 }
 
-fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
-    dispatcher: &T,
-    burn_header: &BurnchainBlockHeader,
-    ops: &[BlockstackOperationType],
-) {
+struct PaidRewards {
+    pox: Vec<(StacksAddress, u64)>,
+    burns: u64,
+}
+
+fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut reward_recipients: HashMap<_, u64> = HashMap::new();
     let mut burn_amt = 0;
     for op in ops.iter() {
@@ -462,12 +465,34 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
             }
         }
     }
-    let reward_recipients_vec = reward_recipients.into_iter().collect();
+    PaidRewards {
+        pox: reward_recipients.into_iter().collect(),
+        burns: burn_amt,
+    }
+}
+
+fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
+    dispatcher: &T,
+    burn_header: &BurnchainBlockHeader,
+    paid_rewards: PaidRewards,
+    reward_recipient_info: Option<RewardSetInfo>,
+) {
+    let recipients = if let Some(recip_info) = reward_recipient_info {
+        recip_info
+            .recipients
+            .into_iter()
+            .map(|(addr, _)| addr)
+            .collect()
+    } else {
+        vec![]
+    };
+
     dispatcher.announce_burn_block(
         &burn_header.block_hash,
         burn_header.block_height,
-        reward_recipients_vec,
-        burn_amt,
+        paid_rewards.pox,
+        paid_rewards.burns,
+        recipients,
     );
 }
 
@@ -528,14 +553,21 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         for unprocessed_block in sortitions_to_process.into_iter() {
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
-            if let Some(dispatcher) = self.dispatcher {
-                dispatcher_announce_burn_ops(dispatcher, &header, &ops);
-            }
+            // calculate paid rewards during this burnchain block if we announce
+            //  to an events dispatcher
+            let paid_rewards = if self.dispatcher.is_some() {
+                calculate_paid_rewards(&ops)
+            } else {
+                PaidRewards {
+                    pox: vec![],
+                    burns: 0,
+                }
+            };
 
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            let next_snapshot = self
+            let (next_snapshot, _, reward_set_info) = self
                 .sortition_db
                 .evaluate_sortition(
                     &header,
@@ -547,8 +579,11 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
-                })?
-                .0;
+                })?;
+
+            if let Some(dispatcher) = self.dispatcher {
+                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, reward_set_info);
+            }
 
             let sortition_id = next_snapshot.sortition_id;
 

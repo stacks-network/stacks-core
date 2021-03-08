@@ -209,7 +209,7 @@ impl MarfedKV {
         std::fs::create_dir_all(&path)
             .map_err(|_| InterpreterError::FailedToCreateDataDirectory)?;
 
-        path.push("marf");
+        path.push("marf.sqlite");
         let marf_path = path
             .to_str()
             .ok_or_else(|| InterpreterError::BadFileName)?

@@ -2351,7 +2351,11 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<(bool, bool), net_error> {
+    fn do_network_inv_sync(
+        &mut self,
+        sortdb: &SortitionDB,
+        ibd: bool,
+    ) -> Result<(bool, bool), net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok((true, false));
@@ -2364,7 +2368,8 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, broken_neighbors, dead_neighbors) = self.sync_inventories(sortdb)?;
+        let (done, throttled, broken_neighbors, dead_neighbors) =
+            self.sync_inventories(sortdb, ibd)?;
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
@@ -2453,6 +2458,11 @@ impl PeerNetwork {
         }
 
         if done && at_chain_tip {
+            debug!(
+                "{:?}: Completed downloader pass {}",
+                &self.local_peer,
+                self.num_downloader_passes + 1
+            );
             self.num_downloader_passes += 1;
         }
 
@@ -2898,6 +2908,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
         // do some Actual Work(tm)
@@ -2931,7 +2942,7 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb)?;
+                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd)?;
                     if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
@@ -4005,6 +4016,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         mut poll_state: NetworkPollState,
     ) -> Result<(), net_error> {
         if self.network.is_none() {
@@ -4028,7 +4040,7 @@ impl PeerNetwork {
         // set up sockets that have finished connecting
         self.process_connecting_sockets(&mut poll_state);
 
-        // find out who is inbound and unathenticed
+        // find out who is inbound and unauthenticated
         let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
@@ -4056,6 +4068,7 @@ impl PeerNetwork {
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
+            ibd,
             network_result,
         )?;
         if do_prune {
@@ -4073,7 +4086,7 @@ impl PeerNetwork {
             self.prune_connections();
         }
 
-        // In parallel, do a neighbor walk
+        // In parallel, do a neighbor walk, but only if we're not doing the initial block download
         self.do_network_neighbor_walk()?;
 
         // download attachments
@@ -4145,6 +4158,7 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
@@ -4152,7 +4166,8 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
+        {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4168,6 +4183,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         network_result: &mut NetworkResult,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
@@ -4184,6 +4200,7 @@ impl PeerNetwork {
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
+                    event_observer,
                 ) {
                     if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
                         new_tx_data.push((relayers, tx));
@@ -4214,6 +4231,7 @@ impl PeerNetwork {
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
         attachment_requests: &mut HashSet<AttachmentInstance>,
@@ -4237,8 +4255,11 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut network_result =
-            NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
+        let mut network_result = NetworkResult::new(
+            self.num_state_machine_passes,
+            self.num_inv_sync_passes,
+            self.num_downloader_passes,
+        );
 
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
@@ -4278,6 +4299,7 @@ impl PeerNetwork {
             chainstate,
             dns_client_opt,
             download_backpressure,
+            ibd,
             p2p_poll_state,
         )?;
 

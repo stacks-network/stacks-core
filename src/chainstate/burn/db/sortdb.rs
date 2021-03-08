@@ -1177,6 +1177,9 @@ impl<'a> SortitionHandleTx<'a> {
                         .into_iter()
                         .map(|ix| {
                             let recipient = reward_set[ix as usize].clone();
+                            info!("PoX recipient chosen";
+                                   "recipient" => recipient.clone().to_b58(),
+                                   "block_height" => block_height);
                             (recipient, u16::try_from(ix).unwrap())
                         })
                         .collect(),
@@ -1203,9 +1206,11 @@ impl<'a> SortitionHandleTx<'a> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
+                        info!("PoX recipient chosen";
+                               "recipient" => recipient.clone().to_b58(),
+                               "block_height" => block_height);
                         recipients.push((recipient, ix));
                     }
-                    test_debug!("PoX reward recipients: {:?}", &recipients);
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,
@@ -2525,7 +2530,14 @@ impl SortitionDB {
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    ) -> Result<
+        (
+            BlockSnapshot,
+            BurnchainStateTransition,
+            Option<RewardSetInfo>,
+        ),
+        BurnchainError,
+    > {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2586,7 +2598,7 @@ impl SortitionDB {
 
         // commit everything!
         sortition_db_handle.commit()?;
-        Ok(new_snapshot)
+        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
     }
 
     #[cfg(test)]
