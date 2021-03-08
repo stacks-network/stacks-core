@@ -9121,6 +9121,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
