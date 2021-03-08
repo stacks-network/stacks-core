@@ -1,6 +1,7 @@
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
+    make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
+    SK_2,
 };
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -38,6 +39,7 @@ use stacks::net::{
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::{get_epoch_time_secs, sleep_ms};
+use std::cmp;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -46,7 +48,6 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use std::{env, thread};
-use std::cmp;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -1584,10 +1585,10 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     for _i in 0..(1024 * 1024 + 500) {
         giant_contract.push_str(" ");
     }
-   
+
     // small-sized contracts for microblocks
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
-    for _i in 0..((1024 * 1024 + 500) / 5)  {
+    for _i in 0..((1024 * 1024 + 500) / 5) {
         small_contract.push_str(" ");
     }
 
@@ -1596,18 +1597,30 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         .map(|_| StacksPrivateKey::new())
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
-    
+
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
         .enumerate()
         .map(|(ix, spender_sk)| {
             if ix % 2 == 0 {
                 // almost fills a whole block
-                vec![make_contract_publish(spender_sk, 0, 1049230, "large-0", &giant_contract)]
+                vec![make_contract_publish(
+                    spender_sk,
+                    0,
+                    1049230,
+                    "large-0",
+                    &giant_contract,
+                )]
             } else {
                 let mut ret = vec![];
                 for i in 0..25 {
-                    let tx = make_contract_publish_microblock_only(spender_sk, i as u64, 210000, &format!("small-{}", i), &small_contract);
+                    let tx = make_contract_publish_microblock_only(
+                        spender_sk,
+                        i as u64,
+                        210000,
+                        &format!("small-{}", i),
+                        &small_contract,
+                    );
                     ret.push(tx);
                 }
                 ret
@@ -1711,7 +1724,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                 mblock_nonces += res.nonce;
                 max_mblock_nonce = cmp::max(res.nonce, max_mblock_nonce);
             }
-        } 
+        }
 
         debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
     }
@@ -1722,7 +1735,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     );
 
     assert_eq!(anchor_block_txs, 2);
-    
+
     // accept only 9 "small" txs
     assert_eq!(mblock_nonces, 9);
 
@@ -1807,7 +1820,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     (begin
         (crash-me))
     ";
-    
+
     let small_contract = "
     (define-map data-map { input: uint } { output: (buff 1024) })
     (define-private (folder (idx uint) (data (buff 1024)))
@@ -1847,24 +1860,36 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     (begin
         (crash-me))
     ";
-   
+
     let spender_sks: Vec<_> = (0..10)
         .into_iter()
         .map(|_| StacksPrivateKey::new())
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
-    
+
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
         .enumerate()
         .map(|(ix, spender_sk)| {
             if ix % 2 == 0 {
                 // almost fills a whole block
-                vec![make_contract_publish(spender_sk, 0, 1049230, "large-0", &giant_contract)]
+                vec![make_contract_publish(
+                    spender_sk,
+                    0,
+                    1049230,
+                    "large-0",
+                    &giant_contract,
+                )]
             } else {
                 let mut ret = vec![];
                 for i in 0..25 {
-                    let tx = make_contract_publish_microblock_only(spender_sk, i as u64, 210000, &format!("small-{}", i), &small_contract);
+                    let tx = make_contract_publish_microblock_only(
+                        spender_sk,
+                        i as u64,
+                        210000,
+                        &format!("small-{}", i),
+                        &small_contract,
+                    );
                     ret.push(tx);
                 }
                 ret
@@ -1882,7 +1907,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 5000;
+    conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -1936,7 +1961,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    sleep_ms(75_000);
+    sleep_ms(2_000_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -1948,7 +1973,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(75_000);
+    sleep_ms(2_000_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -1968,7 +1993,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
                 mblock_nonces += res.nonce;
                 max_mblock_nonce = cmp::max(res.nonce, max_mblock_nonce);
             }
-        } 
+        }
 
         debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
     }
@@ -1979,7 +2004,7 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     );
 
     assert_eq!(anchor_block_txs, 2);
-    
+
     // accept only 9 "small" txs
     assert_eq!(mblock_nonces, 9);
 
@@ -2065,9 +2090,9 @@ fn block_replay_integration_test() {
     submit_tx(&http_origin, &tx);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // try and push the mined block back at the node lots of times
@@ -2085,7 +2110,7 @@ fn block_replay_integration_test() {
             .unwrap()
             .text()
             .unwrap();
-        
+
         eprintln!("{}: text of {}\n{}", i, &path, &res_text);
     }
 

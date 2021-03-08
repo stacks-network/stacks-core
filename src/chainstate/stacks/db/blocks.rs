@@ -82,8 +82,8 @@ use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
 
 use rand::thread_rng;
-use rand::RngCore;
 use rand::Rng;
+use rand::RngCore;
 
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
@@ -747,7 +747,7 @@ impl StacksChainState {
         let block_path =
             StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
-        
+
         // already freed?
         let sz = StacksChainState::get_file_size(&block_path)
             .expect(&format!("FATAL: failed to stat {}", &block_path));
@@ -759,10 +759,10 @@ impl StacksChainState {
             let random_bytes_str = to_hex(&random_bytes);
             let invalid_path = format!("{}.invalid-{}", &block_path, &random_bytes_str);
 
-            fs::copy(&block_path, &invalid_path)
-                .expect(&format!(
-                    "FATAL: failed to copy '{}' to '{}'", &block_path, &invalid_path,
-                ));
+            fs::copy(&block_path, &invalid_path).expect(&format!(
+                "FATAL: failed to copy '{}' to '{}'",
+                &block_path, &invalid_path,
+            ));
 
             // truncate the original
             fs::OpenOptions::new()
@@ -2052,6 +2052,9 @@ impl StacksChainState {
         let update_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // find all descendant orphaned microblocks, and delete the block data
+        /*
+        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
+        // analysis
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
         let find_orphaned_microblocks_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
@@ -2061,6 +2064,7 @@ impl StacksChainState {
             "microblock_hash",
         )
         .map_err(Error::DBError)?;
+        */
 
         // drop microblocks (this processes them)
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
@@ -2284,7 +2288,6 @@ impl StacksChainState {
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
     fn drop_staging_microblocks<'a>(
         tx: &mut DBTx<'a>,
-        blocks_path: &String,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -3224,15 +3227,10 @@ impl StacksChainState {
         );
 
         let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
-        let mainnet = self.mainnet;
-        let chain_id = self.chain_id;
-        let blocks_path = self.blocks_path.clone();
-        let mut block_tx = self.db_tx_begin()?;
 
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
         let blocks_path = self.blocks_path.clone();
-
         let mut block_tx = self.db_tx_begin()?;
 
         // already in queue or already processed?
@@ -3725,12 +3723,13 @@ impl StacksChainState {
                 let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
                 // block must correspond to a valid PoX snapshot
-                let sn_opt = SortitionDB::get_block_snapshot_consensus(
-                    sort_tx,
-                    &candidate.consensus_hash,
-                )?;
+                let sn_opt =
+                    SortitionDB::get_block_snapshot_consensus(sort_tx, &candidate.consensus_hash)?;
                 if sn_opt.is_none() {
-                    info!("Block {}/{} does not correspond to a sortition", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                    info!(
+                        "Block {}/{} does not correspond to a sortition",
+                        &candidate.consensus_hash, &candidate.anchored_block_hash
+                    );
                     to_delete.push((
                         candidate.consensus_hash.clone(),
                         candidate.anchored_block_hash.clone(),
@@ -3738,7 +3737,10 @@ impl StacksChainState {
                     continue;
                 } else if let Some(sn) = sn_opt {
                     if !sn.pox_valid {
-                        info!("Block {}/{} corresponds to an invalid PoX sortition", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                        info!(
+                            "Block {}/{} corresponds to an invalid PoX sortition",
+                            &candidate.consensus_hash, &candidate.anchored_block_hash
+                        );
                         to_delete.push((
                             candidate.consensus_hash.clone(),
                             candidate.anchored_block_hash.clone(),
@@ -4966,7 +4968,6 @@ impl StacksChainState {
                         );
                         StacksChainState::drop_staging_microblocks(
                             chainstate_tx.deref_mut(),
-                            &blocks_path,
                             &parent_header_info.consensus_hash,
                             &parent_header_info.anchored_header.block_hash(),
                             header_hash,
@@ -6128,11 +6129,9 @@ pub mod test {
         anchored_block_hash: &BlockHeaderHash,
         invalid_microblock: &BlockHeaderHash,
     ) {
-        let blocks_path = chainstate.blocks_path.clone();
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::drop_staging_microblocks(
             &mut tx,
-            &blocks_path,
             consensus_hash,
             anchored_block_hash,
             invalid_microblock,

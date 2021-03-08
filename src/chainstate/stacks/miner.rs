@@ -84,7 +84,7 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             prev_microblock_header: unconfirmed.last_mblock.clone(),
             considered: Some(considered),
             num_mined: 0,
-            tip: unconfirmed.confirmed_chain_tip.clone()
+            tip: unconfirmed.confirmed_chain_tip.clone(),
         }
     }
 }
@@ -141,9 +141,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
         chainstate.set_unconfirmed_dirty(true);
 
         // find parent block's execution cost
-        let parent_index_hash = StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block);
-        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
-            .ok_or(Error::NoSuchBlockError)?;
+        let parent_index_hash =
+            StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block);
+        let cost_so_far =
+            StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+                .ok_or(Error::NoSuchBlockError)?;
 
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
@@ -156,7 +158,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        debug!("Begin microblock mining from {} from unconfirmed state with cost {:?}", &StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block), &cost_so_far);
+        debug!(
+            "Begin microblock mining from {} from unconfirmed state with cost {:?}",
+            &StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block),
+            &cost_so_far
+        );
         clarity_tx.reset_cost(cost_so_far);
 
         Ok(StacksMicroblockBuilder {
@@ -218,7 +224,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
 
-        debug!("Resume microblock mining from {} from unconfirmed state with cost {:?}", &StacksBlockHeader::make_index_block_hash(&anchored_consensus_hash, &anchored_block_hash), cost_so_far);
+        debug!(
+            "Resume microblock mining from {} from unconfirmed state with cost {:?}",
+            &StacksBlockHeader::make_index_block_hash(
+                &anchored_consensus_hash,
+                &anchored_block_hash
+            ),
+            cost_so_far
+        );
         clarity_tx.reset_cost(cost_so_far.clone());
 
         Ok(StacksMicroblockBuilder {
@@ -297,7 +310,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             considered.insert(tx.txid());
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            warn!("Adding microblock tx {} would exceed epoch data size", &tx.txid());
+            warn!(
+                "Adding microblock tx {} would exceed epoch data size",
+                &tx.txid()
+            );
             return Err(Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
@@ -477,7 +493,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
 impl<'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        debug!("Drop StacksMicroblockBuilder on {}; {} txs considered; {} mined; cost so far: {:?}", &self.runtime.tip, self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0), self.runtime.num_mined, &self.get_cost_so_far());
+        debug!(
+            "Drop StacksMicroblockBuilder on {}; {} txs considered; {} mined; cost so far: {:?}",
+            &self.runtime.tip,
+            self.runtime
+                .considered
+                .as_ref()
+                .map(|x| x.len())
+                .unwrap_or(0),
+            self.runtime.num_mined,
+            &self.get_cost_so_far()
+        );
         self.clarity_tx
             .take()
             .expect("Attempted to reclose closed microblock builder")
@@ -907,10 +933,12 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
+            "Miner: mined anchored block {} with {} txs, parent block {}, parent microblock {} ({}), state root = {}",
             block.block_hash(),
             block.txs.len(),
             &self.header.parent_block,
+            &self.header.parent_microblock,
+            self.header.parent_microblock_sequence,
             state_root_hash
         );
 

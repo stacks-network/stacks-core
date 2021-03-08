@@ -314,20 +314,23 @@ fn mine_one_microblock(
 
     let mint_result = {
         let ic = sortdb.index_conn();
-        let mut microblock_miner =
-            match StacksMicroblockBuilder::resume_unconfirmed(chainstate, &ic, &microblock_state.cost_so_far) {
-                Ok(x) => x,
-                Err(e) => {
-                    let msg = format!(
-                        "Failed to create a microblock miner at chaintip {}/{}: {:?}",
-                        &microblock_state.parent_consensus_hash,
-                        &microblock_state.parent_block_hash,
-                        &e
-                    );
-                    error!("{}", msg);
-                    return Err(e);
-                }
-            };
+        let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
+            chainstate,
+            &ic,
+            &microblock_state.cost_so_far,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                let msg = format!(
+                    "Failed to create a microblock miner at chaintip {}/{}: {:?}",
+                    &microblock_state.parent_consensus_hash,
+                    &microblock_state.parent_block_hash,
+                    &e
+                );
+                error!("{}", msg);
+                return Err(e);
+            }
+        };
 
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
@@ -378,8 +381,11 @@ fn try_mine_microblock(
             match StacksChainState::get_anchored_block_header_info(chainstate.db(), ch, bhh) {
                 Ok(Some(_)) => {
                     let parent_index_hash = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
-                    let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
-                        .ok_or(NetError::NotFoundError)?;
+                    let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(
+                        chainstate.db(),
+                        &parent_index_hash,
+                    )?
+                    .ok_or(NetError::NotFoundError)?;
                     microblock_miner_state.replace(MicroblockMinerState {
                         parent_consensus_hash: ch.clone(),
                         parent_block_hash: bhh.clone(),
@@ -387,7 +393,7 @@ fn try_mine_microblock(
                         frequency: config.node.microblock_frequency,
                         last_mined: 0,
                         quantity: 0,
-                        cost_so_far: cost_so_far
+                        cost_so_far: cost_so_far,
                     });
                 }
                 Ok(None) => {
