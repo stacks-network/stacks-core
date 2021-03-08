@@ -28,7 +28,7 @@ use std::fs;
 use std::process;
 use std::{env, time::Instant};
 
-use blockstack_lib::vm::types::ASCIIData;
+use blockstack_lib::vm::types::BuffData;
 use rand::Rng;
 
 struct TestHeadersDB;
@@ -145,7 +145,7 @@ fn transfer_test(buildup_count: u32, scaling: u32, genesis_size: u32) -> Executi
         let to = (from + rng.gen_range(1, principals.len())) % principals.len();
 
         conn.as_transaction(|tx| {
-            tx.run_stx_transfer(&principals[from], &principals[to], 10, &ASCIIData::empty())
+            tx.run_stx_transfer(&principals[from], &principals[to], 10, &BuffData::empty())
                 .unwrap()
         });
     }
@@ -522,7 +522,7 @@ clarity-raw  <block_build_up> <genesis_size> <number_of_ops> <eval-block>
     let result = match argv[1].as_str() {
         "transfer" => transfer_test(block_build_up, scaling, genesis_size),
         "smart-contract" => smart_contract_test(scaling, block_build_up, genesis_size),
-        "clarity-transfer" => test_via_raw_contract(r#"(stx-transfer? u1 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR "benchmark")"#,
+        "clarity-transfer" => test_via_raw_contract(r#"(stx-transfer? u1 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
                                                     scaling, block_build_up, genesis_size),
         "clarity-verify" => test_via_raw_contract("(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301

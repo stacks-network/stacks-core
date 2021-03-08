@@ -40,7 +40,7 @@ use chainstate::burn::db::sortdb::*;
 use net::Error as net_error;
 
 use vm::types::{
-    ASCIIData, AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
@@ -845,7 +845,7 @@ impl StacksChainState {
                         &origin_account.principal,
                         addr,
                         *amount as u128,
-                        &ASCIIData {
+                        &BuffData {
                             data: Vec::from(memo.0.clone()),
                         },
                     )

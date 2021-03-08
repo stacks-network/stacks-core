@@ -967,6 +967,10 @@ impl BuffData {
         self.data.append(&mut other_seq.data);
         Ok(())
     }
+
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
+    }
 }
 
 impl ListData {
@@ -993,10 +997,6 @@ impl ASCIIData {
 
     pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
-    }
-
-    pub fn empty() -> Self {
-        Self { data: Vec::new() }
     }
 }
 

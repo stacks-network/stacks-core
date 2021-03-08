@@ -138,14 +138,14 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
                     (define-read-only (balance-stx (p principal)) (stx-get-balance p))
                     (define-public (to-contract (amount uint) (p principal))
                       (let ((contract-principal (as-contract tx-sender)))
-                        (stx-transfer? amount p contract-principal "")))
+                        (stx-transfer? amount p contract-principal)))
                     (define-public (from-contract (amount uint) (t principal))
                       (let ((contract-principal 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens))
-                        (as-contract (stx-transfer? amount contract-principal t ""))))"#;
+                        (as-contract (stx-transfer? amount contract-principal t))))"#;
 
     let contract_second = r#"(define-public (send-to-other (amount uint))
                              (as-contract
-                              (stx-transfer? amount tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens "")))"#;
+                              (stx-transfer? amount tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens)))"#;
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");

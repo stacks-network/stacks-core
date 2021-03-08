@@ -25,7 +25,7 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
+    AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
     SequenceData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
@@ -105,7 +105,7 @@ pub fn stx_transfer_consolidated(
     from: &PrincipalData,
     to: &PrincipalData,
     amount: u128,
-    memo: &ASCIIData,
+    memo: &BuffData,
 ) -> Result<Value> {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
@@ -166,14 +166,14 @@ pub fn special_stx_transfer(
     let memo_val = if memo_passed {
         eval(&args[3], env, context)?
     } else {
-        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData::empty())))
+        Value::Sequence(SequenceData::Buffer(BuffData::empty()))
     };
 
     if let (
         Value::Principal(ref from),
         Value::Principal(ref to),
         Value::UInt(amount),
-        Value::Sequence(SequenceData::String(CharType::ASCII(ref memo))),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
     ) = (from_val, to_val, amount_val, memo_val)
     {
         stx_transfer_consolidated(env, from, to, amount, memo)

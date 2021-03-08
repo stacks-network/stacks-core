@@ -86,7 +86,7 @@ fn test_emit_stx_transfer_ok() {
         (define-fungible-token token)
         (define-public (emit-event-ok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient "a memo here"))
+                (unwrap-panic (stx-transfer? u10 sender recipient 0x67))
                 (ok u1)))"#;
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
@@ -115,7 +115,7 @@ fn test_emit_stx_transfer_nok() {
         (define-fungible-token token)
         (define-public (emit-event-nok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient "memo"))
+                (unwrap-panic (stx-transfer? u10 sender recipient 0x99))
                 (err u1)))"#;
 
     let (value, events) = helper_execute(contract, "emit-event-nok");

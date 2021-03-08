@@ -37,7 +37,7 @@ use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
 use vm::types::{
-    ASCIIData, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TypeSignature, Value,
 };
 use vm::{eval, is_reserved};
@@ -568,7 +568,7 @@ impl<'a> OwnedEnvironment<'a> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
-        memo: &ASCIIData,
+        memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::Principal(from.clone()), |exec_env| {
             exec_env.stx_transfer(from, to, amount, memo)
@@ -1046,7 +1046,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
-        memo: &ASCIIData,
+        memo: &BuffData,
     ) -> Result<Value> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
@@ -1111,7 +1111,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         sender: PrincipalData,
         recipient: PrincipalData,
         amount: u128,
-        memo: ASCIIData,
+        memo: BuffData,
     ) -> Result<()> {
         let event_data = STXTransferEventData {
             sender,

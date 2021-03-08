@@ -1516,7 +1516,7 @@ principal isn't materialized, it returns 0.
 };
 
 const STX_TRANSFER: SpecialAPI = SpecialAPI {
-    input_type: "uint, principal, principal, string-ascii",
+    input_type: "uint, principal, principal, buff",
     output_type: "(response bool uint)",
     signature: "(stx-transfer? amount sender recipient memo)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
@@ -1534,9 +1534,9 @@ one of the following error codes:
 (as-contract
   (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR "a memo here")) ;; Returns (ok true)
+  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x00)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender "a memo here")) ;; Returns (err u4)
+  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender 0x00)) ;; Returns (err u4)
 "#
 };
 

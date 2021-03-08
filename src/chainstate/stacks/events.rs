@@ -21,7 +21,7 @@ use net::StacksMessageCodec;
 use vm::analysis::ContractAnalysis;
 use vm::costs::ExecutionCost;
 use vm::types::{
-    ASCIIData, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
     Value,
 };
 
@@ -187,7 +187,7 @@ pub struct STXTransferEventData {
     pub sender: PrincipalData,
     pub recipient: PrincipalData,
     pub amount: u128,
-    pub memo: ASCIIData,
+    pub memo: BuffData,
 }
 
 impl STXTransferEventData {

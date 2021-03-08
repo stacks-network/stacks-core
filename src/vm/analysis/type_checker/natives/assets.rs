@@ -21,8 +21,8 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BlockInfoProperty, BufferLength, SequenceSubtype, StringSubtype, TupleTypeSignature,
-    TypeSignature, MAX_VALUE_SIZE,
+    BlockInfoProperty, BufferLength, SequenceSubtype, TupleTypeSignature, TypeSignature,
+    MAX_VALUE_SIZE,
 };
 
 pub fn check_special_get_owner(
@@ -206,8 +206,8 @@ pub fn check_special_stx_transfer(
     let amount_type: TypeSignature = TypeSignature::UIntType;
     let from_type: TypeSignature = TypeSignature::PrincipalType;
     let to_type: TypeSignature = TypeSignature::PrincipalType;
-    let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::StringType(
-        StringSubtype::ASCII(BufferLength(TOKEN_TRANSFER_MEMO_LENGTH as u32)),
+    let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
+        BufferLength(TOKEN_TRANSFER_MEMO_LENGTH as u32),
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;

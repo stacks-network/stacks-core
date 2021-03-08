@@ -62,7 +62,7 @@ use net::Error as net_error;
 use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
-    ASCIIData, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
@@ -3853,7 +3853,7 @@ impl StacksChainState {
                                 &sender.into(),
                                 &recipient.into(),
                                 transfered_ustx,
-                                &ASCIIData { data: memo },
+                                &BuffData { data: memo },
                             )
                         });
                         match result {
