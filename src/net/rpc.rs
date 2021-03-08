@@ -1739,7 +1739,6 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;

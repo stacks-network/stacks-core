@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use prometheus::{Histogram, HistogramTimer, IntCounter, IntGauge, HistogramVec};
+use prometheus::{Histogram, HistogramTimer, HistogramVec, IntCounter, IntGauge};
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(

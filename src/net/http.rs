@@ -2521,7 +2521,9 @@ impl HttpRequestType {
             HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
             HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
             HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
-            HttpRequestType::GetMicroblocksUnconfirmed(..) => "/v2/microblocks/unconfirmed/:hash/:seq",
+            HttpRequestType::GetMicroblocksUnconfirmed(..) => {
+                "/v2/microblocks/unconfirmed/:hash/:seq"
+            }
             HttpRequestType::GetTransactionUnconfirmed(..) => "/v2/transactions/unconfirmed/:txid",
             HttpRequestType::PostTransaction(..) => "/v2/transactions",
             HttpRequestType::PostBlock(..) => "/v2/blocks/upload/:block",
@@ -2529,9 +2531,13 @@ impl HttpRequestType {
             HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
             HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
             HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
-            HttpRequestType::GetContractABI(..) => "/v2/contracts/interface/:principal/:contract_name",
+            HttpRequestType::GetContractABI(..) => {
+                "/v2/contracts/interface/:principal/:contract_name"
+            }
             HttpRequestType::GetContractSrc(..) => "/v2/contracts/source/:principal/:contract_name",
-            HttpRequestType::CallReadOnlyFunction(..) => "/v2/contracts/call-read/:principal/:contract_name/:func_name",
+            HttpRequestType::CallReadOnlyFunction(..) => {
+                "/v2/contracts/call-read/:principal/:contract_name/:func_name"
+            }
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",

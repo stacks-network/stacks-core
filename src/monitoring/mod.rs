@@ -21,7 +21,7 @@ use rusqlite::{OpenFlags, OptionalExtension};
 use crate::{
     burnchains::Txid,
     core::MemPoolDB,
-    net::{HttpRequestType, Error as net_error},
+    net::{Error as net_error, HttpRequestType},
     util::{
         db::{tx_busy_handler, DBConn},
         get_epoch_time_secs,
@@ -37,7 +37,10 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
-pub fn instrument_http_request_handler<F, R>(req: HttpRequestType, handler: F) -> Result<R, net_error> 
+pub fn instrument_http_request_handler<F, R>(
+    req: HttpRequestType,
+    handler: F,
+) -> Result<R, net_error>
 where
     F: FnOnce(HttpRequestType) -> Result<R, net_error>,
 {
