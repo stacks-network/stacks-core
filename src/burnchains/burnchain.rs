@@ -907,6 +907,7 @@ impl Burnchain {
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
         db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
+            .map(|(snapshot, transition, _)| (snapshot, transition))
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.

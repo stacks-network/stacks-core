@@ -481,6 +481,7 @@ simulating a miner.
             Hash160([0; 20]),
             &coinbase_tx,
             core::BLOCK_LIMIT_MAINNET.clone(),
+            None,
         );
 
         println!(
@@ -872,7 +873,7 @@ simulating a miner.
                 continue;
             }
 
-            let (new_snapshot, _) = {
+            let (new_snapshot, ..) = {
                 let sortition_tip =
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
                 new_sortition_db

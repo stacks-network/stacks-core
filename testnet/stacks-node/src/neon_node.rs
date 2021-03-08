@@ -547,6 +547,7 @@ fn spawn_peer(
     mut sync_comms: PoxSyncWatchdogComms,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
+    event_observer: EventDispatcher,
     should_keep_running: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
@@ -583,6 +584,7 @@ fn spawn_peer(
                 exit_at_block_height: exit_at_block_height.as_ref(),
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
+                event_observer: Some(&event_observer),
                 ..RPCHandlerArgs::default()
             };
 
@@ -775,6 +777,7 @@ fn spawn_miner_relayer(
                             &mut chainstate,
                             &mut mem_pool,
                             Some(&coord_comms),
+                            Some(&event_dispatcher),
                         )
                         .expect("BUG: failure processing network results");
 
@@ -934,6 +937,7 @@ fn spawn_miner_relayer(
                         burn_fee_cap,
                         &mut bitcoin_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
+                        &event_dispatcher,
                     );
                     if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
                         if last_mined_blocks_vec.len() == 0 {
@@ -1176,7 +1180,7 @@ impl InitializedNeonNode {
             config.get_burn_db_file_path(),
             config.get_chainstate_path_str(),
             relay_recv,
-            event_dispatcher,
+            event_dispatcher.clone(),
             blocks_processed.clone(),
             burnchain,
             coord_comms,
@@ -1195,6 +1199,7 @@ impl InitializedNeonNode {
             sync_comms,
             attachments_rx,
             shared_unconfirmed_txs,
+            event_dispatcher,
             should_keep_running,
         )
         .expect("Failed to initialize mine/relay thread");
@@ -1301,6 +1306,7 @@ impl InitializedNeonNode {
         burn_fee_cap: u64,
         bitcoin_controller: &mut BitcoinRegtestController,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
+        event_observer: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
         let (
             mut stacks_parent_header,
@@ -1624,6 +1630,7 @@ impl InitializedNeonNode {
                     &parent_consensus_hash,
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
+                    Some(event_observer),
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
@@ -1643,6 +1650,7 @@ impl InitializedNeonNode {
             mblock_pubkey_hash,
             &coinbase_tx,
             config.block_limit.clone(),
+            Some(event_observer),
         ) {
             Ok(block) => block,
             Err(e) => {

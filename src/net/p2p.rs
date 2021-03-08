@@ -4176,6 +4176,7 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
@@ -4183,7 +4184,8 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
+        {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4199,6 +4201,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         network_result: &mut NetworkResult,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
@@ -4215,6 +4218,7 @@ impl PeerNetwork {
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
+                    event_observer,
                 ) {
                     if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
                         new_tx_data.push((relayers, tx));
