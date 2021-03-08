@@ -23,7 +23,9 @@ use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
 use vm::contexts::Environment;
 use vm::costs::ExecutionCost;
@@ -95,9 +97,13 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&trait_contract_id, contract_trait)
                 .unwrap();
-            conn.initialize_smart_contract(&trait_contract_id, &ct_ast, contract_trait, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &trait_contract_id,
+                &ct_ast,
+                contract_trait,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
                 .unwrap();
@@ -117,9 +123,13 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&other_contract_id, contract_other)
                 .unwrap();
-            conn.initialize_smart_contract(&other_contract_id, &ct_ast, contract_other, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &other_contract_id,
+                &ct_ast,
+                contract_other,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
                 .unwrap();
@@ -140,9 +150,13 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&self_contract_id, &contract_self)
                 .unwrap();
-            conn.initialize_smart_contract(&self_contract_id, &ct_ast, &contract_self, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &self_contract_id,
+                &ct_ast,
+                &contract_self,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
         });

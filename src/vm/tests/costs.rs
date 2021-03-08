@@ -26,7 +26,9 @@ use vm::tests::{
     execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
     with_memory_environment,
 };
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::boot::boot_code_id;
@@ -145,7 +147,7 @@ fn execute_transaction(
     tx: &str,
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-    env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
+    env.execute_transaction(issuer, None, contract_identifier.clone(), args, tx)
 }
 
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
@@ -211,13 +213,13 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         OwnedEnvironment::new_max_limit(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
     owned_env
-        .initialize_contract(trait_contract_id.clone(), contract_trait)
+        .initialize_contract(trait_contract_id.clone(), contract_trait, None)
         .unwrap();
     owned_env
-        .initialize_contract(other_contract_id.clone(), contract_other)
+        .initialize_contract(other_contract_id.clone(), contract_other, None)
         .unwrap();
     owned_env
-        .initialize_contract(self_contract_id.clone(), &contract_self)
+        .initialize_contract(self_contract_id.clone(), &contract_self, None)
         .unwrap();
 
     let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
@@ -321,7 +323,7 @@ fn test_cost_contract_short_circuits() {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
                     .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
@@ -562,7 +564,7 @@ fn test_cost_voting_integration() {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
                     .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });

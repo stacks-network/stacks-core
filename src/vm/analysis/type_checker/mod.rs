@@ -294,6 +294,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
         use vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
+            TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType).unwrap(),
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,

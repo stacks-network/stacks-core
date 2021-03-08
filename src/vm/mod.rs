@@ -234,9 +234,9 @@ pub fn is_reserved(name: &str) -> bool {
     }
 }
 
-/* This function evaluates a list of expressions, sharing a global context.
- * It returns the final evaluated result.
- */
+/// This function evaluates a list of expressions, sharing a global context.
+/// It returns the final evaluated result.!
+/// Used for the initialization of a new contract.
 fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
@@ -255,7 +255,7 @@ fn eval_all(
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), None);
                 functions::define::evaluate_define(exp, &mut env)
             })?;
             match try_define {
@@ -335,7 +335,7 @@ fn eval_all(
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
                         let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), None);
 
                         let result = eval(exp, &mut env, &context)?;
                         last_executed = Some(result);
@@ -429,6 +429,7 @@ mod test {
             &mut global_context,
             &contract_context,
             &mut call_stack,
+            None,
             None,
             None,
         );

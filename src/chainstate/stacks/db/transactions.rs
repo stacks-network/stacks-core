@@ -40,8 +40,8 @@ use chainstate::burn::db::sortdb::*;
 use net::Error as net_error;
 
 use vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 use vm::contexts::{AssetMap, AssetMapEntry, Environment};
@@ -865,9 +865,11 @@ impl StacksChainState {
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
+                    sponsor,
                     &contract_id,
                     &contract_call.function_name,
                     &contract_call.function_args,
@@ -1007,6 +1009,7 @@ impl StacksChainState {
                 analysis_cost
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
@@ -1014,6 +1017,7 @@ impl StacksChainState {
                     &contract_id,
                     &contract_ast,
                     &contract_code_str,
+                    sponsor,
                     |asset_map, _| {
                         !StacksChainState::check_transaction_postconditions(
                             &tx.post_conditions,

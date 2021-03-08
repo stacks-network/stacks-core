@@ -27,6 +27,9 @@ use vm::functions::NativeFunctions;
 use vm::types::QualifiedContractIdentifier;
 use vm::variables::NativeVariables;
 
+/// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
+/// map would not pass this check).
+/// This check is useful in determining the validity of new potential cost functions.
 fn arithmetic_check(contract: &str) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let expressions = parse(&contract_identifier, contract).unwrap();
@@ -73,7 +76,7 @@ fn test_bad_defines() {
 }
 
 #[test]
-fn test_variables() {
+fn test_variables_fail_arithmetic_check() {
     let tests = [
         (
             "(define-private (foo) burn-block-height)",
@@ -98,6 +101,10 @@ fn test_variables() {
         (
             "(define-private (foo) stx-liquid-supply)",
             VariableForbidden(NativeVariables::TotalLiquidMicroSTX),
+        ),
+        (
+            "(define-private (foo) tx-sponsor?)",
+            VariableForbidden(NativeVariables::TxSponsor),
         ),
     ];
 

@@ -28,7 +28,7 @@ use vm::database::{
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
 use chainstate::burn::BlockHeaderHash;
@@ -331,6 +331,7 @@ impl ClarityInstance {
                     &boot_code_id("costs", false),
                     &ast,
                     BOOT_CODE_COSTS,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -348,6 +349,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", false),
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -362,6 +364,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", false),
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -470,7 +473,7 @@ pub trait ClarityConnection {
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track);
             let result = vm_env
-                .execute_in_env(sender.into(), to_do)
+                .execute_in_env(sender.into(), None, to_do)
                 .map(|(result, _, _)| result);
             let (db, _) = vm_env
                 .destruct()
@@ -857,6 +860,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     pub fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
+        sponsor: Option<PrincipalData>,
         contract: &QualifiedContractIdentifier,
         public_function: &str,
         args: &[Value],
@@ -875,9 +879,10 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                 vm_env
                     .execute_transaction(
                         Value::Principal(sender.clone()),
+                        sponsor.clone(),
                         contract.clone(),
-                        public_function,
                         &expr_args,
+                        public_function,
                     )
                     .map_err(Error::from)
             },
@@ -902,6 +907,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         identifier: &QualifiedContractIdentifier,
         contract_ast: &ContractAST,
         contract_str: &str,
+        sponsor: Option<PrincipalData>,
         abort_call_back: F,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
@@ -910,7 +916,12 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
+                    .initialize_contract_from_ast(
+                        identifier.clone(),
+                        contract_ast,
+                        contract_str,
+                        sponsor,
+                    )
                     .map_err(Error::from)
             },
             abort_call_back,
@@ -1075,9 +1086,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1118,9 +1133,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                tx.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1136,9 +1155,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                tx.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1162,6 +1185,7 @@ mod tests {
                         &contract_identifier,
                         &ct_ast,
                         &contract,
+                        None,
                         |_, _| false
                     )
                     .unwrap_err()
@@ -1203,9 +1227,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1214,6 +1242,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &StandardPrincipalData::transient().into(),
+                    None,
                     &contract_identifier,
                     "foo",
                     &[Value::Int(1)],
@@ -1252,9 +1281,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1334,9 +1367,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1455,9 +1492,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1466,6 +1507,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1479,6 +1521,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
@@ -1493,6 +1536,7 @@ mod tests {
                 .as_transaction(|tx| {
                     tx.run_contract_call(
                         &sender,
+                        None,
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
@@ -1512,6 +1556,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1526,6 +1571,7 @@ mod tests {
                 "{:?}",
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
@@ -1539,6 +1585,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &StandardPrincipalData::transient().into(),
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1701,9 +1748,13 @@ mod tests {
                 let (ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1730,6 +1781,7 @@ mod tests {
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "do-expand",
                     &[],

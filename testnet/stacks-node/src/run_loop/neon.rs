@@ -15,7 +15,7 @@ use stacks::chainstate::coordinator::{
 use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
-use stacks::vm::types::{PrincipalData, Value};
+use stacks::vm::types::{OptionalData, PrincipalData, Value};
 use std::cmp;
 use std::sync::mpsc::sync_channel;
 use std::thread;
@@ -194,6 +194,7 @@ impl RunLoop {
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
+                    None,
                     &contract,
                     "set-burnchain-parameters",
                     &params,

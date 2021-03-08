@@ -103,6 +103,13 @@ contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const TX_SPONSOR_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "tx-sponsor?",
+    output_type: "optional principal",
+    description: "Returns the sponsor of the current transaction if there is a sponsor, otherwise returns None.",
+    example: "(print tx-sponsor?) ;; Will print out an option of the Stacks address of the transaction sponsor",
+};
+
 const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
     name: "stx-liquid-supply",
     output_type: "uint",
@@ -1658,6 +1665,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
         NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
         NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
+        NativeVariables::TxSponsor => Some(TX_SPONSOR_KEYWORD.clone()),
     }
 }
 
@@ -1742,6 +1750,7 @@ mod test {
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
     use chainstate::stacks::{index::MarfTrieId, StacksAddress, StacksBlockId};
 
+    use vm::types::OptionalData;
     use vm::{
         ast,
         contexts::OwnedEnvironment,
@@ -1893,6 +1902,7 @@ mod test {
             let balance = STXBalance::initial(1000);
             env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
+                None,
                 |e| {
                     let mut snapshot = e
                         .global_context
@@ -1911,6 +1921,7 @@ mod test {
             env.initialize_contract(
                 contract_id,
                 &std::fs::read_to_string("sample-contracts/tokens.clar").unwrap(),
+                None,
             )
             .unwrap();
             store.test_commit();
