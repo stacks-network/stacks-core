@@ -1739,7 +1739,6 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-        monitoring::increment_rpc_calls_counter();
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
@@ -2413,17 +2412,19 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    let msg_opt = self.handle_request(
-                        req,
-                        chain_view,
-                        peers,
-                        sortdb,
-                        peerdb,
-                        atlasdb,
-                        chainstate,
-                        mempool,
-                        handler_args,
-                    )?;
+                    let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
+                        self.handle_request(
+                            req,
+                            chain_view,
+                            peers,
+                            sortdb,
+                            peerdb,
+                            atlasdb,
+                            chainstate,
+                            mempool,
+                            handler_args,
+                        )
+                    })?;
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
                     }

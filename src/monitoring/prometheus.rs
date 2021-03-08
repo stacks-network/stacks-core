@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use prometheus::{Histogram, IntCounter, IntGauge};
+use prometheus::{Histogram, HistogramTimer, IntCounter, IntGauge, HistogramVec};
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -22,6 +22,12 @@ lazy_static! {
         "Total number of RPC requests made.",
         labels! {"handler" => "all",}
     )).unwrap();
+
+    pub static ref RPC_CALL_LATENCIES_HISTOGRAM: HistogramVec = register_histogram_vec!(histogram_opts!(
+        "stacks_node_rpc_call_latencies_histogram",
+        "Time (seconds) measuring RPC calls latency"
+        // Will use DEFAULT_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0] by default
+    ), &["path"]).unwrap();
 
     pub static ref P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_p2p_msg_unauthenticated_handshake_received_total",
@@ -155,4 +161,9 @@ lazy_static! {
         vec![300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0, 3600.0, 4200.0, 4800.0, 6000.0],
         labels! {"handler".to_string() => "all".to_string(),}
     )).unwrap();
+}
+
+pub fn new_rpc_call_timer(path: &str) -> HistogramTimer {
+    let histogram = RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[path]);
+    histogram.start_timer()
 }

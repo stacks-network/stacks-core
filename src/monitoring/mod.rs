@@ -1,17 +1,3 @@
-use std::{fs, path::PathBuf};
-
-use rusqlite::{OpenFlags, OptionalExtension};
-
-use crate::{
-    burnchains::Txid,
-    core::MemPoolDB,
-    util::{
-        db::{tx_busy_handler, DBConn},
-        get_epoch_time_secs,
-    },
-};
-use util::db::Error as DatabaseError;
-
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -28,12 +14,45 @@ use util::db::Error as DatabaseError;
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::{fs, path::PathBuf};
+
+use rusqlite::{OpenFlags, OptionalExtension};
+
+use crate::{
+    burnchains::Txid,
+    core::MemPoolDB,
+    net::{HttpRequestType, Error as net_error},
+    util::{
+        db::{tx_busy_handler, DBConn},
+        get_epoch_time_secs,
+    },
+};
+use util::db::Error as DatabaseError;
+
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::RPC_CALL_COUNTER.inc();
+}
+
+pub fn instrument_http_request_handler<F, R>(req: HttpRequestType, handler: F) -> Result<R, net_error> 
+where
+    F: FnOnce(HttpRequestType) -> Result<R, net_error>,
+{
+    #[cfg(feature = "monitoring_prom")]
+    increment_rpc_calls_counter();
+
+    #[cfg(feature = "monitoring_prom")]
+    let timer = prometheus::new_rpc_call_timer(req.get_path());
+
+    let res = handler(req);
+
+    #[cfg(feature = "monitoring_prom")]
+    timer.stop_and_record();
+
+    res
 }
 
 pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {

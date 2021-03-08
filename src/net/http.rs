@@ -2513,6 +2513,31 @@ impl HttpRequestType {
         }
     }
 
+    pub fn get_path(&self) -> &str {
+        match self {
+            HttpRequestType::GetInfo(..) => "/v2/info",
+            HttpRequestType::GetPoxInfo(..) => "/v2/pox",
+            HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
+            HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
+            HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
+            HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
+            HttpRequestType::GetMicroblocksUnconfirmed(..) => "/v2/microblocks/unconfirmed/:hash/:seq",
+            HttpRequestType::GetTransactionUnconfirmed(..) => "/v2/transactions/unconfirmed/:txid",
+            HttpRequestType::PostTransaction(..) => "/v2/transactions",
+            HttpRequestType::PostBlock(..) => "/v2/blocks/upload/:block",
+            HttpRequestType::PostMicroblock(..) => "/v2/microblocks",
+            HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
+            HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
+            HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
+            HttpRequestType::GetContractABI(..) => "/v2/contracts/interface/:principal/:contract_name",
+            HttpRequestType::GetContractSrc(..) => "/v2/contracts/source/:principal/:contract_name",
+            HttpRequestType::CallReadOnlyFunction(..) => "/v2/contracts/call-read/:principal/:contract_name/:func_name",
+            HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
+            HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
+            HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+        }
+    }
+
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match self {
             HttpRequestType::PostTransaction(md, tx, attachment) => {
