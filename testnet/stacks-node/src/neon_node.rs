@@ -51,6 +51,8 @@ use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
+use stacks::vm::costs::ExecutionCost;
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::syncctl::PoxSyncWatchdogComms;
 
@@ -79,6 +81,7 @@ struct MicroblockMinerState {
     frequency: u64,
     last_mined: u128,
     quantity: u64,
+    cost_so_far: ExecutionCost,
 }
 
 enum RelayerDirective {
@@ -308,10 +311,11 @@ fn mine_one_microblock(
             .map(|us| us.last_mblock_seq)
             .unwrap_or(0)
     );
+
     let mint_result = {
         let ic = sortdb.index_conn();
         let mut microblock_miner =
-            match StacksMicroblockBuilder::resume_unconfirmed(chainstate, &ic) {
+            match StacksMicroblockBuilder::resume_unconfirmed(chainstate, &ic, &microblock_state.cost_so_far) {
                 Ok(x) => x,
                 Err(e) => {
                     let msg = format!(
@@ -326,14 +330,15 @@ fn mine_one_microblock(
             };
 
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
+        let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
 
         info!("Mined microblock with {} transactions", mblock.txs.len());
 
-        Ok(mblock)
+        Ok((mblock, new_cost_so_far))
     };
 
-    let mined_microblock = match mint_result {
-        Ok(mined_microblock) => mined_microblock,
+    let (mined_microblock, new_cost) = match mint_result {
+        Ok(x) => x,
         Err(e) => {
             warn!("Failed to mine microblock: {}", e);
             return Err(e);
@@ -347,6 +352,8 @@ fn mine_one_microblock(
         &mined_microblock,
     )?;
 
+    // update unconfirmed state cost
+    microblock_state.cost_so_far = new_cost;
     microblock_state.quantity += 1;
     return Ok(mined_microblock);
 }
@@ -370,6 +377,9 @@ fn try_mine_microblock(
             // we won a block! proceed to build a microblock tail if we've stored it
             match StacksChainState::get_anchored_block_header_info(chainstate.db(), ch, bhh) {
                 Ok(Some(_)) => {
+                    let parent_index_hash = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
+                    let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+                        .ok_or(NetError::NotFoundError)?;
                     microblock_miner_state.replace(MicroblockMinerState {
                         parent_consensus_hash: ch.clone(),
                         parent_block_hash: bhh.clone(),
@@ -377,6 +387,7 @@ fn try_mine_microblock(
                         frequency: config.node.microblock_frequency,
                         last_mined: 0,
                         quantity: 0,
+                        cost_so_far: cost_so_far
                     });
                 }
                 Ok(None) => {
