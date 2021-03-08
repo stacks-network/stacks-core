@@ -108,7 +108,8 @@ jobs:
 
       - name: Generate Docker tags & labels
         id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@v1
+        uses: CharlieC3/ghaction-docker-meta@tag-append-prepend
+        # uses: crazy-max/ghaction-docker-meta@v1
         with:
           images: blockstack/${{ github.workflow }}
           tag-sha: true
@@ -170,13 +171,15 @@ jobs:
 
       - name: Generate Docker tags & labels
         id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@v1
+        uses: CharlieC3/ghaction-docker-meta@tag-append-prepend
+        # uses: crazy-max/ghaction-docker-meta@v1
         with:
           images: blockstack/${{ github.workflow }}
           tag-latest: false
           tag-semver: |
-            {{version}}-stretch
-            {{major}}.{{minor}}-stretch
+            {{version}}
+            {{major}}.{{minor}}
+          tag-append: -stretch
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
