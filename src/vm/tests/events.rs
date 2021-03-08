@@ -34,7 +34,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
 
     {
         let mut env = owned_env.get_exec_environment(None, None);
-        env.initialize_contract(contract_id.clone(), contract)
+        env.initialize_contract(contract_id.clone(), contract, None)
             .unwrap();
     }
 

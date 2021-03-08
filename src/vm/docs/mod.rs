@@ -1864,7 +1864,7 @@ mod test {
                         let parsed = ast::build_ast(&contract_id, segment, &mut ())
                             .unwrap()
                             .expressions;
-                        eval_all(&parsed, &mut contract_context, g).unwrap()
+                        eval_all(&parsed, &mut contract_context, g, None).unwrap()
                     };
 
                     if let Some(expected) = expected {

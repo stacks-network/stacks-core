@@ -441,11 +441,13 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            None,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
+            None,
         )
         .unwrap();
     }
@@ -565,11 +567,13 @@ fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            None,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
+            None,
         )
         .unwrap();
     }
@@ -613,11 +617,13 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            None,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
+            None,
         )
         .unwrap();
     }
@@ -738,11 +744,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(None, None);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract)
+        env.initialize_contract(contract_identifier, tokens_contract, None)
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract)
+        env.initialize_contract(contract_identifier, names_contract, None)
             .unwrap();
     }
 
@@ -879,11 +885,11 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(Some(get_principal()), None);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial-contract").unwrap();
-    env.initialize_contract(contract_identifier, contract_1)
+    env.initialize_contract(contract_identifier, contract_1, None)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-compute").unwrap();
-    env.initialize_contract(contract_identifier, contract_2)
+    env.initialize_contract(contract_identifier, contract_2, None)
         .unwrap();
 
     let args = symbols_from_values(vec![]);
@@ -953,11 +959,11 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None, None);
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-1").unwrap();
-    env.initialize_contract(contract_identifier, contract_1)
+    env.initialize_contract(contract_identifier, contract_1, None)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-2").unwrap();
-    env.initialize_contract(contract_identifier, contract_2)
+    env.initialize_contract(contract_identifier, contract_2, None)
         .unwrap();
 
     env.sender = Some(get_principal());
@@ -1059,7 +1065,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None, None);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial").unwrap();
-    env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT)
+    env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT, None)
         .unwrap();
 
     let tx_name = "compute";
@@ -1257,12 +1263,12 @@ fn test_cc_stack_depth() {
             let mut env = owned_env.get_exec_environment(None, None);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-            env.initialize_contract(contract_identifier, contract_one)
+            env.initialize_contract(contract_identifier, contract_one, None)
                 .unwrap();
 
             let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
             assert_eq!(
-                env.initialize_contract(contract_identifier, contract_two)
+                env.initialize_contract(contract_identifier, contract_two, None)
                     .unwrap_err(),
                 RuntimeErrorType::MaxStackDepthReached.into()
             );
@@ -1295,12 +1301,12 @@ fn test_cc_trait_stack_depth() {
             let mut env = owned_env.get_exec_environment(None, None);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-            env.initialize_contract(contract_identifier, contract_one)
+            env.initialize_contract(contract_identifier, contract_one, None)
                 .unwrap();
 
             let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
             assert_eq!(
-                env.initialize_contract(contract_identifier, contract_two)
+                env.initialize_contract(contract_identifier, contract_two, None)
                     .unwrap_err(),
                 RuntimeErrorType::MaxStackDepthReached.into()
             );

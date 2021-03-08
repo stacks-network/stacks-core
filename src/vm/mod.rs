@@ -241,6 +241,7 @@ fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
+    sponsor: Option<PrincipalData>,
 ) -> Result<Option<Value>> {
     let mut last_executed = None;
     let context = LocalContext::new();
@@ -363,7 +364,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
