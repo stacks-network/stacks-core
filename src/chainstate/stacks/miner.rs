@@ -58,10 +58,11 @@ use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {
-    consumed_execution: ExecutionCost,
     bytes_so_far: u64,
     pub prev_microblock_header: Option<StacksMicroblockHeader>,
     considered: Option<HashSet<Txid>>,
+    num_mined: u64,
+    tip: StacksBlockId,
 }
 
 #[derive(PartialEq)]
@@ -79,10 +80,11 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             .map(|(txid, _)| txid.clone())
             .collect();
         MicroblockMinerRuntime {
-            consumed_execution: unconfirmed.cost_so_far.clone(),
             bytes_so_far: unconfirmed.bytes_so_far,
             prev_microblock_header: unconfirmed.last_mblock.clone(),
             considered: Some(considered),
+            num_mined: 0,
+            tip: unconfirmed.confirmed_chain_tip.clone()
         }
     }
 }
@@ -138,6 +140,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
 
+        // find parent block's execution cost
+        let parent_index_hash = StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block);
+        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+            .ok_or(Error::NoSuchBlockError)?;
+
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
         //  could take over.
@@ -149,7 +156,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        clarity_tx.reset_cost(runtime.consumed_execution.clone());
+        debug!("Begin microblock mining from {} from unconfirmed state with cost {:?}", &StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block), &cost_so_far);
+        clarity_tx.reset_cost(cost_so_far);
 
         Ok(StacksMicroblockBuilder {
             anchor_block,
@@ -167,6 +175,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     pub fn resume_unconfirmed(
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a dyn BurnStateDB,
+        cost_so_far: &ExecutionCost,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
@@ -209,7 +218,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
 
-        clarity_tx.reset_cost(runtime.consumed_execution.clone());
+        debug!("Resume microblock mining from {} from unconfirmed state with cost {:?}", &StacksBlockHeader::make_index_block_hash(&anchored_consensus_hash, &anchored_block_hash), cost_so_far);
+        clarity_tx.reset_cost(cost_so_far.clone());
 
         Ok(StacksMicroblockBuilder {
             anchor_block: anchored_block_hash,
@@ -287,6 +297,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             considered.insert(tx.txid());
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+            warn!("Adding microblock tx {} would exceed epoch data size", &tx.txid());
             return Err(Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
@@ -331,6 +342,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
+        let mut num_txs = self.runtime.num_mined;
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
@@ -343,6 +355,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             ) {
                 Ok(true) => {
                     bytes_so_far += tx_len;
+                    num_txs += 1;
                     txs_included.push(tx);
                 }
                 Ok(false) => {
@@ -358,10 +371,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
+        self.runtime.num_mined = num_txs;
 
         match result {
             Err(Error::BlockTooBigError) => {
-                info!("Block budget reached with microblocks");
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
                 warn!("Error producing microblock: {}", e);
@@ -392,6 +406,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
+        let mut num_txs = self.runtime.num_mined;
 
         let result = mem_pool.iterate_candidates(
             &self.anchor_block_consensus_hash,
@@ -417,6 +432,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                 mempool_tx.tx.payload.name()
                             );
                             txs_included.push(mempool_tx.tx);
+                            num_txs += 1;
                         }
                         Ok(false) => {
                             continue;
@@ -434,11 +450,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
+        self.runtime.num_mined = num_txs;
 
         match result {
             Ok(_) => {}
             Err(Error::BlockTooBigError) => {
-                info!("Block budget reached with microblocks");
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
                 warn!("Error producing microblock: {}", e);
@@ -460,7 +477,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
 impl<'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        debug!("Drop StacksMicroblockBuilder");
+        debug!("Drop StacksMicroblockBuilder on {}; {} txs considered; {} mined; cost so far: {:?}", &self.runtime.tip, self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0), self.runtime.num_mined, &self.get_cost_so_far());
         self.clarity_tx
             .take()
             .expect("Attempted to reclose closed microblock builder")
