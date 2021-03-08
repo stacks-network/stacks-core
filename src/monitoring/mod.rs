@@ -162,3 +162,8 @@ pub fn increment_stx_mempool_gc() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MEMPOOL_GC.inc();
 }
+
+pub fn increment_stx_smart_contracts() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_SMART_CONTRACT_COUNT.inc();
+}

@@ -148,4 +148,9 @@ lazy_static! {
         "stacks_node_mempool_gc_count",
         "Total count of all mempool garbage collections"
     )).unwrap();
+
+    pub static ref STX_SMART_CONTRACT_COUNT: IntCounter = register_int_counter!(opts!(
+        "stacks_node_smart_contracts",
+        "Total count of smart contracts"
+    )).unwrap();
 }
