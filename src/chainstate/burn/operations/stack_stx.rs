@@ -48,8 +48,6 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use monitoring::increment_stack_stx_op; //promserver
-
 // return type from parse_data below
 struct ParsedData {
     stacked_ustx: u128,
@@ -320,7 +318,6 @@ impl StackStxOp {
                 self.num_cycles, POX_MAX_NUM_CYCLES
             );
         }
-        increment_stack_stx_op();
         Ok(())
     }
 }

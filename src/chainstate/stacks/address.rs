@@ -54,7 +54,6 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use monitoring::{increment_stx_addresses_created, increment_stx_smart_contracts}; //promserver
 
 use chainstate::stacks::boot::boot_code_addr;
 
@@ -207,7 +206,6 @@ impl StacksAddress {
     }
 
     pub fn to_b58(self) -> String {
-        increment_stx_addresses_created(); //promserver
         let StacksAddress { version, bytes } = self;
         let btc_version = to_b52_version_byte(version)
             // fallback to version

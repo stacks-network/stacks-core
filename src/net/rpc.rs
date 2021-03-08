@@ -107,7 +107,6 @@ use rand::thread_rng;
 
 use std::time::{Duration, Instant};
 
-
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 // #[cfg(feature = "monitoring_prom")]
@@ -119,7 +118,6 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 //     )
 //     .unwrap();
 // }
-
 
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {

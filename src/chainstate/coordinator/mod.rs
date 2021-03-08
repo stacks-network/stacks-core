@@ -39,7 +39,9 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     TransactionPayload,
 };
-use monitoring::{increment_stx_blocks_processed_counter, update_stacks_tip_height}; //promserver
+use monitoring::{
+    increment_stx_blocks_processed_counter, increment_stx_smart_contracts, update_stacks_tip_height,
+}; //promserver
 use net::atlas::{AtlasConfig, AttachmentInstance};
 use util::db::Error as DBError;
 use vm::{
@@ -651,6 +653,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                 transaction.payload
                             {
                                 let contract_id = contract_call.to_clarity_contract_id();
+                                increment_stx_smart_contracts(); //promserver
                                 if self.atlas_config.contracts.contains(&contract_id) {
                                     for event in receipt.events.iter() {
                                         if let StacksTransactionEvent::SmartContractEvent(

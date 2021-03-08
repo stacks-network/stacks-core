@@ -46,8 +46,6 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use monitoring::increment_transfer_stx_op; //promserver
-
 // return type from parse_data below
 struct ParsedData {
     transfered_ustx: u128,
@@ -226,7 +224,6 @@ impl TransferStxOp {
             warn!("Invalid TransferStxOp, sender is recipient");
             return Err(op_error::TransferStxSelfSend);
         }
-        increment_transfer_stx_op();
         Ok(())
     }
 }

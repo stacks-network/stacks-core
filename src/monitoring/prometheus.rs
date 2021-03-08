@@ -17,48 +17,6 @@
 use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 
 lazy_static! {
-    // pub static ref P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_unauthenticated_handshake_received_total",
-    //     "Total number of authenticated Handshake messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_authenticated_handshake_received_total",
-    //     "Total number of authenticated Handshake messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_get_neighbors_received_total",
-    //     "Total number of GetNeighbors messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_get_blocks_inv_received_total",
-    //     "Total number of GetBlocksInv messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_NACK_SENT_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_nack_sent_total",
-    //     "Total number of Nack messages sent.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_PING_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_ping_received_total",
-    //     "Total number of Ping messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
-    // pub static ref P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-    //     "stacks_node_p2p_msg_nat_punch_request_received_total",
-    //     "Total number of NatPunchRequest messages received.",
-    //     labels! {"handler" => "all",}
-    // )).unwrap();
-
     pub static ref RPC_REQUEST_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_rpc_request_total",
         "Total number of RPC requests made"
@@ -190,30 +148,4 @@ lazy_static! {
         "stacks_node_mempool_gc_count",
         "Total count of all mempool garbage collections"
     )).unwrap();
-
-    pub static ref STX_SMART_CONTRACT_COUNT: IntCounter = register_int_counter!(opts!(
-        "stacks_node_smart_contracts",
-        "Total count of smart contracts"
-    )).unwrap();
-
-    pub static ref STX_ADDRESSES_CREATED: IntCounter = register_int_counter!(opts!(
-        "stacks_node_addresses",
-        "Total count of stacks addresses created"
-    )).unwrap();
-
-    pub static ref STACK_STX_OP: IntCounter = register_int_counter!(opts!(
-        "stacks_node_stack_stx_op",
-        "Total count of StackStxOp"
-    )).unwrap();
-
-    pub static ref TRANSFER_STX_OP: IntCounter = register_int_counter!(opts!(
-        "stacks_node_transfer_stx_op",
-        "Total count of TransferStxOp"
-    )).unwrap();
-
-    // pub static ref RPC_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
-    //     "stacks_node_rpc_request_duration_seconds",
-    //     "Stacks RPC request latencies in seconds",
-    //     &["path"]
-    // ).unwrap();
 }

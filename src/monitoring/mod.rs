@@ -17,41 +17,6 @@
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
-// pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_authenticated_handshake_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_get_neighbors_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_get_blocks_inv_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_nack_sent_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_NACK_SENT_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_ping_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_PING_RECEIVED_COUNTER.inc();
-// }
-
-// pub fn increment_p2p_msg_nat_punch_request_received_counter() {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();
-// }
-
 pub fn increment_rpc_request_counter_total() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::RPC_REQUEST_COUNTER.inc();
@@ -197,32 +162,3 @@ pub fn increment_stx_mempool_gc() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MEMPOOL_GC.inc();
 }
-
-pub fn increment_stx_smart_contracts() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::STX_SMART_CONTRACT_COUNT.inc();
-}
-
-pub fn increment_stx_addresses_created() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::STX_ADDRESSES_CREATED.inc();
-}
-
-pub fn increment_stack_stx_op() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::STACK_STX_OP.inc();
-}
-
-pub fn increment_transfer_stx_op() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::TRANSFER_STX_OP.inc();
-}
-
-// #[allow(unused_variables)]
-// pub fn rpc_req_histogram(path: String) {
-//     #[cfg(feature = "monitoring_prom")]
-//     prometheus::RPC_REQ_HISTOGRAM
-//         .with_label_values(&[&path])
-//         .start_timer();
-// }
-
