@@ -82,6 +82,8 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 
+use monitoring::update_burnchain_height; //promserver
+
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
         BurnchainStateTransitionOps {
@@ -978,6 +980,7 @@ impl Burnchain {
             target_block_height_opt,
             max_blocks_opt,
         )?;
+        update_burnchain_height(chain_tip.block_height as i64); //promserver
         Ok(chain_tip.block_height)
     }
 
