@@ -140,11 +140,6 @@ lazy_static! {
         &["path", "method"]
     ).unwrap();
 
-    pub static ref STX_MEMPOOL_SIZE: IntGauge = register_int_gauge!(opts!(
-        "stacks_node_mempool_size",
-        "Total number of transactions in the mempool currently"
-    )).unwrap();
-
     pub static ref STX_MEMPOOL_GC: IntCounter = register_int_counter!(opts!(
         "stacks_node_mempool_gc_count",
         "Total count of all mempool garbage collections"

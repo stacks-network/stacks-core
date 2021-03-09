@@ -261,12 +261,6 @@ pub fn increment_rpc_request_counter(path: String, method: String) {
         .inc();
 }
 
-#[allow(unused_variables)]
-pub fn update_stx_mempool_size(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::STX_MEMPOOL_SIZE.set(value);
-}
-
 pub fn increment_stx_mempool_gc() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MEMPOOL_GC.inc();
