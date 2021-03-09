@@ -601,7 +601,7 @@ mod test {
         assert_eq!(ns.event_map.len(), 20);
 
         for _ in 0..20 {
-            ns.make_next_event_id(count, &in_use).unwrap_err();
+            assert!(ns.make_next_event_id(count, &in_use).is_none());
         }
 
         for eid in events_in.iter() {
@@ -619,7 +619,7 @@ mod test {
         assert_eq!(ns.event_map.len(), 0);
 
         for _ in 0..20 {
-            ns.make_next_event_id(count, &in_use).unwrap_err();
+            assert!(ns.make_next_event_id(count, &in_use).is_none());
         }
     }
 }
