@@ -108,7 +108,7 @@ jobs:
 
       - name: Generate Docker tags & labels
         id: docker_meta
-        uses: CharlieC3/ghaction-docker-meta@tag-append-prepend
+        uses: CharlieC3/ghaction-docker-meta@tag-suffix-prefix
         # uses: crazy-max/ghaction-docker-meta@v1
         with:
           images: blockstack/${{ github.workflow }}
@@ -171,11 +171,11 @@ jobs:
 
       - name: Generate Docker tags & labels
         id: docker_meta
-        uses: CharlieC3/ghaction-docker-meta@tag-append-prepend
+        uses: CharlieC3/ghaction-docker-meta@tag-suffix-prefix
         # uses: crazy-max/ghaction-docker-meta@v1
         with:
           images: blockstack/${{ github.workflow }}
-          tag-latest: false
+          tag-sha: true
           tag-semver: |
             {{version}}
             {{major}}.{{minor}}
