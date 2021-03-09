@@ -914,8 +914,7 @@ impl PeerNetwork {
             outbound_neighbors.len(),
             &outbound_dist
         );
-        update_outbound_neighbors(outbound_neighbors.len() as i64); //promserver
-        update_inbound_neighbors(inbound_neighbors.len() as i64); //promserver
+
         let mut outbound_sample =
             RelayerStats::sample_neighbors(outbound_dist, MAX_BROADCAST_OUTBOUND_RECEIVERS);
         let mut inbound_sample =
@@ -4084,6 +4083,10 @@ impl PeerNetwork {
                 self.deregister_peer(dead);
             }
             self.prune_connections();
+            let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+            let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
+            update_outbound_neighbors(outbound_neighbors as i64); //promserver
+            update_inbound_neighbors(inbound_neighbors as i64); //promserver
         }
 
         // In parallel, do a neighbor walk, but only if we're not doing the initial block download

@@ -965,7 +965,6 @@ impl Burnchain {
             target_block_height_opt,
             max_blocks_opt,
         )?;
-        update_burnchain_height(chain_tip.block_height as i64); //promserver
         Ok(chain_tip.block_height)
     }
 
@@ -1438,7 +1437,7 @@ impl Burnchain {
         if let Err(e) = downloader_result {
             return Err(e);
         }
-
+        update_burnchain_height(block_header.block_height as i64); //promserver
         Ok(block_header)
     }
 }
