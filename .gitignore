@@ -82,3 +82,6 @@ net-test/mnt/archive/*
 *.profraw
 *.profdata
 lcov.info
+node_modules
+package-lock.json
+yarnlock

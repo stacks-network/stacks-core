@@ -1,4 +1,4 @@
-name: stacks-blockchain
+name: CI
 
 # Only run when:
 #   - PRs are opened against the master branch
@@ -6,6 +6,9 @@ name: stacks-blockchain
 #     - If the optional tag parameter is passed in, a new tag will be generated based off the selected branch
 on:
   pull_request:
+  create:
+    tags:
+      - v*
   workflow_dispatch:
     inputs:
       tag:
@@ -13,6 +16,14 @@ on:
         required: false
 
 jobs:
+  cancel-previous:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.8.0
+        with:
+          access_token: ${{ github.token }}
+  
   # Run full genesis test
   full-genesis:
     runs-on: ubuntu-latest
@@ -79,7 +90,7 @@ jobs:
           file: build-scripts/Dockerfile.${{ matrix.platform }}
           outputs: dist/${{ matrix.platform }}
           build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            STACKS_NODE_VERSION=${{ GITHUB_REF_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           
@@ -111,7 +122,7 @@ jobs:
         uses: CharlieC3/ghaction-docker-meta@tag-suffix-prefix
         # uses: crazy-max/ghaction-docker-meta@v1
         with:
-          images: blockstack/${{ github.workflow }}
+          images: blockstack/${{ github.event.repository.name }}
           tag-sha: true
           tag-semver: |
             {{version}}
@@ -121,6 +132,7 @@ jobs:
         uses: docker/setup-buildx-action@v1
 
       - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -133,11 +145,10 @@ jobs:
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            STACKS_NODE_VERSION=${{ GITHUB_REF_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          push: false
-          # push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
+          push: github.event_name != 'pull_request'
 
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
@@ -148,22 +159,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      # Stretch tag will be "<TAG>-stretch" if a tag was passed in, otherwise "<BRANCH>-stretch". If the BRANCH is master, will result in "latest-stretch"
-      - name: Determine Stretch Tag
-        run: |
-          if [[ -z ${TAG} ]]; then
-              REF=$(echo ${GITHUB_REF#refs/*/} | tr / -)
-              if [[ "${REF}" == "master" ]]; then
-                  echo "STRETCH_TAG=latest-stretch" >> $GITHUB_ENV
-              else
-                  echo "STRETCH_TAG=${REF}-stretch" >> $GITHUB_ENV
-              fi
-          else
-              echo "STRETCH_TAG=${TAG}-stretch" >> $GITHUB_ENV
-          fi
-        env:
-          TAG: ${{ github.event.inputs.tag }}
-
       - name: Set Vars
         run: |
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
@@ -174,7 +169,7 @@ jobs:
         uses: CharlieC3/ghaction-docker-meta@tag-suffix-prefix
         # uses: crazy-max/ghaction-docker-meta@v1
         with:
-          images: blockstack/${{ github.workflow }}
+          images: blockstack/${{ github.event.repository.name }}
           tag-sha: true
           tag-semver: |
             {{version}}
@@ -185,6 +180,7 @@ jobs:
         uses: docker/setup-buildx-action@v1
 
       - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -198,43 +194,42 @@ jobs:
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            STACKS_NODE_VERSION=${{ GITHUB_REF_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          push: false
-          # push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
+          push: github.event_name != 'pull_request'
 
   # Create a new release if we're building a tag
   create-release:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.tag != '' }}
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    if: contains(github.ref, "master")
     needs:
+      - full-genesis
+      - unit-tests
+      # - nettest
+      - rustfmt
       - dist
       - build-publish
       - build-publish-stretch
 
     steps:
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v2
+        id: semantic
+        if: github.event_name != 'pull_request'
         env:
-          # Use custom secrets.GH_TOKEN instead of default secrets.GITHUB_TOKEN because the custom token will trigger the
-          # clarity-js-sdk-pr workflow. As events caused by default tokens do not trigger subsequent workflow runs to avoid loops.
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SEMANTIC_RELEASE_PACKAGE: ${{ github.event.repository.name }}
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref }}
-          release_name: Release ${{ github.event.inputs.tag || github.ref }}
-          draft: false
-          prerelease: false
+          # These plugins aren't packaged with semantic-release by default. So specify them here to ensure they get installed during this GH Action
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
 
   # Upload distributables to a new release if we're building a tag or a tag was passed in
   upload-dist:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.tag != '' }}
-    needs:
-      - create-release
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       matrix:
         platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
@@ -247,12 +242,18 @@ jobs:
           name: ${{ matrix.platform }}
           path: dist/
 
+      - name: Get release
+        id: get_release
+        uses: bruceadams/get-release@v1.2.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_path: ./dist/${{ matrix.platform }}.zip
           asset_name: ${{ matrix.platform }}.zip
           asset_content_type: application/zip

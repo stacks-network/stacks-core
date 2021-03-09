@@ -12,3 +12,4 @@ testnet-logs*
 legacy
 build-scripts
 dist
+node_modules
