@@ -46,7 +46,7 @@ use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 
 use crate::codec::write_next;
-use net::Error as net_error;
+use codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
 
 use util::hash::DoubleSha256;
@@ -207,21 +207,21 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
          magic  op consensus hash    proving public key               memo
                    (ignored)                                       (ignored)
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
         fd.write_all(&self.public_key.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         let memo = match self.memo.len() {
             l if l <= 25 => self.memo[0..].to_vec(),
             _ => self.memo[0..25].to_vec(),
         };
-        fd.write_all(&memo).map_err(net_error::WriteError)?;
+        fd.write_all(&memo).map_err(codec_error::WriteError)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }

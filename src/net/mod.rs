@@ -747,7 +747,7 @@ impl Preamble {
         &mut self,
         message_bits: &[u8],
         privkey: &Secp256k1PrivateKey,
-    ) -> Result<(), codec_error> {
+    ) -> Result<(), Error> {
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
 
@@ -766,7 +766,7 @@ impl Preamble {
 
         let sig = privkey
             .sign(&digest_bits)
-            .map_err(|se| codec_error::SigningError(se.to_string()))?;
+            .map_err(|se| Error::SigningError(se.to_string()))?;
 
         self.signature = sig;
         Ok(())
@@ -778,7 +778,7 @@ impl Preamble {
         &mut self,
         message_bits: &[u8],
         pubkey: &Secp256k1PublicKey,
-    ) -> Result<(), codec_error> {
+    ) -> Result<(), Error> {
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
 
@@ -797,12 +797,12 @@ impl Preamble {
 
         let res = pubkey
             .verify(&digest_bits, &self.signature)
-            .map_err(|_ve| codec_error::VerifyingError("Failed to verify signature".to_string()))?;
+            .map_err(|_ve| Error::VerifyingError("Failed to verify signature".to_string()))?;
 
         if res {
             Ok(())
         } else {
-            Err(codec_error::VerifyingError(
+            Err(Error::VerifyingError(
                 "Invalid message signature".to_string(),
             ))
         }
@@ -970,12 +970,12 @@ impl BlocksAvailableData {
         &mut self,
         ch: ConsensusHash,
         bhh: BurnchainHeaderHash,
-    ) -> Result<(), codec_error> {
+    ) -> Result<(), Error> {
         if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
             self.available.push((ch, bhh));
             return Ok(());
         } else {
-            return Err(codec_error::InvalidMessage);
+            return Err(Error::InvalidMessage);
         }
     }
 }
@@ -1861,7 +1861,7 @@ impl StacksMessage {
     }
 
     /// Sign the stacks message
-    fn do_sign(&mut self, private_key: &Secp256k1PrivateKey) -> Result<(), codec_error> {
+    fn do_sign(&mut self, private_key: &Secp256k1PrivateKey) -> Result<(), Error> {
         let mut message_bits = vec![];
         self.relayers.consensus_serialize(&mut message_bits)?;
         self.payload.consensus_serialize(&mut message_bits)?;
@@ -1872,9 +1872,9 @@ impl StacksMessage {
 
     /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
     /// originating this messsage).
-    pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), codec_error> {
+    pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), Error> {
         if self.relayers.len() > 0 {
-            return Err(codec_error::InvalidMessage);
+            return Err(Error::InvalidMessage);
         }
         self.preamble.seq = seq;
         self.do_sign(private_key)
@@ -1886,13 +1886,13 @@ impl StacksMessage {
         private_key: &Secp256k1PrivateKey,
         our_seq: u32,
         our_addr: &NeighborAddress,
-    ) -> Result<(), codec_error> {
+    ) -> Result<(), Error> {
         if self.relayers.len() >= MAX_RELAYERS_LEN as usize {
             warn!(
                 "Message {:?} has too many relayers; will not sign",
                 self.payload.get_message_description()
             );
-            return Err(codec_error::InvalidMessage);
+            return Err(Error::InvalidMessage);
         }
 
         // don't sign if signed more than once
@@ -1903,7 +1903,7 @@ impl StacksMessage {
                     self.payload.get_message_description(),
                     &our_addr.public_key_hash
                 );
-                return Err(codec_error::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
         }
 
@@ -1920,7 +1920,7 @@ impl StacksMessage {
 
     pub fn deserialize_body<R: Read>(
         fd: &mut R,
-    ) -> Result<(Vec<RelayData>, StacksMessageType), codec_error> {
+    ) -> Result<(Vec<RelayData>, StacksMessageType), Error> {
         let relayers: Vec<RelayData> = crate::codec::read_next_at_most::<_, RelayData>(fd, MAX_RELAYERS_LEN)?;
         let payload: StacksMessageType = crate::codec::read_next(fd)?;
         Ok((relayers, payload))
@@ -1930,7 +1930,7 @@ impl StacksMessage {
     /// Fails if:
     /// * the signature doesn't match
     /// * the buffer doesn't encode a secp256k1 public key
-    pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), codec_error> {
+    pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), Error> {
         let secp256k1_pubkey = public_key.to_public_key()?;
 
         let mut message_bits = vec![];
@@ -2050,7 +2050,7 @@ impl ProtocolFamily for StacksP2P {
     /// StacksP2P deals with Preambles
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(Preamble, usize), Error> {
         if buf.len() < PREAMBLE_ENCODED_SIZE as usize {
-            return Err(codec_error::UnderflowError(
+            return Err(Error::UnderflowError(
                 "Not enough bytes to form a P2P preamble".to_string(),
             ));
         }
@@ -2111,7 +2111,7 @@ impl ProtocolFamily for StacksP2P {
         fd: &mut W,
         message: &StacksMessage,
     ) -> Result<(), Error> {
-        message.consensus_serialize(fd).into()
+        message.consensus_serialize(fd).map_err(|e| e.into())
     }
 }
 

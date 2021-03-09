@@ -1,11 +1,13 @@
 use std::io::{Read, Write};
-use std::{mem, io};
+use std::{mem, io, fmt};
 
-use net::{MAX_MESSAGE_LEN};
+// TODO: this dependency needs to go
+use net::MAX_MESSAGE_LEN;
 
 #[macro_use]
 pub mod macros;
 
+#[derive(Debug)]
 pub enum Error {
     /// Failed to encode
     SerializeError(String),
@@ -15,6 +17,17 @@ pub enum Error {
     DeserializeError(String),
     /// Failed to write
     WriteError(io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::SerializeError(ref s) => fmt::Display::fmt(s, f),
+            Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
+            Error::ReadError(ref io) => fmt::Display::fmt(io, f),
+            Error::WriteError(ref io) => fmt::Display::fmt(io, f),
+        }
+    }
 }
 
 /// Helper trait for various primitive types that make up Stacks messages

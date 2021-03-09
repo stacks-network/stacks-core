@@ -18,7 +18,7 @@
 */
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io;
 use std::io::{Read, Write};
@@ -695,46 +695,46 @@ impl HttpRequestPreamble {
         content_length: Option<u32>,
         content_type: Option<&HttpContentType>,
         mut write_headers: F,
-    ) -> Result<(), net_error>
+    ) -> Result<(), codec_error>
     where
-        F: FnMut(&mut W) -> Result<(), net_error>,
+        F: FnMut(&mut W) -> Result<(), codec_error>,
     {
         // "$verb $path HTTP/1.${version}\r\n"
         fd.write_all(verb.as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(" ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(path.as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         match *version {
             HttpVersion::Http10 => {
                 fd.write_all(" HTTP/1.0\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             HttpVersion::Http11 => {
                 fd.write_all(" HTTP/1.1\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
         }
 
         // "User-Agent: $agent\r\nHost: $host\r\n"
         fd.write_all("User-Agent: stacks/2.0\r\nHost: ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(format!("{}", host).as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         // content-type
         match content_type {
             Some(ref c) => {
                 fd.write_all("Content-Type: ".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all(c.as_str().as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all("\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             None => {}
         }
@@ -743,11 +743,11 @@ impl HttpRequestPreamble {
         match content_length {
             Some(l) => {
                 fd.write_all("Content-Length: ".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all(format!("{}", l).as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all("\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             None => {}
         }
@@ -756,13 +756,13 @@ impl HttpRequestPreamble {
             HttpVersion::Http10 => {
                 if keep_alive {
                     fd.write_all("Connection: keep-alive\r\n".as_bytes())
-                        .map_err(net_error::WriteError)?;
+                        .map_err(codec_error::WriteError)?;
                 }
             }
             HttpVersion::Http11 => {
                 if !keep_alive {
                     fd.write_all("Connection: close\r\n".as_bytes())
-                        .map_err(net_error::WriteError)?;
+                        .map_err(codec_error::WriteError)?;
                 }
             }
         }
@@ -772,7 +772,7 @@ impl HttpRequestPreamble {
 
         // end-of-headers
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -865,16 +865,16 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
     Ok(())
 }
 
-fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), net_error> {
+fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), codec_error> {
     for (ref key, ref value) in headers.iter() {
         fd.write_all(key.as_str().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(": ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(value.as_str().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
     }
     Ok(())
 }
@@ -891,11 +891,11 @@ fn default_accept_header() -> String {
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
 /// It's gonna be important here that R does some bufferring, since this reads byte by byte.
 /// EOF if we read 0 bytes.
-fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
+fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, codec_error> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     while ret.len() < HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
         let mut b = [0u8];
-        fd.read_exact(&mut b).map_err(net_error::ReadError)?;
+        fd.read_exact(&mut b).map_err(codec_error::ReadError)?;
         ret.push(b[0]);
 
         if ret.len() > 4 {
@@ -922,7 +922,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
             self.content_length.clone(),
             self.content_type.as_ref(),
             |ref mut fd| write_headers(fd, &self.headers),
-        ).into()
+        )
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, codec_error> {
@@ -934,7 +934,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
         // consume request
         match req.parse(&buf_read).map_err(|e| {
-            net_error::DeserializeError(format!("Failed to parse HTTP request: {:?}", &e))
+            codec_error::DeserializeError(format!("Failed to parse HTTP request: {:?}", &e))
         })? {
             httparse::Status::Partial => {
                 // partial
@@ -946,7 +946,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 // consumed all headers.  body_offset points to the start of the request body
                 let version = match req
                     .version
-                    .ok_or(net_error::DeserializeError("No HTTP version".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP version".to_string()))?
                 {
                     0 => HttpVersion::Http10,
                     1 => HttpVersion::Http11,
@@ -959,11 +959,11 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
                 let verb = req
                     .method
-                    .ok_or(net_error::DeserializeError("No HTTP method".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP method".to_string()))?
                     .to_string();
                 let path = req
                     .path
-                    .ok_or(net_error::DeserializeError("No HTTP path".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP path".to_string()))?
                     .to_string();
 
                 let mut peerhost = None;
@@ -979,7 +979,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
                 for i in 0..req.headers.len() {
                     let value = String::from_utf8(req.headers[i].value.to_vec()).map_err(|_e| {
-                        net_error::DeserializeError(
+                        codec_error::DeserializeError(
                             "Invalid HTTP header value: not utf-8".to_string(),
                         )
                     })?;

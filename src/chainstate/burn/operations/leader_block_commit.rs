@@ -42,6 +42,7 @@ use burnchains::{BurnchainTransaction, PublicKey};
 
 use crate::codec::write_next;
 use net::Error as net_error;
+use codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
 
 use util::hash::to_hex;
@@ -422,11 +423,11 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
          magic  op   block hash     new seed     parent parent key   key   burn parent modulus
                                                 block  txoff  block txoff
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderBlockCommit as u8))?;
         write_next(fd, &self.block_header_hash)?;
         fd.write_all(&self.new_seed.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         write_next(fd, &self.parent_block_ptr)?;
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
@@ -437,7 +438,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }

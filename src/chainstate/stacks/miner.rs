@@ -37,7 +37,7 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::index::TrieHash;
 use core::*;
 use core::mempool::*;
-use net::Error as net_error;
+use net::Error as or;
 use net::StacksPublicKeyBuffer;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;

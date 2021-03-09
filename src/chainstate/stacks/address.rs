@@ -40,7 +40,7 @@ use chainstate::stacks::StacksPublicKey;
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
 use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
-use net::Error as net_error;
+use codec::Error as codec_error;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 use vm::types::{PrincipalData, StandardPrincipalData};
@@ -48,13 +48,13 @@ use vm::types::{PrincipalData, StandardPrincipalData};
 use crate::codec::{read_next, StacksMessageCodec, write_next};
 
 impl StacksMessageCodec for StacksAddress {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
         fd.write_all(self.bytes.as_bytes())
-            .map_err(net_error::WriteError)
+            .map_err(codec_error::WriteError)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, codec_error> {
         let version: u8 = read_next(fd)?;
         let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {

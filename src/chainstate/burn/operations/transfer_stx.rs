@@ -38,7 +38,7 @@ use burnchains::{BurnchainRecipient, BurnchainSigner};
 use burnchains::{BurnchainTransaction, PublicKey};
 
 use crate::codec::write_next;
-use net::Error as net_error;
+use codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
 
 use chainstate::stacks::index::storage::TrieFileStorage;
@@ -197,18 +197,18 @@ impl TransferStxOp {
 }
 
 impl StacksMessageCodec for TransferStxOp {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::TransferStx as u8))?;
         fd.write_all(&self.transfered_ustx.to_be_bytes())
-            .map_err(|e| net_error::WriteError(e))?;
+            .map_err(|e| codec_error::WriteError(e))?;
         if self.memo.len() > 61 {
-            return Err(net_error::ArrayTooLong);
+            return Err(codec_error::ArrayTooLong);
         }
         write_next(fd, &self.memo)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<TransferStxOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<TransferStxOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
