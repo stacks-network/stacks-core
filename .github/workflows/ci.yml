@@ -18,6 +18,7 @@ on:
 jobs:
   cancel-previous:
     runs-on: ubuntu-latest
+    if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Cancel Previous Runs
         uses: styfle/cancel-workflow-action@0.8.0
@@ -27,6 +28,7 @@ jobs:
   # Run full genesis test
   full-genesis:
     runs-on: ubuntu-latest
+    if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v2
       - name: Single full genesis integration test
@@ -37,6 +39,7 @@ jobs:
   # Run unit tests with code coverage
   unit-tests:
     runs-on: ubuntu-latest
+    if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v2
       - name: Run units tests (with coverage)
@@ -49,6 +52,7 @@ jobs:
     # disable this job/test for now, since we haven't seen this pass
     #  on github actions in a while, and the failures can take > 4 hours
     if: ${{ false }}
+    # if: ! startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -60,6 +64,7 @@ jobs:
   # rustfmt checking
   rustfmt:
     runs-on: ubuntu-latest
+    if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v2
       - name: Run rustfmt check
@@ -216,7 +221,6 @@ jobs:
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v2
         id: semantic
-        if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SEMANTIC_RELEASE_PACKAGE: ${{ github.event.repository.name }}
@@ -230,30 +234,23 @@ jobs:
   upload-dist:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - dist
     strategy:
       matrix:
         platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
 
     steps:
-      - uses: actions/checkout@v2
       - name: Download distro
         uses: actions/download-artifact@v2
         with:
           name: ${{ matrix.platform }}
-          path: dist/
 
-      - name: Get release
-        id: get_release
-        uses: bruceadams/get-release@v1.2.2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
         with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.platform }}.zip
+          repo_token: ${{ github.token }}
+          file: ${{ matrix.platform }}.zip
           asset_name: ${{ matrix.platform }}.zip
-          asset_content_type: application/zip
+          tag: ${{ github.ref }}
+          overwrite: true

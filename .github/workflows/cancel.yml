@@ -1,4 +1,4 @@
-# Cancels outdated stacks-blockchain workflow runs when triggered by fork PRs
+# Cancels old stacks-blockchain workflow runs when triggered by fork PRs
 name: Cancel
 on:
   workflow_run:
