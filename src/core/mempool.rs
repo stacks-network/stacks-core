@@ -1167,7 +1167,10 @@ mod tests {
     use address::AddressHashMode;
     use burnchains::Address;
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    // use chainstate::stacks::TransactionVersion::Testnet;
     use net::{Error as NetError, StacksMessageCodec};
+    use util::hash::Hash160;
+    use util::secp256k1::MessageSignature;
     use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
     use vm::{
         database::HeadersDB,
@@ -1180,11 +1183,12 @@ mod tests {
 
     use chainstate::stacks::{
         db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
-        Error as ChainstateError, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-        TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-        TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
-        TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksAddress,
+        StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
+        StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+        TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+        TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+        TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
 
@@ -1763,6 +1767,7 @@ mod tests {
             tx.set_tx_fee(123);
 
             // test insert
+
             let txid = tx.txid();
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
@@ -1978,5 +1983,155 @@ mod tests {
         )
         .unwrap();
         assert_eq!(txs.len(), 0);
+    }
+
+    #[test]
+    fn mempool_db_test_rbf() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_test_rbf");
+        let chainstate_path = chainstate_path("mempool_db_test_rbf");
+        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+        // create initial transaction
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        let spending_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                nonce: 123,
+                tx_fee: 456,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            PrincipalData::from(QualifiedContractIdentifier {
+                issuer: stx_address.into(),
+                name: "hello-contract-name".into(),
+            }),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::Standard(spending_condition.clone()),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: Vec::new(),
+            payload,
+        };
+
+        let i: usize = 0;
+        let origin_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&i.to_be_bytes()),
+        };
+        let sponsor_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
+        };
+
+        tx.set_tx_fee(123);
+        let txid = tx.txid();
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+        let expected_tx = tx.clone();
+        let tx_fee = tx.get_tx_fee();
+        let height = 100;
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_nonce = match tx.get_sponsor_nonce() {
+            Some(n) => n,
+            None => origin_nonce,
+        };
+        let first_len = tx_bytes.len() as u64;
+
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1; 20]),
+            &BlockHeaderHash([0x2; 32]),
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        // test retrieval of initial transaction
+        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
+        let tx_info = tx_info_opt.unwrap();
+
+        // test replace-by-fee with a higher fee, where the payload is smaller
+        let old_txid = txid;
+        let old_tx_fee = tx_fee;
+
+        tx.set_tx_fee(124);
+        tx.payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+        assert!(txid != tx.txid());
+        let txid = tx.txid();
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+        let expected_tx = tx.clone();
+        let tx_fee = tx.get_tx_fee();
+        let second_len = tx_bytes.len() as u64;
+
+        // these asserts are to ensure we are using the fee directly, not the fee rate
+        assert!(second_len < first_len);
+        assert!(second_len * tx_fee < first_len * old_tx_fee);
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let tx_info_before =
+            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
+                .unwrap()
+                .unwrap();
+        assert_eq!(tx_info_before, tx_info.metadata);
+
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1; 20]),
+            &BlockHeaderHash([0x2; 32]),
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        // check that the transaction was replaced
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let tx_info_after =
+            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
+                .unwrap()
+                .unwrap();
+        assert!(tx_info_after != tx_info.metadata);
+
+        // test retrieval -- transaction should have been replaced because it has a higher fee
+        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
+        let tx_info = tx_info_opt.unwrap();
+        assert_eq!(tx_info.metadata, tx_info_after);
+        assert_eq!(tx_info.metadata.len, second_len);
+        assert_eq!(tx_info.metadata.tx_fee, 124);
     }
 }
