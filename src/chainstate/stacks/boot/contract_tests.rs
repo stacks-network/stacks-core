@@ -280,13 +280,13 @@ fn recency_tests() {
                 (&USER_KEYS[0]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "stack-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[0].clone(),
                     Value::UInt(3000),
                     Value::UInt(3),
-                ]),
-                "stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -300,13 +300,13 @@ fn recency_tests() {
                 (&USER_KEYS[0]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(2 * USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -318,14 +318,14 @@ fn recency_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
                     Value::UInt(3000),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -350,13 +350,13 @@ fn delegation_tests() {
                 (&USER_KEYS[0]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(2 * USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -369,13 +369,13 @@ fn delegation_tests() {
                 (&USER_KEYS[0]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -387,13 +387,13 @@ fn delegation_tests() {
                 (&USER_KEYS[1]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::some(POX_ADDRS[0].clone()).unwrap()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -404,13 +404,13 @@ fn delegation_tests() {
                 (&USER_KEYS[2]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::some(Value::UInt(300)).unwrap(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -422,13 +422,13 @@ fn delegation_tests() {
                 (&USER_KEYS[3]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -440,13 +440,13 @@ fn delegation_tests() {
                 (&USER_KEYS[4]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
                     Value::none(),
                     Value::none()
-                ]),
-                "delegate-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -462,14 +462,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(3 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -483,14 +483,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(2 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -504,14 +504,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -539,8 +539,8 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)]),
-                "stack-aggregation-commit"
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
             )
             .unwrap()
             .0
@@ -554,14 +554,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -575,14 +575,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -596,14 +596,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -617,14 +617,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(1)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -672,8 +672,8 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)]),
-                "stack-aggregation-commit"
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
             )
             .unwrap()
             .0
@@ -705,8 +705,8 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)]),
-                "stack-aggregation-commit"
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
             )
             .unwrap()
             .0
@@ -724,14 +724,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[3]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[1].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -759,8 +759,8 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)]),
-                "stack-aggregation-commit"
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
             )
             .unwrap()
             .0
@@ -774,8 +774,8 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)]),
-                "stack-aggregation-commit"
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
             )
             .unwrap()
             .0
@@ -838,14 +838,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[0].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0,
@@ -863,8 +863,8 @@ fn delegation_tests() {
                 (&USER_KEYS[4]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &[],
-                "revoke-delegate-stx"
+                "revoke-delegate-stx",
+                &[]
             )
             .unwrap()
             .0,
@@ -877,8 +877,8 @@ fn delegation_tests() {
                 (&USER_KEYS[4]).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
-                &[],
-                "revoke-delegate-stx"
+                "revoke-delegate-stx",
+                &[]
             )
             .unwrap()
             .0
@@ -891,14 +891,14 @@ fn delegation_tests() {
                 (&delegator).into(),
                 None,
                 POX_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
                     burn_height.clone(),
                     Value::UInt(2)
-                ]),
-                "delegate-stack-stx"
+                ])
             )
             .unwrap()
             .0
@@ -926,6 +926,7 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
+                "submit-proposal",
                 &symbols_from_values(vec![
                     Value::Principal(
                         PrincipalData::parse_qualified_contract_principal(
@@ -941,8 +942,7 @@ fn test_vote_withdrawal() {
                         .unwrap()
                     ),
                     Value::string_ascii_from_bytes("cost-function-name".into()).unwrap(),
-                ]),
-                "submit-proposal"
+                ])
             )
             .unwrap()
             .0,
@@ -957,8 +957,8 @@ fn test_vote_withdrawal() {
             (&USER_KEYS[0]).into(),
             None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
-            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
             "vote-proposal",
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
         )
         .unwrap()
         .0;
@@ -969,8 +969,8 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "get-proposal-votes"
+                "get-proposal-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -984,8 +984,8 @@ fn test_vote_withdrawal() {
             (&USER_KEYS[0]).into(),
             None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
-            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
             "vote-proposal",
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
         )
         .unwrap()
         .0;
@@ -996,8 +996,8 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "get-proposal-votes"
+                "get-proposal-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1012,11 +1012,11 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
+                "get-principal-votes",
                 &symbols_from_values(vec![
                     Value::Principal(StandardPrincipalData::from(&USER_KEYS[0]).into()),
                     Value::UInt(0),
-                ]),
-                "get-principal-votes"
+                ])
             )
             .unwrap()
             .0,
@@ -1031,8 +1031,8 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
                 "withdraw-votes",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
             )
             .unwrap()
             .0,
@@ -1047,8 +1047,8 @@ fn test_vote_withdrawal() {
             (&USER_KEYS[0]).into(),
             None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
-            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
             "withdraw-votes",
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
         )
         .unwrap();
 
@@ -1058,8 +1058,8 @@ fn test_vote_withdrawal() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "get-proposal-votes"
+                "get-proposal-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1080,8 +1080,8 @@ fn test_vote_withdrawal() {
             (&USER_KEYS[0]).into(),
             None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
-            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
             "withdraw-votes",
+            &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
         )
         .unwrap();
     });
@@ -1119,6 +1119,7 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
+                "submit-proposal",
                 &symbols_from_values(vec![
                     Value::Principal(
                         PrincipalData::parse_qualified_contract_principal(
@@ -1134,8 +1135,7 @@ fn test_vote_fail() {
                         .unwrap()
                     ),
                     Value::string_ascii_from_bytes("cost-function-name2".into()).unwrap(),
-                ]),
-                "submit-proposal"
+                ])
             )
             .unwrap()
             .0,
@@ -1151,8 +1151,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-votes"
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1168,8 +1168,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
                 "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
             )
             .unwrap()
             .0,
@@ -1185,8 +1185,8 @@ fn test_vote_fail() {
                 user.into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
                 "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
             .unwrap()
             .0;
@@ -1198,8 +1198,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-votes"
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1215,8 +1215,8 @@ fn test_vote_fail() {
             (&MINER_KEY.clone()).into(),
             None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
-            &symbols_from_values(vec![Value::UInt(0)]),
             "veto",
+            &symbols_from_values(vec![Value::UInt(0)]),
         )
         .unwrap();
 
@@ -1225,8 +1225,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "get-proposal-vetos"
+                "get-proposal-vetos",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1244,8 +1244,8 @@ fn test_vote_fail() {
                 (&MINER_KEY.clone()).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
                 "veto",
+                &symbols_from_values(vec![Value::UInt(0)]),
             )
             .unwrap();
 
@@ -1255,8 +1255,8 @@ fn test_vote_fail() {
                     (&MINER_KEY.clone()).into(),
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
-                    &symbols_from_values(vec![Value::UInt(0)]),
-                    "veto"
+                    "veto",
+                    &symbols_from_values(vec![Value::UInt(0)])
                 )
                 .unwrap()
                 .0,
@@ -1279,8 +1279,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-miners"
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1304,8 +1304,8 @@ fn test_vote_fail() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-miners"
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1335,6 +1335,7 @@ fn test_vote_confirm() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
+                "submit-proposal",
                 &symbols_from_values(vec![
                     Value::Principal(
                         PrincipalData::parse_qualified_contract_principal(
@@ -1350,8 +1351,7 @@ fn test_vote_confirm() {
                         .unwrap()
                     ),
                     Value::string_ascii_from_bytes("cost-function-name2".into()).unwrap(),
-                ]),
-                "submit-proposal"
+                ])
             )
             .unwrap()
             .0,
@@ -1367,8 +1367,8 @@ fn test_vote_confirm() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-votes"
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1384,8 +1384,8 @@ fn test_vote_confirm() {
                 user.into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
                 "vote-proposal",
+                &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
             .unwrap()
             .0;
@@ -1397,8 +1397,8 @@ fn test_vote_confirm() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-votes"
+                "confirm-votes",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1425,8 +1425,8 @@ fn test_vote_confirm() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(0)]),
-                "confirm-miners"
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(0)])
             )
             .unwrap()
             .0,
@@ -1458,6 +1458,7 @@ fn test_vote_too_many_confirms() {
                     (&USER_KEYS[0]).into(),
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
+                    "submit-proposal",
                     &symbols_from_values(vec![
                         Value::Principal(
                             PrincipalData::parse_qualified_contract_principal(
@@ -1473,8 +1474,7 @@ fn test_vote_too_many_confirms() {
                             .unwrap()
                         ),
                         Value::string_ascii_from_bytes("cost-function-name2".into()).unwrap(),
-                    ]),
-                    "submit-proposal"
+                    ])
                 )
                 .unwrap()
                 .0,
@@ -1493,11 +1493,11 @@ fn test_vote_too_many_confirms() {
                         user.into(),
                         None,
                         COST_VOTING_CONTRACT_TESTNET.clone(),
+                        "vote-proposal",
                         &symbols_from_values(vec![
                             Value::UInt(i as u128),
                             Value::UInt(USTX_PER_HOLDER)
                         ]),
-                        "vote-proposal",
                     )
                     .unwrap()
                     .0,
@@ -1511,8 +1511,8 @@ fn test_vote_too_many_confirms() {
                     (&USER_KEYS[0]).into(),
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
-                    &symbols_from_values(vec![Value::UInt(i as u128)]),
-                    "confirm-votes"
+                    "confirm-votes",
+                    &symbols_from_values(vec![Value::UInt(i as u128)])
                 )
                 .unwrap()
                 .0,
@@ -1525,11 +1525,11 @@ fn test_vote_too_many_confirms() {
                     user.into(),
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
+                    "withdraw-votes",
                     &symbols_from_values(vec![
                         Value::UInt(i as u128),
                         Value::UInt(USTX_PER_HOLDER),
                     ]),
-                    "withdraw-votes",
                 )
                 .unwrap()
                 .0;
@@ -1554,8 +1554,8 @@ fn test_vote_too_many_confirms() {
                     (&USER_KEYS[0]).into(),
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
-                    &symbols_from_values(vec![Value::UInt(i as u128)]),
-                    "confirm-miners"
+                    "confirm-miners",
+                    &symbols_from_values(vec![Value::UInt(i as u128)])
                 )
                 .unwrap()
                 .0,
@@ -1569,8 +1569,8 @@ fn test_vote_too_many_confirms() {
                 (&USER_KEYS[0]).into(),
                 None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
-                &symbols_from_values(vec![Value::UInt(MAX_CONFIRMATIONS_PER_BLOCK)]),
-                "confirm-miners"
+                "confirm-miners",
+                &symbols_from_values(vec![Value::UInt(MAX_CONFIRMATIONS_PER_BLOCK)])
             )
             .unwrap()
             .0,

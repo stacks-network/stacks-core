@@ -881,8 +881,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                         Value::Principal(sender.clone()),
                         sponsor.clone(),
                         contract.clone(),
-                        &expr_args,
                         public_function,
+                        &expr_args,
                     )
                     .map_err(Error::from)
             },

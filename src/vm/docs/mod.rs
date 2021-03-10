@@ -107,7 +107,7 @@ const TX_SPONSOR_KEYWORD: KeywordAPI = KeywordAPI {
     name: "tx-sponsor?",
     output_type: "optional principal",
     description: "Returns the sponsor of the current transaction if there is a sponsor, otherwise returns None.",
-    example: "(print tx-sponsor?) ;; Will print out an option of the Stacks address of the transaction sponsor",
+    example: "(print tx-sponsor?) ;; Will print out an optional value containing the Stacks address of the transaction sponsor",
 };
 
 const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {

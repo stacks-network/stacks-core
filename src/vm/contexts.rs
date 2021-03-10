@@ -576,8 +576,8 @@ impl<'a> OwnedEnvironment<'a> {
         sender: Value,
         sponsor: Option<PrincipalData>,
         contract_identifier: QualifiedContractIdentifier,
-        args: &[SymbolicExpression],
         tx_name: &str,
+        args: &[SymbolicExpression],
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(sender, sponsor, |exec_env| {
             exec_env.execute_contract(&contract_identifier, tx_name, args, false)
@@ -917,7 +917,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             match res {
                 Ok(value) => {
                     let sender_principal = self.sender.clone().map(|v| v.expect_principal());
-                    handle_contract_call_special_cases(&mut self.global_context, sender_principal.as_ref(), self.sponsor.clone().as_ref(), contract_identifier, tx_name, &value)?;
+                    handle_contract_call_special_cases(&mut self.global_context, sender_principal.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
                     Ok(value)
                 },
                 Err(e) => Err(e)

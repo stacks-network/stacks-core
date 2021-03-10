@@ -549,7 +549,8 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
 
 fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
     let contract_a = "(define-read-only (get-sponsor)
-           (list tx-sponsor?))";
+           (list tx-sponsor?))
+           (asserts! (is-eq tx-sponsor? (some 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)) (err 1))";
     let contract_b = "(define-read-only (get-sponsor)
            (list tx-sponsor?))
          (define-read-only (as-contract-get-sponsor)
@@ -561,31 +562,30 @@ fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+    let sponsor = if let Value::Principal(p) = p2 {
+        Some(p)
+    } else {
+        panic!("p2 is not a principal value");
+    };
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
-            None,
+            sponsor.clone(),
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
-            None,
+            sponsor.clone(),
         )
         .unwrap();
     }
 
     // Sponsor is equal to some(principal) in this code block.
     {
-        let sponsor;
-        if let Value::Principal(p) = p2.clone() {
-            sponsor = Some(p);
-        } else {
-            panic!("p2 is not a principal value");
-        }
         let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
         tx_sponsor_contract_asserts(&mut env, sponsor.clone());
     }

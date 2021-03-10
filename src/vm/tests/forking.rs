@@ -85,7 +85,7 @@ fn test_at_block_mutations() {
         }
 
         owned_env
-            .execute_transaction(p1, None, c, &vec![], to_exec)
+            .execute_transaction(p1, None, c, to_exec, &vec![])
             .map(|(x, _, _)| x)
     }
 
@@ -159,7 +159,7 @@ fn test_at_block_good() {
         }
 
         owned_env
-            .execute_transaction(p1, None, c, &vec![], to_exec)
+            .execute_transaction(p1, None, c, to_exec, &vec![])
             .map(|(x, _, _)| x)
     }
 
@@ -358,8 +358,8 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
             Value::Principal(PrincipalData::Standard(p1_address)),
             None,
             contract_identifier,
-            &symbols_from_values(vec![Value::UInt(10)]),
             "destroy",
+            &symbols_from_values(vec![Value::UInt(10)]),
         )
         .unwrap();
 

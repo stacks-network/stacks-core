@@ -42,7 +42,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
         owned_env.stx_faucet(principal_data, 10);
     }
     let (value, _, events) = owned_env
-        .execute_transaction(sender, None, contract_id, &vec![], method)
+        .execute_transaction(sender, None, contract_id, method, &vec![])
         .unwrap();
     (value, events)
 }

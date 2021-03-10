@@ -256,7 +256,7 @@ fn eval_all(
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), None);
+                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
                 functions::define::evaluate_define(exp, &mut env)
             })?;
             match try_define {
@@ -336,7 +336,7 @@ fn eval_all(
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
                         let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), None);
+                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
 
                         let result = eval(exp, &mut env, &context)?;
                         last_executed = Some(result);

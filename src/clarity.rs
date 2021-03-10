@@ -951,8 +951,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Value::Principal(sender),
                         None,
                         contract_identifier,
-                        &arguments,
                         &tx_name,
+                        &arguments,
                     )
                 };
                 (marf, result)

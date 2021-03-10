@@ -131,7 +131,7 @@ fn execute_transaction(
     tx: &str,
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-    env.execute_transaction(issuer, None, contract_identifier.clone(), args, tx)
+    env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {

@@ -59,7 +59,8 @@ pub fn lookup_reserved_variable(
             NativeVariables::TxSponsor => {
                 let sponsor = match env.sponsor.clone() {
                     None => Value::none(),
-                    Some(p) => Value::some(Value::Principal(p))?,
+                    Some(p) => Value::some(Value::Principal(p))
+                        .expect("ERROR: principal should be a valid Clarity object"),
                 };
                 Ok(Some(sponsor))
             }
