@@ -418,9 +418,10 @@ impl NetworkState {
                         new_events.insert(next_event_id);
 
                         debug!(
-                            "New socket event: {}, {:?} (Events total: {}, max: {}) on server {:?}",
+                            "New socket event: {}, {:?} addr={:?} (Events total: {}, max: {}) on server {:?}",
                             next_event_id,
                             &client_sock,
+                            &client_addr,
                             self.event_map.len(),
                             self.event_capacity,
                             &server.server_socket
