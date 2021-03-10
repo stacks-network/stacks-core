@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request that returns transactions",
+  "title": "PostCoreNodeTransactionsError",
+  "type": "object",
+  "required": ["error", "reason", "reason_data", "txid"],
+  "properties": {
+    "error": {
+      "type": "string",
+      "description": "The error"
+    },
+    "reason": {
+      "type": "string",
+      "description": "The reason for the error"
+    },
+    "reason_data": {
+      "type": "object",
+      "description": "More details about the reason"
+    },
+    "txid": {
+      "type": "string",
+      "description": "The relevant transaction id"
+    }
+  }
+}

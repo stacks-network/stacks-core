@@ -8543,7 +8543,7 @@ pub mod test {
     fn test_mempool_mining_heuristics() {
         let submitter_key_0 = StacksPrivateKey::new();
         let submitter_key_1 = StacksPrivateKey::new();
-        let mut initial_balance_recipients: Vec<_> = vec![
+        let initial_balance_recipients: Vec<_> = vec![
             StacksAddress {
                 version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 bytes: Hash160([1; 20]),
@@ -8590,7 +8590,7 @@ pub mod test {
             })),
         );
 
-        let mut burndb = SortitionDB::connect(
+        let burndb = SortitionDB::connect(
             "/tmp/test_mempool_mining_heuristics_sortdb",
             0,
             &BurnchainHeaderHash([1; 32]),
