@@ -20,6 +20,9 @@ compatible with prior chainstate directories.
 - Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
 - New prometheus metrics for mempool transaction processing times and
   outstanding mempool transactions
+- New RPC endpoint with path `v2/traits/contractAddr/contractName/traitContractName
+  /traitContractAddr/traitName` to determine whether a given trait is implemented 
+  within the specified contract (either explicitly or implicitly).
 
 ## Changed
 

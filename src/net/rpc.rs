@@ -1360,14 +1360,11 @@ impl ConversationHttp {
                             is_implemented: true,
                         })
                     } else {
-                        let trait_name = trait_id.name.to_string();
-                        let trait_definition = analysis.get_defined_trait(&trait_name)?;
-                        match analysis.check_trait_compliance(trait_id, trait_definition) {
-                            Err(_) => None,
-                            Ok(_) => Some(GetIsTraitImplementedResponse {
-                                is_implemented: true,
-                            }),
-                        }
+                        let trait_definition = analysis.get_defined_trait(&trait_id.name)?;
+                        let is_implemented = analysis
+                            .check_trait_compliance(trait_id, trait_definition)
+                            .is_ok();
+                        Some(GetIsTraitImplementedResponse { is_implemented })
                     }
                 })
             }) {

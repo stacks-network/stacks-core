@@ -326,3 +326,56 @@ paths:
                 $ref: ./api/core-node/get-pox.schema.json
               example:
                 $ref: ./api/core-node/get-pox.example.json
+
+  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
+    get:
+      summary: Get trait implementation details
+      description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
+      tags:
+        - Info
+      operationId: get_is_trait_implemented
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/trait/get-is-trait-implemented.schema.json
+              example:
+                $ref: ./api/trait/get-is-trait-implemented.example.json
+    parameters:
+      - name: contract_address
+        in: path
+        required: true
+        description: Stacks address
+        schema:
+          type: string
+      - name: contract_name
+        in: path
+        required: true
+        description: Contract name
+        schema:
+          type: string
+      - name: trait_contract_address
+        in: path
+        required: true
+        description: Trait Stacks address
+        schema:
+          type: string
+      - name: trait_contract_name
+        in: path
+        required: true
+        description: Trait contract name
+        schema:
+          type: string
+      - name: trait_name
+        in: path
+        required: true
+        description: Trait name
+        schema:
+          type: string
+      - name: tip
+        in: query
+        schema:
+          type: string
+        description: The Stacks chain tip to query from

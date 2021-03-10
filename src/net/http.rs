@@ -132,8 +132,8 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_IS_TRAIT_IMPLEMENTED: Regex = Regex::new(&format!(
-        "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitName>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
+        "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
