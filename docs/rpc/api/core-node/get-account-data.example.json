@@ -1,0 +1,8 @@
+{
+  "balance": "0x0000000000000000000000000007a120",
+  "locked": "0x0000000000000000000000000007a120",
+  "unlock_height": 126,
+  "nonce": 2867,
+  "balance_proof": "0xabce",
+  "nonce_proof": "0xabcd"
+}
