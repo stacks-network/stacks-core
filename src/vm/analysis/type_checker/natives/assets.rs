@@ -195,13 +195,12 @@ pub fn check_special_stx_transfer(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    let memo_passed;
-    if let Ok(()) = check_argument_count(4, args) {
-        memo_passed = true;
+    let memo_passed = if let Ok(()) = check_argument_count(4, args) {
+        true
     } else {
         check_argument_count(3, args)?;
-        memo_passed = false;
-    }
+        false
+    };
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
     let from_type: TypeSignature = TypeSignature::PrincipalType;
