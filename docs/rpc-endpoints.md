@@ -73,6 +73,10 @@ Possible values for the "reason" field and "reason_data" field are:
 Reason types without additional information will not have a
 `reason_data` field.
 
+### GET /v2/pox
+
+Get current PoX-relevant information. See OpenAPI [spec](./rpc/openapi.yaml) for details.
+
 ### GET /v2/accounts/[Principal]
 
 Get the account data for the provided principal.

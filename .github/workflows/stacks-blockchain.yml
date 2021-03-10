@@ -51,6 +51,20 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
 
+  open-api-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run units tests (with coverage)
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -o dist/ -f .github/actions/open-api/Dockerfile.open-api-validate .
+      - name: Upload bundled html
+        uses: actions/upload-artifact@v2
+        with:
+          name: open-api-bundle
+          path: |
+            dist
   # Run net-tests
   nettest:
     # disable this job/test for now, since we haven't seen this pass

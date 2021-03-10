@@ -1,0 +1,15 @@
+{
+  "peer_version": 385875968,
+  "pox_consensus": "17f76e597bab45646956f38dd39573085d72cbc0",
+  "burn_block_height": 16,
+  "stable_pox_consensus": "8e0561978fc5506b68a589c402dad97e862edb59",
+  "stable_burn_block_height": 15,
+  "server_version": "blockstack-core 0.0.1 => 23.0.0.0 (, release build, linux [x86_64])",
+  "network_id": 2147483648,
+  "parent_network_id": 3669344250,
+  "stacks_tip_height": 15,
+  "stacks_tip": "b1807a2d3f7f8c7922f7c1d60d7c34145ade05d789640dc7dc9ec1021e07bb54",
+  "stacks_tip_consensus_hash": "17f76e597bab45646956f38dd39573085d72cbc0",
+  "unanchored_tip": "0000000000000000000000000000000000000000000000000000000000000000",
+  "exit_at_block_height": null
+}

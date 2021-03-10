@@ -4237,7 +4237,7 @@ impl PeerNetwork {
         ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        attachment_requests: &mut HashSet<AttachmentInstance>,
+        _attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
