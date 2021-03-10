@@ -25,6 +25,9 @@ compatible with prior chainstate directories.
 - Improved chainstate directory layout
 - Improved node boot up time
 - Better handling of flash blocks
+- The `/v2/pox` RPC endpoint was updated to include more useful
+  information about the current and next PoX cycles. For details, see
+  `docs/rpc-endpoints.md`
 
 ## [2.0.9]
 
@@ -57,6 +60,7 @@ valid block data if its descendant microblock stream is invalid for some reason.
 ## Fixed
 
 - Do not delete a valid parent Stacks block.
+
 
 ## [2.0.6] - 2021-02-15
 
