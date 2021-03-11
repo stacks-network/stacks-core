@@ -62,7 +62,7 @@ use net::Error as net_error;
 use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
@@ -3845,10 +3845,16 @@ impl StacksChainState {
                             transfered_ustx,
                             txid,
                             burn_header_hash,
+                            memo,
                             ..
                         } = transfer_stx_op;
                         let result = clarity_tx.connection().as_transaction(|tx| {
-                            tx.run_stx_transfer(&sender.into(), &recipient.into(), transfered_ustx)
+                            tx.run_stx_transfer(
+                                &sender.into(),
+                                &recipient.into(),
+                                transfered_ustx,
+                                &BuffData { data: memo },
+                            )
                         });
                         match result {
                             Ok((value, _, events)) => Some(StacksTransactionReceipt {

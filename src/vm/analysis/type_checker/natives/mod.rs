@@ -626,30 +626,6 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            StxTransfer => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
-                args: vec![
-                    FunctionArg::new(
-                        TypeSignature::UIntType,
-                        ClarityName::try_from("amount".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                    FunctionArg::new(
-                        TypeSignature::PrincipalType,
-                        ClarityName::try_from("sender".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                    FunctionArg::new(
-                        TypeSignature::PrincipalType,
-                        ClarityName::try_from("recipient".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
-                    ),
-                ],
-                returns: TypeSignature::new_response(
-                    TypeSignature::BoolType,
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
@@ -669,6 +645,7 @@ impl TypedNativeFunction {
                 )
                 .unwrap(),
             }))),
+            StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

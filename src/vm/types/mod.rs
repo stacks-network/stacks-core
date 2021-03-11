@@ -967,6 +967,10 @@ impl BuffData {
         self.data.append(&mut other_seq.data);
         Ok(())
     }
+
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
+    }
 }
 
 impl ListData {
