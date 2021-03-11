@@ -1521,6 +1521,7 @@ const STX_TRANSFER: SpecialAPI = SpecialAPI {
     signature: "(stx-transfer? amount sender recipient memo)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
+The `memo` field is optional, and can be omitted. 
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
