@@ -87,6 +87,12 @@ impl From<&StacksPrivateKey> for StandardPrincipalData {
     }
 }
 
+impl From<&StacksPrivateKey> for PrincipalData {
+    fn from(o: &StacksPrivateKey) -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData::from(o))
+    }
+}
+
 impl From<&StacksPrivateKey> for Value {
     fn from(o: &StacksPrivateKey) -> Value {
         Value::from(StandardPrincipalData::from(o))
