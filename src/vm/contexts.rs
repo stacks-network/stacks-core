@@ -546,7 +546,7 @@ impl<'a> OwnedEnvironment<'a> {
         self.execute_in_env(
             Value::from(contract_identifier.issuer.clone()),
             sponsor.clone(),
-            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content, sponsor),
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
 
@@ -565,7 +565,6 @@ impl<'a> OwnedEnvironment<'a> {
                     contract_identifier,
                     contract_content,
                     contract_string,
-                    sponsor,
                 )
             },
         )
@@ -994,15 +993,9 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-        sponsor: Option<PrincipalData>,
     ) -> Result<()> {
         let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
-        self.initialize_contract_from_ast(
-            contract_identifier,
-            &contract_ast,
-            &contract_content,
-            sponsor,
-        )
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
     pub fn initialize_contract_from_ast(
@@ -1010,7 +1003,6 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &ContractAST,
         contract_string: &str,
-        sponsor: Option<PrincipalData>,
     ) -> Result<()> {
         self.global_context.begin();
 
@@ -1045,7 +1037,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             let result = Contract::initialize_from_ast(
                 contract_identifier.clone(),
                 contract_content,
-                sponsor,
+                self.sponsor.clone(),
                 &mut self.global_context,
             );
             self.drop_memory(memory_use);
