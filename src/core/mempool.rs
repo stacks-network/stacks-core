@@ -130,7 +130,6 @@ pub struct MemPoolTxMetadata {
     pub txid: Txid,
     pub len: u64,
     pub tx_fee: u64,
-    pub estimated_fee: u64, // upper bound on what the fee to pay will be
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub block_height: u64,
@@ -152,7 +151,6 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let txid = Txid::from_column(row, "txid")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
-        let estimated_fee = u64::from_column(row, "estimated_fee")?;
         let tx_fee = u64::from_column(row, "tx_fee")?;
         let height = u64::from_column(row, "height")?;
         let len = u64::from_column(row, "length")?;
@@ -164,7 +162,6 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 
         Ok(MemPoolTxMetadata {
             txid: txid,
-            estimated_fee: estimated_fee,
             tx_fee: tx_fee,
             len: len,
             consensus_hash: consensus_hash,
@@ -205,7 +202,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
         origin_nonce INTEGER NOT NULL,
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
-        estimated_fee INTEGER NOT NULL,
         tx_fee INTEGER NOT NULL,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -223,7 +219,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
     "CREATE INDEX by_timestamp ON mempool(accept_time);",
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
-    "CREATE INDEX by_estimated_fee ON mempool(estimated_fee);",
 ];
 
 pub struct MemPoolDB {
@@ -291,7 +286,6 @@ impl<'a> MemPoolTx<'a> {
 impl MemPoolTxInfo {
     pub fn from_tx(
         tx: StacksTransaction,
-        estimated_fee: u64,
         consensus_hash: ConsensusHash,
         block_header_hash: BlockHeaderHash,
         block_height: u64,
@@ -314,7 +308,6 @@ impl MemPoolTxInfo {
             txid: txid,
             len: tx_data.len() as u64,
             tx_fee: tx.get_tx_fee(),
-            estimated_fee: estimated_fee,
             consensus_hash: consensus_hash,
             block_header_hash: block_header_hash,
             block_height: block_height,
@@ -674,14 +667,6 @@ impl MemPoolDB {
         )
     }
 
-    fn get_tx_estimated_fee(conn: &DBConn, txid: &Txid) -> Result<Option<u64>, db_error> {
-        query_row(
-            conn,
-            "SELECT estimated_fee FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
-        )
-    }
-
     /// Get all transactions across all tips
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
@@ -754,7 +739,7 @@ impl MemPoolDB {
         timestamp: u64,
         count: u64,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
-        let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC LIMIT ?4";
+        let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY tx_fee DESC LIMIT ?4";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(timestamp)?,
             consensus_hash,
@@ -781,7 +766,6 @@ impl MemPoolDB {
                           origin_nonce,
                           sponsor_address,
                           sponsor_nonce,
-                          estimated_fee,
                           tx_fee,
                           length,
                           consensus_hash,
@@ -900,7 +884,6 @@ impl MemPoolDB {
             origin_nonce,
             sponsor_address,
             sponsor_nonce,
-            estimated_fee,
             tx_fee,
             length,
             consensus_hash,
@@ -908,7 +891,7 @@ impl MemPoolDB {
             height,
             accept_time,
             tx)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
         let args: &[&dyn ToSql] = &[
             &txid,
@@ -916,7 +899,6 @@ impl MemPoolDB {
             &u64_to_sql(origin_nonce)?,
             &sponsor_address.to_string(),
             &u64_to_sql(sponsor_nonce)?,
-            &u64_to_sql(tx_fee)?,
             &u64_to_sql(tx_fee)?,
             &u64_to_sql(length)?,
             consensus_hash,
@@ -1167,7 +1149,6 @@ mod tests {
     use address::AddressHashMode;
     use burnchains::Address;
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
-    // use chainstate::stacks::TransactionVersion::Testnet;
     use net::{Error as NetError, StacksMessageCodec};
     use util::hash::Hash160;
     use util::secp256k1::MessageSignature;
@@ -2092,6 +2073,7 @@ mod tests {
         // these asserts are to ensure we are using the fee directly, not the fee rate
         assert!(second_len < first_len);
         assert!(second_len * tx_fee < first_len * old_tx_fee);
+        assert!(tx_fee > old_tx_fee);
         assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
         let tx_info_before =
