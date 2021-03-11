@@ -92,6 +92,8 @@ use std::time::SystemTime;
 use time;
 
 use chainstate::burn::ConsensusHash;
+use net::Error::ClarityError;
+use vm::types::{StandardPrincipalData, TraitIdentifier};
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -127,6 +129,11 @@ lazy_static! {
     static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
         "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
+    ))
+    .unwrap();
+    static ref PATH_GET_IS_TRAIT_IMPLEMENTED: Regex = Regex::new(&format!(
+        "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
@@ -1505,6 +1512,11 @@ impl HttpRequestType {
             ),
             (
                 "GET",
+                &PATH_GET_IS_TRAIT_IMPLEMENTED,
+                &HttpRequestType::parse_get_is_trait_implemented,
+            ),
+            (
+                "GET",
                 &PATH_GET_CONTRACT_ABI,
                 &HttpRequestType::parse_get_contract_abi,
             ),
@@ -1868,6 +1880,45 @@ impl HttpRequestType {
                 HttpRequestType::GetContractSrc(preamble, addr, name, tip, with_proof)
             },
         )
+    }
+
+    fn parse_get_is_trait_implemented<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let tip = HttpRequestType::get_chain_tip_query(query);
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+            net_error::DeserializeError("Failed to parse contract address".into())
+        })?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let trait_name = ClarityName::try_from(captures["traitName"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse trait name".into()))?;
+        let trait_contract_addr = StacksAddress::from_string(&captures["traitContractAddr"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?
+            .into();
+        let trait_contract_name = ContractName::try_from(captures["traitContractName"].to_string())
+            .map_err(|_e| {
+                net_error::DeserializeError("Failed to parse trait contract name".into())
+            })?;
+        let trait_id = TraitIdentifier::new(trait_contract_addr, trait_contract_name, trait_name);
+
+        Ok(HttpRequestType::GetIsTraitImplemented(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_addr,
+            contract_name,
+            trait_id,
+            tip,
+        ))
     }
 
     fn parse_getblock<R: Read>(
@@ -2349,6 +2400,7 @@ impl HttpRequestType {
             HttpRequestType::GetTransferCost(ref md) => md,
             HttpRequestType::GetContractABI(ref md, ..) => md,
             HttpRequestType::GetContractSrc(ref md, ..) => md,
+            HttpRequestType::GetIsTraitImplemented(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
@@ -2375,6 +2427,7 @@ impl HttpRequestType {
             HttpRequestType::GetTransferCost(ref mut md) => md,
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
+            HttpRequestType::GetIsTraitImplemented(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
@@ -2462,6 +2515,21 @@ impl HttpRequestType {
                 contract_addr,
                 contract_name.as_str(),
                 HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+            ),
+            HttpRequestType::GetIsTraitImplemented(
+                _,
+                contract_addr,
+                contract_name,
+                trait_id,
+                tip_opt,
+            ) => format!(
+                "/v2/traits/{}/{}/{}/{}/{}{}",
+                contract_addr,
+                contract_name.as_str(),
+                trait_id.name.to_string(),
+                StacksAddress::from(trait_id.clone().contract_identifier.issuer),
+                trait_id.contract_identifier.name.as_str(),
+                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
             HttpRequestType::CallReadOnlyFunction(
                 _,
@@ -2942,6 +3010,10 @@ impl HttpResponseType {
                 &HttpResponseType::parse_get_contract_src,
             ),
             (
+                &PATH_GET_IS_TRAIT_IMPLEMENTED,
+                &HttpResponseType::parse_get_is_trait_implemented,
+            ),
+            (
                 &PATH_GET_CONTRACT_ABI,
                 &HttpResponseType::parse_get_contract_abi,
             ),
@@ -3120,6 +3192,21 @@ impl HttpResponseType {
         let src_data =
             HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::GetContractSrc(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            src_data,
+        ))
+    }
+
+    fn parse_get_is_trait_implemented<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let src_data =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetIsTraitImplemented(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             src_data,
         ))
@@ -3362,6 +3449,7 @@ impl HttpResponseType {
             HttpResponseType::GetAccount(ref md, _) => md,
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
+            HttpResponseType::GetIsTraitImplemented(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
             HttpResponseType::UnconfirmedTransaction(ref md, _) => md,
             HttpResponseType::GetAttachment(ref md, _) => md,
@@ -3451,6 +3539,10 @@ impl HttpResponseType {
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
             HttpResponseType::GetContractSrc(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
+            HttpResponseType::GetIsTraitImplemented(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
@@ -3692,6 +3784,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
+                HttpRequestType::GetIsTraitImplemented(..) => "HTTP(GetIsTraitImplemented)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
@@ -3704,6 +3797,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
+                HttpResponseType::GetIsTraitImplemented(..) => "HTTP(GetIsTraitImplemented)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpResponseType::GetAttachment(_, _) => "HTTP(GetAttachment)",
                 HttpResponseType::GetAttachmentsInv(_, _) => "HTTP(GetAttachmentsInv)",

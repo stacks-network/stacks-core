@@ -1100,6 +1100,11 @@ pub struct ContractSrcResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetIsTraitImplementedResponse {
+    pub is_implemented: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallReadOnlyResponse {
     pub okay: bool,
     #[serde(default)]
@@ -1288,6 +1293,13 @@ pub enum HttpRequestType {
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    GetIsTraitImplemented(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        TraitIdentifier,
+        Option<StacksBlockId>,
+    ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1378,6 +1390,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
@@ -1508,6 +1521,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 pub use self::http::StacksHttp;
+use vm::types::TraitIdentifier;
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();

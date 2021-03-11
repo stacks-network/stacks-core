@@ -338,3 +338,9 @@ object of the following form:
   "cause": "Unchecked(PublicFunctionNotReadOnly(..."
 }
 ```
+
+### GET /v2/traits/[Stacks Address]/[Contract Name]/[Trait Stacks Address]/[Trait Contract Name]/[Trait Name]
+
+Determine whether a given trait is implemented within the specified contract (either explicitly or implicitly).
+
+See OpenAPI [spec](./rpc/openapi.yaml) for details.
