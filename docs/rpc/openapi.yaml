@@ -332,7 +332,7 @@ paths:
       summary: Get trait implementation details
       description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
       tags:
-        - Info
+        - Smart Contracts
       operationId: get_is_trait_implemented
       responses:
         200:

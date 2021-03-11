@@ -698,23 +698,27 @@ fn integration_test_get_info() {
                 assert!(res.get("reason").is_some());
 
                 // testing /v2/trait/<contract info>/<trait info>
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "get-info", "dummy-trait", &contract_addr, "get-info");
+                // trait does not exist
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "get-info", &contract_addr, "get-info", "dummy-trait");
                 eprintln!("Test: GET {}", path);
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", "trait-1", &contract_addr, "get-info");
+                // explicit trait compliance
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", "trait-2", &contract_addr, "get-info");
+                // implicit trait compliance
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-2");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", "trait-3", &contract_addr, "get-info");
+                // invalid trait compliance
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-3");
                 eprintln!("Test: GET {}", path);
-                assert_eq!(client.get(&path).send().unwrap().status(), 404);
+                assert!(!res.is_implemented);
             },
             _ => {},
         }
