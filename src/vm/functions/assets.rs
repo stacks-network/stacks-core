@@ -113,7 +113,7 @@ pub fn stx_transfer_consolidated(
         return clarity_ecode!(StxErrorCodes::SENDER_IS_RECIPIENT);
     }
 
-    if Some(from.clone()) != env.sender {
+    if Some(from) != env.sender.as_ref() {
         return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
     }
 
