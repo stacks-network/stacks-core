@@ -29,6 +29,10 @@ compatible with prior chainstate directories.
 - The `/v2/pox` RPC endpoint was updated to include more useful
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
+  
+## Fixed 
+- Fixed faulty logic in the mempool that was still treating the transaction fee
+  as a fee rate, which prevented replace-by-fee from working as expected.
 
 ## [2.0.9]
 
