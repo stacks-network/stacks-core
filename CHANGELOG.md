@@ -5,7 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-
 ## [Unreleased]
 
 The chainstate directory has been restructured in this release. It is not
@@ -20,6 +19,9 @@ compatible with prior chainstate directories.
 - Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
 - New prometheus metrics for mempool transaction processing times and
   outstanding mempool transactions
+- New RPC endpoint with path `v2/traits/contractAddr/contractName/traitContractName
+  /traitContractAddr/traitName` to determine whether a given trait is implemented 
+  within the specified contract (either explicitly or implicitly).
 
 ## Changed
 
@@ -29,6 +31,10 @@ compatible with prior chainstate directories.
 - The `/v2/pox` RPC endpoint was updated to include more useful
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
+  
+## Fixed 
+- Fixed faulty logic in the mempool that was still treating the transaction fee
+  as a fee rate, which prevented replace-by-fee from working as expected.
 
 ## [2.0.9]
 
