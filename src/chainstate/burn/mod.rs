@@ -139,6 +139,7 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_hash: BlockHeaderHash, // memoized canonical stacks chain tip
     pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
+    pub parent_sortition_id: SortitionId,
     pub pox_valid: bool,
     /// the amount of accumulated coinbase ustx that
     ///   will accrue to the sortition winner elected by this block
@@ -427,6 +428,7 @@ mod tests {
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ]),
+                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0,
                         0,

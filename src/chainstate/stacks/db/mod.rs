@@ -91,11 +91,15 @@ use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
 
-use core::CHAINSTATE_VERSION;
-
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddress;
+use monitoring;
+
+lazy_static! {
+    pub static ref TRANSACTION_LOG: bool =
+        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
 
 pub struct StacksChainState {
     pub mainnet: bool,
@@ -373,14 +377,21 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub blocks_path: String,
     pub tx: StacksDBTx<'a>,
+    pub root_path: String,
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+    pub fn new(
+        tx: StacksDBTx<'a>,
+        blocks_path: String,
+        root_path: String,
+        config: DBConfig,
+    ) -> ChainstateTx<'a> {
         ChainstateTx {
             config,
             blocks_path,
             tx,
+            root_path,
         }
     }
 
@@ -396,31 +407,30 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    #[cfg(feature = "tx_log")]
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        let insert =
-            "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-        for tx_event in events.iter() {
-            let txid = tx_event.transaction.txid();
-            let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
-            let result = tx_event.result.to_string();
-            let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.tx.tx().execute(insert, params) {
-                warn!("Failed to log TX: {}", e);
+        if *TRANSACTION_LOG {
+            let insert =
+                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
+            for tx_event in events.iter() {
+                let txid = tx_event.transaction.txid();
+                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let result = tx_event.result.to_string();
+                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                if let Err(e) = self.tx.tx().execute(insert, params) {
+                    warn!("Failed to log TX: {}", e);
+                }
             }
         }
-    }
-
-    #[cfg(not(feature = "tx_log"))]
-    pub fn log_transactions_processed(
-        &self,
-        _block_id: &StacksBlockId,
-        _events: &[StacksTransactionReceipt],
-    ) {
+        for tx_event in events.iter() {
+            let txid = tx_event.transaction.txid();
+            if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
+                warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
+            }
+        }
     }
 }
 
@@ -455,7 +465,9 @@ pub struct BlockStreamData {
     num_mblocks_ptr: usize,
 }
 
-const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
+pub const CHAINSTATE_VERSION: &'static str = "1";
+
+const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -489,26 +501,10 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         block_size TEXT NOT NULL,       -- converted to/from u64
 
         PRIMARY KEY(consensus_hash,block_hash)
-    );
-    CREATE UNIQUE INDEX index_block_hash_to_primary_key(index_block_hash,consensus_hash,block_hash);
-    "#,
-    #[cfg(feature = "tx_log")]
-    r#"
-    CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY,
-        txid TEXT NOT NULL,
-        index_block_hash TEXT NOT NULL,
-        tx_hex TEXT NOT NULL,
-        result TEXT NOT NULL,
-        UNIQUE (txid,index_block_hash)
-    );
-    CREATE INDEX txid_tx_index ON transactions(txid);
-    CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);
-    "#,
-    r#"
-    CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);
-    CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);
-    "#,
+    );"#,
+    "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
+    "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -530,8 +526,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         stacks_block_height INTEGER NOT NULL,
         index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
         vtxindex INT NOT NULL               -- user burn support vtxindex
-    );
-    "#,
+    );"#,
     r#"
     -- users who supported miners
     CREATE TABLE user_supporters(
@@ -541,14 +536,13 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
         consensus_hash TEXT NOT NULL,
 
         PRIMARY KEY(address,block_hash,consensus_hash)
-    );
-    "#,
+    );"#,
     r#"
     CREATE TABLE db_config(
         version TEXT NOT NULL,
         mainnet INTEGER NOT NULL,
         chain_id INTEGER NOT NULL
-    )"#,
+    );"#,
     r#"
     -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
@@ -561,15 +555,14 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                      processed INT NOT NULL,
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
-    );
-    "#,
+    );"#,
+    "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     r#"
     -- Staging microblocks data
     CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
                                           block_data BLOB NOT NULL,
                                           PRIMARY KEY(block_hash)
-    );
-    "#,
+    );"#,
     r#"
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
@@ -581,7 +574,7 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                 parent_microblock_seq INT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
                                 height INT NOT NULL,
-                                attachable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
+                                attachable INT NOT NULL,            -- set to 1 if this block's parent is processed; 0 if not
                                 orphaned INT NOT NULL,              -- set to 1 if this block can never be attached
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
@@ -591,10 +584,12 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                 arrival_time INT NOT NULL,                -- when this block was stored
                                 processed_time INT NOT NULL,              -- when this block was processed
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
-    );
-    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
-    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
-    "#,
+    );"#,
+    "CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);",
+    "CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
+    "CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);",
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
@@ -602,8 +597,18 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
                                            address TEXT NOT NULL,
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
-    );
-    "#,
+    );"#,
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );"#,
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -709,8 +714,8 @@ impl StacksChainState {
         {
             let tx = dbtx.tx();
 
-            for cmd in STACKS_CHAIN_STATE_SQL {
-                tx.execute(cmd, NO_PARAMS)?;
+            for cmd in CHAINSTATE_INITIAL_SCHEMA {
+                tx.execute_batch(cmd)?;
             }
 
             tx.execute(
@@ -739,7 +744,7 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path)?;
             // sanity check
             let db_config = query_row::<DBConfig, _>(
                 marf.sqlite_conn(),
@@ -1185,7 +1190,7 @@ impl StacksChainState {
 
             let allocations_tx = StacksTransaction::new(
                 tx_version.clone(),
-                boot_code_auth.clone(),
+                boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
                     0,
@@ -1315,15 +1320,8 @@ impl StacksChainState {
         boot_data: Option<&mut ChainStateBootData>,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        let mut path = PathBuf::from(path_str);
+        let path = PathBuf::from(path_str);
 
-        let chain_id_str = if mainnet {
-            format!("chain-{}-mainnet", &to_hex(&chain_id.to_le_bytes()))
-        } else {
-            format!("chain-{}-testnet", &to_hex(&chain_id.to_le_bytes()))
-        };
-
-        path.push(chain_id_str);
         StacksChainState::mkdirs(&path)?;
 
         let mut blocks_path = path.clone();
@@ -1336,7 +1334,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut state_path = path.clone();
+        let mut state_path = path;
 
         state_path.push("vm");
         StacksChainState::mkdirs(&state_path)?;
@@ -1347,7 +1345,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        state_path.push("marf");
+        state_path.push("marf.sqlite");
         let clarity_state_index_marf = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -1356,7 +1354,7 @@ impl StacksChainState {
         state_path.pop();
         state_path.pop();
 
-        state_path.push("index");
+        state_path.push("index.sqlite");
         let header_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -1445,7 +1443,8 @@ impl StacksChainState {
         let clarity_instance = &mut self.clarity_state;
         let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
+        let chainstate_tx =
+            ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
         Ok((chainstate_tx, clarity_instance))
     }
@@ -2200,7 +2199,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "01913a865d57a627cdc207de8fc7337eb2bebe5e1539f525a3c6a35a74d5f1de"
+            "cff7b73beb78d2e0f45b6108f1e7376cefce0f9f691d62a130e0c0730fb090c5"
         );
     }
 }

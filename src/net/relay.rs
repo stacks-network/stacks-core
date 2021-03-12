@@ -60,6 +60,8 @@ use rand::Rng;
 
 use vm::costs::ExecutionCost;
 
+use crate::chainstate::coordinator::BlockEventDispatcher;
+
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
@@ -955,20 +957,30 @@ impl Relayer {
 
             if store_downloaded_blocks {
                 // process blocks we downloaded
-                let mut new_dled_blocks =
+                let new_dled_blocks =
                     Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
-                for new_dled_block in new_dled_blocks.drain() {
+                for new_dled_block in new_dled_blocks.into_iter() {
+                    debug!("Received downloaded block for {}", &new_dled_block);
                     new_blocks.insert(new_dled_block);
                 }
             }
 
             // process blocks pushed to us
-            let (mut new_pushed_blocks, mut new_bad_neighbors) =
+            let (new_pushed_blocks, mut new_bad_neighbors) =
                 Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate)?;
-            for new_pushed_block in new_pushed_blocks.drain() {
+            for new_pushed_block in new_pushed_blocks.into_iter() {
+                debug!("Received p2p-pushed block for {}", &new_pushed_block);
                 new_blocks.insert(new_pushed_block);
             }
             bad_neighbors.append(&mut new_bad_neighbors);
+
+            // process blocks uploaded to us.  They've already been stored
+            for block_data in network_result.uploaded_blocks.drain(..) {
+                for (consensus_hash, _) in block_data.blocks.into_iter() {
+                    debug!("Received http-uploaded block for {}", &consensus_hash);
+                    new_blocks.insert(consensus_hash);
+                }
+            }
         }
 
         if store_downloaded_blocks {
@@ -983,10 +995,11 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 {
+        if new_blocks.len() > 0 || new_microblocks.len() > 0 {
             info!(
-                "Processing newly received Stacks blocks: {}",
-                new_blocks.len()
+                "Processing newly received Stacks blocks: {}, microblocks: {}",
+                new_blocks.len(),
+                new_microblocks.len()
             );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
@@ -1029,6 +1042,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
         let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
             Some(tip) => tip.height,
@@ -1041,8 +1055,13 @@ impl Relayer {
             }
         };
 
-        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, network_result)
-        {
+        if let Err(e) = PeerNetwork::store_transactions(
+            mempool,
+            chainstate,
+            sortdb,
+            network_result,
+            event_observer,
+        ) {
             warn!("Failed to store transactions: {:?}", &e);
         }
 
@@ -1070,7 +1089,7 @@ impl Relayer {
                 "Remove all transactions beneath block height {}",
                 min_height
             );
-            MemPoolDB::garbage_collect(&mut mempool_tx, min_height)?;
+            MemPoolDB::garbage_collect(&mut mempool_tx, min_height, event_observer)?;
             mempool_tx.commit()?;
         }
 
@@ -1184,6 +1203,7 @@ impl Relayer {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         coord_comms: Option<&CoordinatorChannels>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
         match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
@@ -1255,7 +1275,13 @@ impl Relayer {
             &_local_peer,
             network_result.pushed_transactions.len()
         );
-        let new_txs = Relayer::process_transactions(network_result, sortdb, chainstate, mempool)?;
+        let new_txs = Relayer::process_transactions(
+            network_result,
+            sortdb,
+            chainstate,
+            mempool,
+            event_observer,
+        )?;
 
         if new_txs.len() > 0 {
             debug!(
@@ -1278,7 +1304,9 @@ impl Relayer {
         let receipts = ProcessedNetReceipts { mempool_txs_added };
 
         // finally, refresh the unconfirmed chainstate, if need be
-        Relayer::refresh_unconfirmed(chainstate, sortdb);
+        if network_result.has_microblocks() {
+            Relayer::refresh_unconfirmed(chainstate, sortdb);
+        }
 
         Ok(receipts)
     }
@@ -2192,6 +2220,50 @@ mod test {
         }
     }
 
+    fn http_rpc(peer_http: u16, request: HttpRequestType) -> Result<HttpResponseType, net_error> {
+        use std::net::TcpStream;
+
+        let request_path = request.request_path();
+        let mut sock = TcpStream::connect(
+            &format!("127.0.0.1:{}", peer_http)
+                .parse::<SocketAddr>()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+        match sock.write_all(&request_bytes) {
+            Ok(_) => {}
+            Err(e) => {
+                test_debug!("Client failed to write: {:?}", &e);
+                return Err(net_error::WriteError(e));
+            }
+        }
+
+        let mut resp = vec![];
+        match sock.read_to_end(&mut resp) {
+            Ok(_) => {
+                if resp.len() == 0 {
+                    test_debug!("Client did not receive any data");
+                    return Err(net_error::PermanentlyDrained);
+                }
+            }
+            Err(e) => {
+                test_debug!("Client failed to read: {:?}", &e);
+                return Err(net_error::ReadError(e));
+            }
+        }
+
+        test_debug!("Client received {} bytes", resp.len());
+        let response = StacksHttp::parse_response(&request_path, &resp).unwrap();
+        match response {
+            StacksHttpMessage::Response(x) => Ok(x),
+            _ => {
+                panic!("Did not receive a Response");
+            }
+        }
+    }
+
     fn broadcast_message(
         broadcaster: &mut TestPeer,
         relay_hints: Vec<RelayData>,
@@ -2337,6 +2409,65 @@ mod test {
         test_debug!("{:?}: broadcast tx {}", peer.to_neighbor().addr, tx.txid(),);
         let msg = StacksMessageType::Transaction(tx);
         broadcast_message(peer, relay_hints, msg)
+    }
+
+    fn http_get_info(http_port: u16) -> RPCPeerInfoData {
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        request.keep_alive = false;
+        let getinfo = HttpRequestType::GetInfo(request);
+        let response = http_rpc(http_port, getinfo).unwrap();
+        if let HttpResponseType::PeerInfo(_, peer_info) = response {
+            peer_info
+        } else {
+            panic!("Did not get peer info, but got {:?}", &response);
+        }
+    }
+
+    fn http_post_block(
+        http_port: u16,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+    ) -> bool {
+        test_debug!(
+            "upload block {}/{} to localhost:{}",
+            consensus_hash,
+            block.block_hash(),
+            http_port
+        );
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        request.keep_alive = false;
+        let post_block = HttpRequestType::PostBlock(request, consensus_hash.clone(), block.clone());
+        let response = http_rpc(http_port, post_block).unwrap();
+        if let HttpResponseType::StacksBlockAccepted(_, _, accepted) = response {
+            accepted
+        } else {
+            panic!("Received {:?}, expected StacksBlockAccepted", &response);
+        }
+    }
+
+    fn http_post_microblock(
+        http_port: u16,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+        mblock: &StacksMicroblock,
+    ) -> bool {
+        test_debug!(
+            "upload microblock {}/{}-{} to localhost:{}",
+            consensus_hash,
+            block_hash,
+            mblock.block_hash(),
+            http_port
+        );
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        request.keep_alive = false;
+        let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
+        let post_microblock = HttpRequestType::PostMicroblock(request, mblock.clone(), Some(tip));
+        let response = http_rpc(http_port, post_microblock).unwrap();
+        if let HttpResponseType::MicroblockHash(..) = response {
+            return true;
+        } else {
+            panic!("Received {:?}, expected MicroblockHash", &response);
+        }
     }
 
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
@@ -2579,6 +2710,169 @@ mod test {
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
         // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
         test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_upload_blocks_http() {
+        with_timeout(600, || {
+            let (port_sx, port_rx) = std::sync::mpsc::sync_channel(1);
+            let (block_sx, block_rx) = std::sync::mpsc::sync_channel(1);
+
+            std::thread::spawn(move || loop {
+                eprintln!("Get port");
+                let remote_port: u16 = port_rx.recv().unwrap();
+                eprintln!("Got port {}", remote_port);
+
+                eprintln!("Send getinfo");
+                let peer_info = http_get_info(remote_port);
+                eprintln!("Got getinfo! {:?}", &peer_info);
+                let idx = peer_info.stacks_tip_height as usize;
+
+                eprintln!("Get blocks and microblocks");
+                let blocks_and_microblocks: Vec<(
+                    ConsensusHash,
+                    Option<StacksBlock>,
+                    Option<Vec<StacksMicroblock>>,
+                )> = block_rx.recv().unwrap();
+                eprintln!("Got blocks and microblocks!");
+
+                if idx >= blocks_and_microblocks.len() {
+                    eprintln!("Out of blocks to send!");
+                    return;
+                }
+
+                eprintln!(
+                    "Upload block {}",
+                    &blocks_and_microblocks[idx].1.as_ref().unwrap().block_hash()
+                );
+                http_post_block(
+                    remote_port,
+                    &blocks_and_microblocks[idx].0,
+                    blocks_and_microblocks[idx].1.as_ref().unwrap(),
+                );
+                for mblock in blocks_and_microblocks[idx].2.as_ref().unwrap().iter() {
+                    eprintln!("Upload microblock {}", mblock.block_hash());
+                    http_post_microblock(
+                        remote_port,
+                        &blocks_and_microblocks[idx].0,
+                        &blocks_and_microblocks[idx].1.as_ref().unwrap().block_hash(),
+                        mblock,
+                    );
+                }
+            });
+
+            let original_blocks_and_microblocks = RefCell::new(vec![]);
+            let port_sx_cell = RefCell::new(port_sx);
+            let block_sx_cell = RefCell::new(block_sx);
+
+            run_get_blocks_and_microblocks(
+                "test_get_blocks_and_microblocks_upload_blocks_http",
+                4250,
+                2,
+                |ref mut peer_configs| {
+                    // build initial network topology.
+                    assert_eq!(peer_configs.len(), 2);
+
+                    // peer 0 produces the blocks
+                    peer_configs[0].connection_opts.disable_chat_neighbors = true;
+
+                    // peer 0 sends them to peer 1
+                    peer_configs[1].connection_opts.disable_chat_neighbors = true;
+                    peer_configs[1].connection_opts.disable_inv_sync = true;
+
+                    // disable nat punches -- disconnect/reconnect
+                    // clears inv state
+                    peer_configs[0].connection_opts.disable_natpunch = true;
+                    peer_configs[1].connection_opts.disable_natpunch = true;
+
+                    // generous timeouts
+                    peer_configs[0].connection_opts.timeout = 180;
+                    peer_configs[1].connection_opts.timeout = 180;
+
+                    let peer_0 = peer_configs[0].to_neighbor();
+                    let peer_1 = peer_configs[1].to_neighbor();
+                },
+                |num_blocks, ref mut peers| {
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    let this_reward_cycle = peers[0]
+                        .config
+                        .burnchain
+                        .block_height_to_reward_cycle(tip.block_height)
+                        .unwrap();
+
+                    // build up block data to replicate
+                    let mut block_data = vec![];
+                    for _ in 0..num_blocks {
+                        // only produce blocks for a single reward
+                        // cycle, since pushing block/microblock
+                        // announcements in reward cycles the remote
+                        // peer doesn't know about won't work.
+                        let tip = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        if peers[0]
+                            .config
+                            .burnchain
+                            .block_height_to_reward_cycle(tip.block_height)
+                            .unwrap()
+                            != this_reward_cycle
+                        {
+                            continue;
+                        }
+
+                        let (mut burn_ops, stacks_block, microblocks) =
+                            peers[0].make_default_tenure();
+
+                        let (_, burn_header_hash, consensus_hash) =
+                            peers[0].next_burnchain_block(burn_ops.clone());
+                        peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                        for i in 1..peers.len() {
+                            peers[i].next_burnchain_block_raw(burn_ops.clone());
+                        }
+
+                        let sn = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[0].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        block_data.push((
+                            sn.consensus_hash.clone(),
+                            Some(stacks_block),
+                            Some(microblocks),
+                        ));
+                    }
+
+                    assert_eq!(block_data.len(), 5);
+
+                    *original_blocks_and_microblocks.borrow_mut() = block_data.clone();
+
+                    block_data
+                },
+                |ref mut peers| {
+                    let blocks_and_microblocks = original_blocks_and_microblocks.borrow().clone();
+                    let remote_port = peers[1].config.http_port;
+
+                    let port_sx = port_sx_cell.borrow_mut();
+                    let block_sx = block_sx_cell.borrow_mut();
+
+                    let _ = (*port_sx).try_send(remote_port);
+                    let _ = (*block_sx).try_send(blocks_and_microblocks);
+                },
+                |ref peer| {
+                    // check peer health
+                    // TODO
+                    true
+                },
+                |_| true,
+            );
+        })
     }
 
     fn make_test_smart_contract_transaction(

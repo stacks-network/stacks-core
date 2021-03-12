@@ -30,8 +30,8 @@ use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
 
 use util::db::{
-    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, Error as DBError,
-    FromColumn, FromRow,
+    query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
+    Error as DBError, FromColumn, FromRow,
 };
 
 use std::collections::HashMap;
@@ -112,7 +112,9 @@ impl FromRow<BlockstackOperationType> for BlockstackOperationType {
     }
 }
 
-const BURNCHAIN_DB_SCHEMA: &'static str = "
+pub const BURNCHAIN_DB_VERSION: &'static str = "1";
+
+const BURNCHAIN_DB_INITIAL_SCHEMA: &'static str = "
 CREATE TABLE burnchain_db_block_headers (
     block_height INTEGER NOT NULL,
     block_hash TEXT UNIQUE NOT NULL,
@@ -129,7 +131,8 @@ CREATE TABLE burnchain_db_block_ops (
     txid TEXT NOT NULL,
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
-";
+
+CREATE TABLE db_config(version TEXT NOT NULL);";
 
 impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
@@ -216,7 +219,13 @@ impl BurnchainDB {
 
         if create_flag {
             let db_tx = db.tx_begin()?;
-            db_tx.sql_tx.execute_batch(BURNCHAIN_DB_SCHEMA)?;
+            sql_pragma(&db_tx.sql_tx, "PRAGMA journal_mode = WAL;")?;
+            db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
+
+            db_tx.sql_tx.execute(
+                "INSERT INTO db_config (version) VALUES (?1)",
+                &[&BURNCHAIN_DB_VERSION],
+            )?;
 
             let first_block_header = BurnchainBlockHeader {
                 block_height: first_block_height,

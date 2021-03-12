@@ -62,6 +62,7 @@ use std::convert::{TryFrom, TryInto};
 
 use chainstate::stacks::index::Error;
 
+use util::db::sql_pragma;
 use util::db::tx_begin_immediate;
 use util::log;
 
@@ -91,6 +92,8 @@ CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
+    sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
+
     let tx = tx_begin_immediate(conn)?;
 
     tx.execute_batch(SQL_MARF_DATA_TABLE)?;
@@ -103,6 +106,15 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
 pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
     conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ?",
+        &[bhh],
+        |row| row.get("block_id"),
+    )
+    .map_err(|e| e.into())
+}
+
+pub fn get_mined_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
+    conn.query_row(
+        "SELECT block_id FROM mined_blocks WHERE block_hash = ?",
         &[bhh],
         |row| row.get("block_id"),
     )
@@ -171,13 +183,21 @@ pub fn write_trie_blob_to_mined<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
-    let args: &[&dyn ToSql] = &[block_hash, &data];
-    let mut s =
-        conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
-    let block_id = s
-        .insert(args)?
-        .try_into()
-        .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    if let Ok(block_id) = get_mined_block_identifier(conn, block_hash) {
+        // already exists; update
+        let args: &[&dyn ToSql] = &[&data, &block_id];
+        let mut s = conn.prepare("UPDATE mined_blocks SET data = ? WHERE block_id = ?")?;
+        s.execute(args)
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    } else {
+        // doesn't exist yet; insert
+        let args: &[&dyn ToSql] = &[block_hash, &data];
+        let mut s = conn.prepare("INSERT INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
+        s.execute(args)
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    };
+
+    let block_id = get_mined_block_identifier(conn, block_hash)?;
 
     debug!(
         "Wrote mined block trie {} to rowid {}",
@@ -195,14 +215,23 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
         panic!("BUG: tried to overwrite confirmed MARF trie {}", block_hash);
     }
 
-    let args: &[&dyn ToSql] = &[block_hash, &data, &1];
-    let mut s = conn.prepare(
-        "INSERT OR REPLACE INTO marf_data (block_hash, data, unconfirmed) VALUES (?, ?, ?)",
-    )?;
-    let block_id = s
-        .insert(args)?
-        .try_into()
-        .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    if let Ok(Some(block_id)) = get_unconfirmed_block_identifier(conn, block_hash) {
+        // already exists; update
+        let args: &[&dyn ToSql] = &[&data, &block_id];
+        let mut s = conn.prepare("UPDATE marf_data SET data = ? WHERE block_id = ?")?;
+        s.execute(args)
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    } else {
+        // doesn't exist yet; insert
+        let args: &[&dyn ToSql] = &[block_hash, &data, &1];
+        let mut s =
+            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed) VALUES (?, ?, ?)")?;
+        s.execute(args)
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+    };
+
+    let block_id = get_unconfirmed_block_identifier(conn, block_hash)?
+        .expect(&format!("BUG: stored {} but got no block ID", block_hash));
 
     debug!(
         "Wrote unconfirmed block trie {} to rowid {}",
@@ -398,6 +427,7 @@ pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error>
 }
 
 pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
+    debug!("Drop unconfirmed trie sqlite blob {}", bhh);
     conn.execute(
         "DELETE FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
         &[bhh],

@@ -1562,7 +1562,7 @@ impl PeerNetwork {
                     event_id
                 }
                 None => {
-                    test_debug!("{:?}: network not connected", &self.local_peer);
+                    debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
             };
@@ -2348,7 +2348,11 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<(bool, bool), net_error> {
+    fn do_network_inv_sync(
+        &mut self,
+        sortdb: &SortitionDB,
+        ibd: bool,
+    ) -> Result<(bool, bool), net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok((true, false));
@@ -2361,7 +2365,8 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, broken_neighbors, dead_neighbors) = self.sync_inventories(sortdb)?;
+        let (done, throttled, broken_neighbors, dead_neighbors) =
+            self.sync_inventories(sortdb, ibd)?;
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
@@ -2433,7 +2438,7 @@ impl PeerNetwork {
         let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             for dead_event in broken_http_peers.drain(..) {
                 debug!(
-                    "{:?}: De-register broken HTTP connection {}",
+                    "{:?}: De-register dead/broken HTTP connection {}",
                     &network.local_peer, dead_event
                 );
                 network.http.deregister_http(network_state, dead_event);
@@ -2443,13 +2448,18 @@ impl PeerNetwork {
 
         for broken_neighbor in broken_p2p_peers.drain(..) {
             debug!(
-                "{:?}: De-register broken neighbor {:?}",
+                "{:?}: De-register dead/broken neighbor {:?}",
                 &self.local_peer, &broken_neighbor
             );
             self.deregister_and_ban_neighbor(&broken_neighbor);
         }
 
         if done && at_chain_tip {
+            debug!(
+                "{:?}: Completed downloader pass {}",
+                &self.local_peer,
+                self.num_downloader_passes + 1
+            );
             self.num_downloader_passes += 1;
         }
 
@@ -2895,6 +2905,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
         // do some Actual Work(tm)
@@ -2928,7 +2939,7 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb)?;
+                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd)?;
                     if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
@@ -2969,8 +2980,18 @@ impl PeerNetwork {
                                 have_always_allowed = true;
                             } else {
                                 if let Some(ref inv_state) = self.inv_state {
-                                    for nk in inv_state.block_stats.keys() {
-                                        if always_allowed.contains(&nk) {
+                                    for (nk, stats) in inv_state.block_stats.iter() {
+                                        if !always_allowed.contains(&nk) {
+                                            continue;
+                                        }
+
+                                        if stats.inv.num_reward_cycles
+                                            >= (self.pox_id.len() - 1) as u64
+                                        {
+                                            debug!(
+                                                "{:?}: Fully-sync'ed PoX inventory from {}",
+                                                &self.local_peer, nk
+                                            );
                                             have_always_allowed = true;
                                         }
                                     }
@@ -3958,15 +3979,13 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height > self.chain_view.burn_block_height {
+        if sn.block_height != self.chain_view.burn_block_height {
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
             );
-            let new_chain_view = {
-                let ic = sortdb.index_conn();
-                ic.get_burnchain_view(&self.burnchain, &sn)?
-            };
+            let new_chain_view =
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.burnchain, &sn)?;
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs(self.chain_view.burn_stable_block_height);
@@ -3994,6 +4013,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         mut poll_state: NetworkPollState,
     ) -> Result<(), net_error> {
         if self.network.is_none() {
@@ -4017,7 +4037,7 @@ impl PeerNetwork {
         // set up sockets that have finished connecting
         self.process_connecting_sockets(&mut poll_state);
 
-        // find out who is inbound and unathenticed
+        // find out who is inbound and unauthenticated
         let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
@@ -4045,6 +4065,7 @@ impl PeerNetwork {
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
+            ibd,
             network_result,
         )?;
         if do_prune {
@@ -4062,11 +4083,11 @@ impl PeerNetwork {
             self.prune_connections();
         }
 
-        // In parallel, do a neighbor walk
+        // In parallel, do a neighbor walk, but only if we're not doing the initial block download
         self.do_network_neighbor_walk()?;
 
         // download attachments
-        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
+        // self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4134,6 +4155,7 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
@@ -4141,7 +4163,8 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
+        {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4157,6 +4180,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         network_result: &mut NetworkResult,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
@@ -4173,6 +4197,7 @@ impl PeerNetwork {
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
+                    event_observer,
                 ) {
                     if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
                         new_tx_data.push((relayers, tx));
@@ -4203,9 +4228,10 @@ impl PeerNetwork {
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        attachment_requests: &mut HashSet<AttachmentInstance>,
+        _attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -4226,23 +4252,26 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut network_result =
-            NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
+        let mut network_result = NetworkResult::new(
+            self.num_state_machine_passes,
+            self.num_inv_sync_passes,
+            self.num_downloader_passes,
+        );
 
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-            let mut known_attachments = attachments_downloader
-                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
-            network_result.attachments.append(&mut known_attachments);
-            Ok(())
-        }) {
-            Ok(_) => {}
-            Err(e) => {
-                warn!("Atlas: updating attachment inventory failed {}", e);
-            }
-        }
+        // match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+        //     let mut known_attachments = attachments_downloader
+        //         .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+        //     network_result.attachments.append(&mut known_attachments);
+        //     Ok(())
+        // }) {
+        //     Ok(_) => {}
+        //     Err(e) => {
+        //         warn!("Atlas: updating attachment inventory failed {}", e);
+        //     }
+        // }
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
@@ -4267,6 +4296,7 @@ impl PeerNetwork {
             chainstate,
             dns_client_opt,
             download_backpressure,
+            ibd,
             p2p_poll_state,
         )?;
 

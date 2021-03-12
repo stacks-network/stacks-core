@@ -334,7 +334,7 @@ impl Trie {
         // update cursor to point to this node4 as the last-node-visited, and set the newly-created
         // ptr as the last ptr traversed (so the cursor still points to this leaf, but accurately
         // reflects the path taken to it).
-        cursor.repair_retarget(&node4.clone(), &ret, &storage.get_cur_block());
+        cursor.repair_retarget(&node4, &ret, &storage.get_cur_block());
 
         trace!(
             "Promoted {:?} to {:?}, {:?}, {:?}, new ptr = {:?}",
@@ -571,7 +571,7 @@ impl Trie {
             cur_node_cur_ptr.chr(),
             cur_node_cur_ptr.ptr(),
         );
-        cursor.repair_retarget(&new_node.clone(), &ret, &storage.get_cur_block());
+        cursor.repair_retarget(&new_node, &ret, &storage.get_cur_block());
 
         trace!("splice_leaf: node-X' at {:?}", &ret);
         Ok(ret)

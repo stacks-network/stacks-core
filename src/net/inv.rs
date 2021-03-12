@@ -298,7 +298,7 @@ impl PeerBlocksInv {
                 highest_agreed_block_height,
                 num_bits,
                 zeros.clone(),
-                zeros.clone(),
+                zeros,
                 true,
             );
             self.num_sortitions = highest_agreed_block_height - self.first_block_height;
@@ -670,13 +670,13 @@ impl NeighborBlockStats {
                 } else if unstable {
                     debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 } else {
-                    debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash", _nk);
-
                     // if this peer is always allowed, then this isn't a "broken" condition -- it's
                     // a diverged condition.  we trust that it has the correct PoX view.
                     if always_allowed {
+                        debug!("Remote always-allowed neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Diverged.", _nk);
                         diverged = true;
                     } else {
+                        debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Broken.", _nk);
                         broken = true;
                     }
                 }
@@ -1147,7 +1147,7 @@ impl InvState {
     pub fn add_peer(&mut self, nk: NeighborKey) -> () {
         self.block_stats.insert(
             nk.clone(),
-            NeighborBlockStats::new(nk.clone(), self.first_block_height),
+            NeighborBlockStats::new(nk, self.first_block_height),
         );
     }
 
@@ -1579,10 +1579,6 @@ impl PeerNetwork {
         let target_block_height = self
             .burnchain
             .reward_cycle_to_block_height(target_block_reward_cycle);
-        if target_block_height >= self.chain_view.burn_block_height {
-            debug!("{:?}: target block height for neighbor {:?} is {}, which is higher than our chain view height {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
-            return Ok(None);
-        }
 
         let ancestor_sn = match self.get_ancestor_sortition_snapshot(sortdb, target_block_height) {
             Ok(s) => s,
@@ -1715,7 +1711,7 @@ impl PeerNetwork {
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
     ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
-        if stats.block_reward_cycle < stats.inv.num_reward_cycles {
+        if stats.block_reward_cycle <= stats.inv.num_reward_cycles {
             self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
                 .and_then(|getblocksinv_opt| {
                     Ok(getblocksinv_opt
@@ -2086,6 +2082,7 @@ impl PeerNetwork {
     pub fn sync_inventories(
         &mut self,
         sortdb: &SortitionDB,
+        ibd: bool,
     ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
@@ -2231,12 +2228,21 @@ impl PeerNetwork {
                     }
                 }
 
-                let num_good_peers = good_sync_peers_set.len();
-                for i in 0..cmp::min(
-                    random_sync_peers_list.len(),
-                    (network.connection_opts.num_neighbors as usize).saturating_sub(num_good_peers),
-                ) {
-                    good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                if !ibd {
+                    // not in initial-block download, so we can add random neighbors as well
+                    let num_good_peers = good_sync_peers_set.len();
+                    for i in 0..cmp::min(
+                        random_sync_peers_list.len(),
+                        (network.connection_opts.num_neighbors as usize)
+                            .saturating_sub(num_good_peers),
+                    ) {
+                        good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                    }
+                } else {
+                    debug!(
+                        "{:?}: in initial block download; only inv-sync with always-allowed peers",
+                        &network.local_peer
+                    );
                 }
 
                 inv_state.reset_sync_peers(
@@ -2268,7 +2274,6 @@ impl PeerNetwork {
     }
 
     /// Get a list of outbound neighbors we can sync with.
-    /// It will be no larger than connection_opts.num_neighbors
     pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
@@ -3715,6 +3720,8 @@ mod test {
                 }
 
                 round += 1;
+
+                info!("Peer 1: {}, Peer 2: {}", inv_1_count, inv_2_count);
             }
 
             info!("Completed walk round {} step(s)", round);

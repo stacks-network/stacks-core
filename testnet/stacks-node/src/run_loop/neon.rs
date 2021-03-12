@@ -4,6 +4,7 @@ use crate::{
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
+use ctrlc as termination;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -17,7 +18,9 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainS
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
 use std::cmp;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
 use std::thread;
 use stx_genesis::GenesisData;
 
@@ -93,17 +96,26 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
+    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
+        let should_keep_running = Arc::new(AtomicBool::new(true));
+        let keep_running_writer = should_keep_running.clone();
+
+        termination::set_handler(move || {
+            info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
+            keep_running_writer.store(false, Ordering::SeqCst);
+        })
+        .expect("Error setting termination handler");
+
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
-            burnchain_opt.clone(),
+            burnchain_opt,
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -121,10 +133,16 @@ impl RunLoop {
             .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
-            let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
+            let utxos =
+                burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
             if utxos.is_none() {
-                error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                false
+                if self.config.node.mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
+                    true
+                } else {
+                    error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
+                    false
+                }
             } else {
                 info!("UTXOs found - will run as a Miner node");
                 true
@@ -172,7 +190,7 @@ impl RunLoop {
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
@@ -233,7 +251,7 @@ impl RunLoop {
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
 
-        thread::Builder::new()
+        let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
                 ChainsCoordinator::run(
@@ -249,7 +267,7 @@ impl RunLoop {
 
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
-        let chainstate_path = self.config.get_chainstate_path();
+        let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(
             mainnet,
             chainid,
@@ -272,19 +290,21 @@ impl RunLoop {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
+                should_keep_running.clone(),
             )
         } else {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
-                coordinator_senders,
+                coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
                 atlas_config,
+                should_keep_running.clone(),
             )
         };
 
@@ -313,6 +333,22 @@ impl RunLoop {
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
 
         loop {
+            // Orchestrating graceful termination
+            if !should_keep_running.load(Ordering::SeqCst) {
+                // The p2p thread relies on the same atomic_bool, it will
+                // discontinue its execution after completing its ongoing runloop epoch.
+                info!("Terminating p2p process");
+                info!("Terminating relayer");
+                info!("Terminating chains-coordinator");
+                coordinator_senders.stop_chains_coordinator();
+
+                coordinator_thread_handle.join().unwrap();
+                node.relayer_thread_handle.join().unwrap();
+                node.p2p_thread_handle.join().unwrap();
+
+                info!("Exiting stacks-node");
+                break;
+            }
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions
@@ -332,16 +368,17 @@ impl RunLoop {
                 next_burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
-            debug!(
-                "Downloaded burnchain blocks up to height {}; new target height is {}",
-                next_burnchain_height, target_burnchain_block_height
-            );
 
             burnchain_tip = next_burnchain_tip;
             burnchain_height = next_burnchain_height;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
+
+            debug!(
+                "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
+                next_burnchain_height, target_burnchain_block_height, next_height, block_height
+            );
 
             if next_height > block_height {
                 // first, let's process all blocks in (block_height, next_height]
@@ -368,23 +405,46 @@ impl RunLoop {
                     }
                 }
 
-                block_height = next_height;
                 debug!(
-                    "Synchronized burnchain up to block height {} (chain tip height is {})",
-                    block_height, burnchain_height
+                    "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
+                    next_height, block_height, burnchain_height
                 );
+
+                block_height = next_height;
+            } else if ibd {
+                // drive block processing after we reach the burnchain tip.
+                // we may have downloaded all the blocks already,
+                // so we can't rely on the relayer alone to
+                // drive it.
+                coordinator_senders.announce_new_stacks_block();
             }
 
             if block_height >= burnchain_height && !ibd {
-                // at tip, and not downloading. proceed to mine.
-                debug!(
-                    "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                    block_height
-                );
-                if !node.relayer_issue_tenure() {
-                    // relayer hung up, exit.
-                    error!("Block relayer and miner hung up, exiting.");
-                    return;
+                let canonical_stacks_tip_height =
+                    SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                        .map(|snapshot| snapshot.canonical_stacks_tip_height)
+                        .unwrap_or(0);
+                if canonical_stacks_tip_height < mine_start {
+                    info!(
+                        "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
+                        canonical_stacks_tip_height,
+                        mine_start
+                    );
+                } else {
+                    // once we've synced to the chain tip once, don't apply this check again.
+                    //  this prevents a possible corner case in the event of a PoX fork.
+                    mine_start = 0;
+
+                    // at tip, and not downloading. proceed to mine.
+                    debug!(
+                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                        block_height
+                    );
+                    if !node.relayer_issue_tenure() {
+                        // relayer hung up, exit.
+                        error!("Block relayer and miner hung up, exiting.");
+                        return;
+                    }
                 }
             }
         }

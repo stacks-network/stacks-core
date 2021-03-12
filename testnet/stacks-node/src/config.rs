@@ -1,23 +1,27 @@
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
 
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::util::get_epoch_time_ms;
+use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
+const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 
@@ -238,7 +242,7 @@ impl ConfigFile {
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("X5".into()),
+            magic_bytes: Some("X6".into()),
             ..BurnchainConfigFile::default()
         };
 
@@ -410,14 +414,6 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     runtime: 100_000_000_000,
 };
 
-pub const MAINNET_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
-
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
         let default_node_config = NodeConfig::default();
@@ -449,6 +445,7 @@ impl Config {
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
+                    mock_mining: node.mock_mining.unwrap_or(default_node_config.mock_mining),
                     mine_microblocks: node
                         .mine_microblocks
                         .unwrap_or(default_node_config.mine_microblocks),
@@ -523,7 +520,7 @@ impl Config {
                     } else {
                         PEER_VERSION_TESTNET
                     },
-                    mode: burnchain_mode.clone(),
+                    mode: burnchain_mode,
                     burn_fee_cap: burnchain
                         .burn_fee_cap
                         .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -556,9 +553,6 @@ impl Config {
                     timeout: burnchain
                         .timeout
                         .unwrap_or(default_burnchain_config.timeout),
-                    spv_headers_path: burnchain
-                        .spv_headers_path
-                        .unwrap_or(node.get_default_spv_headers_path()),
                     magic_bytes: burnchain
                         .magic_bytes
                         .map(|magic_ascii| {
@@ -581,6 +575,9 @@ impl Config {
                     block_commit_tx_estimated_size: burnchain
                         .block_commit_tx_estimated_size
                         .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+                    rbf_fee_increment: burnchain
+                        .rbf_fee_increment
+                        .unwrap_or(default_burnchain_config.rbf_fee_increment),
                 }
             }
             None => default_burnchain_config,
@@ -603,6 +600,15 @@ impl Config {
 
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+        } else {
+            if burnchain.mode == "mainnet" {
+                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
@@ -785,6 +791,9 @@ impl Config {
                     max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
+                    connect_timeout: opts.connect_timeout.unwrap_or(10),
+                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     ..ConnectionOptions::default()
                 }
             }
@@ -792,7 +801,7 @@ impl Config {
         };
 
         let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            MAINNET_BLOCK_LIMIT.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
             match config_file.block_limit {
                 Some(opts) => ExecutionCost {
@@ -824,37 +833,63 @@ impl Config {
         }
     }
 
-    pub fn get_burnchain_path(&self) -> String {
-        format!("{}/burnchain/", self.node.working_dir)
+    fn get_burnchain_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("burnchain");
+        path
+    }
+
+    fn get_chainstate_path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
+        path.push("chainstate");
+        path
+    }
+
+    pub fn get_chainstate_path_str(&self) -> String {
+        self.get_chainstate_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
+    }
+
+    pub fn get_burnchain_path_str(&self) -> String {
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_path(&self) -> String {
-        format!("{}/burnchain/db", self.node.working_dir)
+        self.get_burnchain_path()
+            .to_str()
+            .expect("Unable to produce path")
+            .to_string()
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        let dir_name = if self.burnchain.mode.as_str() == "mocknet" {
-            "mocknet".to_string()
-        } else {
-            let (network, _) = self.burnchain.get_bitcoin_network();
-            network
-        };
-        format!(
-            "{}/burnchain/db/{}/{}/sortition.db/",
-            self.node.working_dir, self.burnchain.chain, dir_name
-        )
+        let mut path = self.get_burnchain_path();
+        path.push("sortition");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_chainstate_path(&self) -> String {
-        format!("{}/chainstate/", self.node.working_dir)
+    pub fn get_spv_headers_file_path(&self) -> String {
+        let mut path = self.get_burnchain_path();
+        path.set_file_name("headers.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_peer_db_path(&self) -> String {
-        format!("{}/peer_db.sqlite", self.node.working_dir)
+    pub fn get_peer_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("peer.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn get_atlas_db_path(&self) -> String {
-        format!("{}/chainstate/atlas_db.sqlite", self.node.working_dir)
+    pub fn get_atlas_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("atlas.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
@@ -894,11 +929,9 @@ impl std::default::Default for Config {
             ..NodeConfig::default()
         };
 
-        let mut burnchain = BurnchainConfig {
+        let burnchain = BurnchainConfig {
             ..BurnchainConfig::default()
         };
-
-        burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
@@ -929,7 +962,6 @@ pub struct BurnchainConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub timeout: u32,
-    pub spv_headers_path: String,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -937,6 +969,7 @@ pub struct BurnchainConfig {
     pub satoshis_per_byte: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
+    pub rbf_fee_increment: u64,
 }
 
 impl BurnchainConfig {
@@ -955,7 +988,6 @@ impl BurnchainConfig {
             username: None,
             password: None,
             timeout: 300,
-            spv_headers_path: "./spv-headers.dat".to_string(),
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
@@ -963,6 +995,7 @@ impl BurnchainConfig {
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
         }
     }
 
@@ -1007,7 +1040,6 @@ pub struct BurnchainConfigFile {
     pub username: Option<String>,
     pub password: Option<String>,
     pub timeout: Option<u32>,
-    pub spv_headers_path: Option<String>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -1015,6 +1047,7 @@ pub struct BurnchainConfigFile {
     pub satoshis_per_byte: Option<u64>,
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
+    pub rbf_fee_increment: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1030,6 +1063,7 @@ pub struct NodeConfig {
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
+    pub mock_mining: bool,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -1045,7 +1079,8 @@ impl NodeConfig {
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
 
-        let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
+        let now = get_epoch_time_ms();
+        let testnet_id = format!("stacks-node-{}", now);
 
         let rpc_port = 20443;
         let p2p_port = 20444;
@@ -1069,22 +1104,15 @@ impl NodeConfig {
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
+            mock_mining: false,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
-            wait_time_for_microblocks: 60_000,
+            wait_time_for_microblocks: 30_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
         }
-    }
-
-    pub fn get_burnchain_path(&self) -> String {
-        format!("{}/burnchain", self.working_dir)
-    }
-
-    pub fn get_default_spv_headers_path(&self) -> String {
-        format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 
     fn default_neighbor(
@@ -1167,6 +1195,8 @@ impl NodeConfig {
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
+    pub connect_timeout: Option<u64>,
+    pub handshake_timeout: Option<u64>,
     pub timeout: Option<u64>,
     pub idle_timeout: Option<u64>,
     pub heartbeat: Option<u32>,
@@ -1181,6 +1211,7 @@ pub struct ConnectionOptionsFile {
     pub soft_max_neighbors_per_host: Option<u64>,
     pub soft_max_neighbors_per_org: Option<u64>,
     pub soft_max_clients_per_host: Option<u64>,
+    pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
     pub dns_timeout: Option<u128>,
     pub max_inflight_blocks: Option<u64>,
@@ -1221,6 +1252,7 @@ pub struct NodeConfigFile {
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
+    pub mock_mining: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,

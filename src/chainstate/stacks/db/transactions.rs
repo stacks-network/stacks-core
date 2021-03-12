@@ -214,6 +214,15 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
         }
     }
+
+    pub fn is_coinbase_tx(&self) -> bool {
+        if let TransactionOrigin::Stacks(ref transaction) = self.transaction {
+            if let TransactionPayload::Coinbase(_) = transaction.payload {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -763,7 +772,7 @@ impl StacksChainState {
                     &sender_principal,
                     mblock_header_1.sequence,
                 )?;
-                (sender_principal.clone(), mblock_header_1.sequence)
+                (sender_principal, mblock_header_1.sequence)
             } else {
                 // someone else beat the sender to this report
                 debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq;
@@ -785,7 +794,7 @@ impl StacksChainState {
                 &sender_principal,
                 mblock_header_1.sequence,
             )?;
-            (sender_principal.clone(), mblock_header_1.sequence)
+            (sender_principal, mblock_header_1.sequence)
         };
 
         let hash_data = BuffData {
@@ -1037,7 +1046,13 @@ impl StacksChainState {
                     .expect("BUG: total block cost decreased");
 
                 let (asset_map, events) = match initialize_resp {
-                    Ok(x) => x,
+                    Ok(x) => {
+                        // store analysis -- if this fails, then the have some pretty bad problems
+                        clarity_tx
+                            .save_analysis(&contract_id, &contract_analysis)
+                            .expect("FATAL: failed to store contract analysis");
+                        x
+                    }
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Smart-contract processed with {}", err_type;
@@ -1073,11 +1088,6 @@ impl StacksChainState {
                         }
                     },
                 };
-
-                // store analysis -- if this fails, then the have some pretty bad problems
-                clarity_tx
-                    .save_analysis(&contract_id, &contract_analysis)
-                    .expect("FATAL: failed to store contract analysis");
 
                 let receipt = StacksTransactionReceipt::from_smart_contract(
                     tx.clone(),
