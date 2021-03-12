@@ -75,7 +75,7 @@ fn test_simple_let() {
             Ok(Value::Int(7)),
             eval(
                 &parsed_program[0],
-                &mut env.get_exec_environment(None),
+                &mut env.get_exec_environment(None, None),
                 &context
             )
         );
@@ -394,6 +394,7 @@ fn test_simple_if_functions() {
             &mut global_context,
             &contract_context,
             &mut call_stack,
+            None,
             None,
             None,
         );

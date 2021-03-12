@@ -102,6 +102,7 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 }
 
 use chainstate::burn::distribution::BurnSamplePoint;
+use vm::types::OptionalData;
 
 fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<BurnSamplePoint> {
     conn.query_row(
@@ -261,6 +262,7 @@ pub fn setup_states(
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
+                    None,
                     &contract,
                     "set-burnchain-parameters",
                     &[

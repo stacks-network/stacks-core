@@ -234,13 +234,14 @@ pub fn is_reserved(name: &str) -> bool {
     }
 }
 
-/* This function evaluates a list of expressions, sharing a global context.
- * It returns the final evaluated result.
- */
+/// This function evaluates a list of expressions, sharing a global context.
+/// It returns the final evaluated result.!
+/// Used for the initialization of a new contract.
 fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
+    sponsor: Option<PrincipalData>,
 ) -> Result<Option<Value>> {
     let mut last_executed = None;
     let context = LocalContext::new();
@@ -255,7 +256,7 @@ fn eval_all(
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
                 functions::define::evaluate_define(exp, &mut env)
             })?;
             match try_define {
@@ -335,7 +336,7 @@ fn eval_all(
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
                         let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
 
                         let result = eval(exp, &mut env, &context)?;
                         last_executed = Some(result);
@@ -363,7 +364,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -429,6 +430,7 @@ mod test {
             &mut global_context,
             &contract_context,
             &mut call_stack,
+            None,
             None,
             None,
         );

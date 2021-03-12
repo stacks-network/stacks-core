@@ -25,7 +25,9 @@ use vm::tests::{
     execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
     with_memory_environment,
 };
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
@@ -129,7 +131,7 @@ fn execute_transaction(
     tx: &str,
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-    env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
+    env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
@@ -171,10 +173,10 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         QualifiedContractIdentifier::new(p1_principal.clone(), "second".into());
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract)
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(second_contract_id.clone(), contract_second)
+        .initialize_contract(second_contract_id.clone(), contract_second, None)
         .unwrap();
 
     owned_env.stx_faucet(&(p1_principal.clone().into()), u128::max_value() - 1500);
@@ -552,7 +554,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), tokens_contract)
+        .initialize_contract(token_contract_id.clone(), tokens_contract, None)
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
@@ -807,7 +809,7 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
 
     let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_0)
+        .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -815,7 +817,7 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_1)
+        .initialize_contract(token_contract_id.clone(), bad_1, None)
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -823,7 +825,7 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract)
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -889,13 +891,13 @@ fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
         QualifiedContractIdentifier::new(p1_principal.clone(), "names-2".into());
 
     owned_env
-        .initialize_contract(tokens_contract_id.clone(), tokens_contract)
+        .initialize_contract(tokens_contract_id.clone(), tokens_contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(names_contract_id.clone(), names_contract)
+        .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(names_2_contract_id.clone(), names_contract)
+        .initialize_contract(names_2_contract_id.clone(), names_contract, None)
         .unwrap();
 }
 
@@ -936,12 +938,12 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     owned_env
-        .initialize_contract(tokens_contract_id.clone(), tokens_contract)
+        .initialize_contract(tokens_contract_id.clone(), tokens_contract, None)
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
     owned_env
-        .initialize_contract(names_contract_id.clone(), names_contract)
+        .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -1004,7 +1006,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
                 .unwrap(),
@@ -1244,7 +1246,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
                 .unwrap(),

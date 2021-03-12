@@ -34,6 +34,7 @@ use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, U
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 
 use std::convert::TryInto;
+use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
 
 mod assets;
@@ -200,6 +201,7 @@ fn test_stx_ops() {
         r#"(stx-transfer? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x00)"#,
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x00)"#,
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
+        "(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-burn? u4 true)",
@@ -214,6 +216,7 @@ fn test_stx_ops() {
         CheckErrors::TypeError(PrincipalType, UIntType),
         CheckErrors::TypeError(PrincipalType, BoolType),
         CheckErrors::TypeError(SequenceType(BufferType(BufferLength(34))), BoolType),
+        CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::TypeError(PrincipalType, BoolType),
@@ -221,6 +224,37 @@ fn test_stx_ops() {
         CheckErrors::TypeError(PrincipalType, BoolType),
         CheckErrors::IncorrectArgumentCount(1, 2),
     ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_tx_sponsor() {
+    let good = [
+        "(if (is-some tx-sponsor?) (ok true) (err 4))",
+        "(if (is-none tx-sponsor?) (ok true) (err 4))",
+        "(match tx-sponsor? sponsor (ok 3) (err u5))",
+    ];
+    let expected = [
+        "(response bool int)",
+        "(response bool int)",
+        "(response int uint)",
+    ];
+
+    let bad = ["(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
+    let bad_expected = [CheckErrors::TypeError(
+        PrincipalType,
+        OptionalType(Box::from(PrincipalType)),
+    )];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(

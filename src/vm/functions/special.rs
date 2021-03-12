@@ -24,8 +24,8 @@ use vm::errors::Error;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
-    BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData, TypeSignature,
-    Value,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData,
+    TypeSignature, Value,
 };
 
 use chainstate::stacks::boot::boot_code_id;
@@ -139,6 +139,7 @@ fn handle_pox_api_contract_call(
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
     sender: Option<&PrincipalData>,
+    _sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     result: &Value,

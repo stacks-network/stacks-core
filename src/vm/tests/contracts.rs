@@ -134,10 +134,10 @@ fn test_get_block_info_eval() {
         let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
-            .initialize_contract(contract_identifier.clone(), contracts[i])
+            .initialize_contract(contract_identifier.clone(), contracts[i], None)
             .unwrap();
 
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
 
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
         match expected[i] {
@@ -209,6 +209,7 @@ fn test_simple_token_system() {
                 &contract_identifier,
                 &contract_ast,
                 tokens_contract,
+                None,
                 |_, _| false,
             )
             .unwrap()
@@ -218,6 +219,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p2,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p1.clone().into(), Value::UInt(210)],
@@ -230,6 +232,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(9000)],
@@ -243,6 +246,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(1001)],
@@ -253,8 +257,9 @@ fn test_simple_token_system() {
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
+            block.as_transaction(|tx| tx.run_contract_call(&p1,
+                                                           None, &contract_identifier, "token-transfer",
+                                                           &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
         ));
 
         assert_eq!(
@@ -280,6 +285,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -293,6 +299,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -306,6 +313,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -329,6 +337,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
@@ -363,6 +372,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
@@ -376,6 +386,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -398,6 +409,7 @@ fn test_simple_token_system() {
             block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "my-get-token-balance",
                     &[p1.clone().into()],
@@ -425,7 +437,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
@@ -442,7 +454,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), None);
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
@@ -486,6 +498,102 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
     }
 }
 
+fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalData>) {
+    let sponsor = match sponsor {
+        None => Value::none(),
+        Some(p) => Value::some(Value::Principal(p)).unwrap(),
+    };
+    assert_eq!(
+        env.execute_contract(
+            &QualifiedContractIdentifier::local("contract-a").unwrap(),
+            "get-sponsor",
+            &vec![],
+            false
+        )
+        .unwrap(),
+        Value::list_from(vec![sponsor.clone()]).unwrap()
+    );
+    assert_eq!(
+        env.execute_contract(
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "as-contract-get-sponsor",
+            &vec![],
+            false
+        )
+        .unwrap(),
+        Value::list_from(vec![sponsor.clone()]).unwrap()
+    );
+    assert_eq!(
+        env.execute_contract(
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "cc-get-sponsor",
+            &vec![],
+            false
+        )
+        .unwrap(),
+        Value::list_from(vec![sponsor.clone()]).unwrap()
+    );
+    assert_eq!(
+        env.execute_contract(
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "as-contract-cc-get-sponsor",
+            &vec![],
+            false
+        )
+        .unwrap(),
+        Value::list_from(vec![sponsor.clone()]).unwrap()
+    );
+}
+
+fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
+    let contract_a = "(define-read-only (get-sponsor)
+           (list tx-sponsor?))
+           (asserts! (is-eq tx-sponsor? (some 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)) (err 1))";
+    let contract_b = "(define-read-only (get-sponsor)
+           (list tx-sponsor?))
+         (define-read-only (as-contract-get-sponsor)
+           (as-contract (get-sponsor)))
+         (define-read-only (cc-get-sponsor)
+           (contract-call? .contract-a get-sponsor))
+         (define-read-only (as-contract-cc-get-sponsor)
+           (as-contract (contract-call? .contract-a get-sponsor)))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+    let sponsor = if let Value::Principal(p) = p2 {
+        Some(p)
+    } else {
+        panic!("p2 is not a principal value");
+    };
+
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-a").unwrap(),
+            contract_a,
+        )
+        .unwrap();
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+            contract_b,
+        )
+        .unwrap();
+    }
+
+    // Sponsor is equal to some(principal) in this code block.
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
+        tx_sponsor_contract_asserts(&mut env, sponsor.clone());
+    }
+
+    // Sponsor is none in this code block.
+    {
+        let sponsor = None;
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
+        tx_sponsor_contract_asserts(&mut env, sponsor.clone());
+    }
+}
+
 fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_a = "(define-read-only (get-caller)
            (list contract-caller tx-sender))";
@@ -501,7 +609,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
@@ -518,7 +626,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), None);
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
@@ -627,7 +735,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         env.initialize_contract(contract_identifier, tokens_contract)
@@ -639,7 +747,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()), None);
 
         assert!(is_err_code(
             &env.execute_contract(
@@ -654,7 +762,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), None);
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -678,7 +786,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()), None);
         assert!(is_err_code(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -693,7 +801,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()), None);
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -707,7 +815,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()), None);
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -768,7 +876,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
             (contract-call? .factorial-contract compute 8008))
         ";
 
-    let mut env = owned_env.get_exec_environment(Some(get_principal()));
+    let mut env = owned_env.get_exec_environment(Some(get_principal()), None);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial-contract").unwrap();
     env.initialize_contract(contract_identifier, contract_1)
@@ -842,7 +950,7 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     (contract-call? .contract-1 modify-data 105 105)
     (err 1)))
 ";
-    let mut env = owned_env.get_exec_environment(None);
+    let mut env = owned_env.get_exec_environment(None, None);
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-1").unwrap();
     env.initialize_contract(contract_identifier, contract_1)
@@ -948,7 +1056,7 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 }
 
 fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
-    let mut env = owned_env.get_exec_environment(None);
+    let mut env = owned_env.get_exec_environment(None, None);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial").unwrap();
     env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT)
@@ -1050,6 +1158,7 @@ fn test_at_unknown_block() {
             .initialize_contract(
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
+                None,
             )
             .unwrap_err();
         eprintln!("{}", err);
@@ -1078,6 +1187,7 @@ fn test_as_max_len() {
             .initialize_contract(
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
+                None,
             )
             .unwrap();
     }
@@ -1144,7 +1254,7 @@ fn test_cc_stack_depth() {
 
     with_marfed_environment(
         |owned_env| {
-            let mut env = owned_env.get_exec_environment(None);
+            let mut env = owned_env.get_exec_environment(None, None);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
             env.initialize_contract(contract_identifier, contract_one)
@@ -1182,7 +1292,7 @@ fn test_cc_trait_stack_depth() {
 
     with_marfed_environment(
         |owned_env| {
-            let mut env = owned_env.get_exec_environment(None);
+            let mut env = owned_env.get_exec_environment(None, None);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
             env.initialize_contract(contract_identifier, contract_one)
@@ -1205,6 +1315,7 @@ fn test_all() {
         test_factorial_contract,
         test_aborts,
         test_contract_caller,
+        test_tx_sponsor,
         test_fully_qualified_contract_call,
         test_simple_naming_system,
         test_simple_contract_call,

@@ -33,7 +33,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None);
         env.initialize_contract(contract_id.clone(), contract)
             .unwrap();
     }
@@ -42,7 +42,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
         owned_env.stx_faucet(principal_data, 10);
     }
     let (value, _, events) = owned_env
-        .execute_transaction(sender, contract_id, method, &vec![])
+        .execute_transaction(sender, None, contract_id, method, &vec![])
         .unwrap();
     (value, events)
 }

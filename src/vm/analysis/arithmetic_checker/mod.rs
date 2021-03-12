@@ -141,7 +141,7 @@ impl ArithmeticOnlyChecker {
         if let Some(native_var) = NativeVariables::lookup_by_name(var_name) {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest => Err(Error::VariableForbidden(native_var)),
+                | Regtest | TxSponsor => Err(Error::VariableForbidden(native_var)),
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
             }
         } else {

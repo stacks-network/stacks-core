@@ -27,7 +27,7 @@ use std::fs;
 use std::process;
 use std::{env, time::Instant};
 
-use blockstack_lib::vm::types::BuffData;
+use blockstack_lib::vm::types::{BuffData, OptionalData};
 use rand::Rng;
 
 struct TestHeadersDB;
@@ -274,8 +274,14 @@ fn test_via_raw_contract(
         let (contract_ast, contract_analysis) = tx
             .analyze_smart_contract(&contract_id, &smart_contract)
             .unwrap();
-        tx.initialize_smart_contract(&contract_id, &contract_ast, &smart_contract, |_, _| false)
-            .unwrap();
+        tx.initialize_smart_contract(
+            &contract_id,
+            &contract_ast,
+            &smart_contract,
+            None,
+            |_, _| false,
+        )
+        .unwrap();
 
         let mut initialize_cost = tx.cost_so_far();
         initialize_cost.sub(&analysis_cost).unwrap();
@@ -366,8 +372,14 @@ fn smart_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) -> E
         let (contract_ast, contract_analysis) = tx
             .analyze_smart_contract(&contract_id, &smart_contract)
             .unwrap();
-        tx.initialize_smart_contract(&contract_id, &contract_ast, &smart_contract, |_, _| false)
-            .unwrap();
+        tx.initialize_smart_contract(
+            &contract_id,
+            &contract_ast,
+            &smart_contract,
+            None,
+            |_, _| false,
+        )
+        .unwrap();
 
         tx.save_analysis(&contract_id, &contract_analysis)
             .expect("FATAL: failed to store contract analysis");
@@ -558,6 +570,7 @@ fn stack_stx_test(buildup_count: u32, genesis_size: u32, scaling: u32) -> Execut
             let result = tx
                 .run_contract_call(
                     stacker,
+                    None,
                     &boot_code_id("pox", false),
                     "stack-stx",
                     &[

@@ -50,7 +50,7 @@ use vm::database::{
     NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use address::c32::c32_address;
@@ -661,7 +661,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 marf.as_clarity_db(),
                 LimitedCostTracker::new_free(),
             );
-            let mut exec_env = vm_env.get_exec_environment(None);
+            let mut exec_env = vm_env.get_exec_environment(None, None);
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut analysis_db = analysis_marf.as_analysis_db();
@@ -741,7 +741,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
             match run_analysis(&contract_id, &mut ast, &mut analysis_db, true) {
                 Ok(_) => {
-                    let result = vm_env.get_exec_environment(None).eval_raw(&content);
+                    let result = vm_env.get_exec_environment(None, None).eval_raw(&content);
                     match result {
                         Ok(x) => {
                             println!("Program executed successfully! Output: \n{}", x);
@@ -775,7 +775,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         LimitedCostTracker::new_free(),
                     );
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 };
                 (marf, result)
@@ -808,7 +808,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         LimitedCostTracker::new_free(),
                     );
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 };
                 (marf, result)
@@ -861,7 +861,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         LimitedCostTracker::new_free(),
                     );
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&contract_identifier, &content)
                 };
                 (marf, result)
@@ -923,7 +923,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                                 db,
                                 LimitedCostTracker::new_free(),
                             );
-                            vm_env.initialize_contract(contract_identifier, &contract_content)
+                            vm_env.initialize_contract(contract_identifier, &contract_content, None)
                         };
                         (marf, Ok((analysis, result)))
                     }
@@ -1006,6 +1006,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     );
                     vm_env.execute_transaction(
                         Value::Principal(sender),
+                        None,
                         contract_identifier,
                         &tx_name,
                         &arguments,

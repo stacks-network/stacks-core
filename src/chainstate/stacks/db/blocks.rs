@@ -63,8 +63,8 @@ use net::Error as net_error;
 use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 use vm::contexts::AssetMap;
@@ -3890,6 +3890,7 @@ impl StacksChainState {
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.into(),
+                    None,
                     &boot_code_id("pox", mainnet),
                     "stack-stx",
                     &[

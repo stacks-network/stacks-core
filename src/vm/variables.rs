@@ -17,8 +17,8 @@
 use std::convert::TryFrom;
 use vm::contexts::{Environment, LocalContext};
 use vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use vm::types::BuffData;
 use vm::types::Value;
+use vm::types::{BuffData, OptionalData, PrincipalData};
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
@@ -28,7 +28,7 @@ define_named_enum!(NativeVariables {
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
     NativeTrue("true"), NativeFalse("false"),
     TotalLiquidMicroSTX("stx-liquid-supply"),
-    Regtest("is-in-regtest"),
+    Regtest("is-in-regtest"), TxSponsor("tx-sponsor?"),
 });
 
 pub fn is_reserved_name(name: &str) -> bool {
@@ -50,11 +50,19 @@ pub fn lookup_reserved_variable(
                 Ok(Some(sender))
             }
             NativeVariables::ContractCaller => {
-                let sender = env
+                let caller = env
                     .caller
                     .clone()
-                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
-                Ok(Some(sender))
+                    .ok_or(RuntimeErrorType::NoCallerInContext)?;
+                Ok(Some(caller))
+            }
+            NativeVariables::TxSponsor => {
+                let sponsor = match env.sponsor.clone() {
+                    None => Value::none(),
+                    Some(p) => Value::some(Value::Principal(p))
+                        .expect("ERROR: principal should be a valid Clarity object"),
+                };
+                Ok(Some(sponsor))
             }
             NativeVariables::BlockHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;

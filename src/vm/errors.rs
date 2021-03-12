@@ -88,6 +88,7 @@ pub enum RuntimeErrorType {
     TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
+    NoCallerInContext,
     NoSenderInContext,
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),

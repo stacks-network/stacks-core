@@ -791,7 +791,12 @@ fn compute_cost(
 
     let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
 
-    let eval_result = eval_all(&function_invocation, cost_contract, &mut global_context);
+    let eval_result = eval_all(
+        &function_invocation,
+        cost_contract,
+        &mut global_context,
+        None,
+    );
 
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }

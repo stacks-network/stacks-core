@@ -37,7 +37,7 @@ use util::hash::Sha512Trunc256Sum;
 use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
 use vm::ast::build_ast;
-use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use vm::types::{OptionalData, QualifiedContractIdentifier, StandardPrincipalData};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
 use vm::representations::{ClarityName, ContractName};
@@ -722,15 +722,8 @@ impl StacksTransaction {
         privk: &StacksPrivateKey,
     ) -> Result<Txid, net_error> {
         let next_sighash = match self.auth {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                StacksTransaction::sign_and_append(
-                    origin_condition,
-                    cur_sighash,
-                    &TransactionAuthFlags::AuthStandard,
-                    privk,
-                )?
-            }
-            TransactionAuth::Sponsored(ref mut origin_condition, _) => {
+            TransactionAuth::Standard(ref mut origin_condition)
+            | TransactionAuth::Sponsored(ref mut origin_condition, _) => {
                 StacksTransaction::sign_and_append(
                     origin_condition,
                     cur_sighash,
