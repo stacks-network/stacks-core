@@ -8583,8 +8583,14 @@ pub mod test {
                     let (ct_ast, ct_analysis) = tx
                         .analyze_smart_contract(&CONTRACT_IDENT, CONTRACT)
                         .unwrap();
-                    tx.initialize_smart_contract(&CONTRACT_IDENT, &ct_ast, CONTRACT, |_, _| false)
-                        .unwrap();
+                    tx.initialize_smart_contract(
+                        &CONTRACT_IDENT,
+                        &ct_ast,
+                        CONTRACT,
+                        None,
+                        |_, _| false,
+                    )
+                    .unwrap();
                     tx.save_analysis(&CONTRACT_IDENT, &ct_analysis).unwrap();
                 })
             })),
