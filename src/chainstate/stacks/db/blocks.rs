@@ -2333,18 +2333,6 @@ impl StacksChainState {
 
             tx.execute(&update_block_children_sql, &update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-            // mark the block as empty if we haven't already
-            let block_path =
-                StacksChainState::get_block_path(blocks_path, consensus_hash, anchored_block_hash)?;
-            match fs::metadata(&block_path) {
-                Ok(_) => {
-                    StacksChainState::free_block(blocks_path, consensus_hash, anchored_block_hash);
-                }
-                Err(_) => {
-                    StacksChainState::atomic_file_write(&block_path, &vec![])?;
-                }
-            }
         }
 
         Ok(())
@@ -3219,13 +3207,17 @@ impl StacksChainState {
         );
 
         let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
+        let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
+        let blocks_path = self.blocks_path.clone();
+        let mut block_tx = self.db_tx_begin()?;
 
         // already in queue or already processed?
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
         if StacksChainState::has_stored_block(
-            &self.db(),
-            &self.blocks_path,
+            &block_tx,
+            &blocks_path,
             consensus_hash,
             &block.block_hash(),
         )? {
@@ -3237,7 +3229,7 @@ impl StacksChainState {
             );
             return Ok(false);
         } else if StacksChainState::has_staging_block(
-            &self.db(),
+            &block_tx,
             consensus_hash,
             &block.block_hash(),
         )? {
@@ -3248,7 +3240,7 @@ impl StacksChainState {
                 &index_block_hash
             );
             return Ok(false);
-        } else if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
+        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
             debug!(
                 "Block already stored to chunk store: {}/{} ({})",
                 consensus_hash,
@@ -3260,11 +3252,6 @@ impl StacksChainState {
 
         // find all user burns that supported this block
         let user_burns = sort_handle.get_winning_user_burns_by_block()?;
-
-        let mainnet = self.mainnet;
-        let chain_id = self.chain_id;
-        let blocks_path = self.blocks_path.clone();
-        let mut block_tx = self.db_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
@@ -9147,6 +9134,7 @@ pub mod test {
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         ExecutionCost::max_value(),
+                        None,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])

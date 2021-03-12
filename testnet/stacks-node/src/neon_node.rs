@@ -547,10 +547,11 @@ fn spawn_peer(
     mut sync_comms: PoxSyncWatchdogComms,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
+    event_observer: EventDispatcher,
     should_keep_running: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
-    let stacks_chainstate_path = config.get_chainstate_path();
+    let stacks_chainstate_path = config.get_chainstate_path_str();
     let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
@@ -583,14 +584,18 @@ fn spawn_peer(
                 exit_at_block_height: exit_at_block_height.as_ref(),
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
+                event_observer: Some(&event_observer),
                 ..RPCHandlerArgs::default()
             };
 
             let mut num_p2p_state_machine_passes = 0;
             let mut num_inv_sync_passes = 0;
+            let mut num_download_passes = 0;
             let mut mblock_deadline = 0;
 
             while should_keep_running.load(Ordering::SeqCst) {
+                // initial block download?
+                let ibd = sync_comms.get_ibd();
                 let download_backpressure = results_with_data.len() > 0;
                 let poll_ms = if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
@@ -621,6 +626,7 @@ fn spawn_peer(
                     &mut mem_pool,
                     Some(&mut dns_client),
                     download_backpressure,
+                    ibd,
                     poll_ms,
                     &handler_args,
                     &mut expected_attachments,
@@ -636,6 +642,12 @@ fn spawn_peer(
                             // inv-sync state-machine did a full pass. Notify anyone listening.
                             sync_comms.notify_inv_sync_pass();
                             num_inv_sync_passes = network_result.num_inv_sync_passes;
+                        }
+
+                        if num_download_passes < network_result.num_download_passes {
+                            // download state-machine did a full pass.  Notify anyone listening.
+                            sync_comms.notify_download_pass();
+                            num_download_passes = network_result.num_download_passes;
                         }
 
                         if network_result.has_data_to_store() {
@@ -745,6 +757,8 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
+    let mut failed_to_mine_in_block: Option<BurnchainHeaderHash> = None;
+
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state = None;
     let mut miner_tip = None;
@@ -763,6 +777,7 @@ fn spawn_miner_relayer(
                             &mut chainstate,
                             &mut mem_pool,
                             Some(&coord_comms),
+                            Some(&event_dispatcher),
                         )
                         .expect("BUG: failure processing network results");
 
@@ -894,6 +909,18 @@ fn spawn_miner_relayer(
                         "height" => last_burn_block.block_height,
                         "burn_header_hash" => %burn_header_hash
                     );
+
+                    let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                        .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
+                        .burn_header_hash;
+                    if config.node.mock_mining && failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
+                        debug!(
+                            "Previously mock-mined in block, not attempting again until burnchain advances";
+                            "burn_header_hash" => %burn_chain_tip
+                        );
+                        continue;
+                    }
+
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
@@ -910,6 +937,7 @@ fn spawn_miner_relayer(
                         burn_fee_cap,
                         &mut bitcoin_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
+                        &event_dispatcher,
                     );
                     if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
                         if last_mined_blocks_vec.len() == 0 {
@@ -917,6 +945,8 @@ fn spawn_miner_relayer(
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
+                    } else {
+                        failed_to_mine_in_block = Some(burn_chain_tip);
                     }
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
                 }
@@ -974,7 +1004,7 @@ enum LeaderKeyRegistrationState {
 impl InitializedNeonNode {
     fn new(
         config: Config,
-        keychain: Keychain,
+        mut keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
         miner: bool,
@@ -1037,7 +1067,7 @@ impl InitializedNeonNode {
         };
 
         let mut peerdb = PeerDB::connect(
-            &config.get_peer_db_path(),
+            &config.get_peer_db_file_path(),
             true,
             config.burnchain.chain_id,
             burnchain.network_id,
@@ -1050,7 +1080,11 @@ impl InitializedNeonNode {
             Some(&initial_neighbors),
         )
         .map_err(|e| {
-            eprintln!("Failed to open {}: {:?}", &config.get_peer_db_path(), &e);
+            eprintln!(
+                "Failed to open {}: {:?}",
+                &config.get_peer_db_file_path(),
+                &e
+            );
             panic!();
         })
         .unwrap();
@@ -1089,7 +1123,8 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(atlas_config, &config.get_atlas_db_path(), true).unwrap();
+        let atlasdb =
+            AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -1100,7 +1135,7 @@ impl InitializedNeonNode {
         let _ = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
         )
         .expect("BUG: failed to instantiate mempool");
 
@@ -1122,6 +1157,18 @@ impl InitializedNeonNode {
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
+        let leader_key_registration_state = if config.node.mock_mining {
+            // mock mining, pretend to have a registered key
+            let vrf_public_key = keychain.rotate_vrf_keypair(1);
+            LeaderKeyRegistrationState::Active(RegisteredKey {
+                block_height: 1,
+                op_vtxindex: 1,
+                vrf_public_key,
+            })
+        } else {
+            LeaderKeyRegistrationState::Inactive
+        };
+
         let sleep_before_tenure = config.node.wait_time_for_microblocks;
         let relayer_thread_handle = spawn_miner_relayer(
             config.is_mainnet(),
@@ -1131,9 +1178,9 @@ impl InitializedNeonNode {
             config.clone(),
             keychain,
             config.get_burn_db_file_path(),
-            config.get_chainstate_path(),
+            config.get_chainstate_path_str(),
             relay_recv,
-            event_dispatcher,
+            event_dispatcher.clone(),
             blocks_processed.clone(),
             burnchain,
             coord_comms,
@@ -1152,6 +1199,7 @@ impl InitializedNeonNode {
             sync_comms,
             attachments_rx,
             shared_unconfirmed_txs,
+            event_dispatcher,
             should_keep_running,
         )
         .expect("Failed to initialize mine/relay thread");
@@ -1165,14 +1213,14 @@ impl InitializedNeonNode {
 
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         InitializedNeonNode {
-            config: config,
+            config,
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
             atlas_config,
-            leader_key_registration_state: LeaderKeyRegistrationState::Inactive,
+            leader_key_registration_state,
             p2p_thread_handle,
             relayer_thread_handle,
         }
@@ -1258,6 +1306,7 @@ impl InitializedNeonNode {
         burn_fee_cap: u64,
         bitcoin_controller: &mut BitcoinRegtestController,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
+        event_observer: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
         let (
             mut stacks_parent_header,
@@ -1581,6 +1630,7 @@ impl InitializedNeonNode {
                     &parent_consensus_hash,
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
+                    Some(event_observer),
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
@@ -1600,6 +1650,7 @@ impl InitializedNeonNode {
             mblock_pubkey_hash,
             &coinbase_tx,
             config.block_limit.clone(),
+            Some(event_observer),
         ) {
             Ok(block) => block,
             Err(e) => {
@@ -1797,14 +1848,14 @@ impl NeonGenesisNode {
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
-            &config.get_chainstate_path(),
+            &config.get_chainstate_path_str(),
             Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(
                 "Error while opening chain state at path {}: {:?}",
-                config.get_chainstate_path(),
+                config.get_chainstate_path_str(),
                 err
             ),
         };

@@ -2,10 +2,6 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
 };
-use stacks::chainstate::stacks::{
-    db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, TransactionPayload,
-};
 use stacks::core;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
@@ -17,13 +13,20 @@ use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{
-        burn::{db::sortdb::SortitionDB, BlockHeaderHash, ConsensusHash},
-        stacks::{StacksBlockId, StacksMicroblock},
+        burn::{BlockHeaderHash, ConsensusHash},
+        stacks::StacksMicroblock,
     },
 };
 use stacks::{
     burnchains::{Address, Burnchain, PoxConstants},
     vm::costs::ExecutionCost,
+};
+use stacks::{
+    chainstate::stacks::{
+        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
+        StacksPublicKey, StacksTransaction, TransactionPayload,
+    },
+    net::RPCPoxInfoData,
 };
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -38,10 +41,13 @@ use stacks::net::{
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::{get_epoch_time_secs, sleep_ms};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use std::{env, thread};
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
@@ -96,6 +102,7 @@ mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     }
 
@@ -126,6 +133,25 @@ mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    async fn handle_mempool_drop_txs(
+        txs: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let dropped_txids = txs
+            .get("dropped_txids")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.as_str().unwrap().to_string());
+        let reason = txs.get("reason").unwrap().as_str().unwrap().to_string();
+
+        let mut memtxs = MEMTXS_DROPPED.lock().unwrap();
+        for new_tx in dropped_txids {
+            memtxs.push((new_tx, reason.clone()));
+        }
+        Ok(warp::http::StatusCode::OK)
+    }
+
     async fn handle_attachments(
         attachments: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -139,6 +165,10 @@ mod test_observer {
 
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
+    }
+
+    pub fn get_memtx_drops() -> Vec<(String, String)> {
+        MEMTXS_DROPPED.lock().unwrap().clone()
     }
 
     pub fn get_blocks() -> Vec<serde_json::Value> {
@@ -162,6 +192,10 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mempool_txs);
+        let mempool_drop_txs = warp::path!("drop_mempool_tx")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mempool_drop_txs);
         let new_burn_blocks = warp::path!("new_burn_block")
             .and(warp::post())
             .and(warp::body::json())
@@ -175,6 +209,7 @@ mod test_observer {
         warp::serve(
             new_blocks
                 .or(mempool_txs)
+                .or(mempool_drop_txs)
                 .or(new_burn_blocks)
                 .or(new_attachments),
         )
@@ -195,6 +230,7 @@ mod test_observer {
         BURN_BLOCKS.lock().unwrap().clear();
         NEW_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
+        MEMTXS_DROPPED.lock().unwrap().clear();
     }
 }
 
@@ -235,7 +271,8 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
+/// returns Txid string
+fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -254,6 +291,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) {
                 .txid()
                 .to_string()
         );
+        return res;
     } else {
         eprintln!("{}", res.text().unwrap());
         panic!("");
@@ -382,6 +420,17 @@ fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account 
     }
 }
 
+fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/pox", http_origin);
+    client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPoxInfoData>()
+        .unwrap()
+}
+
 fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/info", http_origin);
@@ -478,7 +527,15 @@ fn liquid_ustx_integration() {
 
     let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
 
+    let replaced_txid = submit_tx(&http_origin, &publish);
+
+    let publish = make_contract_publish(&spender_sk, 0, 1100, "caller", caller_src);
     submit_tx(&http_origin, &publish);
+
+    let dropped_txs = test_observer::get_memtx_drops();
+    assert_eq!(dropped_txs.len(), 1);
+    assert_eq!(&dropped_txs[0].1, "ReplaceByFee");
+    assert_eq!(&dropped_txs[0].0, &format!("0x{}", replaced_txid));
 
     // mine 1 burn block for the miner to issue the next block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -892,9 +949,12 @@ fn bitcoind_resubmission_test() {
     //  this behavior is not guaranteed to continue to work like this, so at some point this
     //  test will need to be updated to handle that.
     {
-        let (mut chainstate, _) =
-            StacksChainState::open(false, conf.burnchain.chain_id, &conf.get_chainstate_path())
-                .unwrap();
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+        )
+        .unwrap();
         let mut tx = chainstate.db_tx_begin().unwrap();
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
@@ -1151,7 +1211,8 @@ fn microblock_integration_test() {
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
         let (mut chainstate, _) =
-            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path()).unwrap();
+            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str())
+                .unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
@@ -1976,6 +2037,13 @@ fn pox_integration_test() {
             .to_vec(),
     );
 
+    let pox_2_address = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Testnet,
+        BitcoinAddressType::PublicKeyHash,
+        &Hash160::from_node_public_key(&pox_2_pubkey).to_bytes(),
+    )
+    .unwrap();
+
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
@@ -2069,6 +2137,40 @@ fn pox_integration_test() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 0);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 0);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 210);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 205);
+    assert_eq!(pox_info.next_cycle.min_increment_ustx, 20845173515333);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 0);
+    assert_eq!(pox_info.current_cycle.id, 0);
+    assert_eq!(pox_info.next_cycle.id, 1);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.total_liquid_supply_ustx, 10005683287360023);
+    assert_eq!(pox_info.next_reward_cycle_in, 6);
+
     let tx = make_contract_call(
         &spender_sk,
         0,
@@ -2102,6 +2204,39 @@ fn pox_integration_test() {
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
+
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 1000000000000000);
+    assert!(pox_info.pox_activation_threshold_ustx > 1500000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 225);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 220);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(pox_info.current_cycle.id, 14);
+    assert_eq!(pox_info.next_cycle.id, 15);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.next_reward_cycle_in, 14);
 
     let blocks_observed = test_observer::get_blocks();
     assert!(
@@ -2202,6 +2337,39 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.next_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 1000000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 2000000000000000);
+    assert_eq!(pox_info.reward_slots as u32, pox_constants.reward_slots());
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 225);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 220);
+    assert_eq!(pox_info.next_cycle.blocks_until_prepare_phase, -4);
+    assert_eq!(
+        pox_info.prepare_cycle_length as u32,
+        pox_constants.prepare_length
+    );
+    assert_eq!(
+        pox_info.rejection_fraction,
+        pox_constants.pox_rejection_fraction
+    );
+    assert_eq!(pox_info.reward_cycle_id, 14);
+    assert_eq!(pox_info.current_cycle.id, 14);
+    assert_eq!(pox_info.next_cycle.id, 15);
+    assert_eq!(
+        pox_info.reward_cycle_length as u32,
+        pox_constants.reward_cycle_length
+    );
+    assert_eq!(pox_info.next_reward_cycle_in, 1);
+
     // we should have received _no_ Bitcoin commitments, because the pox participation threshold
     //   was not met!
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
@@ -2212,6 +2380,9 @@ fn pox_integration_test() {
         "Should have received no outputs during PoX reward cycle"
     );
 
+    // let's test the reward information in the observer
+    test_observer::clear();
+
     // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
@@ -2221,6 +2392,21 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.first_burnchain_block_height, 0);
+    assert_eq!(pox_info.current_cycle.min_threshold_ustx, 125080000000000);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 2000000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(pox_info.next_cycle.reward_phase_start_block_height, 240);
+    assert_eq!(pox_info.next_cycle.prepare_phase_start_block_height, 235);
+    assert_eq!(pox_info.next_cycle.blocks_until_prepare_phase, -4);
+    assert_eq!(pox_info.next_reward_cycle_in, 1);
+
     // we should have received _seven_ Bitcoin commitments, because our commitment was 7 * threshold
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
 
@@ -2228,19 +2414,56 @@ fn pox_integration_test() {
     assert_eq!(
         utxos.len(),
         7,
-        "Should have received three outputs during PoX reward cycle"
+        "Should have received outputs during PoX reward cycle"
     );
 
-    // we should have received _three_ Bitcoin commitments to pox_2_pubkey, because our commitment was 3 * threshold
-    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _2_ slots,
-    //         because each `stack-stx` call only received enough to get 1 slot individually.
+    // we should have received _seven_ Bitcoin commitments to pox_2_pubkey, because our commitment was 7 * threshold
+    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _6_ slots,
+    //         because each `stack-stx` call only received enough to get 3 slot individually.
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
         7,
-        "Should have received three outputs during PoX reward cycle"
+        "Should have received outputs during PoX reward cycle"
+    );
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let mut recipient_slots: HashMap<String, u64> = HashMap::new();
+
+    for block in burn_blocks.iter() {
+        let reward_slot_holders = block
+            .get("reward_slot_holders")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string());
+        for holder in reward_slot_holders {
+            if let Some(current) = recipient_slots.get_mut(&holder) {
+                *current += 1;
+            } else {
+                recipient_slots.insert(holder, 1);
+            }
+        }
+    }
+
+    let pox_1_address = BitcoinAddress::from_bytes(
+        BitcoinNetworkType::Testnet,
+        BitcoinAddressType::PublicKeyHash,
+        &Hash160::from_node_public_key(&pox_pubkey).to_bytes(),
+    )
+    .unwrap();
+
+    assert_eq!(recipient_slots.len(), 2);
+    assert_eq!(
+        recipient_slots.get(&pox_2_address.to_b58()).cloned(),
+        Some(7u64)
+    );
+    assert_eq!(
+        recipient_slots.get(&pox_1_address.to_b58()).cloned(),
+        Some(7u64)
     );
 
     // get the canonical chain tip
