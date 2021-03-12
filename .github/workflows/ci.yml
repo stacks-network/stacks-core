@@ -25,52 +25,54 @@ jobs:
         with:
           access_token: ${{ github.token }}
   
-  # Run full genesis test
-  full-genesis:
-    runs-on: ubuntu-latest
-    if: ! startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v2
-      - name: Single full genesis integration test
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
-
   # Run unit tests with code coverage
   unit-tests:
     runs-on: ubuntu-latest
     if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v2
       - name: Run units tests (with coverage)
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+        uses: docker/build-push-action@v2
+        with:
+          file: .github/actions/run-tests/Dockerfile.unit-tests
 
-  # Run net-tests
-  nettest:
-    # disable this job/test for now, since we haven't seen this pass
-    #  on github actions in a while, and the failures can take > 4 hours
-    if: ${{ false }}
-    # if: ! startsWith(github.ref, 'refs/tags/v')
+  # Run integration tests
+  integration-tests:
     runs-on: ubuntu-latest
+    if: ! startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      matrix:
+        # Uncomment below when Atlas is live
+        # test-selector: [ general, atlas, large-genesis ]
+        # Delete below when Atlas is live
+        test-selector: [ general, large-genesis ]
     steps:
-      - uses: actions/checkout@v2
-      - name: Run network relay tests
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
+      - name: Run integration tests
+        uses: docker/build-push-action@v2
+        with:
+          file: .github/actions/run-tests/Dockerfile.int-tests-${{ matrix.test-selector }}
+
+  # disable this job/test for now, since we haven't seen this pass
+  # on github actions in a while, and the failures can take > 4 hours
+  #
+  # Run functional tests
+  # functional-tests:
+  #   if: ! startsWith(github.ref, 'refs/tags/v')
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Run network relay tests
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: .github/actions/run-tests/Dockerfile.functional-tests-net
 
   # rustfmt checking
   rustfmt:
     runs-on: ubuntu-latest
     if: ! startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v2
       - name: Run rustfmt check
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
+        uses: docker/build-push-action@v2
+        with:
+          file: .github/actions/run-tests/Dockerfile.rustfmt
 
   # Create distributions
   dist:
