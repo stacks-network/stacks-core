@@ -20,8 +20,10 @@ use burnchains::{Burnchain, BurnchainHeaderHash};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
+use vm::costs::ExecutionCost;
 
 pub mod mempool;
+
 pub use self::mempool::MemPoolDB;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
@@ -46,6 +48,14 @@ pub const NETWORK_P2P_PORT: u16 = 6265;
 // its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
+// This controls a miner heuristic for dropping a transaction from repeated consideration
+//  in the mempool. If the transaction caused the block limit to be reached when the block
+//  was previously `TX_BLOCK_LIMIT_PROPORTION_HEURISTIC`% full, the transaction will be dropped
+//  from the mempool. 20% is chosen as a heuristic here to allow for large transactions to be
+//  attempted, but if they cannot be included in an otherwise mostly empty block, not to consider
+//  them again.
+pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
+
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)
@@ -67,10 +77,10 @@ pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
     "0000000000000000000ab248c8e35c574514d052a83dbc12669e19bc43df486e";
 pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
 
-pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1902511;
-pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1609852982;
+pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 1931620;
+pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1612282029;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
-    "00000000a3302490b1e1cbbdfcfacc21662006889765d3cda906fd8e842427f1";
+    "00000000000000b8275ac9907d4d8f3b862f93d6f986ba628a2784748e56e51b";
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -82,8 +92,6 @@ pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 
 
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);
-
-pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
 pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
 
@@ -102,6 +110,14 @@ pub const POX_MAXIMAL_SCALING: u128 = 4;
 pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
+
+pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
+};
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

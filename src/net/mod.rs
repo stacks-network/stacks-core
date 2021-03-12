@@ -588,6 +588,18 @@ impl PeerAddress {
     pub fn is_anynet(&self) -> bool {
         self.0 == [0x00; 16] || self == &PeerAddress::from_ipv4(0, 0, 0, 0)
     }
+
+    /// Is this a private IP address?
+    pub fn is_in_private_range(&self) -> bool {
+        if self.is_ipv4() {
+            // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
+            self.0[12] == 10
+                || (self.0[12] == 172 && self.0[13] >= 16 && self.0[13] <= 31)
+                || (self.0[12] == 192 && self.0[13] == 168)
+        } else {
+            self.0[0] >= 0xfc
+        }
+    }
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
@@ -1010,18 +1022,47 @@ pub struct RPCPeerInfoData {
     pub exit_at_block_height: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxCurrentCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub stacked_ustx: u64,
+    pub is_pox_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxNextCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub min_increment_ustx: u64,
+    pub stacked_ustx: u64,
+    pub prepare_phase_start_block_height: u64,
+    pub blocks_until_prepare_phase: i64,
+    pub reward_phase_start_block_height: u64,
+    pub blocks_until_reward_phase: u64,
+    pub ustx_until_pox_rejection: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
+    pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub prepare_phase_block_length: u64,
+    pub reward_phase_block_length: u64,
+    pub reward_slots: u64,
+    pub rejection_fraction: u64,
+    pub total_liquid_supply_ustx: u64,
+    pub current_cycle: RPCPoxCurrentCycleInfo,
+    pub next_cycle: RPCPoxNextCycleInfo,
+
+    // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
     pub prepare_cycle_length: u64,
-    pub rejection_fraction: u64,
     pub reward_cycle_id: u64,
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
-    pub total_liquid_supply_ustx: u64,
     pub next_reward_cycle_in: u64,
 }
 
@@ -1056,6 +1097,11 @@ pub struct ContractSrcResponse {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marf_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetIsTraitImplementedResponse {
+    pub is_implemented: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1204,6 +1250,7 @@ pub enum HttpRequestType {
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
+    PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(
         HttpRequestMetadata,
@@ -1246,6 +1293,13 @@ pub enum HttpRequestType {
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    GetIsTraitImplemented(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        TraitIdentifier,
+        Option<StacksBlockId>,
+    ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1328,6 +1382,7 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
+    StacksBlockAccepted(HttpResponseMetadata, StacksBlockId, bool),
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
@@ -1335,6 +1390,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
@@ -1465,6 +1521,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 pub use self::http::StacksHttp;
+use vm::types::TraitIdentifier;
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();
@@ -1561,12 +1618,12 @@ impl PartialEq for NeighborKey {
 impl fmt::Display for NeighborKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let peer_version_str = if self.peer_version > 0 {
-            format!("{:08x}", self.peer_version).to_string()
+            format!("{:08x}", self.peer_version)
         } else {
             "UNKNOWN".to_string()
         };
         let network_id_str = if self.network_id > 0 {
-            format!("{:08x}", self.network_id).to_string()
+            format!("{:08x}", self.network_id)
         } else {
             "UNKNOWN".to_string()
         };
@@ -1635,6 +1692,10 @@ impl Neighbor {
         self.allowed < 0 || (self.allowed as u64) > get_epoch_time_secs()
     }
 
+    pub fn is_always_allowed(&self) -> bool {
+        self.allowed < 0
+    }
+
     pub fn is_denied(&self) -> bool {
         self.denied < 0 || (self.denied as u64) > get_epoch_time_secs()
     }
@@ -1669,15 +1730,21 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
+    pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
     pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
+    pub num_download_passes: u64,
 }
 
 impl NetworkResult {
-    pub fn new(num_state_machine_passes: u64, num_inv_sync_passes: u64) -> NetworkResult {
+    pub fn new(
+        num_state_machine_passes: u64,
+        num_inv_sync_passes: u64,
+        num_download_passes: u64,
+    ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
@@ -1687,11 +1754,13 @@ impl NetworkResult {
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_attachments: vec![],
             attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
+            num_download_passes: num_download_passes,
         }
     }
 
@@ -1780,6 +1849,9 @@ impl NetworkResult {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
+                }
+                StacksMessageType::Blocks(block_data) => {
+                    self.uploaded_blocks.push(block_data);
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
@@ -2278,8 +2350,8 @@ pub mod test {
             )
             .unwrap();
 
-            let chainstate_path = get_chainstate_path(&test_path);
-            let peerdb_path = format!("{}/peers.db", &test_path);
+            let chainstate_path = get_chainstate_path_str(&test_path);
+            let peerdb_path = format!("{}/peers.sqlite", &test_path);
 
             let mut peerdb = PeerDB::connect(
                 &peerdb_path,
@@ -2295,8 +2367,23 @@ pub mod test {
                 Some(&config.initial_neighbors),
             )
             .unwrap();
+            {
+                // bootstrap nodes *always* allowed
+                let mut tx = peerdb.tx_begin().unwrap();
+                for initial_neighbor in config.initial_neighbors.iter() {
+                    PeerDB::set_allow_peer(
+                        &mut tx,
+                        initial_neighbor.addr.network_id,
+                        &initial_neighbor.addr.addrbytes,
+                        initial_neighbor.addr.port,
+                        -1,
+                    )
+                    .unwrap();
+                }
+                tx.commit().unwrap();
+            }
 
-            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb =
                 AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
@@ -2374,8 +2461,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
+            let mut coord = ChainsCoordinator::test_new(
+                &burnchain,
+                config.network_id,
+                &test_path,
+                OnChainRewardSetProvider(),
+                tx,
+            );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2431,9 +2523,9 @@ pub mod test {
 
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                ic.get_burnchain_view(&config.burnchain, &chaintip).unwrap()
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &config.burnchain, &chaintip)
+                    .unwrap()
             };
             let mut peer_network = PeerNetwork::new(
                 peerdb,
@@ -2466,10 +2558,14 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.sortdb {
                 Some(ref mut sortdb) => {
-                    let ic = sortdb.index_conn();
-                    let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                    ic.get_burnchain_view(&self.config.burnchain, &chaintip)
-                        .unwrap()
+                    let chaintip =
+                        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                    SortitionDB::get_burnchain_view(
+                        &sortdb.conn(),
+                        &self.config.burnchain,
+                        &chaintip,
+                    )
+                    .unwrap()
                 }
                 None => panic!("Misconfigured peer: no sortdb"),
             };
@@ -2498,6 +2594,7 @@ pub mod test {
                 &mut mempool,
                 None,
                 false,
+                false,
                 10,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2520,6 +2617,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
+                false,
                 false,
                 10,
                 &RPCHandlerArgs::default(),
@@ -3191,9 +3289,8 @@ pub mod test {
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
-                let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                ic.get_burnchain_view(&self.config.burnchain, &chaintip)
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.config.burnchain, &chaintip)
             };
             self.sortdb = Some(sortdb);
             view_res

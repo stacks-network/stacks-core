@@ -28,7 +28,7 @@ use vm::database::{
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
 use chainstate::burn::BlockHeaderHash;
@@ -338,7 +338,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", false),
                     &*BOOT_CODE_COST_VOTING,
@@ -352,6 +352,10 @@ impl ClarityInstance {
                     None,
                     |_, _| false,
                 )
+                .unwrap();
+
+            clarity_db
+                .save_analysis(&boot_code_id("cost-voting", false), &analysis)
                 .unwrap();
         });
 
@@ -844,9 +848,14 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
         self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount).map_err(Error::from),
+            |vm_env| {
+                vm_env
+                    .stx_transfer(from, to, amount, memo)
+                    .map_err(Error::from)
+            },
             |_, _| false,
         )
         .and_then(|(value, assets, events, _)| Ok((value, assets, events)))

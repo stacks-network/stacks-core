@@ -14,9 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde::Deserialize;
 use std::convert::TryInto;
 use std::io::Write;
 use util::hash::{hex_bytes, to_hex};
+use vm::analysis::ContractAnalysis;
 use vm::contracts::Contract;
 use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
@@ -51,7 +53,14 @@ macro_rules! clarity_serializable {
         }
         impl ClarityDeserializable<$Name> for $Name {
             fn deserialize(json: &str) -> Self {
-                serde_json::from_str(json).expect("Failed to serialize vm.Value")
+                let mut deserializer = serde_json::Deserializer::from_str(&json);
+                // serde's default 128 depth limit can be exhausted
+                //  by a 64-stack-depth AST, so disable the recursion limit
+                deserializer.disable_recursion_limit();
+                // use stacker to prevent the deserializer from overflowing.
+                //  this will instead spill to the heap
+                let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
+                Deserialize::deserialize(deserializer).expect("Failed to deserialize vm.Value")
             }
         }
     };
@@ -109,6 +118,7 @@ clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
 clarity_serializable!(Contract);
+clarity_serializable!(ContractAnalysis);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct STXBalance {

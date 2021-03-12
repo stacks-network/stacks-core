@@ -673,15 +673,17 @@ fn test_options_errors() {
 #[test]
 fn test_stx_ops_errors() {
     let tests = [
-        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-transfer? u4 u3 u2)",
+        r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x000000000000000000000000000000000000000000000000000000000000000000)"#,
+        r#"(stx-transfer? u4 u3 u2 0x00)"#,
+        r#"(stx-transfer? u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
 
     let expectations: &[Error] = &[
         CheckErrors::IncorrectArgumentCount(3, 2).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),

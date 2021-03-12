@@ -310,8 +310,14 @@ impl<'a> RollbackWrapper<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId> {
-        self.query_pending_data = query_pending_data;
-        self.store.set_block_hash(bhh)
+        self.store.set_block_hash(bhh).and_then(|x| {
+            // use and_then so that query_pending_data is only set once set_block_hash succeeds
+            //  this doesn't matter in practice, because a set_block_hash failure always aborts
+            //  the transaction with a runtime error (destroying its environment), but it's much
+            //  better practice to do this, especially if the abort behavior changes in the future.
+            self.query_pending_data = query_pending_data;
+            Ok(x)
+        })
     }
 
     /// this function will only return commitment proofs for values _already_ materialized

@@ -61,7 +61,7 @@ use core::NETWORK_P2P_PORT;
 
 use util::strings::UrlString;
 
-pub const PEERDB_VERSION: &'static str = "23.0.0.0";
+pub const PEERDB_VERSION: &'static str = "1";
 
 const NUM_SLOTS: usize = 8;
 
@@ -297,7 +297,8 @@ impl FromRow<Neighbor> for Neighbor {
 // it is still online, the new peer will _not_ be inserted.  If it is offline, then it will be.
 // This is done to ensure that the frontier represents live, long-lived peers to the greatest
 // extent possible.
-const PEERDB_SETUP: &'static [&'static str] = &[
+
+const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE frontier(
         peer_version INTEGER NOT NULL,
@@ -320,9 +321,7 @@ const PEERDB_SETUP: &'static [&'static str] = &[
 
         PRIMARY KEY(slot)
     );"#,
-    r#"
-    CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);
-    "#,
+    "CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);",
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -333,9 +332,7 @@ const PEERDB_SETUP: &'static [&'static str] = &[
 
         PRIMARY KEY(prefix,mask)
     );"#,
-    r#"
-    CREATE TABLE db_version(version TEXT NOT NULL);
-    "#,
+    "CREATE TABLE db_config(version TEXT NOT NULL);",
     r#"
     CREATE TABLE local_peer(
         network_id INT NOT NULL,
@@ -391,13 +388,12 @@ impl PeerDB {
 
         let mut tx = self.tx_begin()?;
 
-        for row_text in PEERDB_SETUP {
-            tx.execute(row_text, NO_PARAMS)
-                .map_err(db_error::SqliteError)?;
+        for row_text in PEERDB_INITIAL_SCHEMA {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
         tx.execute(
-            "INSERT INTO db_version (version) VALUES (?1)",
+            "INSERT INTO db_config (version) VALUES (?1)",
             &[&PEERDB_VERSION],
         )
         .map_err(db_error::SqliteError)?;
@@ -1343,7 +1339,7 @@ impl PeerDB {
 
         let qry = "SELECT * FROM asn4 WHERE prefix = (?1 & ~((1 << (32 - mask)) - 1)) ORDER BY prefix DESC LIMIT 1".to_string();
         let args = [&addr_u32 as &dyn ToSql];
-        let rows = query_rows::<ASEntry4, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<ASEntry4, _>(conn, &qry, &args)?;
         match rows.len() {
             0 => Ok(None),
             _ => Ok(Some(rows[0].asn)),

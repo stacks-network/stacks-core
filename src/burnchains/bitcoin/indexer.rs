@@ -117,7 +117,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: "./spv-headers.dat".to_string(),
+            spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
         }
@@ -277,14 +277,14 @@ impl BitcoinIndexerConfig {
                 ]);
 
                 let cfg = BitcoinIndexerConfig {
-                    peer_host: peer_host.to_string(),
+                    peer_host: peer_host,
                     peer_port: peer_port,
                     rpc_port: rpc_port,
                     rpc_ssl: rpc_ssl,
                     username: username,
                     password: password,
                     timeout: timeout,
-                    spv_headers_path: spv_headers_path.to_string(),
+                    spv_headers_path: spv_headers_path,
                     first_block: first_block,
                     magic_bytes: blockstack_magic,
                 };
@@ -779,11 +779,8 @@ impl BurnchainIndexer for BitcoinIndexer {
         network_name: &String,
         first_block_height: u64,
     ) -> Result<BitcoinIndexer, burnchain_error> {
-        let conf_path_str = Burnchain::get_chainstate_config_path(
-            working_dir,
-            &"bitcoin".to_string(),
-            network_name,
-        );
+        let conf_path_str =
+            Burnchain::get_chainstate_config_path(working_dir, &"bitcoin".to_string());
 
         let network_id_opt = match network_name.as_ref() {
             BITCOIN_MAINNET_NAME => Some(BitcoinNetworkType::Mainnet),
@@ -793,9 +790,10 @@ impl BurnchainIndexer for BitcoinIndexer {
         };
 
         if network_id_opt.is_none() {
-            return Err(burnchain_error::Bitcoin(btc_error::ConfigError(
-                format!("Unrecognized network name '{}'", network_name).to_string(),
-            )));
+            return Err(burnchain_error::Bitcoin(btc_error::ConfigError(format!(
+                "Unrecognized network name '{}'",
+                network_name
+            ))));
         }
         let bitcoin_network_id = network_id_opt.unwrap();
 
@@ -1403,7 +1401,7 @@ mod test {
             username: None,
             password: None,
             timeout: 30,
-            spv_headers_path: "/tmp/test_indexer_sync_headers.db".to_string(),
+            spv_headers_path: "/tmp/test_indexer_sync_headers.sqlite".to_string(),
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
         };

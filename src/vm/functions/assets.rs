@@ -25,7 +25,8 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, BlockInfoProperty, BuffData, OptionalData, PrincipalData, TypeSignature, Value,
+    AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
+    SequenceData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
 
@@ -104,6 +105,7 @@ pub fn stx_transfer_consolidated(
     from: &PrincipalData,
     to: &PrincipalData,
     amount: u128,
+    memo: &BuffData,
 ) -> Result<Value> {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
@@ -139,7 +141,7 @@ pub fn stx_transfer_consolidated(
     sender_snapshot.transfer_to(to, amount)?;
 
     env.global_context.log_stx_transfer(&from, amount)?;
-    env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
+    env.register_stx_transfer_event(from.clone(), to.clone(), amount, memo.clone())?;
     Ok(Value::okay_true())
 }
 
@@ -148,18 +150,33 @@ pub fn special_stx_transfer(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let memo_passed;
+    if let Ok(()) = check_argument_count(4, args) {
+        memo_passed = true;
+    } else {
+        check_argument_count(3, args)?;
+        memo_passed = false;
+    }
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
     let to_val = eval(&args[2], env, context)?;
+    let memo_val = if memo_passed {
+        eval(&args[3], env, context)?
+    } else {
+        Value::Sequence(SequenceData::Buffer(BuffData::empty()))
+    };
 
-    if let (Value::Principal(ref from), Value::Principal(ref to), Value::UInt(amount)) =
-        (&from_val, to_val, amount_val)
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
     {
-        stx_transfer_consolidated(env, from, to, amount)
+        stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }

@@ -239,6 +239,7 @@ impl HttpPeer {
             Ok(addr) => addr,
             Err(e) => {
                 warn!("Failed to get peer address of {:?}: {:?}", &socket, &e);
+                let _ = network_state.deregister(event_id, &socket);
                 return Err(net_error::SocketError);
             }
         };
@@ -1089,6 +1090,7 @@ mod test {
     fn test_http_too_many_clients() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.num_clients = 1;
+        conn_opts.max_http_clients = 1;
 
         let have_success = RefCell::new(false);
         let have_error = RefCell::new(false);

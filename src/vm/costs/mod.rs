@@ -989,6 +989,21 @@ impl ExecutionCost {
         }
     }
 
+    /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
+    pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
+        [
+            numerator.runtime / cmp::max(1, self.runtime / 100),
+            numerator.write_length / cmp::max(1, self.write_length / 100),
+            numerator.write_count / cmp::max(1, self.write_count / 100),
+            numerator.read_length / cmp::max(1, self.read_length / 100),
+            numerator.read_count / cmp::max(1, self.read_count / 100),
+        ]
+        .iter()
+        .max()
+        .expect("BUG: should find maximum")
+        .clone()
+    }
+
     pub fn max_value() -> ExecutionCost {
         Self {
             runtime: u64::max_value(),

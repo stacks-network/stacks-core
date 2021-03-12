@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to get trait implementation information",
+  "title": "IsTraitImplementedSuccessResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["is_implemented"],
+  "properties": {
+    "is_implemented": {
+      "type": "boolean"
+    },
+  }
+}

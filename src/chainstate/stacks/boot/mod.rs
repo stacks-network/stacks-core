@@ -53,6 +53,8 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
@@ -211,9 +213,36 @@ impl StacksChainState {
         .map(|value| value.expect_u128())
     }
 
+    pub fn get_total_ustx_stacked(
+        &mut self,
+        sortdb: &SortitionDB,
+        tip: &StacksBlockId,
+        reward_cycle: u128,
+    ) -> Result<u128, Error> {
+        let function = "get-total-ustx-stacked";
+        let mainnet = self.mainnet;
+        let contract_identifier = boot_code_id("pox", mainnet);
+        let cost_track = LimitedCostTracker::new_free();
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+        let result = self
+            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
+                    env.execute_contract(
+                        &contract_identifier,
+                        function,
+                        &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                        true,
+                    )
+                })
+            })?
+            .ok_or_else(|| Error::NoSuchBlockError)??
+            .expect_u128();
+        Ok(result)
+    }
+
     /// Determine how many uSTX are stacked in a given reward cycle
     #[cfg(test)]
-    pub fn get_total_ustx_stacked(
+    pub fn test_get_total_ustx_stacked(
         &mut self,
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
@@ -270,14 +299,36 @@ impl StacksChainState {
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
             info!(
                 "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
-                &address, slots_taken, stacked_amt, threshold
+                &address.clone().to_b58(),
+                slots_taken,
+                stacked_amt,
+                threshold
             );
             for _i in 0..slots_taken {
                 test_debug!("Add to PoX reward set: {:?}", &address);
                 reward_set.push(address.clone());
             }
         }
+        info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
         reward_set
+    }
+
+    pub fn get_threshold_from_participation(
+        liquid_ustx: u128,
+        participation: u128,
+        reward_slots: u128,
+    ) -> u128 {
+        // set the lower limit on reward scaling at 25% of liquid_ustx
+        //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
+        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+        let threshold_precise = scale_by / reward_slots;
+        // compute the threshold as nearest 10k > threshold_precise
+        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
+            0 => 0,
+            remainder => POX_THRESHOLD_STEPS_USTX - remainder,
+        };
+        let threshold = threshold_precise + ceil_amount;
+        return threshold;
     }
 
     pub fn get_reward_threshold_and_participation(
@@ -1592,7 +1643,11 @@ pub mod test {
                 })
                 .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                    chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    chainstate.test_get_total_ustx_stacked(
+                        sortdb,
+                        &tip_index_block,
+                        cur_reward_cycle,
+                    )
                 })
                 .unwrap();
 
@@ -1839,7 +1894,11 @@ pub mod test {
                 })
                 .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                    chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    chainstate.test_get_total_ustx_stacked(
+                        sortdb,
+                        &tip_index_block,
+                        cur_reward_cycle,
+                    )
                 })
                 .unwrap();
 
@@ -2048,7 +2107,11 @@ pub mod test {
                 })
                 .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                    chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    chainstate.test_get_total_ustx_stacked(
+                        sortdb,
+                        &tip_index_block,
+                        cur_reward_cycle,
+                    )
                 })
                 .unwrap();
 
@@ -2727,7 +2790,11 @@ pub mod test {
                 })
                 .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                    chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    chainstate.test_get_total_ustx_stacked(
+                        sortdb,
+                        &tip_index_block,
+                        cur_reward_cycle,
+                    )
                 })
                 .unwrap();
 
@@ -2977,7 +3044,7 @@ pub mod test {
             })
             .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
 
@@ -3616,7 +3683,7 @@ pub mod test {
             })
             .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
 
@@ -3918,11 +3985,15 @@ pub mod test {
             })
             .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
             let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
-                chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle + 1)
+                chainstate.test_get_total_ustx_stacked(
+                    sortdb,
+                    &tip_index_block,
+                    cur_reward_cycle + 1,
+                )
             })
             .unwrap();
 

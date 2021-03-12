@@ -420,7 +420,7 @@ impl Neighbor {
 
         let mut neighbor = match peer_opt {
             Some(neighbor) => {
-                let mut ret = neighbor.clone();
+                let mut ret = neighbor;
                 ret.addr = addr.clone();
                 ret
             }
@@ -2358,7 +2358,7 @@ mod test {
         fs::create_dir_all(&test_path).unwrap();
 
         let sortdb_path = format!("{}/burn", &test_path);
-        let peerdb_path = format!("{}/peers.db", &test_path);
+        let peerdb_path = format!("{}/peers.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let peerdb = PeerDB::connect(
@@ -2488,6 +2488,7 @@ mod test {
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
             next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
+            next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
             next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
             next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());

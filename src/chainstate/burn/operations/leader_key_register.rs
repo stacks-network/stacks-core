@@ -214,8 +214,8 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
             .map_err(net_error::WriteError)?;
 
         let memo = match self.memo.len() {
-            l if l <= 25 => self.memo[0..].to_vec().clone(),
-            _ => self.memo[0..25].to_vec().clone(),
+            l if l <= 25 => self.memo[0..].to_vec(),
+            _ => self.memo[0..25].to_vec(),
         };
         fd.write_all(&memo).map_err(net_error::WriteError)?;
         Ok(())
@@ -572,6 +572,7 @@ pub mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,

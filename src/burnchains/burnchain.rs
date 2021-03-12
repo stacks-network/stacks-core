@@ -340,7 +340,7 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_address(&self, network_type: BitcoinNetworkType) -> String {
+    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
@@ -559,24 +559,14 @@ impl Burnchain {
         ret
     }
 
-    pub fn get_chainstate_path(
-        working_dir: &String,
-        chain_name: &String,
-        network_name: &String,
-    ) -> String {
-        let mut chainstate_dir_path = PathBuf::from(working_dir);
-        chainstate_dir_path.push(chain_name);
-        chainstate_dir_path.push(network_name);
+    pub fn get_chainstate_path_str(working_dir: &String) -> String {
+        let chainstate_dir_path = PathBuf::from(working_dir);
         let dirpath = chainstate_dir_path.to_str().unwrap().to_string();
         dirpath
     }
 
-    pub fn get_chainstate_config_path(
-        working_dir: &String,
-        chain_name: &String,
-        network_name: &String,
-    ) -> String {
-        let chainstate_dir = Burnchain::get_chainstate_path(working_dir, chain_name, network_name);
+    pub fn get_chainstate_config_path(working_dir: &String, chain_name: &String) -> String {
+        let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let mut config_pathbuf = PathBuf::from(&chainstate_dir);
         let chainstate_config_name = format!("{}.ini", chain_name);
         config_pathbuf.push(&chainstate_config_name);
@@ -584,12 +574,8 @@ impl Burnchain {
         config_pathbuf.to_str().unwrap().to_string()
     }
 
-    pub fn setup_chainstate_dirs(
-        working_dir: &String,
-        chain_name: &String,
-        network_name: &String,
-    ) -> Result<(), burnchain_error> {
-        let chainstate_dir = Burnchain::get_chainstate_path(working_dir, chain_name, network_name);
+    pub fn setup_chainstate_dirs(working_dir: &String) -> Result<(), burnchain_error> {
+        let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let chainstate_pathbuf = PathBuf::from(&chainstate_dir);
 
         if !chainstate_pathbuf.exists() {
@@ -599,7 +585,7 @@ impl Burnchain {
     }
 
     pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
-        Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
+        Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
         let indexer: I = BurnchainIndexer::init(
             &self.working_dir,
@@ -633,20 +619,18 @@ impl Burnchain {
     }
 
     pub fn get_db_path(&self) -> String {
-        let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
+        let chainstate_dir = Burnchain::get_chainstate_path_str(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
-        db_pathbuf.push("sortition.db");
+        db_pathbuf.push("sortition");
 
         let db_path = db_pathbuf.to_str().unwrap().to_string();
         db_path
     }
 
     pub fn get_burnchaindb_path(&self) -> String {
-        let chainstate_dir =
-            Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
+        let chainstate_dir = Burnchain::get_chainstate_path_str(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
-        db_pathbuf.push("burnchain.db");
+        db_pathbuf.push("burnchain.sqlite");
 
         let db_path = db_pathbuf.to_str().unwrap().to_string();
         db_path
@@ -657,7 +641,7 @@ impl Burnchain {
         indexer: &I,
         readwrite: bool,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
-        Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
+        Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
         let first_block_header_hash = indexer.get_first_block_header_hash()?;
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
@@ -923,6 +907,7 @@ impl Burnchain {
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
         db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
+            .map(|(snapshot, transition, _)| (snapshot, transition))
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -1949,6 +1934,7 @@ pub mod tests {
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
+            parent_sortition_id: SortitionId(block_121_hash.0.clone()),
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
@@ -1994,6 +1980,7 @@ pub mod tests {
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
+            parent_sortition_id: block_121_snapshot.sortition_id.clone(),
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
@@ -2046,6 +2033,7 @@ pub mod tests {
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
+            parent_sortition_id: block_122_snapshot.sortition_id.clone(),
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
@@ -2155,6 +2143,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_121_snapshot.index_root = sn121.index_root.clone();
+            block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
             assert_eq!(sn121, block_121_snapshot);
         }
         {
@@ -2177,6 +2166,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_122_snapshot.index_root = sn122.index_root.clone();
+            block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
             assert_eq!(sn122, block_122_snapshot);
         }
         {
@@ -2198,6 +2188,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_123_snapshot.index_root = sn123.index_root.clone();
+            block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
             assert_eq!(sn123, block_123_snapshot);
         }
 
@@ -2243,6 +2234,7 @@ pub mod tests {
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),
+                parent_sortition_id: block_123_snapshot.sortition_id.clone(),
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
@@ -2308,6 +2300,7 @@ pub mod tests {
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
+                block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
                 sn124
             };
 
