@@ -4283,8 +4283,11 @@ impl PeerNetwork {
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
         match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-            let mut known_attachments = attachments_downloader
-                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+            let mut known_attachments = attachments_downloader.enqueue_new_attachments(
+                attachment_requests,
+                &mut network.atlasdb,
+                false,
+            )?;
             network_result.attachments.append(&mut known_attachments);
             Ok(())
         }) {

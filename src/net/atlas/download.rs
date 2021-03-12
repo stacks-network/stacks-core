@@ -58,7 +58,8 @@ impl AttachmentsDownloader {
             for attachment_instance in self.initial_batch.drain(..) {
                 batch.insert(attachment_instance);
             }
-            let mut resolved = self.enqueue_new_attachments(&mut batch, &mut network.atlasdb)?;
+            let mut resolved =
+                self.enqueue_new_attachments(&mut batch, &mut network.atlasdb, true)?;
             resolved_attachments.append(&mut resolved);
         }
 
@@ -169,6 +170,7 @@ impl AttachmentsDownloader {
         &mut self,
         new_attachments: &mut HashSet<AttachmentInstance>,
         atlasdb: &mut AtlasDB,
+        initial_batch: bool,
     ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
         if new_attachments.is_empty() {
             return Ok(vec![]);
@@ -227,9 +229,12 @@ impl AttachmentsDownloader {
                     v.insert(batch);
                 }
             };
-            atlasdb
-                .insert_uninstantiated_attachment_instance(&attachment_instance, false)
-                .map_err(|e| net_error::DBError(e))?;
+
+            if !initial_batch {
+                atlasdb
+                    .insert_uninstantiated_attachment_instance(&attachment_instance, false)
+                    .map_err(|e| net_error::DBError(e))?;
+            }
         }
 
         for (_, batch) in attachments_batches.into_iter() {
@@ -397,7 +402,7 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (request, mut response) in results.succeeded.drain() {
+        for (request, response) in results.succeeded.drain() {
             let report = self
                 .peers
                 .get_mut(request.get_url())
@@ -433,7 +438,7 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (request, mut response) in results.succeeded.drain() {
+        for (request, response) in results.succeeded.drain() {
             let report = self
                 .peers
                 .get_mut(request.get_url())
