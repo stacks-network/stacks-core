@@ -4284,7 +4284,7 @@ impl PeerNetwork {
         // enqueue them.
         match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
             let mut known_attachments = attachments_downloader
-                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb, false)?;
             network_result.attachments.append(&mut known_attachments);
             Ok(())
         }) {
