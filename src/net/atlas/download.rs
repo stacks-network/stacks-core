@@ -402,7 +402,7 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (request, mut response) in results.succeeded.drain() {
+        for (request, response) in results.succeeded.drain() {
             let report = self
                 .peers
                 .get_mut(request.get_url())
@@ -438,7 +438,7 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (request, mut response) in results.succeeded.drain() {
+        for (request, response) in results.succeeded.drain() {
             let report = self
                 .peers
                 .get_mut(request.get_url())
