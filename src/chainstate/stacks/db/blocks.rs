@@ -63,8 +63,8 @@ use net::Error as net_error;
 use net::MAX_MESSAGE_LEN;
 
 use vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 use vm::contexts::AssetMap;

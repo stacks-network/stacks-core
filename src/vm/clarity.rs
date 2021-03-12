@@ -28,7 +28,8 @@ use vm::database::{
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    TypeSignature, Value,
 };
 
 use chainstate::burn::BlockHeaderHash;

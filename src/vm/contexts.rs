@@ -37,8 +37,8 @@ use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
 use vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, Value,
 };
 use vm::{eval, is_reserved};
 

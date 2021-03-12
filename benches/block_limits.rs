@@ -27,7 +27,7 @@ use std::fs;
 use std::process;
 use std::{env, time::Instant};
 
-use blockstack_lib::vm::types::{OptionalData, BuffData};
+use blockstack_lib::vm::types::{BuffData, OptionalData};
 use rand::Rng;
 
 struct TestHeadersDB;
