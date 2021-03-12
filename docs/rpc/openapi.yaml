@@ -1,0 +1,381 @@
+openapi: 3.0.2
+servers:
+  - url: http://localhost:20443/
+    description: Local
+info:
+  title: Stacks 2.0 RPC API
+  version: '1.0.0'
+  description: |
+    This is the documentation for the `stacks-node` RPC interface.
+
+paths:
+  /v2/transactions:
+    post:
+      summary: Broadcast raw transaction
+      tags:
+        - Transactions
+      description: Broadcast raw transactions on the network. You can use the [@stacks/transactions](https://github.com/blockstack/stacks.js) project to generate a raw transaction payload.
+      operationId: post_core_node_transactions
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+            example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
+      responses:
+        200:
+          description: Transaction id of successful post of a raw tx to the node's mempool
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
+        400:
+          description: Rejections result in a 400 error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/transaction/post-core-node-transactions-error.schema.json
+              example:
+                $ref: ./api/transaction/post-core-node-transactions-error.example.json
+
+  /v2/contracts/interface/{contract_address}/{contract_name}:
+    get:
+      summary: Get contract interface
+      description: Get contract interface using a `contract_address` and `contract name`
+      tags:
+        - Smart Contracts
+      operationId: get_contract_interface
+      responses:
+        200:
+          description: Contract interface
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-contract-interface.schema.json
+              example:
+                $ref: ./api/core-node/get-contract-interface.example.json
+    parameters:
+      - name: contract_address
+        in: path
+        required: true
+        description: Stacks address
+        schema:
+          type: string
+      - name: contract_name
+        in: path
+        required: true
+        description: Contract name
+        schema:
+          type: string
+      - name: tip
+        in: query
+        schema:
+          type: string
+        description: The Stacks chain tip to query from
+
+  /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
+    post:
+      summary: Get specific data-map inside a contract
+      tags:
+        - Smart Contracts
+      operationId: get_contract_data_map_entry
+      description: |
+        Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The map is identified with [Map Name].
+
+        The key to lookup in the map is supplied via the POST body. This should be supplied as the hex string serialization of the key (which should be a Clarity value). Note, this is a JSON string atom.
+
+        In the response, `data` is the hex serialization of the map response. Note that map responses are Clarity option types, for non-existent values, this is a serialized none, and for all other responses, it is a serialized (some ...) object.
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-contract-data-map-entry.schema.json
+              example:
+                $ref: ./api/core-node/get-contract-data-map-entry.example.json
+        400:
+          description: Failed loading data map
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: map_name
+          in: path
+          required: true
+          description: Map name
+          schema:
+            type: string
+        - name: proof
+          in: query
+          description: Returns object without the proof field when set to 0
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from
+      x-codegen-request-body-name: key
+      requestBody:
+        description: Hex string serialization of the lookup key (which should be a Clarity value)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+
+  /v2/contracts/source/{contract_address}/{contract_name}:
+    get:
+      summary: Get contract source
+      tags:
+        - Smart Contracts
+      operationId: get_contract_source
+      description: Returns the Clarity source code of a given contract, along with the block height it was published in, and the MARF proof for the data
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-contract-source.schema.json
+              example:
+                $ref: ./api/core-node/get-contract-source.example.json
+    parameters:
+      - name: contract_address
+        in: path
+        required: true
+        description: Stacks address
+        schema:
+          type: string
+      - name: contract_name
+        in: path
+        required: true
+        description: Contract name
+        schema:
+          type: string
+      - name: proof
+        in: query
+        description: Returns object without the proof field if set to 0
+        schema:
+          type: integer
+      - name: tip
+        in: query
+        schema:
+          type: string
+        description: The Stacks chain tip to query from
+        required: false
+
+  /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
+    post:
+      summary: Call read-only function
+      tags:
+        - Smart Contracts
+      operationId: call_read_only_function
+      description: |
+        Call a read-only public function on a given smart contract.
+
+        The smart contract and function are specified using the URL path. The arguments and the simulated tx-sender are supplied via the POST body in the following JSON format:
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/contract/post-call-read-only-fn.schema.json
+              examples:
+                success:
+                  $ref: ./api/contract/post-call-read-only-fn-success.example.json
+                fail:
+                  $ref: ./api/contract/post-call-read-only-fn-fail.example.json
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: function_name
+          in: path
+          required: true
+          description: Function name
+          schema:
+            type: string
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from
+          required: false
+      requestBody:
+        description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './entities/contracts/read-only-function-args.schema.json'
+              example:
+                sender: 'SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info'
+                arguments:
+                  - '0x0011...'
+                  - '0x00231...'
+
+  /v2/accounts/{principal}:
+    get:
+      summary: Get account info
+      tags:
+        - Accounts
+      operationId: get_account_info
+      description: |
+        Get the account data for the provided principal
+
+        Where balance is the hex encoding of a unsigned 128-bit integer (big-endian), nonce is a unsigned 64-bit integer, and the proofs are provided as hex strings.
+
+        For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
+      parameters:
+        - name: principal
+          in: path
+          description: Stacks address or a Contract identifier (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`)
+          required: true
+          schema:
+            type: string
+        - name: proof
+          in: query
+          description: Returns object without the proof field if set to 0
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-account-data.schema.json
+              example:
+                $ref: ./api/core-node/get-account-data.example.json
+
+  /v2/fees/transfer:
+    get:
+      summary: Get estimated fee
+      tags:
+        - Fees
+      operationId: get_fee_transfer
+      description: Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-fee-transfer.schema.json
+              example:
+                $ref: ./api/core-node/get-fee-transfer.example.json
+
+  /v2/info:
+    get:
+      summary: Get Core API info
+      description: Get Core API information
+      tags:
+        - Info
+      operationId: get_core_api_info
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-info.schema.json
+              example:
+                $ref: ./api/core-node/get-info.example.json
+
+  /v2/pox:
+    get:
+      summary: Get PoX details
+      description: Get Proof of Transfer (PoX) information. Can be used for Stacking.
+      tags:
+        - Info
+      operationId: get_pox_info
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-pox.schema.json
+              example:
+                $ref: ./api/core-node/get-pox.example.json
+
+  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
+    get:
+      summary: Get trait implementation details
+      description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
+      tags:
+        - Smart Contracts
+      operationId: get_is_trait_implemented
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/trait/get-is-trait-implemented.schema.json
+              example:
+                $ref: ./api/trait/get-is-trait-implemented.example.json
+    parameters:
+      - name: contract_address
+        in: path
+        required: true
+        description: Stacks address
+        schema:
+          type: string
+      - name: contract_name
+        in: path
+        required: true
+        description: Contract name
+        schema:
+          type: string
+      - name: trait_contract_address
+        in: path
+        required: true
+        description: Trait Stacks address
+        schema:
+          type: string
+      - name: trait_contract_name
+        in: path
+        required: true
+        description: Trait contract name
+        schema:
+          type: string
+      - name: trait_name
+        in: path
+        required: true
+        description: Trait name
+        schema:
+          type: string
+      - name: tip
+        in: query
+        schema:
+          type: string
+        description: The Stacks chain tip to query from

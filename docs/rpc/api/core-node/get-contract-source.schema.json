@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to get contract source",
+  "title": "ContractSourceResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "publish_height", "proof"],
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "publish_height": {
+      "type": "integer"
+    },
+    "proof": {
+      "type": "string"
+    }
+  }
+}

@@ -1022,18 +1022,47 @@ pub struct RPCPeerInfoData {
     pub exit_at_block_height: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxCurrentCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub stacked_ustx: u64,
+    pub is_pox_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxNextCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub min_increment_ustx: u64,
+    pub stacked_ustx: u64,
+    pub prepare_phase_start_block_height: u64,
+    pub blocks_until_prepare_phase: i64,
+    pub reward_phase_start_block_height: u64,
+    pub blocks_until_reward_phase: u64,
+    pub ustx_until_pox_rejection: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
+    pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub prepare_phase_block_length: u64,
+    pub reward_phase_block_length: u64,
+    pub reward_slots: u64,
+    pub rejection_fraction: u64,
+    pub total_liquid_supply_ustx: u64,
+    pub current_cycle: RPCPoxCurrentCycleInfo,
+    pub next_cycle: RPCPoxNextCycleInfo,
+
+    // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
     pub prepare_cycle_length: u64,
-    pub rejection_fraction: u64,
     pub reward_cycle_id: u64,
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
-    pub total_liquid_supply_ustx: u64,
     pub next_reward_cycle_in: u64,
 }
 
@@ -1068,6 +1097,11 @@ pub struct ContractSrcResponse {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marf_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetIsTraitImplementedResponse {
+    pub is_implemented: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1276,6 +1310,13 @@ pub enum HttpRequestType {
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
+    GetIsTraitImplemented(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        TraitIdentifier,
+        Option<StacksBlockId>,
+    ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1366,6 +1407,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
@@ -1496,6 +1538,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 pub use self::http::StacksHttp;
+use vm::types::TraitIdentifier;
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();

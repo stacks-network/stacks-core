@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to get contract interface",
+  "title": "ContractInterfaceResponse",
+  "type": "object",
+  "required": ["functions", "variables", "maps", "fungible_tokens", "non_fungible_tokens"],
+  "properties": {
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "List of defined methods"
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "List of defined variables"
+    },
+    "maps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "List of defined data-maps"
+    },
+    "fungible_tokens": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "List of fungible tokens in the contract"
+    },
+    "non_fungible_tokens": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "List of non-fungible tokens in the contract"
+    }
+  }
+}

@@ -73,6 +73,10 @@ Possible values for the "reason" field and "reason_data" field are:
 Reason types without additional information will not have a
 `reason_data` field.
 
+### GET /v2/pox
+
+Get current PoX-relevant information. See OpenAPI [spec](./rpc/openapi.yaml) for details.
+
 ### GET /v2/accounts/[Principal]
 
 Get the account data for the provided principal.
@@ -334,3 +338,9 @@ object of the following form:
   "cause": "Unchecked(PublicFunctionNotReadOnly(..."
 }
 ```
+
+### GET /v2/traits/[Stacks Address]/[Contract Name]/[Trait Stacks Address]/[Trait Contract Name]/[Trait Name]
+
+Determine whether a given trait is implemented within the specified contract (either explicitly or implicitly).
+
+See OpenAPI [spec](./rpc/openapi.yaml) for details.
