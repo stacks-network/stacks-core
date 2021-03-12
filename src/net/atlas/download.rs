@@ -174,8 +174,8 @@ impl AttachmentsDownloader {
             return Ok(vec![]);
         }
 
+        let mut attachments_batches: HashMap<StacksBlockId, AttachmentsBatch> = HashMap::new();
         let mut resolved_attachments = vec![];
-        let mut attachments_batch = AttachmentsBatch::new();
         for attachment_instance in new_attachments.drain() {
             // Are we dealing with an empty hash - allowed for undoing onchain binding
             if attachment_instance.content_hash == Hash160::empty() {
@@ -217,14 +217,23 @@ impl AttachmentsDownloader {
 
             // This attachment in refering to an unknown attachment.
             // Let's append it to the batch being constructed in this routine.
-            attachments_batch.track_attachment(&attachment_instance);
+            match attachments_batches.entry(attachment_instance.get_stacks_block_id()) {
+                Entry::Occupied(entry) => {
+                    entry.into_mut().track_attachment(&attachment_instance);
+                }
+                Entry::Vacant(v) => {
+                    let mut batch = AttachmentsBatch::new();
+                    batch.track_attachment(&attachment_instance);
+                    v.insert(batch);
+                }
+            };
             atlasdb
                 .insert_uninstantiated_attachment_instance(&attachment_instance, false)
                 .map_err(|e| net_error::DBError(e))?;
         }
 
-        if !attachments_batch.attachments_instances.is_empty() {
-            self.priority_queue.push(attachments_batch);
+        for (_, batch) in attachments_batches.into_iter() {
+            self.priority_queue.push(batch);
         }
 
         Ok(resolved_attachments)
@@ -1009,9 +1018,13 @@ impl AttachmentsBatch {
             self.consensus_hash = attachment.consensus_hash.clone();
             self.block_header_hash = attachment.block_header_hash;
         } else {
-            assert_eq!(self.block_height, attachment.block_height);
-            assert_eq!(self.consensus_hash, attachment.consensus_hash);
-            assert_eq!(self.block_header_hash, attachment.block_header_hash);
+            if self.block_height != attachment.block_height
+                || self.consensus_hash != attachment.consensus_hash
+                || self.block_header_hash != attachment.block_header_hash
+            {
+                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentBatch", attachment.attachment_index, attachment.consensus_hash);
+                return;
+            }
         }
 
         let inner_key = attachment.attachment_index;
