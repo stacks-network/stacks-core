@@ -39,7 +39,7 @@ fn new_attachment_instance_from(
         consensus_hash: ConsensusHash::empty(),
         metadata: "".to_string(),
         contract_id: QualifiedContractIdentifier::transient(),
-        block_header_hash: BlockHeaderHash([0x00; 32]),
+        block_header_hash: BlockHeaderHash([block_height as u8; 32]),
         tx_id: Txid([0; 32]),
     }
 }
@@ -93,13 +93,13 @@ fn new_attachments_inventory_request(
     req_success: u32,
 ) -> AttachmentsInventoryRequest {
     let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
+
     AttachmentsInventoryRequest {
         url,
         block_height,
         pages,
         contract_id: QualifiedContractIdentifier::transient(),
-        consensus_hash: ConsensusHash::empty(),
-        block_header_hash: BlockHeaderHash([0x00; 32]),
+        index_block_hash: StacksBlockId([0x00; 32]),
         reliability_report: ReliabilityReport::new(req_sent, req_success),
     }
 }
@@ -583,7 +583,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     assert_eq!(&**request.get_url(), "http://localhost:30443");
     assert_eq!(
         request_type.request_path(),
-        "/v2/attachments/inv?pages_indexes=1,2"
+        "/v2/attachments/inv?index_block_hash=8a5bb3d434d34af17cb49148191de2422ad4547b6dbd3e3dff882ac0e6e5f9f9&pages_indexes=1,2"
     );
 
     let request = request_queue.pop().unwrap();
@@ -591,7 +591,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     assert_eq!(&**request.get_url(), "http://localhost:20443");
     assert_eq!(
         request_type.request_path(),
-        "/v2/attachments/inv?pages_indexes=1,2"
+        "/v2/attachments/inv?index_block_hash=8a5bb3d434d34af17cb49148191de2422ad4547b6dbd3e3dff882ac0e6e5f9f9&pages_indexes=1,2"
     );
 
     let request = request_queue.pop().unwrap();
@@ -599,7 +599,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     assert_eq!(&**request.get_url(), "http://localhost:40443");
     assert_eq!(
         request_type.request_path(),
-        "/v2/attachments/inv?pages_indexes=1,2"
+        "/v2/attachments/inv?index_block_hash=8a5bb3d434d34af17cb49148191de2422ad4547b6dbd3e3dff882ac0e6e5f9f9&pages_indexes=1,2"
     );
 }
 
@@ -634,30 +634,39 @@ fn test_downloader_context_attachment_requests() {
     let mut inventories_requests = context.get_prioritized_attachments_inventory_requests();
     let mut inventories_results = BatchedRequestsResult::empty();
 
-    let request = inventories_requests.pop().unwrap();
-    let peer_url_1 = request.get_url().clone();
-    let request = inventories_requests.pop().unwrap();
-    let peer_url_2 = request.get_url().clone();
-    let request = inventories_requests.pop().unwrap();
-    let peer_url_3 = request.get_url().clone();
-    let request = inventories_requests.pop().unwrap();
-    let peer_url_4 = request.get_url().clone();
+    let request_1 = inventories_requests.pop().unwrap();
+    let peer_url_1 = request_1.get_url().clone();
+    let request_2 = inventories_requests.pop().unwrap();
+    let peer_url_2 = request_2.get_url().clone();
+    let request_3 = inventories_requests.pop().unwrap();
+    let peer_url_3 = request_3.get_url().clone();
+    let request_4 = inventories_requests.pop().unwrap();
+    let peer_url_4 = request_4.get_url().clone();
     let mut responses = HashMap::new();
 
     let response_1 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
-    responses.insert(peer_url_1.clone(), Some(response_1));
+    responses.insert(peer_url_1.clone(), Some(response_1.clone()));
 
     let response_2 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
-    responses.insert(peer_url_2.clone(), Some(response_2));
+    responses.insert(peer_url_2.clone(), Some(response_2.clone()));
 
     let response_3 =
         new_attachments_inventory_response(vec![(0, vec![0, 1, 1]), (1, vec![1, 0, 0])]);
-    responses.insert(peer_url_3.clone(), Some(response_3));
+    responses.insert(peer_url_3.clone(), Some(response_3.clone()));
     responses.insert(peer_url_4, None);
 
-    inventories_results.succeeded.insert(request, responses);
+    inventories_results
+        .succeeded
+        .insert(request_1, Some(response_1));
+    inventories_results
+        .succeeded
+        .insert(request_2, Some(response_2));
+    inventories_results
+        .succeeded
+        .insert(request_3, Some(response_3));
+    inventories_results.succeeded.insert(request_4, None);
 
     let context = context.extend_with_inventories(&mut inventories_results);
 
@@ -1035,4 +1044,128 @@ fn test_get_minmax_heights_atlasdb() {
     let res = atlas_db
         .get_minmax_heights_window_for_page_index(0)
         .unwrap_err();
+}
+
+#[test]
+fn test_bit_vectors() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 100,
+        uninstantiated_attachments_expire_after: 10,
+        unresolved_attachment_instances_expire_after: 10,
+        genesis_attachments: None,
+    };
+
+    let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
+
+    // Insert some uninstanciated attachments
+    let uninstantiated_attachment_instances = [
+        new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
+        new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
+        new_attachment_instance_from(&new_attachment_from("facade13"), 2, 1),
+        new_attachment_instance_from(&new_attachment_from("facade14"), 3, 1),
+    ];
+    for attachment_instance in uninstantiated_attachment_instances.iter() {
+        atlas_db
+            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .unwrap();
+    }
+    let block_id_1 = uninstantiated_attachment_instances[0].get_stacks_block_id();
+    let bit_vector = atlas_db
+        .get_attachments_available_at_page_index(0, &block_id_1)
+        .unwrap();
+    assert_eq!(bit_vector, [0x00; 64]);
+
+    let uninstantiated_attachment_instances = [
+        new_attachment_instance_from(&new_attachment_from("facade15"), 4, 1),
+        new_attachment_instance_from(&new_attachment_from("facade16"), 5, 1),
+        new_attachment_instance_from(&new_attachment_from("facade17"), 6, 1),
+        new_attachment_instance_from(&new_attachment_from("facade18"), 7, 1),
+    ];
+    for attachment_instance in uninstantiated_attachment_instances.iter() {
+        atlas_db
+            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .unwrap();
+    }
+    let bit_vector = atlas_db
+        .get_attachments_available_at_page_index(0, &block_id_1)
+        .unwrap();
+    assert_eq!(bit_vector, [0x00; 64]);
+
+    let instantiated_attachment_instances = [
+        new_attachment_instance_from(&new_attachment_from("facade21"), 8, 1),
+        new_attachment_instance_from(&new_attachment_from("facade22"), 9, 1),
+        new_attachment_instance_from(&new_attachment_from("facade23"), 10, 1),
+        new_attachment_instance_from(&new_attachment_from("facade24"), 11, 1),
+    ];
+    for attachment_instance in instantiated_attachment_instances.iter() {
+        atlas_db
+            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .unwrap();
+    }
+
+    let bit_vector = atlas_db
+        .get_attachments_available_at_page_index(0, &block_id_1)
+        .unwrap();
+    let mut expected = [0x00; 64];
+    expected[8] = 1;
+    expected[9] = 1;
+    expected[10] = 1;
+    expected[11] = 1;
+    assert_eq!(bit_vector, expected);
+
+    println!("1: {:?}", bit_vector);
+
+    // Insert some instanciated attachments at block 2
+    let instantiated_attachment_instances = [
+        new_attachment_instance_from(&new_attachment_from("facade31"), 12, 2),
+        new_attachment_instance_from(&new_attachment_from("facade32"), 13, 2),
+        new_attachment_instance_from(&new_attachment_from("facade33"), 14, 2),
+        new_attachment_instance_from(&new_attachment_from("facade34"), 15, 2),
+    ];
+    let block_id_2 = instantiated_attachment_instances[0].get_stacks_block_id();
+    for attachment_instance in instantiated_attachment_instances.iter() {
+        atlas_db
+            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .unwrap();
+    }
+
+    let bit_vector = atlas_db
+        .get_attachments_available_at_page_index(0, &block_id_1)
+        .unwrap();
+    assert_eq!(bit_vector, expected);
+
+    let bit_vector = atlas_db
+        .get_attachments_available_at_page_index(0, &block_id_2)
+        .unwrap();
+    let mut expected = [0x00; 64];
+    expected[12] = 1;
+    expected[13] = 1;
+    expected[14] = 1;
+    expected[15] = 1;
+    assert_eq!(bit_vector, expected);
+}
+
+#[test]
+fn test_attachments_inventory_requests_hashing() {
+    let mut requests = HashMap::new();
+
+    let attachments_inventory_1_request =
+        new_attachments_inventory_request("http://localhost:20443", vec![0, 1], 1, 0, 0);
+    requests.insert(attachments_inventory_1_request.key(), 1);
+
+    let attachments_inventory_2_request =
+        new_attachments_inventory_request("http://localhost:30443", vec![0, 1], 1, 2, 1);
+    requests.insert(attachments_inventory_2_request.key(), 2);
+
+    let attachments_inventory_3_request =
+        new_attachments_inventory_request("http://localhost:40443", vec![0, 1], 1, 2, 2);
+    requests.insert(attachments_inventory_3_request.key(), 3);
+
+    let attachments_inventory_4_request =
+        new_attachments_inventory_request("http://localhost:50443", vec![0, 1], 1, 4, 4);
+    requests.insert(attachments_inventory_4_request.key(), 4);
+
+    println!("{:?}", requests);
 }

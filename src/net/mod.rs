@@ -1275,7 +1275,7 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
-    GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }

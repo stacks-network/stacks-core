@@ -92,6 +92,14 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
     }
 }
 
+impl FromRow<(u32, u32)> for (u32, u32) {
+    fn from_row<'a>(row: &'a Row) -> Result<(u32, u32), db_error> {
+        let t1: u32 = row.get_unwrap(0);
+        let t2: u32 = row.get_unwrap(1);
+        Ok((t1, t2))
+    }
+}
+
 #[derive(Debug)]
 pub struct AtlasDB {
     pub atlas_config: AtlasConfig,
@@ -225,7 +233,7 @@ impl AtlasDB {
     ) -> Result<(u64, u64), db_error> {
         let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2".to_string();
+        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
         let args = [&min as &dyn ToSql, &max as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(&args)?;
@@ -243,9 +251,9 @@ impl AtlasDB {
     pub fn get_attachments_available_at_page_index(
         &self,
         page_index: u32,
-        blocks_ids: &Vec<StacksBlockId>,
+        block_id: &StacksBlockId,
     ) -> Result<Vec<u8>, db_error> {
-        let page = self.get_attachments_missing_at_page_index(page_index, blocks_ids)?;
+        let page = self.get_attachments_missing_at_page_index(page_index, block_id)?;
         let mut bit_vector = vec![];
         for (_index, is_attachment_missing) in page.iter().enumerate() {
             // todo(ludo): use a bitvector instead
@@ -257,20 +265,24 @@ impl AtlasDB {
     pub fn get_attachments_missing_at_page_index(
         &self,
         page_index: u32,
-        blocks_ids: &Vec<StacksBlockId>,
+        block_id: &StacksBlockId,
     ) -> Result<Vec<bool>, db_error> {
-        // todo(ludo): unable to build a compiled stmt with rusqlite that includes a WHERE ... IN () clause - investigate carray.
-        let ancestor_tree_sql = blocks_ids
-            .iter()
-            .map(|index_block_hash| format!("'{}'", index_block_hash))
-            .collect::<Vec<String>>()
-            .join(", ");
         let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let max = min + AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let qry = format!("SELECT is_available FROM attachment_instances WHERE attachment_index >= {} AND attachment_index < {} AND index_block_hash IN ({}) ORDER BY attachment_index ASC", min, max, ancestor_tree_sql);
-        let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
-        let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
-        Ok(res)
+        let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
+        let args = [
+            &min as &dyn ToSql,
+            &max as &dyn ToSql,
+            block_id as &dyn ToSql,
+        ];
+        let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, &args)?;
+
+        let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
+        for (attachment_index, is_available) in rows.into_iter() {
+            let index = attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+            bool_vector[index as usize] = is_available == 0;
+        }
+        Ok(bool_vector)
     }
 
     pub fn insert_uninstantiated_attachment(

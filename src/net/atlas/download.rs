@@ -237,8 +237,10 @@ pub struct AttachmentsBatchStateContext {
     pub peers: HashMap<UrlString, ReliabilityReport>,
     pub connection_options: ConnectionOptions,
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
-    pub inventories:
-        HashMap<AttachmentsInventoryRequest, HashMap<UrlString, GetAttachmentsInvResponse>>,
+    pub inventories: HashMap<
+        (QualifiedContractIdentifier, Vec<u32>, StacksBlockId),
+        HashMap<UrlString, GetAttachmentsInvResponse>,
+    >,
     pub attachments: HashSet<Attachment>,
     pub events_to_deregister: Vec<usize>,
 }
@@ -269,19 +271,18 @@ impl AttachmentsBatchStateContext {
     ) -> BinaryHeap<AttachmentsInventoryRequest> {
         let mut queue = BinaryHeap::new();
         for (contract_id, _) in self.attachments_batch.attachments_instances.iter() {
+            let pages_batches = self
+                .attachments_batch
+                .get_paginated_missing_pages_for_contract_id(contract_id);
             for (peer_url, reliability_report) in self.peers.iter() {
-                for pages in self
-                    .attachments_batch
-                    .get_paginated_missing_pages_for_contract_id(contract_id)
-                {
+                for pages in pages_batches.iter() {
                     let request = AttachmentsInventoryRequest {
                         url: peer_url.clone(),
                         reliability_report: reliability_report.clone(),
                         contract_id: contract_id.clone(),
-                        pages: pages,
+                        pages: pages.clone(),
                         block_height: self.attachments_batch.block_height,
-                        consensus_hash: self.attachments_batch.consensus_hash,
-                        block_header_hash: self.attachments_batch.block_header_hash,
+                        index_block_hash: self.attachments_batch.get_stacks_block_id(),
                     };
                     queue.push(request);
                 }
@@ -292,24 +293,39 @@ impl AttachmentsBatchStateContext {
 
     pub fn get_prioritized_attachments_requests(&self) -> BinaryHeap<AttachmentRequest> {
         let mut queue = BinaryHeap::new();
-        for (inventory_request, peers_responses) in self.inventories.iter() {
+        let mut enqueued = HashSet::new();
+        for ((contract_id, pages, _), peers_responses) in self.inventories.iter() {
             let missing_attachments = match self
                 .attachments_batch
                 .attachments_instances
-                .get(&inventory_request.contract_id)
+                .get(&contract_id)
             {
                 None => continue,
                 Some(missing_attachments) => missing_attachments,
             };
+            // Note: we're getting missing_attachments (attachment_id: content_hash)
             for (attachment_index, content_hash) in missing_attachments.iter() {
-                let mut sources = HashMap::new();
                 let page_index = attachment_index / AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+                // Since there's a limit in the number of pages that a node can request,
+                // we can potentially have multiple inventory request at once.
+                if !pages.contains(&page_index) {
+                    continue;
+                }
+
+                if enqueued.contains(content_hash) {
+                    debug!("Atlas: {} already enqueued", content_hash);
+                    continue;
+                }
+
+                let mut sources = HashMap::new();
                 let position_in_page =
                     attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
+                let mut peers_urls = vec![];
                 for (peer_url, response) in peers_responses.iter() {
                     // Considering the response, look for the page with the index
                     // we're looking for.
+                    peers_urls.push(format!("{}", peer_url));
                     let index = response
                         .pages
                         .iter()
@@ -351,6 +367,7 @@ impl AttachmentsBatchStateContext {
                     sources,
                     content_hash: content_hash.clone(),
                 };
+                enqueued.insert(content_hash);
                 queue.push(request);
             }
         }
@@ -371,21 +388,27 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (k, mut responses) in results.succeeded.drain() {
-            let mut inventories = HashMap::new();
-            for (peer_url, response) in responses.drain() {
-                let report = self
-                    .peers
-                    .get_mut(&peer_url)
-                    .expect("Atlas: unable to retrieve reliability report for peer");
-                if let Some(HttpResponseType::GetAttachmentsInv(_, response)) = response {
-                    inventories.insert(peer_url, response);
-                    report.bump_successful_requests();
-                } else {
-                    report.bump_failed_requests();
-                }
+        for (request, mut response) in results.succeeded.drain() {
+            let report = self
+                .peers
+                .get_mut(request.get_url())
+                .expect("Atlas: unable to retrieve reliability report for peer");
+            if let Some(HttpResponseType::GetAttachmentsInv(_, response)) = response {
+                let peer_url = request.get_url().clone();
+                match self.inventories.entry(request.key()) {
+                    Entry::Occupied(responses) => {
+                        responses.into_mut().insert(peer_url, response);
+                    }
+                    Entry::Vacant(v) => {
+                        let mut responses = HashMap::new();
+                        responses.insert(peer_url, response);
+                        v.insert(responses);
+                    }
+                };
+                report.bump_successful_requests();
+            } else {
+                report.bump_failed_requests();
             }
-            self.inventories.insert(k, inventories);
         }
         let mut events_ids = results
             .faulty_peers
@@ -401,18 +424,16 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (_, mut responses) in results.succeeded.drain() {
-            for (peer_url, response) in responses.drain() {
-                let report = self
-                    .peers
-                    .get_mut(&peer_url)
-                    .expect("Atlas: unable to retrieve reliability report for peer");
-                if let Some(HttpResponseType::GetAttachment(_, response)) = response {
-                    self.attachments.insert(response.attachment);
-                    report.bump_successful_requests();
-                } else {
-                    report.bump_failed_requests();
-                }
+        for (request, mut response) in results.succeeded.drain() {
+            let report = self
+                .peers
+                .get_mut(request.get_url())
+                .expect("Atlas: unable to retrieve reliability report for peer");
+            if let Some(HttpResponseType::GetAttachment(_, response)) = response {
+                self.attachments.insert(response.attachment);
+                report.bump_successful_requests();
+            } else {
+                report.bump_failed_requests();
             }
         }
         let mut events_ids = results
@@ -765,16 +786,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                         "Atlas: Request {} (event_id: {}) received response {:?}",
                                         request, event_id, response
                                     );
-                                    match state.succeeded.entry(request) {
-                                        Entry::Occupied(responses) => {
-                                            responses.into_mut().insert(peer_url, Some(response));
-                                        }
-                                        Entry::Vacant(v) => {
-                                            let mut responses = HashMap::new();
-                                            responses.insert(peer_url, Some(response));
-                                            v.insert(responses);
-                                        }
-                                    };
+                                    state.succeeded.insert(request, Some(response));
                                 }
                             }
                         }
@@ -825,8 +837,8 @@ struct BatchedRequestsInitializedState<T: Ord + Requestable> {
 #[derive(Debug, Default)]
 pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
-    pub succeeded: HashMap<T, HashMap<UrlString, Option<HttpResponseType>>>,
-    pub errors: HashMap<T, HashMap<UrlString, net_error>>,
+    pub succeeded: HashMap<T, Option<HttpResponseType>>,
+    pub errors: HashMap<T, net_error>,
     pub faulty_peers: HashMap<usize, UrlString>,
 }
 
@@ -856,8 +868,7 @@ pub struct AttachmentsInventoryRequest {
     pub contract_id: QualifiedContractIdentifier,
     pub pages: Vec<u32>,
     pub block_height: u64,
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub reliability_report: ReliabilityReport,
 }
 
@@ -865,9 +876,18 @@ impl Hash for AttachmentsInventoryRequest {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.contract_id.hash(state);
         self.pages.hash(state);
-        self.consensus_hash.hash(state);
+        self.index_block_hash.hash(state);
         self.block_height.hash(state);
-        self.block_header_hash.hash(state);
+    }
+}
+
+impl AttachmentsInventoryRequest {
+    pub fn key(&self) -> (QualifiedContractIdentifier, Vec<u32>, StacksBlockId) {
+        (
+            self.contract_id.clone(),
+            self.pages.clone(),
+            self.index_block_hash.clone(),
+        )
     }
 }
 
@@ -895,7 +915,7 @@ impl Requestable for AttachmentsInventoryRequest {
         }
         HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_host(peer_host),
-            None,
+            self.index_block_hash,
             pages_indexes,
         )
     }
@@ -1039,7 +1059,8 @@ impl AttachmentsBatch {
         contract_id: &QualifiedContractIdentifier,
     ) -> Vec<Vec<u32>> {
         let mut paginated = vec![];
-        let pages_indexes = self.get_missing_pages_for_contract_id(contract_id);
+        let mut pages_indexes = self.get_missing_pages_for_contract_id(contract_id);
+        pages_indexes.sort();
         for page in pages_indexes.chunks(MAX_ATTACHMENT_INV_PAGES_PER_REQUEST) {
             paginated.push(page.to_vec());
         }

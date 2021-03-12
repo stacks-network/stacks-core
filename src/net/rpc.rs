@@ -584,9 +584,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         atlasdb: &AtlasDB,
-        chainstate: &mut StacksChainState,
-        tip_consensus_hash: &ConsensusHash,
-        tip_block_hash: &BlockHeaderHash,
+        index_block_hash: &StacksBlockId,
         pages_indexes: &HashSet<u32>,
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
@@ -618,55 +616,13 @@ impl ConversationHttp {
             return Ok(());
         }
 
-        let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
         let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
         pages_indexes.sort();
 
         let mut pages = vec![];
 
-        // We need to rebuild an ancestry tree, but we're still missing some informations at this point
         for page_index in pages_indexes.iter() {
-            let (min_block_height, max_block_height) =
-                match atlasdb.get_minmax_heights_window_for_page_index(*page_index) {
-                    Ok(window) => window,
-                    Err(e) => {
-                        let msg = format!(
-                            "Unable to read min/max heights for page index {} - {}",
-                            page_index, e
-                        );
-                        warn!("{}", msg);
-                        let response = HttpResponseType::NotFound(response_metadata, msg);
-                        return response.send(http, fd);
-                    }
-                };
-
-            let tip_index_hash =
-                StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
-
-            let headers_conn = chainstate.index_conn()?;
-
-            let upper_bound_header = StacksChainState::get_index_tip_ancestor_conn(
-                &headers_conn,
-                &tip_index_hash,
-                max_block_height,
-            )?;
-
-            let mut blocks_ids = vec![];
-            if let Some(upper_bound_header) = upper_bound_header {
-                let ancestors = StacksChainState::get_ancestors_headers(
-                    chainstate.db(),
-                    upper_bound_header,
-                    min_block_height,
-                )?;
-                blocks_ids.append(
-                    &mut ancestors
-                        .iter()
-                        .map(|h| h.index_block_hash())
-                        .collect::<_>(),
-                );
-            }
-
-            match atlasdb.get_attachments_available_at_page_index(*page_index, &blocks_ids) {
+            match atlasdb.get_attachments_available_at_page_index(*page_index, &index_block_hash) {
                 Ok(inventory) => {
                     pages.push(AttachmentPage {
                         inventory,
@@ -683,7 +639,7 @@ impl ConversationHttp {
         }
 
         let content = GetAttachmentsInvResponse {
-            block_id: tip.clone(),
+            block_id: index_block_hash.clone(),
             pages,
         };
         let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
@@ -2036,29 +1992,20 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
-                if let Some((tip_consensus_hash, tip_block_hash)) =
-                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        tip_opt.as_ref(),
-                        sortdb,
-                        chainstate,
-                    )?
-                {
-                    ConversationHttp::handle_getattachmentsinv(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        atlasdb,
-                        chainstate,
-                        &tip_consensus_hash,
-                        &tip_block_hash,
-                        pages_indexes,
-                        &self.connection.options,
-                    )?;
-                }
+            HttpRequestType::GetAttachmentsInv(
+                ref _md,
+                ref index_block_hash,
+                ref pages_indexes,
+            ) => {
+                ConversationHttp::handle_getattachmentsinv(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    atlasdb,
+                    &index_block_hash,
+                    pages_indexes,
+                    &self.connection.options,
+                )?;
                 None
             }
             HttpRequestType::PostBlock(ref _md, ref consensus_hash, ref block) => {
@@ -2698,12 +2645,12 @@ impl ConversationHttp {
     /// Make a new request for attachment inventory page
     pub fn new_getattachmentsinv(
         &self,
-        tip_opt: Option<StacksBlockId>,
+        index_block_hash: StacksBlockId,
         pages_indexes: HashSet<u32>,
     ) -> HttpRequestType {
         HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
-            tip_opt,
+            index_block_hash,
             pages_indexes,
         )
     }
@@ -4439,7 +4386,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 let pages_indexes = HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-                convo_client.new_getattachmentsinv(None, pages_indexes)
+                convo_client.new_getattachmentsinv(StacksBlockId([0x00; 32]), pages_indexes)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
