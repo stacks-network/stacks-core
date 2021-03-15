@@ -23,7 +23,6 @@ use util::secp256k1::Secp256k1PublicKey;
 use vm::types::QualifiedContractIdentifier;
 
 use burnchains::Txid;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::StacksBlockId;
 use net::StacksMessageCodec;
 
@@ -42,18 +41,16 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         content_hash TEXT,
         created_at INTEGER NOT NULL,
-        consensus_hash STRING NOT NULL,
-        block_header_hash STRING NOT NULL,
         index_block_hash STRING NOT NULL,
         attachment_index INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
         metadata TEXT NOT NULL,
         contract_id STRING NOT NULL,
-        tx_id STRING NOT NULL
+        tx_id STRING NOT NULL,
+        PRIMARY KEY(index_block_hash, contract_id, attachment_index)
     );"#,
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
@@ -72,8 +69,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
         let block_height =
             u64::from_column(row, "block_height").map_err(|_| db_error::TypeError)?;
         let content_hash = Hash160::from_hex(&hex_content_hash).map_err(|_| db_error::TypeError)?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
+        let index_block_hash = StacksBlockId::from_column(row, "index_block_hash")?;
         let metadata: String = row.get_unwrap("metadata");
         let contract_id = QualifiedContractIdentifier::from_column(row, "contract_id")?;
         let hex_tx_id: String = row.get_unwrap("tx_id");
@@ -82,8 +78,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
         Ok(AttachmentInstance {
             content_hash,
             attachment_index,
-            consensus_hash,
-            block_header_hash,
+            index_block_hash,
             block_height,
             metadata,
             contract_id,
@@ -443,17 +438,15 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id, tx_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT OR REPLACE INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, contract_id, tx_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             &[
                 &hex_content_hash as &dyn ToSql,
                 &now as &dyn ToSql,
-                &attachment.get_stacks_block_id() as &dyn ToSql,
+                &attachment.index_block_hash as &dyn ToSql,
                 &attachment.attachment_index as &dyn ToSql,
                 &u64_to_sql(attachment.block_height)?,
                 &is_available as &dyn ToSql,
                 &attachment.metadata as &dyn ToSql,
-                &attachment.consensus_hash as &dyn ToSql,
-                &attachment.block_header_hash as &dyn ToSql,
                 &attachment.contract_id.to_string() as &dyn ToSql,
                 &hex_tx_id as &dyn ToSql,
             ]

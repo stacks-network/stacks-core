@@ -206,9 +206,8 @@ impl EventObserver {
     ) -> serde_json::Value {
         json!({
             "attachment_index": attachment.0.attachment_index,
-            "block_header_hash": format!("0x{}", attachment.0.block_header_hash),
+            "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
             "block_height": attachment.0.block_height,
-            "consensus_hash": format!("0x{}", attachment.0.consensus_hash),
             "content_hash": format!("0x{}", attachment.0.content_hash),
             "contract_id": format!("{}", attachment.0.contract_id),
             "metadata": format!("0x{}", attachment.0.metadata),

@@ -692,8 +692,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                             let res = AttachmentInstance::try_new_from_value(
                                                 &event_data.value,
                                                 &contract_id,
-                                                &block_receipt.header.consensus_hash,
-                                                block_receipt.header.anchored_header.block_hash(),
+                                                block_receipt.header.index_block_hash(),
                                                 block_receipt.header.block_height,
                                                 receipt.transaction.txid(),
                                             );
