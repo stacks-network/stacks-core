@@ -637,7 +637,7 @@ impl PoxSyncWatchdog {
         };
 
         let ret = ibbd || !steady_state;
-        self.relayer_comms.set_ibd(ret);
+        self.relayer_comms.set_ibd(ibbd);
         ret
     }
 }

@@ -308,8 +308,14 @@ impl RunLoop {
             )
         };
 
-        // TODO (hack) instantiate the sortdb in the burnchain
-        let _ = burnchain.sortdb_mut();
+        let sort_db = burnchain.sortdb_mut();
+        let last_block_sn = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("BUG: failed to get first burnchain height");
+        let last_reward_cycle = burnchain_config
+            .block_height_to_reward_cycle(last_block_sn.block_height)
+            .unwrap_or(0);
+        let last_block_height_reward_cycle =
+            burnchain_config.reward_cycle_to_block_height(last_reward_cycle);
 
         // Start the runloop
         trace!("Begin run loop");
@@ -325,7 +331,8 @@ impl RunLoop {
                 .unwrap();
         }
 
-        let mut block_height = 1.max(burnchain_config.first_block_height);
+        // start processing at the start of the last reward cycle this node has seen.
+        let mut block_height = 1.max(last_block_height_reward_cycle);
 
         let mut burnchain_height = block_height;
 
