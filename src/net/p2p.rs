@@ -1564,7 +1564,7 @@ impl PeerNetwork {
                     event_id
                 }
                 None => {
-                    test_debug!("{:?}: network not connected", &self.local_peer);
+                    debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
             };

@@ -33,7 +33,6 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
-use net::BlocksData;
 use net::ClientError;
 use net::Error as net_error;
 use net::HttpRequestMetadata;
@@ -59,6 +58,7 @@ use net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
+use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use std::collections::HashMap;
@@ -105,8 +105,10 @@ use vm::{
     ClarityName, ContractName, SymbolicExpression, Value,
 };
 
+use chainstate::stacks::db::blocks::CheckError;
 use rand::prelude::*;
 use rand::thread_rng;
+use vm::types::TraitIdentifier;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -1362,6 +1364,54 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    /// Handle a GET to fetch whether or not a contract implements a certain trait
+    fn handle_get_is_trait_implemented<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        trait_id: &TraitIdentifier,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier =
+            QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|db| {
+                    let mut analysis = db.load_contract_analysis(&contract_identifier)?;
+                    if analysis.implemented_traits.contains(trait_id) {
+                        Some(GetIsTraitImplementedResponse {
+                            is_implemented: true,
+                        })
+                    } else {
+                        let trait_definition = analysis.get_defined_trait(&trait_id.name)?;
+                        let is_implemented = analysis
+                            .check_trait_compliance(trait_id, trait_definition)
+                            .is_ok();
+                        Some(GetIsTraitImplementedResponse { is_implemented })
+                    }
+                })
+            }) {
+                Ok(Some(Some(data))) => {
+                    HttpResponseType::GetIsTraitImplemented(response_metadata, data)
+                }
+                Ok(Some(None)) => HttpResponseType::NotFound(
+                    response_metadata,
+                    "No contract analysis found or trait definition not found".into(),
+                ),
+                Ok(None) | Err(_) => {
+                    HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
+                }
+            };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle a GET to fetch a contract's analysis data, given the chain tip.  Note that this isn't
     /// something that's anchored to the blockchain, and can be different across different versions
     /// of Stacks -- callers must trust the Stacks node to return correct analysis data.
@@ -2256,6 +2306,35 @@ impl ConversationHttp {
                 response
                     .send(&mut self.connection.protocol, &mut reply)
                     .map(|_| ())?;
+                None
+            }
+            HttpRequestType::GetIsTraitImplemented(
+                ref _md,
+                ref contract_addr,
+                ref contract_name,
+                ref trait_id,
+                ref tip_opt,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_opt.as_ref(),
+                    sortdb,
+                    chainstate,
+                )? {
+                    ConversationHttp::handle_get_is_trait_implemented(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        &tip,
+                        contract_addr,
+                        contract_name,
+                        trait_id,
+                    )?;
+                }
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {

@@ -131,7 +131,6 @@ pub struct MemPoolTxMetadata {
     pub txid: Txid,
     pub len: u64,
     pub tx_fee: u64,
-    pub estimated_fee: u64, // upper bound on what the fee to pay will be
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub block_height: u64,
@@ -153,7 +152,6 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let txid = Txid::from_column(row, "txid")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
-        let estimated_fee = u64::from_column(row, "estimated_fee")?;
         let tx_fee = u64::from_column(row, "tx_fee")?;
         let height = u64::from_column(row, "height")?;
         let len = u64::from_column(row, "length")?;
@@ -165,7 +163,6 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 
         Ok(MemPoolTxMetadata {
             txid: txid,
-            estimated_fee: estimated_fee,
             tx_fee: tx_fee,
             len: len,
             consensus_hash: consensus_hash,
@@ -206,7 +203,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
         origin_nonce INTEGER NOT NULL,
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
-        estimated_fee INTEGER NOT NULL,
         tx_fee INTEGER NOT NULL,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -224,7 +220,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
     "CREATE INDEX by_timestamp ON mempool(accept_time);",
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
-    "CREATE INDEX by_estimated_fee ON mempool(estimated_fee);",
 ];
 
 pub struct MemPoolDB {
@@ -292,7 +287,6 @@ impl<'a> MemPoolTx<'a> {
 impl MemPoolTxInfo {
     pub fn from_tx(
         tx: StacksTransaction,
-        estimated_fee: u64,
         consensus_hash: ConsensusHash,
         block_header_hash: BlockHeaderHash,
         block_height: u64,
@@ -315,7 +309,6 @@ impl MemPoolTxInfo {
             txid: txid,
             len: tx_data.len() as u64,
             tx_fee: tx.get_tx_fee(),
-            estimated_fee: estimated_fee,
             consensus_hash: consensus_hash,
             block_header_hash: block_header_hash,
             block_height: block_height,
@@ -674,14 +667,6 @@ impl MemPoolDB {
         )
     }
 
-    fn get_tx_estimated_fee(conn: &DBConn, txid: &Txid) -> Result<Option<u64>, db_error> {
-        query_row(
-            conn,
-            "SELECT estimated_fee FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
-        )
-    }
-
     /// Get all transactions across all tips
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
@@ -754,7 +739,7 @@ impl MemPoolDB {
         timestamp: u64,
         count: u64,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
-        let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC LIMIT ?4";
+        let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY tx_fee DESC LIMIT ?4";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(timestamp)?,
             consensus_hash,
@@ -781,7 +766,6 @@ impl MemPoolDB {
                           origin_nonce,
                           sponsor_address,
                           sponsor_nonce,
-                          estimated_fee,
                           tx_fee,
                           length,
                           consensus_hash,
@@ -831,7 +815,6 @@ impl MemPoolDB {
         block_header_hash: &BlockHeaderHash,
         txid: Txid,
         tx_bytes: Vec<u8>,
-        estimated_fee: u64,
         tx_fee: u64,
         height: u64,
         origin_address: &StacksAddress,
@@ -859,7 +842,7 @@ impl MemPoolDB {
 
         // if so, is this a replace-by-fee? or a replace-in-chain-tip?
         let add_tx = if let Some(ref prior_tx) = prior_tx {
-            if estimated_fee > prior_tx.estimated_fee {
+            if tx_fee > prior_tx.tx_fee {
                 // is this a replace-by-fee ?
                 replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
@@ -882,8 +865,8 @@ impl MemPoolDB {
                       "origin_nonce" => origin_nonce,
                       "sponsor_addr" => %sponsor_address,
                       "sponsor_nonce" => sponsor_nonce,
-                      "new_fee" => estimated_fee,
-                      "old_fee" => prior_tx.estimated_fee);
+                      "new_fee" => tx_fee,
+                      "old_fee" => prior_tx.tx_fee);
                 false
             }
         } else {
@@ -901,7 +884,6 @@ impl MemPoolDB {
             origin_nonce,
             sponsor_address,
             sponsor_nonce,
-            estimated_fee,
             tx_fee,
             length,
             consensus_hash,
@@ -909,7 +891,7 @@ impl MemPoolDB {
             height,
             accept_time,
             tx)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
         let args: &[&dyn ToSql] = &[
             &txid,
@@ -917,7 +899,6 @@ impl MemPoolDB {
             &u64_to_sql(origin_nonce)?,
             &sponsor_address.to_string(),
             &u64_to_sql(sponsor_nonce)?,
-            &u64_to_sql(estimated_fee)?,
             &u64_to_sql(tx_fee)?,
             &u64_to_sql(length)?,
             consensus_hash,
@@ -1049,11 +1030,6 @@ impl MemPoolDB {
                 (origin_address.clone(), origin_nonce)
             };
 
-        // TODO; estimate the true fee using Clarity analysis data.  For now, just do tx_fee
-        let estimated_fee = tx_fee
-            .checked_mul(len)
-            .ok_or(MemPoolRejection::Other("Fee numeric overflow".to_string()))?;
-
         if do_admission_checks {
             mempool_tx
                 .admitter
@@ -1068,7 +1044,6 @@ impl MemPoolDB {
             &block_hash,
             txid.clone(),
             tx_data,
-            estimated_fee,
             tx_fee,
             height,
             &origin_address,
@@ -1176,6 +1151,8 @@ mod tests {
     use burnchains::Address;
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
     use net::{Error as NetError, StacksMessageCodec};
+    use util::hash::Hash160;
+    use util::secp256k1::MessageSignature;
     use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
     use vm::{
         database::HeadersDB,
@@ -1188,11 +1165,12 @@ mod tests {
 
     use chainstate::stacks::{
         db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
-        Error as ChainstateError, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-        TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-        TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
-        TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksAddress,
+        StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
+        StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+        TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+        TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+        TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
 
@@ -1363,8 +1341,7 @@ mod tests {
             let txid = tx.txid();
             let tx_bytes = tx.serialize_to_vec();
 
-            let len = tx_bytes.len() as u64;
-            let estimated_fee = tx.get_tx_fee() * len;
+            let tx_fee = tx.get_tx_fee();
 
             let height = 1 + ix as u64;
 
@@ -1380,8 +1357,7 @@ mod tests {
                 &block.1,
                 txid,
                 tx_bytes,
-                estimated_fee,
-                tx.get_tx_fee(),
+                tx_fee,
                 height,
                 &origin_address,
                 origin_nonce,
@@ -1490,9 +1466,7 @@ mod tests {
 
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
-
-        let len = tx_bytes.len() as u64;
-        let estimated_fee = tx.get_tx_fee() * len;
+        let tx_fee = tx.get_tx_fee();
 
         let height = 3;
         let origin_nonce = 1;
@@ -1508,8 +1482,7 @@ mod tests {
             &block.1,
             txid,
             tx_bytes,
-            estimated_fee,
-            tx.get_tx_fee(),
+            tx_fee,
             height,
             &origin_address,
             origin_nonce,
@@ -1680,8 +1653,7 @@ mod tests {
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
 
-        let len = tx_bytes.len() as u64;
-        let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
+        let tx_fee = tx.get_tx_fee();
         let height = 100;
 
         let origin_nonce = tx.get_origin_nonce();
@@ -1699,8 +1671,7 @@ mod tests {
             &b_1.1,
             txid,
             tx_bytes,
-            estimated_fee,
-            tx.get_tx_fee(),
+            tx_fee,
             height,
             &origin_address,
             origin_nonce,
@@ -1718,8 +1689,7 @@ mod tests {
         tx.set_tx_fee(100);
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
-        let len = tx_bytes.len() as u64;
-        let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
+        let tx_fee = tx.get_tx_fee();
         let height = 100;
 
         let err_resp = MemPoolDB::try_add_tx(
@@ -1729,8 +1699,7 @@ mod tests {
             &b_2.1,
             txid,
             tx_bytes,
-            estimated_fee,
-            tx.get_tx_fee(),
+            tx_fee,
             height,
             &origin_address,
             origin_nonce,
@@ -1780,20 +1749,20 @@ mod tests {
             tx.set_tx_fee(123);
 
             // test insert
+
             let txid = tx.txid();
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
             let expected_tx = tx.clone();
 
-            let len = tx_bytes.len() as u64;
-            let estimated_fee = tx.get_tx_fee() * len; //TODO: use clarity analysis data to make this estimate
+            let tx_fee = tx.get_tx_fee();
             let height = 100;
-
             let origin_nonce = tx.get_origin_nonce();
             let sponsor_nonce = match tx.get_sponsor_nonce() {
                 Some(n) => n,
                 None => origin_nonce,
             };
+            let len = tx_bytes.len() as u64;
 
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
@@ -1804,8 +1773,7 @@ mod tests {
                 &BlockHeaderHash([0x2; 32]),
                 txid,
                 tx_bytes,
-                estimated_fee,
-                tx.get_tx_fee(),
+                tx_fee,
                 height,
                 &origin_address,
                 origin_nonce,
@@ -1823,7 +1791,6 @@ mod tests {
 
             assert_eq!(tx_info.tx, expected_tx);
             assert_eq!(tx_info.metadata.len, len);
-            assert_eq!(tx_info.metadata.estimated_fee, estimated_fee);
             assert_eq!(tx_info.metadata.tx_fee, 123);
             assert_eq!(tx_info.metadata.origin_address, origin_address);
             assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
@@ -1846,7 +1813,7 @@ mod tests {
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
             let expected_tx = tx.clone();
-            let estimated_fee = tx.get_tx_fee() * len; // TODO: use clarity analysis data to make this estimate
+            let tx_fee = tx.get_tx_fee();
 
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
@@ -1867,8 +1834,7 @@ mod tests {
                 &BlockHeaderHash([0x2; 32]),
                 txid,
                 tx_bytes,
-                estimated_fee,
-                tx.get_tx_fee(),
+                tx_fee,
                 height,
                 &origin_address,
                 origin_nonce,
@@ -1901,7 +1867,6 @@ mod tests {
 
             assert_eq!(tx_info.tx, expected_tx);
             assert_eq!(tx_info.metadata.len, len);
-            assert_eq!(tx_info.metadata.estimated_fee, estimated_fee);
             assert_eq!(tx_info.metadata.tx_fee, 124);
             assert_eq!(tx_info.metadata.origin_address, origin_address);
             assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
@@ -1924,7 +1889,7 @@ mod tests {
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
             let _expected_tx = tx.clone();
-            let estimated_fee = tx.get_tx_fee() * len; // TODO: use clarity analysis metadata to make this estimate
+            let tx_fee = tx.get_tx_fee();
 
             assert!(match MemPoolDB::try_add_tx(
                 &mut mempool_tx,
@@ -1933,8 +1898,7 @@ mod tests {
                 &BlockHeaderHash([0x2; 32]),
                 txid,
                 tx_bytes,
-                estimated_fee,
-                tx.get_tx_fee(),
+                tx_fee,
                 height,
                 &origin_address,
                 origin_nonce,
@@ -2001,5 +1965,156 @@ mod tests {
         )
         .unwrap();
         assert_eq!(txs.len(), 0);
+    }
+
+    #[test]
+    fn mempool_db_test_rbf() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_test_rbf");
+        let chainstate_path = chainstate_path("mempool_db_test_rbf");
+        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+        // create initial transaction
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        let spending_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                nonce: 123,
+                tx_fee: 456,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            PrincipalData::from(QualifiedContractIdentifier {
+                issuer: stx_address.into(),
+                name: "hello-contract-name".into(),
+            }),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::Standard(spending_condition.clone()),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: Vec::new(),
+            payload,
+        };
+
+        let i: usize = 0;
+        let origin_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&i.to_be_bytes()),
+        };
+        let sponsor_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
+        };
+
+        tx.set_tx_fee(123);
+        let txid = tx.txid();
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+        let expected_tx = tx.clone();
+        let tx_fee = tx.get_tx_fee();
+        let height = 100;
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_nonce = match tx.get_sponsor_nonce() {
+            Some(n) => n,
+            None => origin_nonce,
+        };
+        let first_len = tx_bytes.len() as u64;
+
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1; 20]),
+            &BlockHeaderHash([0x2; 32]),
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        // test retrieval of initial transaction
+        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
+        let tx_info = tx_info_opt.unwrap();
+
+        // test replace-by-fee with a higher fee, where the payload is smaller
+        let old_txid = txid;
+        let old_tx_fee = tx_fee;
+
+        tx.set_tx_fee(124);
+        tx.payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+        assert!(txid != tx.txid());
+        let txid = tx.txid();
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+        let expected_tx = tx.clone();
+        let tx_fee = tx.get_tx_fee();
+        let second_len = tx_bytes.len() as u64;
+
+        // these asserts are to ensure we are using the fee directly, not the fee rate
+        assert!(second_len < first_len);
+        assert!(second_len * tx_fee < first_len * old_tx_fee);
+        assert!(tx_fee > old_tx_fee);
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let tx_info_before =
+            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
+                .unwrap()
+                .unwrap();
+        assert_eq!(tx_info_before, tx_info.metadata);
+
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1; 20]),
+            &BlockHeaderHash([0x2; 32]),
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        // check that the transaction was replaced
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let tx_info_after =
+            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
+                .unwrap()
+                .unwrap();
+        assert!(tx_info_after != tx_info.metadata);
+
+        // test retrieval -- transaction should have been replaced because it has a higher fee
+        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
+        let tx_info = tx_info_opt.unwrap();
+        assert_eq!(tx_info.metadata, tx_info_after);
+        assert_eq!(tx_info.metadata.len, second_len);
+        assert_eq!(tx_info.metadata.tx_fee, 124);
     }
 }
