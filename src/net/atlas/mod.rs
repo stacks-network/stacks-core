@@ -74,8 +74,7 @@ pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
     pub block_height: u64,
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,
     pub tx_id: Txid,
@@ -84,15 +83,10 @@ pub struct AttachmentInstance {
 impl AttachmentInstance {
     const ATTACHMENTS_INV_PAGE_SIZE: u32 = 64;
 
-    pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
-    }
-
     pub fn try_new_from_value(
         value: &Value,
         contract_id: &QualifiedContractIdentifier,
-        consensus_hash: &ConsensusHash,
-        block_header_hash: BlockHeaderHash,
+        index_block_hash: StacksBlockId,
         block_height: u64,
         tx_id: Txid,
     ) -> Option<AttachmentInstance> {
@@ -125,8 +119,7 @@ impl AttachmentInstance {
                             _ => String::new(),
                         };
                         let instance = AttachmentInstance {
-                            consensus_hash: consensus_hash.clone(),
-                            block_header_hash: block_header_hash,
+                            index_block_hash,
                             content_hash,
                             attachment_index: *attachment_index as u32,
                             block_height,

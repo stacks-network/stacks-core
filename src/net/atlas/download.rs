@@ -219,7 +219,7 @@ impl AttachmentsDownloader {
 
             // This attachment in refering to an unknown attachment.
             // Let's append it to the batch being constructed in this routine.
-            match attachments_batches.entry(attachment_instance.get_stacks_block_id()) {
+            match attachments_batches.entry(attachment_instance.index_block_hash) {
                 Entry::Occupied(entry) => {
                     entry.into_mut().track_attachment(&attachment_instance);
                 }
@@ -296,7 +296,7 @@ impl AttachmentsBatchStateContext {
                         contract_id: contract_id.clone(),
                         pages: pages.clone(),
                         block_height: self.attachments_batch.block_height,
-                        index_block_hash: self.attachments_batch.get_stacks_block_id(),
+                        index_block_hash: self.attachments_batch.index_block_hash,
                     };
                     queue.push(request);
                 }
@@ -1000,8 +1000,7 @@ impl std::fmt::Display for AttachmentRequest {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsBatch {
     pub block_height: u64,
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
 }
@@ -1010,8 +1009,7 @@ impl AttachmentsBatch {
     pub fn new() -> AttachmentsBatch {
         AttachmentsBatch {
             block_height: 0,
-            consensus_hash: ConsensusHash::empty(),
-            block_header_hash: BlockHeaderHash([0u8; 32]),
+            index_block_hash: StacksBlockId([0u8; 32]),
             attachments_instances: HashMap::new(),
             retry_count: 0,
         }
@@ -1020,14 +1018,12 @@ impl AttachmentsBatch {
     pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
             self.block_height = attachment.block_height.clone();
-            self.consensus_hash = attachment.consensus_hash.clone();
-            self.block_header_hash = attachment.block_header_hash;
+            self.index_block_hash = attachment.index_block_hash.clone();
         } else {
             if self.block_height != attachment.block_height
-                || self.consensus_hash != attachment.consensus_hash
-                || self.block_header_hash != attachment.block_header_hash
+                || self.index_block_hash != attachment.index_block_hash
             {
-                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentBatch", attachment.attachment_index, attachment.consensus_hash);
+                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentBatch", attachment.attachment_index, attachment.index_block_hash);
                 return;
             }
         }
@@ -1097,10 +1093,6 @@ impl AttachmentsBatch {
                 missing_attachments.remove(&key);
             }
         }
-    }
-
-    pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
 
     pub fn attachments_instances_count(&self) -> usize {

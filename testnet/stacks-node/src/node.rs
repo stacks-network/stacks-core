@@ -858,8 +858,7 @@ impl Node {
                                 let res = AttachmentInstance::try_new_from_value(
                                     &event_data.value,
                                     &contract_id,
-                                    &epoch_receipt.header.consensus_hash,
-                                    epoch_receipt.header.anchored_header.block_hash(),
+                                    epoch_receipt.header.index_block_hash(),
                                     epoch_receipt.header.block_height,
                                     receipt.transaction.txid(),
                                 );
