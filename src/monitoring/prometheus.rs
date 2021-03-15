@@ -144,9 +144,9 @@ lazy_static! {
         "Total count of all mempool garbage collections"
     )).unwrap();
 
-    pub static ref STX_SMART_CONTRACT_COUNT: IntCounter = register_int_counter!(opts!(
-        "stacks_node_smart_contracts",
-        "Total count of smart contracts"
+    pub static ref CONTRACT_CALLS_PROCESSED_COUNT: IntCounter = register_int_counter!(opts!(
+        "stacks_contract_calls_processed",
+        "Total count of processed contract calls"
     )).unwrap();
 
     pub static ref MEMPOOL_OUTSTANDING_TXS: IntGauge = register_int_gauge!(opts!(

@@ -112,16 +112,6 @@ use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
-// #[cfg(feature = "monitoring_prom")]
-// lazy_static! {
-//     static ref RPC_REQ_HISTOGRAM: prometheus::monitoring::HistogramVec = register_histogram_vec!(
-//         "stacks_node_rpc_request_duration_seconds",
-//         "Stacks RPC request latencies in seconds",
-//         &["handler"]
-//     )
-//     .unwrap();
-// }
-
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
