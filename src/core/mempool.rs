@@ -422,7 +422,7 @@ impl MemPoolDB {
     /// - `max_{}`: these parameters identify the max (or highest) block in the search. The search
     ///   is inclusive of this block. The function will only return a block (through the Chainstate
     ///   enum) that is either an ancestor of this block or the block itself.
-    fn walk(
+    fn walk_forwards(
         &self,
         chainstate: &mut StacksChainState,
         tip_consensus_hash: &ConsensusHash,
@@ -539,6 +539,67 @@ impl MemPoolDB {
         ))
     }
 
+    fn get_next_timestamp_at_next_block<E>(
+        &self,
+        chainstate: &mut StacksChainState,
+        mut curr_tip_consensus_hash: ConsensusHash,
+        mut curr_tip_block_hash: BlockHeaderHash,
+        mut curr_tip_height: Option<u64>,
+        max_tip_consensus_hash: &ConsensusHash,
+        max_tip_block_hash: &BlockHeaderHash,
+        max_tip_height: u64,
+    ) -> Result<Option<MemPoolWalkResult>, E>
+    where
+        E: From<db_error> + From<ChainstateError>,
+    {
+        loop {
+            // walk to where the first transaction we can mine can be found
+            match self.walk_forwards(
+                chainstate,
+                &curr_tip_consensus_hash,
+                &curr_tip_block_hash,
+                curr_tip_height,
+                &max_tip_consensus_hash,
+                &max_tip_block_hash,
+                max_tip_height,
+            )? {
+                MemPoolWalkResult::Chainstate(
+                    next_consensus_hash,
+                    next_block_bhh,
+                    next_height,
+                    next_timestamp,
+                ) => {
+                    return Ok(Some(MemPoolWalkResult::Chainstate(
+                        next_consensus_hash,
+                        next_block_bhh,
+                        next_height,
+                        next_timestamp,
+                    )));
+                }
+                MemPoolWalkResult::NoneAtHeight(
+                    next_consensus_hash,
+                    next_block_hash,
+                    next_height,
+                ) => {
+                    if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
+                        warn!(
+                            "Stopping mempool walk because no mempool entries at height = {}",
+                            next_height
+                        );
+                        return Ok(None);
+                    } else {
+                        curr_tip_consensus_hash = next_consensus_hash;
+                        curr_tip_block_hash = next_block_hash;
+                        curr_tip_height = Some(next_height);
+                    }
+                }
+                MemPoolWalkResult::Done => {
+                    return Ok(None);
+                }
+            }
+        }
+    }
+
     ///
     /// Iterate over candidates in the mempool
     ///  todo will be called once for each bundle of transactions at
@@ -575,52 +636,35 @@ impl MemPoolDB {
         );
 
         debug!(
-            "Begin scanning transaction mempool at {}/{} height={:?}",
-            &curr_tip_consensus_hash, &curr_tip_block_hash, curr_tip_height
+            "Begin scanning transaction mempool with max block {}/{} height={:?}",
+            &max_tip_consensus_hash, &max_tip_block_hash, max_tip_height
         );
 
-        let mut next_timestamp = loop {
-            // walk to where the first transaction we can mine can be found
-            match self.walk(
-                chainstate,
-                &curr_tip_consensus_hash,
-                &curr_tip_block_hash,
-                curr_tip_height,
-                &max_tip_consensus_hash,
-                &max_tip_block_hash,
-                max_tip_height,
-            )? {
-                MemPoolWalkResult::Chainstate(
-                    next_consensus_hash,
-                    next_block_bhh,
-                    next_height,
-                    next_timestamp,
-                ) => {
-                    curr_tip_consensus_hash = next_consensus_hash;
-                    curr_tip_block_hash = next_block_bhh;
-                    curr_tip_height = Some(next_height);
-                    break next_timestamp;
-                }
-                MemPoolWalkResult::NoneAtHeight(
-                    next_consensus_hash,
-                    next_block_hash,
-                    next_height,
-                ) => {
-                    if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
-                        warn!(
-                            "Stopping mempool walk because no mempool entries at height = {}",
-                            next_height
-                        );
-                        return Ok(());
-                    } else {
-                        curr_tip_consensus_hash = next_consensus_hash;
-                        curr_tip_block_hash = next_block_hash;
-                        curr_tip_height = Some(next_height);
-                    }
-                }
-                MemPoolWalkResult::Done => {
-                    return Ok(());
-                }
+        let mut next_timestamp = match self.get_next_timestamp_at_next_block::<E>(
+            chainstate,
+            curr_tip_consensus_hash,
+            curr_tip_block_hash,
+            curr_tip_height,
+            &max_tip_consensus_hash,
+            &max_tip_block_hash,
+            max_tip_height,
+        )? {
+            None => {
+                return Ok(());
+            }
+            Some(MemPoolWalkResult::Chainstate(
+                next_consensus_hash,
+                next_block_bhh,
+                next_height,
+                next_timestamp,
+            )) => {
+                curr_tip_consensus_hash = next_consensus_hash;
+                curr_tip_block_hash = next_block_bhh;
+                curr_tip_height = Some(next_height);
+                next_timestamp
+            }
+            _ => {
+                unreachable!("Function only returns MemPoolWalkResult of type Chainstate")
             }
         };
 
@@ -645,51 +689,34 @@ impl MemPoolDB {
                 &self.db,
                 &curr_tip_consensus_hash,
                 &curr_tip_block_hash,
-                next_timestamp.clone(),
+                next_timestamp,
             )? {
                 Some(ts) => ts,
-                None => loop {
-                    // walk back
-                    match self.walk(
-                        chainstate,
-                        &curr_tip_consensus_hash,
-                        &curr_tip_block_hash,
-                        curr_tip_height,
-                        &max_tip_consensus_hash,
-                        &max_tip_block_hash,
-                        max_tip_height,
-                    )? {
-                        MemPoolWalkResult::Chainstate(
-                            next_consensus_hash,
-                            next_block_bhh,
-                            next_height,
-                            next_timestamp,
-                        ) => {
-                            curr_tip_consensus_hash = next_consensus_hash;
-                            curr_tip_block_hash = next_block_bhh;
-                            curr_tip_height = Some(next_height);
-                            break next_timestamp;
-                        }
-                        MemPoolWalkResult::NoneAtHeight(
-                            next_consensus_hash,
-                            next_block_hash,
-                            next_height,
-                        ) => {
-                            if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
-                                warn!(
-                                    "Stopping mempool walk because no mempool entries at height = {}",
-                                    next_height
-                                );
-                                return Ok(());
-                            } else {
-                                curr_tip_consensus_hash = next_consensus_hash;
-                                curr_tip_block_hash = next_block_hash;
-                                curr_tip_height = Some(next_height);
-                            }
-                        }
-                        MemPoolWalkResult::Done => {
-                            return Ok(());
-                        }
+                None => match self.get_next_timestamp_at_next_block::<E>(
+                    chainstate,
+                    curr_tip_consensus_hash,
+                    curr_tip_block_hash,
+                    curr_tip_height,
+                    &max_tip_consensus_hash,
+                    &max_tip_block_hash,
+                    max_tip_height,
+                )? {
+                    None => {
+                        return Ok(());
+                    }
+                    Some(MemPoolWalkResult::Chainstate(
+                        next_consensus_hash,
+                        next_block_bhh,
+                        next_height,
+                        next_timestamp,
+                    )) => {
+                        curr_tip_consensus_hash = next_consensus_hash;
+                        curr_tip_block_hash = next_block_bhh;
+                        curr_tip_height = Some(next_height);
+                        next_timestamp
+                    }
+                    _ => {
+                        unreachable!("Function only returns MemPoolWalkResult of type Chainstate")
                     }
                 },
             };
