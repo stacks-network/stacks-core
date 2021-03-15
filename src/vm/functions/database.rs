@@ -152,9 +152,7 @@ pub fn special_contract_call(
         _ => return Err(CheckErrors::ContractCallExpectName.into()),
     };
 
-    let contract_principal = Value::Principal(PrincipalData::Contract(
-        env.contract_context.contract_identifier.clone(),
-    ));
+    let contract_principal = env.contract_context.contract_identifier.clone().into();
 
     let mut nested_env = env.nest_with_caller(contract_principal);
     let result = if nested_env.short_circuit_contract_call(
