@@ -332,10 +332,18 @@ fn mine_one_microblock(
             }
         };
 
+        let t1 = get_epoch_time_ms();
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
+        let t2 = get_epoch_time_ms();
 
-        info!("Mined microblock with {} transactions", mblock.txs.len());
+        info!(
+            "Mined microblock {} ({}) with {} transactions in {}ms",
+            mblock.block_hash(),
+            mblock.header.sequence,
+            mblock.txs.len(),
+            t2.saturating_sub(t1)
+        );
 
         Ok((mblock, new_cost_so_far))
     };
