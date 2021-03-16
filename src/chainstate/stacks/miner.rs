@@ -54,6 +54,8 @@ use util::vrf::*;
 use core::mempool::*;
 use core::*;
 
+use util::get_epoch_time_ms;
+
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 #[derive(Clone)]
@@ -494,15 +496,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
 impl<'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
         debug!(
-            "Drop StacksMicroblockBuilder on {}; {} txs considered; {} mined; cost so far: {:?}",
-            &self.runtime.tip,
-            self.runtime
-                .considered
-                .as_ref()
-                .map(|x| x.len())
-                .unwrap_or(0),
-            self.runtime.num_mined,
-            &self.get_cost_so_far()
+            "Drop StacksMicroblockBuilder";
+            "chain tip" => %&self.runtime.tip,
+            "txs considered" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
+            "txs mined" => self.runtime.num_mined,
+            "cost so far" => &format!("{:?}", &self.get_cost_so_far())
         );
         self.clarity_tx
             .take()
@@ -933,8 +931,9 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {} with {} txs, parent block {}, parent microblock {} ({}), state root = {}",
+            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), state root = {}",
             block.block_hash(),
+            block.header.total_work.work,
             block.txs.len(),
             &self.header.parent_block,
             &self.header.parent_microblock,
@@ -1128,11 +1127,13 @@ impl StacksBlockBuilder {
         self.miner_payouts =
             matured_miner_rewards_opt.map(|(miner, users, parent, _)| (miner, users, parent));
 
-        test_debug!(
+        debug!(
             "Miner {}: Apply {} parent microblocks",
             self.miner_id,
             parent_microblocks.len()
         );
+
+        let t1 = get_epoch_time_ms();
 
         if parent_microblocks.len() == 0 {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
@@ -1156,10 +1157,13 @@ impl StacksBlockBuilder {
             self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
         }
 
-        test_debug!(
-            "Miner {}: Finished applying {} parent microblocks\n",
+        let t2 = get_epoch_time_ms();
+
+        debug!(
+            "Miner {}: Finished applying {} parent microblocks in {}ms\n",
             self.miner_id,
-            parent_microblocks.len()
+            parent_microblocks.len(),
+            t2.saturating_sub(t1)
         );
 
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
@@ -1374,6 +1378,8 @@ impl StacksBlockBuilder {
             pubkey_hash,
         )?;
 
+        let ts_start = get_epoch_time_ms();
+
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
@@ -1487,6 +1493,22 @@ impl StacksBlockBuilder {
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
         let consumed = builder.epoch_finish(epoch_tx);
+
+        let ts_end = get_epoch_time_ms();
+
+        debug!(
+            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), size {}, consumed {:?}, in {}ms",
+            block.block_hash(),
+            block.header.total_work.work,
+            block.txs.len(),
+            &block.header.parent_block,
+            &block.header.parent_microblock,
+            block.header.parent_microblock_sequence,
+            size,
+            &consumed,
+            ts_end.saturating_sub(ts_start);
+        );
+
         Ok((block, consumed, size))
     }
 }
