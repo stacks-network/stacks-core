@@ -527,17 +527,23 @@ impl BlockStreamData {
 }
 
 impl StacksChainState {
-    /// Get the path to a block in the chunk store
-    pub fn get_index_block_path(
-        blocks_dir: &str,
-        index_block_hash: &StacksBlockId,
-    ) -> Result<String, Error> {
+    fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
 
         block_path.push(to_hex(&block_hash_bytes[0..2]));
         block_path.push(to_hex(&block_hash_bytes[2..4]));
         block_path.push(format!("{}", index_block_hash));
+
+        block_path
+    }
+
+    /// Get the path to a block in the chunk store
+    pub fn get_index_block_path(
+        blocks_dir: &str,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<String, Error> {
+        let block_path = StacksChainState::get_index_block_pathbuf(blocks_dir, index_block_hash);
 
         let blocks_path_str = block_path
             .to_str()
@@ -558,7 +564,7 @@ impl StacksChainState {
 
     /// Make a directory tree for storing this block to the chunk store, and return the block's path
     fn make_block_dir(
-        blocks_dir: &String,
+        blocks_dir: &str,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<String, Error> {
@@ -740,12 +746,12 @@ impl StacksChainState {
 
     /// Mark a block in the filesystem as invalid
     fn free_block(
-        blocks_path: &String,
+        blocks_dir: &str,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
     ) -> () {
         let block_path =
-            StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_header_hash)
+            StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
 
         // already freed?
@@ -757,11 +763,18 @@ impl StacksChainState {
             // only care that at least one copy survives for further analysis.
             let random_bytes = thread_rng().gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
-            let invalid_path = format!("{}.invalid-{}", &block_path, &random_bytes_str);
+            let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
+            let mut invalid_path =
+                StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
+            invalid_path
+                .file_name()
+                .expect("FATAL: index block path did not have file name");
+            invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
 
             fs::copy(&block_path, &invalid_path).expect(&format!(
                 "FATAL: failed to copy '{}' to '{}'",
-                &block_path, &invalid_path,
+                &block_path,
+                &invalid_path.to_string_lossy(),
             ));
 
             // truncate the original
@@ -2016,23 +2029,23 @@ impl StacksChainState {
         }
     }
 
-    /*
-    // NOTE: temporarily not used, so we can kee invalid data around for analysis.
     /// Delete a microblock's data from the DB
-    fn delete_microblock_data<'a>(
-        tx: &mut DBTx<'a>,
+    fn delete_microblock_data(
+        tx: &mut DBTx,
         microblock_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
-        // clear out the block data from staging
-        let clear_sql = "DELETE FROM staging_microblocks_data WHERE block_hash = ?1".to_string();
-        let clear_args = [&microblock_hash];
+        let args = [&microblock_hash];
 
-        tx.execute(&clear_sql, &clear_args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        // copy into the invalidated_microblocks_data table
+        let copy_sql = "INSERT OR REPLACE INTO invalidated_microblocks_data SELECT * FROM staging_microblocks_data WHERE block_hash = ?1";
+        tx.execute(copy_sql, &args)?;
+
+        // clear out the block data from staging
+        let clear_sql = "DELETE FROM staging_microblocks_data WHERE block_hash = ?1";
+        tx.execute(clear_sql, &args)?;
 
         Ok(())
     }
-    */
 
     /// Mark an anchored block as orphaned and both orphan and delete its descendant microblock data.
     /// The blocks database will eventually delete all orphaned data.
@@ -2043,52 +2056,40 @@ impl StacksChainState {
         anchored_block_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
         // This block is orphaned
-        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let update_block_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // All descendants of this processed block are never attachable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
-        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2".to_string();
+        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2";
         let update_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        // find all descendant orphaned microblocks, and delete the block data
-        /*
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        // find all orphaned microblocks, and delete the block data
+        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let find_orphaned_microblocks_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
-            &find_orphaned_microblocks_sql,
+            find_orphaned_microblocks_sql,
             find_orphaned_microblocks_args,
             "microblock_hash",
-        )
-        .map_err(Error::DBError)?;
-        */
+        )?;
 
         // drop microblocks (this processes them)
-        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let update_microblock_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        tx.execute(&update_block_sql, update_block_args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        tx.execute(update_block_sql, update_block_args)?;
 
-        tx.execute(&update_children_sql, update_children_args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        tx.execute(update_children_sql, update_children_args)?;
 
         tx.execute(
-            &update_microblock_children_sql,
+            update_microblock_children_sql,
             update_microblock_children_args,
-        )
-        .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        )?;
 
-        /*
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
         for mblock_hash in orphaned_microblock_hashes {
             StacksChainState::delete_microblock_data(tx, &mblock_hash)?;
         }
-        */
 
         // mark the block as invalid if we haven't already
         let block_path =
@@ -2286,8 +2287,8 @@ impl StacksChainState {
 
     /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
-    fn drop_staging_microblocks<'a>(
-        tx: &mut DBTx<'a>,
+    fn drop_staging_microblocks(
+        tx: &mut DBTx,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -2308,12 +2309,9 @@ impl StacksChainState {
             },
         };
 
-        test_debug!(
+        debug!(
             "Drop staging microblocks {}/{} up to {} ({})",
-            consensus_hash,
-            anchored_block_hash,
-            invalid_block_hash,
-            seq
+            consensus_hash, anchored_block_hash, invalid_block_hash, seq
         );
 
         // drop staging children at and beyond the invalid block
@@ -2337,14 +2335,10 @@ impl StacksChainState {
         )
         .map_err(Error::DBError)?;
 
-        /*
         // garbage-collect
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
         for mblock_hash in orphaned_microblock_hashes.iter() {
             StacksChainState::delete_microblock_data(tx, &mblock_hash)?;
         }
-        */
 
         for mblock_hash in orphaned_microblock_hashes.iter() {
             // orphan any staging blocks that build on the now-invalid microblocks
@@ -8115,15 +8109,13 @@ pub mod test {
                 )
                 .unwrap()
                 .is_none());
-                /*
-                // NOTE: check disabled because for now we'll keep around bad microblocks
+
                 assert!(StacksChainState::load_staging_microblock_bytes(
                     &chainstate.db(),
                     &mblock.block_hash()
                 )
                 .unwrap()
                 .is_none());
-                */
             }
 
             if i + 1 < blocks.len() {
