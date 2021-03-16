@@ -753,16 +753,6 @@ impl StacksChainState {
         let block_path =
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
-        let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
-        let mut invalidated_path =
-            StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
-        invalidated_path
-            .file_name()
-            .expect("FATAL: index block path did not have file name");
-        invalidated_path.set_extension("invalid");
-
-        fs::copy(&block_path, &invalidated_path)
-            .expect("FATAL: failed to write copy of invalidated block");
 
         // already freed?
         let sz = StacksChainState::get_file_size(&block_path)
@@ -773,11 +763,18 @@ impl StacksChainState {
             // only care that at least one copy survives for further analysis.
             let random_bytes = thread_rng().gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
-            let invalid_path = format!("{}.invalid-{}", &block_path, &random_bytes_str);
+            let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
+            let mut invalid_path =
+                StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
+            invalid_path
+                .file_name()
+                .expect("FATAL: index block path did not have file name");
+            invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
 
             fs::copy(&block_path, &invalid_path).expect(&format!(
                 "FATAL: failed to copy '{}' to '{}'",
-                &block_path, &invalid_path,
+                &block_path,
+                &invalid_path.to_string_lossy(),
             ));
 
             // truncate the original
@@ -2290,14 +2287,8 @@ impl StacksChainState {
 
     /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
-<<<<<<< HEAD
-    fn drop_staging_microblocks<'a>(
-        tx: &mut DBTx<'a>,
-=======
     fn drop_staging_microblocks(
         tx: &mut DBTx,
-        _blocks_path: &str,
->>>>>>> feat: keep invalidated block data
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -2318,12 +2309,9 @@ impl StacksChainState {
             },
         };
 
-        test_debug!(
+        debug!(
             "Drop staging microblocks {}/{} up to {} ({})",
-            consensus_hash,
-            anchored_block_hash,
-            invalid_block_hash,
-            seq
+            consensus_hash, anchored_block_hash, invalid_block_hash, seq
         );
 
         // drop staging children at and beyond the invalid block
