@@ -373,8 +373,8 @@ check if the associated microblocks can be downloaded
             process::exit(1);
         }
 
-        let sort_db_path = format!("{}/burnchain/db/bitcoin/mainnet/sortition.db", &argv[2]);
-        let chain_state_path = format!("{}/chainstate/", &argv[2]);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
