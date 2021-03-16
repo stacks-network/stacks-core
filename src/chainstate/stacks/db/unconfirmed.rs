@@ -106,7 +106,7 @@ impl UnconfirmedState {
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: cost_so_far.clone(),
+            cost_so_far: cost_so_far,
             bytes_so_far: 0,
 
             last_mblock: None,
