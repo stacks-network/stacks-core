@@ -2016,24 +2016,6 @@ impl StacksChainState {
         }
     }
 
-    /*
-    // NOTE: temporarily not used, so we can kee invalid data around for analysis.
-    /// Delete a microblock's data from the DB
-    fn delete_microblock_data<'a>(
-        tx: &mut DBTx<'a>,
-        microblock_hash: &BlockHeaderHash,
-    ) -> Result<(), Error> {
-        // clear out the block data from staging
-        let clear_sql = "DELETE FROM staging_microblocks_data WHERE block_hash = ?1".to_string();
-        let clear_args = [&microblock_hash];
-
-        tx.execute(&clear_sql, &clear_args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
-    }
-    */
-
     /// Mark an anchored block as orphaned and both orphan and delete its descendant microblock data.
     /// The blocks database will eventually delete all orphaned data.
     fn delete_orphaned_epoch_data<'a>(
@@ -2051,21 +2033,6 @@ impl StacksChainState {
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2".to_string();
         let update_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        // find all descendant orphaned microblocks, and delete the block data
-        /*
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let find_orphaned_microblocks_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
-        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
-            tx,
-            &find_orphaned_microblocks_sql,
-            find_orphaned_microblocks_args,
-            "microblock_hash",
-        )
-        .map_err(Error::DBError)?;
-        */
-
         // drop microblocks (this processes them)
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
         let update_microblock_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
@@ -2081,14 +2048,6 @@ impl StacksChainState {
             update_microblock_children_args,
         )
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        /*
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
-        for mblock_hash in orphaned_microblock_hashes {
-            StacksChainState::delete_microblock_data(tx, &mblock_hash)?;
-        }
-        */
 
         // mark the block as invalid if we haven't already
         let block_path =
@@ -2336,15 +2295,6 @@ impl StacksChainState {
             "microblock_hash",
         )
         .map_err(Error::DBError)?;
-
-        /*
-        // garbage-collect
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
-        for mblock_hash in orphaned_microblock_hashes.iter() {
-            StacksChainState::delete_microblock_data(tx, &mblock_hash)?;
-        }
-        */
 
         for mblock_hash in orphaned_microblock_hashes.iter() {
             // orphan any staging blocks that build on the now-invalid microblocks
