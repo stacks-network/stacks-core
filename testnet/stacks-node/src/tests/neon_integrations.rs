@@ -1734,7 +1734,10 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         anchor_block_txs, micro_block_txs, max_mblock_nonce, mblock_nonces
     );
 
-    assert_eq!(anchor_block_txs, 2);
+    // miner produces an anchored block whereby it had the budget to fill it with two transactions,
+    // but instead confirmed a microblock stream that only allowed it to fill the anchor block with
+    // 1 transaction.
+    assert_eq!(anchor_block_txs, 1);
 
     // accept only 9 "small" txs
     assert_eq!(mblock_nonces, 9);
@@ -1745,127 +1748,18 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 
 #[test]
 #[ignore]
-fn cost_overflow_unconfirmed_microblocks_integration_test() {
+fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
-    // stuff an expensive contract into the anchored block
-    let giant_contract = "
-    (define-map data-map { input: uint } { output: (buff 1024) })
-    (define-private (folder (idx uint) (data (buff 1024)))
-        (begin
-            ;; write 32 kb
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            data
-        ))
-    (define-public (crash-me)
-        (let (
-            (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
-            (b2 (concat b b))
-            (b3 (concat b2 b2))
-            (b4 (concat b3 b3))
-            (b5 (concat b4 b4))
-            (b6 (concat b5 b5)))  ;; 1024 bytes
-        (begin
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-            (print \"large expensive contract finished\")
-            (ok (len b6)))))
-    (begin
-        (crash-me))
-    ";
-
-    let small_contract = "
-    (define-map data-map { input: uint } { output: (buff 1024) })
-    (define-private (folder (idx uint) (data (buff 1024)))
-        (begin
-            ;; write 8 kb
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            (map-insert data-map { input: idx } { output: data })
-            data
-        ))
-    (define-public (crash-me)
-        (let (
-            (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
-            (b2 (concat b b))
-            (b3 (concat b2 b2))
-            (b4 (concat b3 b3))
-            (b5 (concat b4 b4))
-            (b6 (concat b5 b5)))  ;; 1024 bytes
-        (begin
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-            (print \"small expensive contract finished\")
-            (ok (len b6)))))
-    (begin
-        (crash-me))
-    ";
-
-    let spender_sks: Vec<_> = (0..10)
+    let spender_sks: Vec<_> = (0..4)
         .into_iter()
         .map(|_| StacksPrivateKey::new())
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
+    let spender_addrs_c32: Vec<StacksAddress> =
+        spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
@@ -1877,18 +1771,126 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
                     spender_sk,
                     0,
                     1049230,
-                    "large-0",
-                    &giant_contract,
+                    &format!("large-{}", ix),
+                    &format!("
+                        (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
+                        (define-private (folder (idx uint) (data (buff 1024)))
+                            (begin
+                                ;; write 32 kb
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                data
+                            ))
+                        (define-public (crash-me (name (string-ascii 128)))
+                            (let (
+                                (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
+                                (b2 (concat b b))
+                                (b3 (concat b2 b2))
+                                (b4 (concat b3 b3))
+                                (b5 (concat b4 b4))
+                                (b6 (concat b5 b5)))  ;; 1024 bytes
+                            (begin
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (print name)
+                                (ok (len b6)))))
+                        (begin
+                            (crash-me \"{}\"))
+                        ",
+                        &format!("large-contract-{}-{}", &spender_addrs_c32[ix], &ix)
+                    )
                 )]
             } else {
                 let mut ret = vec![];
-                for i in 0..25 {
+                for i in 0..10 {
                     let tx = make_contract_publish_microblock_only(
                         spender_sk,
                         i as u64,
                         210000,
-                        &format!("small-{}", i),
-                        &small_contract,
+                        &format!("small-{}-{}", ix, i),
+                        &format!("
+                            (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
+                            (define-private (folder (idx uint) (data (buff 1024)))
+                                (begin
+                                    ;; write 8 kb
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    data
+                                ))
+                            (define-public (crash-me (name (string-ascii 128)))
+                                (let (
+                                    (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
+                                    (b2 (concat b b))
+                                    (b3 (concat b2 b2))
+                                    (b4 (concat b3 b3))
+                                    (b5 (concat b4 b4))
+                                    (b6 (concat b5 b5)))  ;; 1024 bytes
+                                (begin
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (print name)
+                                    (ok (len b6)))))
+                            (begin
+                                (crash-me \"{}\"))
+                            ", &format!("small-contract-{}-{}-{}", &spender_addrs_c32[ix], &ix, i))
                     );
                     ret.push(tx);
                 }
@@ -1909,6 +1911,12 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1961,7 +1969,8 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    sleep_ms(2_000_000);
+    debug!("Wait for 1st microblock to be mined");
+    sleep_ms(450_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -1973,40 +1982,64 @@ fn cost_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(2_000_000);
+
+    debug!("Wait for 2nd microblock to be mined");
+    sleep_ms(450_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's figure out how many micro-only and anchor-only txs got accepted
-    //   by examining our account nonces:
-    let mut micro_block_txs = 0;
-    let mut anchor_block_txs = 0;
-    let mut max_mblock_nonce = 0;
-    let mut mblock_nonces = 0;
-    for (ix, spender_addr) in spender_addrs.iter().enumerate() {
-        let res = get_account(&http_origin, &spender_addr);
-        if res.nonce >= 1 {
-            if ix % 2 == 0 {
-                anchor_block_txs += 1;
-            } else {
-                micro_block_txs += 1;
-                mblock_nonces += res.nonce;
-                max_mblock_nonce = cmp::max(res.nonce, max_mblock_nonce);
+    debug!("Wait for 3nd microblock to be mined");
+    sleep_ms(450_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 4);
+
+    let mut max_big_txs_per_block = 0;
+    let mut max_big_txs_per_microblock = 0;
+    let mut total_big_txs_per_block = 0;
+    let mut total_big_txs_per_microblock = 0;
+
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+
+        let mut num_big_anchored_txs = 0;
+        let mut num_big_microblock_txs = 0;
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if tsc.name.to_string().find("large-contract").is_some() {
+                    num_big_anchored_txs += 1;
+                    total_big_txs_per_block += 1;
+                } else if tsc.name.to_string().find("small-contract").is_some() {
+                    num_big_microblock_txs += 1;
+                    total_big_txs_per_microblock += 1;
+                }
             }
         }
 
-        debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
+        if num_big_anchored_txs > max_big_txs_per_block {
+            max_big_txs_per_block = num_big_anchored_txs;
+        }
+        if num_big_microblock_txs > max_big_txs_per_microblock {
+            max_big_txs_per_microblock = num_big_microblock_txs;
+        }
     }
 
-    eprintln!(
-        "anchor_block_txs: {}, micro_block_txs: {}, max_mblock_nonce = {}, mblock_nonces = {}",
-        anchor_block_txs, micro_block_txs, max_mblock_nonce, mblock_nonces
-    );
+    // can't have too many
+    assert!(max_big_txs_per_microblock <= 8);
+    assert!(max_big_txs_per_block <= 2);
 
-    assert_eq!(anchor_block_txs, 2);
-
-    // accept only 9 "small" txs
-    assert_eq!(mblock_nonces, 9);
+    assert!(total_big_txs_per_block <= 3);
+    assert!(total_big_txs_per_microblock <= 16);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
