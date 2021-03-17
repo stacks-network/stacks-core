@@ -31,11 +31,6 @@ use util::db::Error as DatabaseError;
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
-pub fn increment_rpc_request_counter_total() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::RPC_REQUEST_COUNTER.inc();
-}
-
 pub fn increment_stx_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_RECEIVED_COUNTER.inc();
@@ -250,14 +245,6 @@ pub fn increment_msg_counter(name: String) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::MSG_COUNTER_VEC
         .with_label_values(&[&name])
-        .inc();
-}
-
-#[allow(unused_variables)]
-pub fn increment_rpc_request_counter(path: String, method: String) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::RPC_REQUEST_COUNTER_VEC
-        .with_label_values(&[&path, &method])
         .inc();
 }
 

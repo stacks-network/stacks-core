@@ -99,7 +99,7 @@ use net::inv::*;
 use net::relay::*;
 use net::rpc::RPCHandlerArgs;
 
-use monitoring::{update_inbound_neighbors, update_outbound_neighbors}; //promserver
+use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -4085,8 +4085,8 @@ impl PeerNetwork {
             self.prune_connections();
             let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
             let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
-            update_outbound_neighbors(outbound_neighbors as i64); //promserver
-            update_inbound_neighbors(inbound_neighbors as i64); //promserver
+            update_outbound_neighbors(outbound_neighbors as i64);
+            update_inbound_neighbors(inbound_neighbors as i64);
         }
 
         // In parallel, do a neighbor walk, but only if we're not doing the initial block download

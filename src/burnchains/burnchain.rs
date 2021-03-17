@@ -82,7 +82,7 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 
-use monitoring::update_burnchain_height; //promserver
+use monitoring::update_burnchain_height;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -1437,7 +1437,7 @@ impl Burnchain {
         if let Err(e) = downloader_result {
             return Err(e);
         }
-        update_burnchain_height(block_header.block_height as i64); //promserver
+        update_burnchain_height(block_header.block_height as i64);
         Ok(block_header)
     }
 }

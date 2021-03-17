@@ -56,7 +56,7 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use rusqlite::Error as SqliteError;
 
 use chainstate::stacks::TransactionPayload;
-use monitoring::increment_stx_mempool_gc; //promserver
+use monitoring::increment_stx_mempool_gc;
 use vm::types::PrincipalData;
 
 use crate::monitoring;
@@ -937,7 +937,7 @@ impl MemPoolDB {
         let sql = "DELETE FROM mempool WHERE height < ?1";
 
         tx.execute(sql, args)?;
-        increment_stx_mempool_gc(); //promserver
+        increment_stx_mempool_gc();
         Ok(())
     }
 

@@ -17,11 +17,6 @@
 use prometheus::{Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 
 lazy_static! {
-    pub static ref RPC_REQUEST_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_rpc_request_total",
-        "Total number of RPC requests made"
-    )).unwrap();
-
     pub static ref STX_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_received_total",
         "Total number of Stacks blocks received"
@@ -133,11 +128,6 @@ lazy_static! {
         &["name"]
     ).unwrap();
 
-    pub static ref RPC_REQUEST_COUNTER_VEC: IntCounterVec = register_int_counter_vec!(
-        "stacks_node_rpc_request",
-        "Total number of RPC requests made by path",
-        &["path", "method"]
-    ).unwrap();
 
     pub static ref STX_MEMPOOL_GC: IntCounter = register_int_counter!(opts!(
         "stacks_node_mempool_gc_count",
