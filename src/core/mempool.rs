@@ -619,6 +619,12 @@ impl MemPoolDB {
         F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
         E: From<db_error> + From<ChainstateError>,
     {
+        // Want to consider transactions at height (`tip_height - MEMPOOL_MAX_TRANSACTION_AGE`)
+        let min_tip_height = match tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE) {
+            None => None,
+            Some(h) if h == 0 => None,
+            Some(h) => Some(h - 1),
+        };
         let (
             mut curr_tip_consensus_hash,
             max_tip_consensus_hash,
@@ -632,7 +638,7 @@ impl MemPoolDB {
             tip_block_hash.clone(),
             tip_block_hash.clone(),
             tip_height,
-            None,
+            min_tip_height,
         );
 
         debug!(
