@@ -682,9 +682,8 @@ impl StacksChainState {
 
         let sender_principal = match &env.sender {
             Some(ref sender) => {
-                let sender_principal = sender.clone().expect_principal();
-                if let PrincipalData::Standard(sender_principal) = sender_principal {
-                    sender_principal
+                if let PrincipalData::Standard(sender) = sender.clone() {
+                    sender
                 } else {
                     panic!(
                         "BUG: tried to handle poison microblock without a standard principal sender"

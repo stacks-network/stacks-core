@@ -1004,12 +1004,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         db,
                         LimitedCostTracker::new_free(),
                     );
-                    vm_env.execute_transaction(
-                        Value::Principal(sender),
-                        contract_identifier,
-                        &tx_name,
-                        &arguments,
-                    )
+                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
                 };
                 (marf, result)
             });
