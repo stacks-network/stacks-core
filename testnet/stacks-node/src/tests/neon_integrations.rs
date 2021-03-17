@@ -42,7 +42,6 @@ use stacks::net::{
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::{get_epoch_time_secs, sleep_ms};
-use std::cmp;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1655,6 +1654,12 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.wait_time_for_microblocks = 5000;
     conf.node.microblock_frequency = 15000;
 
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -1722,39 +1727,58 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's figure out how many micro-only and anchor-only txs got accepted
-    //   by examining our account nonces:
-    let mut micro_block_txs = 0;
-    let mut anchor_block_txs = 0;
-    let mut max_mblock_nonce = 0;
-    let mut mblock_nonces = 0;
-    for (ix, spender_addr) in spender_addrs.iter().enumerate() {
-        let res = get_account(&http_origin, &spender_addr);
-        if res.nonce >= 1 {
-            if ix % 2 == 0 {
-                anchor_block_txs += 1;
-            } else {
-                micro_block_txs += 1;
-                mblock_nonces += res.nonce;
-                max_mblock_nonce = cmp::max(res.nonce, max_mblock_nonce);
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 3);
+
+    let mut max_big_txs_per_block = 0;
+    let mut max_big_txs_per_microblock = 0;
+    let mut total_big_txs_per_block = 0;
+    let mut total_big_txs_per_microblock = 0;
+
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+
+        let mut num_big_anchored_txs = 0;
+        let mut num_big_microblock_txs = 0;
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if tsc.name.to_string().find("large-").is_some() {
+                    num_big_anchored_txs += 1;
+                    total_big_txs_per_block += 1;
+                } else if tsc.name.to_string().find("small-").is_some() {
+                    num_big_microblock_txs += 1;
+                    total_big_txs_per_microblock += 1;
+                }
             }
         }
 
-        debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
+        if num_big_anchored_txs > max_big_txs_per_block {
+            max_big_txs_per_block = num_big_anchored_txs;
+        }
+        if num_big_microblock_txs > max_big_txs_per_microblock {
+            max_big_txs_per_microblock = num_big_microblock_txs;
+        }
     }
 
     eprintln!(
-        "anchor_block_txs: {}, micro_block_txs: {}, max_mblock_nonce = {}, mblock_nonces = {}",
-        anchor_block_txs, micro_block_txs, max_mblock_nonce, mblock_nonces
+        "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}, total_big_txs_per_block: {}, total_big_txs_per_microblock: {}",
+        max_big_txs_per_microblock, max_big_txs_per_block, total_big_txs_per_block, total_big_txs_per_microblock
     );
 
-    // miner produces an anchored block whereby it had the budget to fill it with two transactions,
-    // but instead confirmed a microblock stream that only allowed it to fill the anchor block with
-    // 1 transaction.
-    assert_eq!(anchor_block_txs, 1);
+    // can't have too many
+    assert!(max_big_txs_per_microblock <= 9);
+    assert!(max_big_txs_per_block <= 2);
 
-    // accept only 9 "small" txs
-    assert_eq!(mblock_nonces, 9);
+    assert!(total_big_txs_per_block <= 3);
+    assert!(total_big_txs_per_microblock <= 18);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
