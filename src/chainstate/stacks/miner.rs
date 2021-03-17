@@ -312,7 +312,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             considered.insert(tx.txid());
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            warn!(
+            info!(
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
             );
