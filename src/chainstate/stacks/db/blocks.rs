@@ -1103,11 +1103,10 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<Hash160>, Error> {
-        let sql = format!("SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0");
+        let sql = "SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0";
         let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
-        let rows =
-            query_row_columns::<Hash160, _>(block_conn, &sql, args, "microblock_pubkey_hash")
-                .map_err(Error::DBError)?;
+        let rows = query_row_columns::<Hash160, _>(block_conn, sql, args, "microblock_pubkey_hash")
+            .map_err(Error::DBError)?;
         match rows.len() {
             0 => Ok(None),
             1 => Ok(Some(rows[0].clone())),
@@ -1563,18 +1562,28 @@ impl StacksChainState {
 
         let attachable = {
             // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
-            let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1".to_string();
+            let has_unprocessed_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1";
+            let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 LIMIT 1";
             let has_parent_args: &[&dyn ToSql] =
                 &[&block.header.parent_block, &parent_consensus_hash];
-            let rows = query_row_columns::<BlockHeaderHash, _>(
+            let has_unprocessed_parent_rows = query_row_columns::<BlockHeaderHash, _>(
                 &tx,
-                &has_parent_sql,
+                has_unprocessed_parent_sql,
                 has_parent_args,
                 "anchored_block_hash",
             )
             .map_err(Error::DBError)?;
-            if rows.len() > 0 {
-                // still have unprocessed parent -- this block is not attachable
+            let has_parent_rows = query_row_columns::<BlockHeaderHash, _>(
+                &tx,
+                has_parent_sql,
+                has_parent_args,
+                "anchored_block_hash",
+            )
+            .map_err(Error::DBError)?;
+            let parent_not_in_staging_blocks =
+                has_parent_rows.len() == 0 && block.header.parent_block != FIRST_STACKS_BLOCK_HASH;
+            if has_unprocessed_parent_rows.len() > 0 || parent_not_in_staging_blocks {
+                // still have unprocessed parent OR its parent is not in staging_blocks at all -- this block is not attachable
                 debug!(
                     "Store non-attachable anchored block {}/{}",
                     consensus_hash,
@@ -2043,23 +2052,20 @@ impl StacksChainState {
         anchored_block_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
         // This block is orphaned
-        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let update_block_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // All descendants of this processed block are never attachable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
-        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2".to_string();
+        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2";
         let update_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        // find all descendant orphaned microblocks, and delete the block data
-        /*
-        // NOTE: temporarily disabled so we can keep invalid microblocks around for further
-        // analysis
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        // find all orphaned microblocks, and delete the block data
+        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let find_orphaned_microblocks_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
-            &find_orphaned_microblocks_sql,
+            find_orphaned_microblocks_sql,
             find_orphaned_microblocks_args,
             "microblock_hash",
         )
@@ -2067,17 +2073,17 @@ impl StacksChainState {
         */
 
         // drop microblocks (this processes them)
-        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let update_microblock_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        tx.execute(&update_block_sql, update_block_args)
+        tx.execute(update_block_sql, update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        tx.execute(&update_children_sql, update_children_args)
+        tx.execute(update_children_sql, update_children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         tx.execute(
-            &update_microblock_children_sql,
+            update_microblock_children_sql,
             update_microblock_children_args,
         )
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2252,11 +2258,11 @@ impl StacksChainState {
         let update_block_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // find all orphaned microblocks, and delete the block data
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let find_orphaned_microblocks_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
-            &find_orphaned_microblocks_sql,
+            find_orphaned_microblocks_sql,
             find_orphaned_microblocks_args,
             "microblock_hash",
         )
@@ -2327,11 +2333,11 @@ impl StacksChainState {
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         // find all orphaned microblocks hashes, and delete the block data
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1 AND sequence >= ?2".to_string();
+        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1 AND sequence >= ?2";
         let find_orphaned_microblocks_args: &[&dyn ToSql] = &[&anchored_block_hash, &seq];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
-            &find_orphaned_microblocks_sql,
+            find_orphaned_microblocks_sql,
             find_orphaned_microblocks_args,
             "microblock_hash",
         )
@@ -7398,11 +7404,12 @@ pub mod test {
         )
         .unwrap();
 
-        let block_1 = make_empty_coinbase_block(&privk);
+        let mut block_1 = make_empty_coinbase_block(&privk);
         let mut block_2 = make_empty_coinbase_block(&privk);
         let mut block_3 = make_empty_coinbase_block(&privk);
         let mut block_4 = make_empty_coinbase_block(&privk);
 
+        block_1.header.parent_block = FIRST_STACKS_BLOCK_HASH;
         block_2.header.parent_block = block_1.block_hash();
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
@@ -7415,7 +7422,7 @@ pub mod test {
         ];
 
         let parent_consensus_hashes = vec![
-            ConsensusHash([1u8; 20]),
+            FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
@@ -7537,11 +7544,12 @@ pub mod test {
         )
         .unwrap();
 
-        let block_1 = make_empty_coinbase_block(&privk);
+        let mut block_1 = make_empty_coinbase_block(&privk);
         let mut block_2 = make_empty_coinbase_block(&privk);
         let mut block_3 = make_empty_coinbase_block(&privk);
         let mut block_4 = make_empty_coinbase_block(&privk);
 
+        block_1.header.parent_block = FIRST_STACKS_BLOCK_HASH;
         block_2.header.parent_block = block_1.block_hash();
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
@@ -7554,7 +7562,7 @@ pub mod test {
         ];
 
         let parent_consensus_hashes = vec![
-            ConsensusHash([1u8; 20]),
+            FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
@@ -7677,7 +7685,7 @@ pub mod test {
         )
         .unwrap();
 
-        let block_1 = make_empty_coinbase_block(&privk);
+        let mut block_1 = make_empty_coinbase_block(&privk);
         let mut block_2 = make_empty_coinbase_block(&privk);
         let mut block_3 = make_empty_coinbase_block(&privk);
         let mut block_4 = make_empty_coinbase_block(&privk);
@@ -7690,6 +7698,7 @@ pub mod test {
         // storing block_1 to staging renders block_2 and block_3 unattachable
         // processing and accepting block_1 renders both block_2 and block_3 attachable again
 
+        block_1.header.parent_block = FIRST_STACKS_BLOCK_HASH;
         block_2.header.parent_block = block_1.block_hash();
         block_3.header.parent_block = block_1.block_hash();
         block_4.header.parent_block = block_3.block_hash();
@@ -7702,7 +7711,7 @@ pub mod test {
         ];
 
         let parent_consensus_hashes = vec![
-            ConsensusHash([1u8; 20]),
+            FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
@@ -7736,25 +7745,12 @@ pub mod test {
             assert_block_staging_not_processed(&mut chainstate, consensus_hash, block);
         }
 
-        // block 4 is not attachable
-        assert_eq!(
-            StacksChainState::load_staging_block(
-                &chainstate.db(),
-                &chainstate.blocks_path,
-                &consensus_hashes[3],
-                &block_4.block_hash()
-            )
-            .unwrap()
-            .unwrap()
-            .attachable,
-            false
-        );
-
-        // blocks 2 and 3 are attachable
-        for (block, consensus_hash) in [&block_2, &block_3]
-            .iter()
-            .zip(&[&consensus_hashes[1], &consensus_hashes[2]])
-        {
+        // blocks 2, 3, and 4 are not attachable since block 1 isn't in staging_blocks
+        for (block, consensus_hash) in [&block_2, &block_3, &block_4].iter().zip(&[
+            &consensus_hashes[1],
+            &consensus_hashes[2],
+            &consensus_hashes[3],
+        ]) {
             assert_eq!(
                 StacksChainState::load_staging_block(
                     &chainstate.db(),
@@ -7765,7 +7761,7 @@ pub mod test {
                 .unwrap()
                 .unwrap()
                 .attachable,
-                true
+                false
             );
         }
 
@@ -7802,7 +7798,7 @@ pub mod test {
             true
         );
 
-        // blocks 2 and 3 are no longer attachable
+        // blocks 2 and 3 are not attachable
         for (block, consensus_hash) in [&block_2, &block_3]
             .iter()
             .zip(&[&consensus_hashes[1], &consensus_hashes[2]])
