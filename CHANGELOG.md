@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.10]
+
+This is a low-priority hotfix release to address two bugs in the block downloader. The
+chainstate directory of 2.0.10 is compatible with 2.0.9. If booting up a node from genesis, or
+an existing node has stalled in downloading blocks, this hotfix is necessary for your
+node.
+
+## Fixed
+
+- Bug in microblocks inventory vector calculation that included invalidated microblocks
+  as present bit. This bug will impact nodes booting up from genesis, but not affect nodes
+  currently running at the chain tip (#2518).
+- Bug in microblocks downloader logic that would cause the stacks-node to fail to wake-up
+  to process newly arrived microblocks in certain instances (#2491).
+
 ## [2.0.9]
 
 This is a hotfix release for improved handling of arriving Stacks blocks through
