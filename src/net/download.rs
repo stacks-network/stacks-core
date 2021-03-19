@@ -1794,8 +1794,8 @@ impl PeerNetwork {
                     }
                 }
 
-                // nothing in this range, so advance sortition range to try for next time
                 if downloader.blocks_to_try.len() == 0 {
+                    // nothing in this range, so advance sortition range to try for next time
                     next_block_sortition_height = next_block_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
                     debug!(
@@ -1804,6 +1804,7 @@ impl PeerNetwork {
                     );
                 }
                 if downloader.microblocks_to_try.len() == 0 {
+                    // nothing in this range, so advance sortition range to try for next time
                     next_microblock_sortition_height = next_microblock_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
                     debug!(
