@@ -1417,8 +1417,8 @@ impl PeerNetwork {
                     continue;
                 }
 
-                let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
-                    if get_epoch_time_secs() < *deadline {
+                let prev_blocked = match downloader.blocked_urls.get(&data_url) {
+                    Some(deadline) if get_epoch_time_secs() < *deadline => {
                         debug!(
                             "{:?}: Will not request {} {}/{} from {:?} (of {:?}) until after {}",
                             &self.local_peer,
@@ -1434,11 +1434,8 @@ impl PeerNetwork {
                             deadline
                         );
                         true
-                    } else {
-                        false
                     }
-                } else {
-                    false
+                    _ => false,
                 };
 
                 if prev_blocked {
@@ -1607,7 +1604,7 @@ impl PeerNetwork {
                         }
                     }
 
-                    if max_mblock_height == 0 && next_microblocks_to_try.len() == 0 {
+                    if next_microblocks_to_try.len() == 0 {
                         // have no microblocks to try in the first place, so just advance to the
                         // next batch
                         debug!(
@@ -1797,18 +1794,23 @@ impl PeerNetwork {
                     }
                 }
 
-                if downloader.blocks_to_try.len() == 0 || downloader.microblocks_to_try.len() == 0 {
+                if downloader.blocks_to_try.len() == 0 {
                     // nothing in this range, so advance sortition range to try for next time
-                    if downloader.blocks_to_try.len() == 0 {
-                        next_block_sortition_height = next_block_sortition_height
-                            + (network.burnchain.pox_constants.reward_cycle_length as u64);
-                    }
-                    if downloader.microblocks_to_try.len() == 0 {
-                        next_microblock_sortition_height = next_microblock_sortition_height
-                            + (network.burnchain.pox_constants.reward_cycle_length as u64);
-                    }
-
-                    debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
+                    next_block_sortition_height = next_block_sortition_height
+                        + (network.burnchain.pox_constants.reward_cycle_length as u64);
+                    debug!(
+                        "{:?}: Pessimistically increase block sortition height to ({})",
+                        &network.local_peer, next_block_sortition_height
+                    );
+                }
+                if downloader.microblocks_to_try.len() == 0 {
+                    // nothing in this range, so advance sortition range to try for next time
+                    next_microblock_sortition_height = next_microblock_sortition_height
+                        + (network.burnchain.pox_constants.reward_cycle_length as u64);
+                    debug!(
+                        "{:?}: Pessimistically increase microblock sortition height to ({})",
+                        &network.local_peer, next_microblock_sortition_height
+                    );
                 }
 
                 downloader.next_block_sortition_height = next_block_sortition_height;
