@@ -27,8 +27,8 @@ use super::RunLoopCallbacks;
 
 use crate::monitoring::start_serving_monitoring_metrics;
 
-use crate::syncctl::PoxSyncWatchdog;
 use crate::node::use_test_genesis_chainstate;
+use crate::syncctl::PoxSyncWatchdog;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
