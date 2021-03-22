@@ -623,6 +623,7 @@ impl ConversationHttp {
         ) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
+                // timer.observe_duration();
                 response.send(http, fd)
             }
             Err(e) => {
@@ -631,6 +632,7 @@ impl ConversationHttp {
                     response_metadata,
                     "Failed to query peer info".to_string(),
                 );
+                // timer.observe_duration();
                 response.send(http, fd)
             }
         }
@@ -854,7 +856,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
@@ -898,7 +899,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.has_processed_microblocks(index_anchor_block_hash) {
@@ -1004,7 +1004,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this processed microblock stream?
@@ -1279,7 +1278,6 @@ impl ConversationHttp {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
             }
         };
-
         response.send(http, fd).map(|_| ())
     }
 
@@ -1699,7 +1697,6 @@ impl ConversationHttp {
         block: &StacksBlock,
     ) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-
         // is this a consensus hash we recognize?
         let (response, accepted) =
             match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
@@ -1874,8 +1871,6 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-        monitoring::increment_rpc_calls_counter();
-
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
@@ -2638,6 +2633,7 @@ impl ConversationHttp {
                 break;
             }
         }
+        monitoring::update_inbound_rpc_bandwidth(total_recv as i64);
         Ok(total_recv)
     }
 
@@ -2667,6 +2663,7 @@ impl ConversationHttp {
                 break;
             }
         }
+        monitoring::update_inbound_rpc_bandwidth(total_sz as i64);
         Ok(total_sz)
     }
 

@@ -149,6 +149,7 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
+
         match self.sql_tx.execute(sql, args) {
             Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
             Err(e) => Err(BurnchainError::from(e)),
