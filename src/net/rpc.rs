@@ -89,10 +89,12 @@ use util::hash::{hex_bytes, to_hex};
 use vm::database::clarity_store::make_contract_hash_key;
 use vm::types::TraitIdentifier;
 use vm::{
+    analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
+    errors::Error::Unchecked,
     errors::Error as ClarityRuntimeError,
     errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
@@ -1215,7 +1217,7 @@ impl ConversationHttp {
                     })?;
 
                 clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
                 })
             });
 
@@ -1228,14 +1230,26 @@ impl ConversationHttp {
                     cause: None,
                 },
             ),
-            Ok(Some(Err(e))) => HttpResponseType::CallReadOnlyFunction(
-                response_metadata,
-                CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
+            Ok(Some(Err(e))) => match e {
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _)) if actual_cost.write_count > 0 => {
+                    HttpResponseType::CallReadOnlyFunction (
+                        response_metadata,
+                        CallReadOnlyResponse {
+                            okay: false,
+                            result: None,
+                            cause: Some("NotReadOnly".to_string()),
+                        },
+                    )
                 },
-            ),
+                _ => HttpResponseType::CallReadOnlyFunction (
+                    response_metadata,
+                    CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some(e.to_string()),
+                    },
+                )
+            },
             Ok(None) | Err(_) => {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
             }
@@ -2867,7 +2881,7 @@ mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
-          (begin 
+          (begin
             (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin
