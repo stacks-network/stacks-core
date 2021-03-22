@@ -94,8 +94,8 @@ use vm::{
     database::{
         clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
-    errors::Error::Unchecked,
     errors::Error as ClarityRuntimeError,
+    errors::Error::Unchecked,
     errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
@@ -1231,8 +1231,10 @@ impl ConversationHttp {
                 },
             ),
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _)) if actual_cost.write_count > 0 => {
-                    HttpResponseType::CallReadOnlyFunction (
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    HttpResponseType::CallReadOnlyFunction(
                         response_metadata,
                         CallReadOnlyResponse {
                             okay: false,
@@ -1240,15 +1242,15 @@ impl ConversationHttp {
                             cause: Some("NotReadOnly".to_string()),
                         },
                     )
-                },
-                _ => HttpResponseType::CallReadOnlyFunction (
+                }
+                _ => HttpResponseType::CallReadOnlyFunction(
                     response_metadata,
                     CallReadOnlyResponse {
                         okay: false,
                         result: None,
                         cause: Some(e.to_string()),
                     },
-                )
+                ),
             },
             Ok(None) | Err(_) => {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())

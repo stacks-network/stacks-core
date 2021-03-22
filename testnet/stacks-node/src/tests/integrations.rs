@@ -192,12 +192,22 @@ fn integration_test_get_info() {
                     make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
                     .unwrap();
                 let publish_tx = make_contract_publish(&contract_sk, 1, 0, "other", OTHER_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
                     .unwrap();
                 let publish_tx = make_contract_publish(&contract_sk, 2, 0, "main", MAIN_CONTRACT);
                 tenure
