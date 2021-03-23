@@ -1874,7 +1874,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(self.db(), "SELECT staging_microblocks.processed
                                                 FROM staging_blocks JOIN staging_microblocks ON staging_blocks.parent_anchored_block_hash = staging_microblocks.anchored_block_hash AND staging_blocks.parent_consensus_hash = staging_microblocks.consensus_hash
-                                                WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2", &[child_index_block_hash, &parent_microblock_hash])
+                                                WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", &[child_index_block_hash, &parent_microblock_hash])
             .and_then(|processed| {
                 if processed.len() == 0 {
                     Ok(false)
@@ -2280,7 +2280,7 @@ impl StacksChainState {
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
     fn drop_staging_microblocks<'a>(
         tx: &mut DBTx<'a>,
-        blocks_path: &String,
+        _blocks_path: &String,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -4706,13 +4706,13 @@ impl StacksChainState {
     ) -> Result<Vec<StacksMicroblock>, Error> {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
-        let (microblock_terminus, _) = match StacksChainState::validate_parent_microblock_stream(
+        let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
             &parent_block_header_info.anchored_header,
             &block.header,
             &next_microblocks,
             false,
         ) {
-            Some((terminus, poison_opt)) => (terminus, poison_opt),
+            Some((terminus, _)) => terminus,
             None => {
                 debug!(
                     "Stopping at block {}/{} -- discontiguous header stream",
@@ -5372,7 +5372,7 @@ impl StacksChainState {
                     return Err(MemPoolRejection::BadAddressVersionByte);
                 }
 
-                // got the funds?
+                // does the owner have the funds for the token transfer?
                 let total_spent = (*amount as u128) + if origin == payer { fee as u128 } else { 0 };
                 if !origin
                     .stx_balance
@@ -5384,6 +5384,19 @@ impl StacksChainState {
                             .stx_balance
                             .get_available_balance_at_burn_block(block_height),
                     ));
+                }
+
+                // if the payer for the tx is different from owner, check if they can afford fee
+                if origin != payer {
+                    if !payer
+                        .stx_balance
+                        .can_transfer_at_burn_block(fee as u128, block_height)
+                    {
+                        return Err(MemPoolRejection::NotEnoughFunds(
+                            fee as u128,
+                            payer.stx_balance.amount_unlocked,
+                        ));
+                    }
                 }
             }
             TransactionPayload::ContractCall(TransactionContractCall {

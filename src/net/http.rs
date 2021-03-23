@@ -1600,7 +1600,6 @@ impl HttpRequestType {
                 "Invalid Http request: expected 0-length body for GetInfo".to_string(),
             ));
         }
-
         Ok(HttpRequestType::GetInfo(
             HttpRequestMetadata::from_preamble(preamble),
         ))

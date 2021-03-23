@@ -1,4 +1,4 @@
-[neon]
+[network]
 rpc_bind = "0.0.0.0:28443"
 block_time = 60000
 miner_address = "mmNe3BjtYa8ZWtpQxfpsE8aWKgHh77LYTT"
@@ -8,13 +8,20 @@ bitcoind_rpc_user = "blockstack"
 bitcoind_rpc_pass = "blockstacksystem"
 genesis_timestamp = @@BITCOIN_NEON_CONTROLLER_GENESIS_TIMESTAMP@@
 whitelisted_rpc_calls = [
-    "listunspent",
-    "importaddress",
-    "sendrawtransaction",
-    "getrawtransaction",
-    "scantxoutset",
-    "getrawmempool",
+        "listunspent",
+        "importaddress",
+        "sendrawtransaction",
+        "getrawtransaction",
+        "scantxoutset",
+        "getrawmempool",
+        "getblockstats",
+        "getblockhash"
 ]
+
+[[blocks]]
+count = 1
+block_time = 20000
+ignore_txs = false
 
 # Faucet:
 # Private Key          b20fea233f7718d956d2c5ed71889836ec872fec7d1de2068f19f40faf297f3001

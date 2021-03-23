@@ -50,6 +50,8 @@ This is the self-service interface.  tx-sender will be the Stacker.
 * The given stacker cannot currently be stacking.
 * You will need the minimum uSTX threshold. This isn't determined until the reward cycle begins, but this
    method still requires stacking over the _absolute minimum_ amount, which can be obtained by calling `get-stacking-minimum`.
+* The pox-addr argument must represent a valid reward address.  Right now, this must be a Bitcoin
+p2pkh or p2sh address.  It cannot be a native Segwit address, but it may be a p2wpkh-p2sh or p2wsh-p2sh address.
 
 The tokens will unlock and be returned to the Stacker (tx-sender) automatically."),
         ("revoke-delegate-stx", "Revoke a Stacking delegate relationship. A particular Stacker may only have one delegate,
@@ -60,7 +62,7 @@ This method _does not_ lock the funds, rather, it allows the delegate to issue t
 The caller specifies:
  * amount-ustx: the total amount of ustx the delegate may be allowed to lock
  * until-burn-ht: an optional burn height at which this delegation expiration
- * pox-addr: an optional address to which any rewards *must* be sent"),
+ * pox-addr: an optional p2pkh or p2sh address to which any rewards *must* be sent"),
         ("delegate-stack-stx", "As a delegate, stack the given principal's STX using `partial-stacked-by-cycle`.
 Once the delegate has stacked > minimum, the delegate should call `stack-aggregation-commit`."),
         ("stack-aggregation-commit", "Commit partially stacked STX.

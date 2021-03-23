@@ -744,7 +744,7 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let marf = StacksChainState::open_index(index_path)?;
             // sanity check
             let db_config = query_row::<DBConfig, _>(
                 marf.sqlite_conn(),

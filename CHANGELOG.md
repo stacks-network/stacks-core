@@ -33,8 +33,24 @@ compatible with prior chainstate directories.
   `docs/rpc-endpoints.md`
   
 ## Fixed 
+
 - Fixed faulty logic in the mempool that was still treating the transaction fee
   as a fee rate, which prevented replace-by-fee from working as expected.
+
+## [2.0.10]
+
+This is a low-priority hotfix release to address two bugs in the block downloader. The
+chainstate directory of 2.0.10 is compatible with 2.0.9. If booting up a node from genesis, or
+an existing node has stalled in downloading blocks, this hotfix is necessary for your
+node.
+
+## Fixed
+
+- Bug in microblocks inventory vector calculation that included invalidated microblocks
+  as present bit. This bug will impact nodes booting up from genesis, but not affect nodes
+  currently running at the chain tip (#2518).
+- Bug in microblocks downloader logic that would cause the stacks-node to fail to wake-up
+  to process newly arrived microblocks in certain instances (#2491).
 
 ## [2.0.9]
 

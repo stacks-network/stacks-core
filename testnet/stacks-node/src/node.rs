@@ -232,6 +232,18 @@ fn spawn_peer(
     Ok(server_thread)
 }
 
+// Check if the small test genesis chainstate data should be used.
+// First check env var, then config file, then use default.
+pub fn use_test_genesis_chainstate(config: &Config) -> bool {
+    if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
+        true
+    } else if let Some(use_test_genesis_chainstate) = config.node.use_test_genesis_chainstate {
+        use_test_genesis_chainstate
+    } else {
+        USE_TEST_GENESIS_CHAINSTATE
+    }
+}
+
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(
@@ -240,17 +252,7 @@ impl Node {
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     ) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
-            // When running in mocknet mode allow the small test genesis chainstate data to be enabled.
-            // First check env var, then config file, then use default.
-            if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
-                true
-            } else if let Some(use_test_genesis_chainstate) =
-                config.node.use_test_genesis_chainstate
-            {
-                use_test_genesis_chainstate
-            } else {
-                USE_TEST_GENESIS_CHAINSTATE
-            }
+            use_test_genesis_chainstate(&config)
         } else {
             USE_TEST_GENESIS_CHAINSTATE
         };
