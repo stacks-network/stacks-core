@@ -2307,8 +2307,8 @@ impl PeerNetwork {
     }
 
     /// Initialize the attachment downloader
-    pub fn init_attachments_downloader(&mut self) -> () {
-        self.attachments_downloader = Some(AttachmentsDownloader::new());
+    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) -> () {
+        self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get

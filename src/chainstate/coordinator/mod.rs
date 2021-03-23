@@ -699,9 +699,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                             let res = AttachmentInstance::try_new_from_value(
                                                 &event_data.value,
                                                 &contract_id,
-                                                &block_receipt.header.consensus_hash,
-                                                block_receipt.header.anchored_header.block_hash(),
+                                                block_receipt.header.index_block_hash(),
                                                 block_receipt.header.block_height,
+                                                receipt.transaction.txid(),
                                             );
                                             if let Some(attachment_instance) = res {
                                                 attachments_instances.insert(attachment_instance);
@@ -713,14 +713,16 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         }
                     }
                     if !attachments_instances.is_empty() {
-                        warn!("Atlas disabled");
-                        // match self.attachments_tx.send(attachments_instances) {
-                        //     Ok(_) => {}
-                        //     Err(e) => {
-                        //         error!("Error dispatching attachments {}", e);
-                        //         panic!();
-                        //     }
-                        // };
+                        info!(
+                            "Atlas: {} attachment instances emitted from events",
+                            attachments_instances.len()
+                        );
+                        match self.attachments_tx.send(attachments_instances) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Atlas: error dispatching attachments {}", e);
+                            }
+                        };
                     }
 
                     if let Some(dispatcher) = self.dispatcher {

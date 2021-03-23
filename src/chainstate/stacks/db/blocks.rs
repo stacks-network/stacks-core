@@ -2280,7 +2280,7 @@ impl StacksChainState {
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
     fn drop_staging_microblocks<'a>(
         tx: &mut DBTx<'a>,
-        blocks_path: &String,
+        _blocks_path: &String,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -9166,6 +9166,23 @@ pub mod test {
 
                 assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
                 assert_eq!(parent_ch, last_block_ch.clone().unwrap());
+
+                let chain_tip_index_hash = parent_header.index_block_hash(&parent_ch);
+                let upper_bound_header =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        peer.chainstate().db(),
+                        &chain_tip_index_hash,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let ancestors = StacksChainState::get_ancestors_headers(
+                    peer.chainstate().db(),
+                    upper_bound_header,
+                    0,
+                )
+                .unwrap();
+                // Test that the segment returned by get_ancestors_headers (from genesis to chain tip) grows when the chain is growing
+                assert_eq!(tenure_id, ancestors.len() - 1);
             }
 
             last_block_ch = Some(consensus_hash.clone());

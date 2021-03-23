@@ -3084,17 +3084,24 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
     ) -> Result<(), net_error> {
         if self.attachments_downloader.is_none() {
-            self.init_attachments_downloader();
+            self.atlasdb.evict_expired_uninstantiated_attachments()?;
+            self.atlasdb
+                .evict_expired_unresolved_attachment_instances()?;
+            let initial_batch = self.atlasdb.find_unresolved_attachment_instances()?;
+
+            self.init_attachments_downloader(initial_batch);
         }
 
         match dns_client_opt {
             Some(ref mut dns_client) => {
-                PeerNetwork::with_attachments_downloader(
+                let mut dead_events = PeerNetwork::with_attachments_downloader(
                     self,
                     |network, attachments_downloader| {
+                        let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, chainstate, network) {
-                            Ok(ref mut attachments) => {
+                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
+                                dead_events.append(events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(
@@ -3103,9 +3110,23 @@ impl PeerNetwork {
                                 );
                             }
                         }
-                        Ok(())
+                        Ok(dead_events)
                     },
                 )?;
+
+                let _ = PeerNetwork::with_network_state(
+                    self,
+                    |ref mut network, ref mut network_state| {
+                        for event_id in dead_events.drain(..) {
+                            debug!(
+                                "Atlas: Deregistering faulty connection (event_id: {})",
+                                event_id
+                            );
+                            network.http.deregister_http(network_state, event_id);
+                        }
+                        Ok(())
+                    },
+                );
             }
             None => {
                 // skip this step -- no DNS client available
@@ -4093,7 +4114,7 @@ impl PeerNetwork {
         self.do_network_neighbor_walk()?;
 
         // download attachments
-        // self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4237,7 +4258,7 @@ impl PeerNetwork {
         ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        _attachment_requests: &mut HashSet<AttachmentInstance>,
+        attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -4267,17 +4288,20 @@ impl PeerNetwork {
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        // match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-        //     let mut known_attachments = attachments_downloader
-        //         .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
-        //     network_result.attachments.append(&mut known_attachments);
-        //     Ok(())
-        // }) {
-        //     Ok(_) => {}
-        //     Err(e) => {
-        //         warn!("Atlas: updating attachment inventory failed {}", e);
-        //     }
-        // }
+        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader.enqueue_new_attachments(
+                attachment_requests,
+                &mut network.atlasdb,
+                false,
+            )?;
+            network_result.attachments.append(&mut known_attachments);
+            Ok(())
+        }) {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Atlas: updating attachment inventory failed {}", e);
+            }
+        }
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(

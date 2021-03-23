@@ -105,11 +105,13 @@ impl RunLoop {
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
-        termination::set_handler(move || {
+        let install = termination::set_handler(move || {
             info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
             keep_running_writer.store(false, Ordering::SeqCst);
-        })
-        .expect("Error setting termination handler");
+        });
+        if let Err(e) = install {
+            error!("Error setting termination handler - {}", e);
+        }
 
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(

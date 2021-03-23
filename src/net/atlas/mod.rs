@@ -7,6 +7,7 @@ pub use self::download::AttachmentsDownloader;
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
+use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use net::StacksMessageCodec;
@@ -30,6 +31,7 @@ pub struct AtlasConfig {
     pub attachments_max_size: u32,
     pub max_uninstantiated_attachments: u32,
     pub uninstantiated_attachments_expire_after: u32,
+    pub unresolved_attachment_instances_expire_after: u32,
     pub genesis_attachments: Option<Vec<Attachment>>,
 }
 
@@ -42,6 +44,7 @@ impl AtlasConfig {
             attachments_max_size: 1_048_576,
             max_uninstantiated_attachments: 10_000,
             uninstantiated_attachments_expire_after: 3_600,
+            unresolved_attachment_instances_expire_after: 172_800,
             genesis_attachments: None,
         }
     }
@@ -60,6 +63,10 @@ impl Attachment {
     pub fn hash(&self) -> Hash160 {
         Hash160::from_data(&self.content)
     }
+
+    pub fn empty() -> Attachment {
+        Attachment { content: vec![] }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -67,25 +74,21 @@ pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
     pub block_height: u64,
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,
+    pub tx_id: Txid,
 }
 
 impl AttachmentInstance {
-    const ATTACHMENTS_INV_PAGE_SIZE: u32 = 8;
-
-    pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
-    }
+    const ATTACHMENTS_INV_PAGE_SIZE: u32 = 64;
 
     pub fn try_new_from_value(
         value: &Value,
         contract_id: &QualifiedContractIdentifier,
-        consensus_hash: &ConsensusHash,
-        block_header_hash: BlockHeaderHash,
+        index_block_hash: StacksBlockId,
         block_height: u64,
+        tx_id: Txid,
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
@@ -116,13 +119,13 @@ impl AttachmentInstance {
                             _ => String::new(),
                         };
                         let instance = AttachmentInstance {
-                            consensus_hash: consensus_hash.clone(),
-                            block_header_hash: block_header_hash,
+                            index_block_hash,
                             content_hash,
                             attachment_index: *attachment_index as u32,
                             block_height,
                             metadata,
                             contract_id: contract_id.clone(),
+                            tx_id,
                         };
                         return Some(instance);
                     }
