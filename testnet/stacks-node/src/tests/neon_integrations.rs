@@ -1,6 +1,7 @@
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1, SK_2,
+    make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
+    SK_2,
 };
 use stacks::core;
 use stacks::core::CHAIN_ID_TESTNET;
@@ -1580,6 +1581,609 @@ fn size_check_integration_test() {
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 2);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn size_overflow_unconfirmed_microblocks_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // stuff a gigantic contract into the anchored block
+    let mut giant_contract = "(define-public (f) (ok 1))".to_string();
+    for _i in 0..(1024 * 1024 + 500) {
+        giant_contract.push_str(" ");
+    }
+
+    // small-sized contracts for microblocks
+    let mut small_contract = "(define-public (f) (ok 1))".to_string();
+    for _i in 0..((1024 * 1024 + 500) / 5) {
+        small_contract.push_str(" ");
+    }
+
+    let spender_sks: Vec<_> = (0..10)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
+
+    let txs: Vec<Vec<_>> = spender_sks
+        .iter()
+        .enumerate()
+        .map(|(ix, spender_sk)| {
+            if ix % 2 == 0 {
+                // almost fills a whole block
+                vec![make_contract_publish(
+                    spender_sk,
+                    0,
+                    1049230,
+                    "large-0",
+                    &giant_contract,
+                )]
+            } else {
+                let mut ret = vec![];
+                for i in 0..25 {
+                    let tx = make_contract_publish_microblock_only(
+                        spender_sk,
+                        i as u64,
+                        210000,
+                        &format!("small-{}", i),
+                        &small_contract,
+                    );
+                    ret.push(tx);
+                }
+                ret
+            }
+        })
+        .collect();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 5000;
+    conf.node.microblock_frequency = 15000;
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
+    // and our potential spenders:
+
+    for spender_addr in spender_addrs.iter() {
+        let account = get_account(&http_origin, &spender_addr);
+        assert_eq!(account.nonce, 0);
+        assert_eq!(account.balance, 1049230);
+    }
+
+    for tx_batch in txs.iter() {
+        for tx in tx_batch.iter() {
+            // okay, let's push a bunch of transactions that can only fit one per block!
+            submit_tx(&http_origin, tx);
+        }
+    }
+
+    sleep_ms(75_000);
+
+    // now let's mine a couple blocks, and then check the sender's nonce.
+    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
+    //  only set that got mined (since the block before this one was empty, a microblock can
+    //  be added),
+    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
+    //
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // this one will contain the sortition from above anchor block,
+    //    which *should* have also confirmed the microblock.
+    sleep_ms(75_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 3);
+
+    let mut max_big_txs_per_block = 0;
+    let mut max_big_txs_per_microblock = 0;
+    let mut total_big_txs_per_block = 0;
+    let mut total_big_txs_per_microblock = 0;
+
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+
+        let mut num_big_anchored_txs = 0;
+        let mut num_big_microblock_txs = 0;
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if tsc.name.to_string().find("large-").is_some() {
+                    num_big_anchored_txs += 1;
+                    total_big_txs_per_block += 1;
+                } else if tsc.name.to_string().find("small-").is_some() {
+                    num_big_microblock_txs += 1;
+                    total_big_txs_per_microblock += 1;
+                }
+            }
+        }
+
+        if num_big_anchored_txs > max_big_txs_per_block {
+            max_big_txs_per_block = num_big_anchored_txs;
+        }
+        if num_big_microblock_txs > max_big_txs_per_microblock {
+            max_big_txs_per_microblock = num_big_microblock_txs;
+        }
+    }
+
+    eprintln!(
+        "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}, total_big_txs_per_block: {}, total_big_txs_per_microblock: {}",
+        max_big_txs_per_microblock, max_big_txs_per_block, total_big_txs_per_block, total_big_txs_per_microblock
+    );
+
+    // can't have too many
+    assert!(max_big_txs_per_microblock <= 9);
+    assert!(max_big_txs_per_block <= 2);
+
+    assert!(total_big_txs_per_block <= 3);
+    assert!(total_big_txs_per_microblock <= 18);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn runtime_overflow_unconfirmed_microblocks_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sks: Vec<_> = (0..4)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
+    let spender_addrs_c32: Vec<StacksAddress> =
+        spender_sks.iter().map(|x| to_addr(x).into()).collect();
+
+    let txs: Vec<Vec<_>> = spender_sks
+        .iter()
+        .enumerate()
+        .map(|(ix, spender_sk)| {
+            if ix % 2 == 0 {
+                // almost fills a whole block
+                vec![make_contract_publish(
+                    spender_sk,
+                    0,
+                    1049230,
+                    &format!("large-{}", ix),
+                    &format!("
+                        (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
+                        (define-private (folder (idx uint) (data (buff 1024)))
+                            (begin
+                                ;; write 32 kb
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                (map-insert data-map {{ input: idx }} {{ output: data }})
+                                data
+                            ))
+                        (define-public (crash-me (name (string-ascii 128)))
+                            (let (
+                                (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
+                                (b2 (concat b b))
+                                (b3 (concat b2 b2))
+                                (b4 (concat b3 b3))
+                                (b5 (concat b4 b4))
+                                (b6 (concat b5 b5)))  ;; 1024 bytes
+                            (begin
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (print name)
+                                (ok (len b6)))))
+                        (begin
+                            (crash-me \"{}\"))
+                        ",
+                        &format!("large-contract-{}-{}", &spender_addrs_c32[ix], &ix)
+                    )
+                )]
+            } else {
+                let mut ret = vec![];
+                for i in 0..10 {
+                    let tx = make_contract_publish_microblock_only(
+                        spender_sk,
+                        i as u64,
+                        210000,
+                        &format!("small-{}-{}", ix, i),
+                        &format!("
+                            (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
+                            (define-private (folder (idx uint) (data (buff 1024)))
+                                (begin
+                                    ;; write 8 kb
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    (map-insert data-map {{ input: idx }} {{ output: data }})
+                                    data
+                                ))
+                            (define-public (crash-me (name (string-ascii 128)))
+                                (let (
+                                    (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
+                                    (b2 (concat b b))
+                                    (b3 (concat b2 b2))
+                                    (b4 (concat b3 b3))
+                                    (b5 (concat b4 b4))
+                                    (b6 (concat b5 b5)))  ;; 1024 bytes
+                                (begin
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (print name)
+                                    (ok (len b6)))))
+                            (begin
+                                (crash-me \"{}\"))
+                            ", &format!("small-contract-{}-{}-{}", &spender_addrs_c32[ix], &ix, i))
+                    );
+                    ret.push(tx);
+                }
+                ret
+            }
+        })
+        .collect();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 15000;
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
+    // and our potential spenders:
+
+    for spender_addr in spender_addrs.iter() {
+        let account = get_account(&http_origin, &spender_addr);
+        assert_eq!(account.nonce, 0);
+        assert_eq!(account.balance, 1049230);
+    }
+
+    for tx_batch in txs.iter() {
+        for tx in tx_batch.iter() {
+            // okay, let's push a bunch of transactions that can only fit one per block!
+            submit_tx(&http_origin, tx);
+        }
+    }
+
+    debug!("Wait for 1st microblock to be mined");
+    sleep_ms(450_000);
+
+    // now let's mine a couple blocks, and then check the sender's nonce.
+    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
+    //  only set that got mined (since the block before this one was empty, a microblock can
+    //  be added),
+    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
+    //
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // this one will contain the sortition from above anchor block,
+    //    which *should* have also confirmed the microblock.
+
+    debug!("Wait for 2nd microblock to be mined");
+    sleep_ms(450_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    debug!("Wait for 3nd microblock to be mined");
+    sleep_ms(450_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 4);
+
+    let mut max_big_txs_per_block = 0;
+    let mut max_big_txs_per_microblock = 0;
+    let mut total_big_txs_per_block = 0;
+    let mut total_big_txs_per_microblock = 0;
+
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        eprintln!("{}", transactions.len());
+
+        let mut num_big_anchored_txs = 0;
+        let mut num_big_microblock_txs = 0;
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if tsc.name.to_string().find("large-contract").is_some() {
+                    num_big_anchored_txs += 1;
+                    total_big_txs_per_block += 1;
+                } else if tsc.name.to_string().find("small-contract").is_some() {
+                    num_big_microblock_txs += 1;
+                    total_big_txs_per_microblock += 1;
+                }
+            }
+        }
+
+        if num_big_anchored_txs > max_big_txs_per_block {
+            max_big_txs_per_block = num_big_anchored_txs;
+        }
+        if num_big_microblock_txs > max_big_txs_per_microblock {
+            max_big_txs_per_microblock = num_big_microblock_txs;
+        }
+    }
+
+    // can't have too many
+    assert!(max_big_txs_per_microblock <= 8);
+    assert!(max_big_txs_per_block <= 2);
+
+    assert!(total_big_txs_per_block <= 3);
+    assert!(total_big_txs_per_microblock <= 16);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn block_replay_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 100300,
+    });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 5_000;
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+
+    info!("Miner account: {}", miner_account);
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
+
+    // and our spender
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, 100300);
+    assert_eq!(account.nonce, 0);
+
+    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let tx = make_stacks_transfer(&spender_sk, 0, 1000, &recipient.into(), 1000);
+    submit_tx(&http_origin, &tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // try and push the mined block back at the node lots of times
+    let (tip_consensus_hash, tip_block) = get_tip_anchored_block(&conf);
+    let mut tip_block_bytes = vec![];
+    tip_block.consensus_serialize(&mut tip_block_bytes).unwrap();
+
+    for i in 0..1024 {
+        let path = format!("{}/v2/blocks/upload/{}", &http_origin, &tip_consensus_hash);
+        let res_text = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tip_block_bytes.clone())
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+
+        eprintln!("{}: text of {}\n{}", i, &path, &res_text);
+    }
 
     test_observer::clear();
     channel.stop_chains_coordinator();
