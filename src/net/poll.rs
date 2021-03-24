@@ -395,6 +395,7 @@ impl NetworkState {
                                     break;
                                 }
                                 _ => {
+                                    error!("Network error: {}", e);
                                     return Err(net_error::AcceptError);
                                 }
                             },

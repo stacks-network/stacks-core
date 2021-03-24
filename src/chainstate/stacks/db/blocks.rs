@@ -2296,8 +2296,8 @@ impl StacksChainState {
 
     /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
-    fn drop_staging_microblocks(
-        tx: &mut DBTx,
+    fn drop_staging_microblocks<'a>(
+        tx: &mut DBTx<'a>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -4728,13 +4728,13 @@ impl StacksChainState {
     ) -> Result<Vec<StacksMicroblock>, Error> {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
-        let (microblock_terminus, _) = match StacksChainState::validate_parent_microblock_stream(
+        let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
             &parent_block_header_info.anchored_header,
             &block.header,
             &next_microblocks,
             false,
         ) {
-            Some((terminus, poison_opt)) => (terminus, poison_opt),
+            Some((terminus, _)) => terminus,
             None => {
                 debug!(
                     "Stopping at block {}/{} -- discontiguous header stream",
@@ -5393,7 +5393,7 @@ impl StacksChainState {
                     return Err(MemPoolRejection::BadAddressVersionByte);
                 }
 
-                // got the funds?
+                // does the owner have the funds for the token transfer?
                 let total_spent = (*amount as u128) + if origin == payer { fee as u128 } else { 0 };
                 if !origin
                     .stx_balance
@@ -5405,6 +5405,19 @@ impl StacksChainState {
                             .stx_balance
                             .get_available_balance_at_burn_block(block_height),
                     ));
+                }
+
+                // if the payer for the tx is different from owner, check if they can afford fee
+                if origin != payer {
+                    if !payer
+                        .stx_balance
+                        .can_transfer_at_burn_block(fee as u128, block_height)
+                    {
+                        return Err(MemPoolRejection::NotEnoughFunds(
+                            fee as u128,
+                            payer.stx_balance.amount_unlocked,
+                        ));
+                    }
                 }
             }
             TransactionPayload::ContractCall(TransactionContractCall {
@@ -9173,6 +9186,23 @@ pub mod test {
 
                 assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
                 assert_eq!(parent_ch, last_block_ch.clone().unwrap());
+
+                let chain_tip_index_hash = parent_header.index_block_hash(&parent_ch);
+                let upper_bound_header =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        peer.chainstate().db(),
+                        &chain_tip_index_hash,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let ancestors = StacksChainState::get_ancestors_headers(
+                    peer.chainstate().db(),
+                    upper_bound_header,
+                    0,
+                )
+                .unwrap();
+                // Test that the segment returned by get_ancestors_headers (from genesis to chain tip) grows when the chain is growing
+                assert_eq!(tenure_id, ancestors.len() - 1);
             }
 
             last_block_ch = Some(consensus_hash.clone());

@@ -1,7 +1,7 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
-use stacks::net::atlas::AttachmentInstance;
+use stacks::net::atlas::{Attachment, AttachmentInstance};
 use std::collections::hash_map::Entry;
 use std::thread::sleep;
 use std::time::Duration;
@@ -201,8 +201,19 @@ impl EventObserver {
         })
     }
 
-    fn make_new_attachment_payload(attachment: &AttachmentInstance) -> serde_json::Value {
-        json!(attachment)
+    fn make_new_attachment_payload(
+        attachment: &(AttachmentInstance, Attachment),
+    ) -> serde_json::Value {
+        json!({
+            "attachment_index": attachment.0.attachment_index,
+            "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
+            "block_height": attachment.0.block_height,
+            "content_hash": format!("0x{}", attachment.0.content_hash),
+            "contract_id": format!("{}", attachment.0.contract_id),
+            "metadata": format!("0x{}", attachment.0.metadata),
+            "tx_id": format!("0x{}", attachment.0.tx_id),
+            "content": format!("0x{}", bytes_to_hex(&attachment.1.content)),
+        })
     }
 
     fn send_new_attachments(&self, payload: &serde_json::Value) {
@@ -582,7 +593,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_attachments(&self, attachments: &Vec<AttachmentInstance>) {
+    pub fn process_new_attachments(&self, attachments: &Vec<(AttachmentInstance, Attachment)>) {
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
         if interested_observers.len() < 1 {
             return;
