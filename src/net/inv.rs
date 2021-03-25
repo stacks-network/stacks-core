@@ -86,6 +86,11 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 #[cfg(test)]
 pub const INV_SYNC_INTERVAL: u64 = 0;
 
+/// For light PoX rescans, how many cycles back should we rescan?
+pub const LIGHT_POX_RESET_DEPTH: u64 = 5;
+/// Every FULL_RESCAN_PERIOD scans, do a full PoX rescan
+pub const FULL_RESCAN_PERIOD: u64 = 6;
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {
     /// Bitmap of which anchored blocks this peer has
@@ -580,6 +585,11 @@ impl NeighborBlockStats {
         self.status == NodeStatus::Online
     }
 
+    pub fn light_reset_pox_scan(&mut self) {
+        let reset_pox_to = self.pox_reward_cycle.saturating_sub(LIGHT_POX_RESET_DEPTH);
+        self.reset_pox_scan(reset_pox_to);
+    }
+
     pub fn reset_pox_scan(&mut self, pox_reward_cycle: u64) {
         self.pox_reward_cycle = pox_reward_cycle;
         self.request = None;
@@ -1024,7 +1034,11 @@ impl InvState {
         let mut added = 0;
         for peer in peers.iter() {
             if let Some(stats) = self.block_stats.get_mut(peer) {
-                stats.reset_pox_scan(0);
+                if stats.scans % FULL_RESCAN_PERIOD == 0 {
+                    stats.reset_pox_scan(0);
+                } else {
+                    stats.light_reset_pox_scan();
+                }
             } else if self.block_stats.len() < max_neighbors {
                 self.block_stats.insert(
                     peer.clone(),
