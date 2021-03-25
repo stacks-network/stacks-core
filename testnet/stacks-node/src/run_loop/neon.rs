@@ -356,8 +356,12 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions
-            let ibd =
-                pox_watchdog.pox_sync_wait(&burnchain_config, &burnchain_tip, burnchain_height, should_keep_running.clone());
+            let ibd = pox_watchdog.pox_sync_wait(
+                &burnchain_config,
+                &burnchain_tip,
+                burnchain_height,
+                should_keep_running.clone(),
+            );
 
             let (next_burnchain_tip, next_burnchain_height) =
                 match burnchain.sync(Some(target_burnchain_block_height)) {

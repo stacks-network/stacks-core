@@ -80,7 +80,11 @@ impl PoxSyncWatchdogComms {
     }
 
     /// Wait for at least one inv-sync state-machine passes
-    pub fn wait_for_inv_sync_pass(&self, timeout: u64, should_keep_running: Arc<AtomicBool>) -> bool {
+    pub fn wait_for_inv_sync_pass(
+        &self,
+        timeout: u64,
+        should_keep_running: Arc<AtomicBool>,
+    ) -> bool {
         let current = self.get_inv_sync_passes();
 
         let now = get_epoch_time_secs();
@@ -466,7 +470,8 @@ impl PoxSyncWatchdog {
             // so make sure the downloader knows about blocks it doesn't have yet so we can go and
             // fetch its blocks before proceeding.
             debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS, should_keep_running.clone());
+            self.relayer_comms
+                .wait_for_inv_sync_pass(SYNC_WAIT_SECS, should_keep_running.clone());
             waited = true;
         } else {
             debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
