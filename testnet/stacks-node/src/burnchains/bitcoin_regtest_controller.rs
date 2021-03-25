@@ -392,6 +392,9 @@ impl BitcoinRegtestController {
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, burnchain_height, state_transition) = loop {
+            if coordinator_comms.is_stopped() {
+                return Err(BurnchainControllerError::CoordinatorClosed)
+            }
             match burnchain.sync_with_indexer(
                 &mut burnchain_indexer,
                 coordinator_comms.clone(),
