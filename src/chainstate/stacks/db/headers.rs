@@ -296,6 +296,34 @@ impl StacksChainState {
         }
     }
 
+    /// Get a segment of headers from the canonical chain
+    pub fn get_ancestors_headers(
+        conn: &Connection,
+        upper_bound_header: StacksHeaderInfo,
+        lower_bound_height: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let mut ancestors = vec![];
+        let mut ancestry_cursor = Some(upper_bound_header);
+        while let Some(cursor) = ancestry_cursor.take() {
+            if cursor.block_height < lower_bound_height {
+                break;
+            }
+            let block_id = cursor.index_block_hash();
+            ancestors.push(cursor.clone());
+            let parent_block_id = StacksChainState::get_parent_block_id(conn, &block_id)?;
+            if let Some(parent_block_id) = parent_block_id {
+                ancestry_cursor =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        conn,
+                        &parent_block_id,
+                    )?;
+            } else {
+                ancestry_cursor = None;
+            }
+        }
+        Ok(ancestors)
+    }
+
     /// Get the genesis (boot code) block header
     pub fn get_genesis_header_info(conn: &Connection) -> Result<StacksHeaderInfo, Error> {
         // by construction, only one block can have height 0 in this DB
@@ -310,10 +338,9 @@ impl StacksChainState {
         conn: &Connection,
         block_id: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
-        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1"
-            .to_string();
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[block_id];
-        let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
+        let mut rows = query_row_columns::<StacksBlockId, _>(conn, sql, args, "parent_block_id")?;
         Ok(rows.pop())
     }
 
