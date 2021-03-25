@@ -80,11 +80,14 @@ impl PoxSyncWatchdogComms {
     }
 
     /// Wait for at least one inv-sync state-machine passes
-    pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> bool {
+    pub fn wait_for_inv_sync_pass(&self, timeout: u64, should_keep_running: Arc<AtomicBool>) -> bool {
         let current = self.get_inv_sync_passes();
 
         let now = get_epoch_time_secs();
         while current >= self.get_inv_sync_passes() {
+            if !should_keep_running.load(Ordering::SeqCst) {
+                return false;
+            }
             if now + timeout < get_epoch_time_secs() {
                 debug!("PoX watchdog comms: timed out waiting for one inv sync pass");
                 return false;
@@ -423,6 +426,7 @@ impl PoxSyncWatchdog {
         burnchain: &Burnchain,
         burnchain_tip: &BurnchainTip,
         burnchain_height: u64,
+        should_keep_running: Arc<AtomicBool>,
     ) -> bool {
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
@@ -462,7 +466,7 @@ impl PoxSyncWatchdog {
             // so make sure the downloader knows about blocks it doesn't have yet so we can go and
             // fetch its blocks before proceeding.
             debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS);
+            self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS, should_keep_running.clone());
             waited = true;
         } else {
             debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
@@ -490,6 +494,9 @@ impl PoxSyncWatchdog {
         debug!("PoX watchdog: Wait until chainstate reaches steady-state block-processing...");
 
         let ibbd = loop {
+            if !should_keep_running.load(Ordering::SeqCst) {
+                break false;
+            }
             let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
                 burnchain,
                 burnchain_tip.block_snapshot.block_height,
