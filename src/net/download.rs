@@ -266,6 +266,9 @@ pub struct BlockDownloader {
     /// when did we last request a given block hash
     requested_blocks: HashMap<StacksBlockId, u64>,
     requested_microblocks: HashMap<StacksBlockId, u64>,
+
+    /// Hint to do a full re-scan of all sortitions
+    hint_full_rescan: bool,
 }
 
 impl BlockDownloader {
@@ -311,6 +314,8 @@ impl BlockDownloader {
             download_interval: download_interval,
             requested_blocks: HashMap::new(),
             requested_microblocks: HashMap::new(),
+
+            hint_full_rescan: true,
         }
     }
 
@@ -336,12 +341,12 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self) -> () {
+    pub fn restart_scan(&mut self, start_sortition_height: u64) -> () {
         // prepare to restart a full-chain scan for block downloads
-        self.block_sortition_height = 0;
-        self.microblock_sortition_height = 0;
-        self.next_block_sortition_height = 0;
-        self.next_microblock_sortition_height = 0;
+        self.block_sortition_height = start_sortition_height;
+        self.microblock_sortition_height = start_sortition_height;
+        self.next_block_sortition_height = start_sortition_height;
+        self.next_microblock_sortition_height = start_sortition_height;
         self.empty_block_download_passes = 0;
         self.empty_microblock_download_passes = 0;
     }
@@ -927,19 +932,29 @@ impl BlockDownloader {
         }
     }
 
-    /// Set a hint that we should re-scan for blocks
-    pub fn hint_download_rescan(&mut self, target_height: u64) -> () {
+    /// Set a hint that we should re-scan for blocks at a particular sortition height.
+    pub fn hint_download_rescan(&mut self, target_sortition_height: u64) -> () {
         if self.empty_block_download_passes > 0 {
             self.empty_block_download_passes = 0;
-            self.next_block_sortition_height = target_height;
+            self.next_block_sortition_height = target_sortition_height;
         }
 
         if self.empty_microblock_download_passes > 0 {
             self.empty_microblock_download_passes = 0;
-            self.next_microblock_sortition_height = target_height;
+            self.next_microblock_sortition_height = target_sortition_height;
         }
 
-        debug!("Awaken downloader to restart scanning");
+        debug!(
+            "Awaken downloader to restart scanning at sortition height {}",
+            target_sortition_height
+        );
+    }
+
+    /// Set a hint to do a full download re-scan
+    pub fn hint_full_download_rescan(&mut self) -> () {
+        self.hint_full_rescan = true;
+        self.restart_scan(0);
+        debug!("Awaken downloader to start a full rescan");
     }
 
     // are we doing the initial block download?
@@ -2054,6 +2069,34 @@ impl PeerNetwork {
         })
     }
 
+    /// Get the next rescan sortition height, if not doing a full scan
+    fn get_download_rescan_sortition_height(
+        &self,
+        hint_full_rescan: bool,
+        first_block_height: u64,
+    ) -> u64 {
+        if hint_full_rescan {
+            debug!("{:?}: Scheduling full downloader re-scan", &self.local_peer);
+            0
+        } else {
+            let start_reward_cycle = self
+                .burnchain
+                .block_height_to_reward_cycle(self.chain_view.burn_block_height)
+                .unwrap_or(0)
+                .saturating_sub(self.connection_opts.inv_reward_cycles);
+            let start_sortition_height = self
+                .burnchain
+                .reward_cycle_to_block_height(start_reward_cycle)
+                .saturating_sub(first_block_height);
+
+            debug!(
+                "{:?}: download scan at sortition height {} (reward cycle {})",
+                &self.local_peer, start_sortition_height, start_reward_cycle
+            );
+            start_sortition_height
+        }
+    }
+
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
     /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
@@ -2202,6 +2245,11 @@ impl PeerNetwork {
                 downloader.microblock_sortition_height =
                     downloader.next_microblock_sortition_height;
 
+                let start_sortition_height = network.get_download_rescan_sortition_height(
+                    downloader.hint_full_rescan,
+                    sortdb.first_block_height,
+                );
+
                 if downloader.block_sortition_height + sortdb.first_block_height
                     > network.chain_view.burn_block_height
                 {
@@ -2209,8 +2257,9 @@ impl PeerNetwork {
                         "{:?}: Downloader for blocks has reached the chain tip",
                         &network.local_peer
                     );
-                    downloader.block_sortition_height = 0;
-                    downloader.next_block_sortition_height = 0;
+
+                    downloader.block_sortition_height = start_sortition_height;
+                    downloader.next_block_sortition_height = start_sortition_height;
 
                     if downloader.num_blocks_downloaded == 0 {
                         downloader.empty_block_download_passes += 1;
@@ -2227,8 +2276,9 @@ impl PeerNetwork {
                         "{:?}: Downloader for microblocks has reached the chain tip",
                         &network.local_peer
                     );
-                    downloader.microblock_sortition_height = 0;
-                    downloader.next_microblock_sortition_height = 0;
+
+                    downloader.block_sortition_height = start_sortition_height;
+                    downloader.next_block_sortition_height = start_sortition_height;
 
                     if downloader.num_microblocks_downloaded == 0 {
                         downloader.empty_microblock_download_passes += 1;
@@ -2247,6 +2297,7 @@ impl PeerNetwork {
                     // Regardless, we can throttle back now.
                     debug!("Did a full pass over the burn chain sortitions and found no new data");
                     downloader.finished_scan_at = get_epoch_time_secs();
+                    downloader.hint_full_rescan = false;
 
                     at_chain_tip = true;
                 }
@@ -2349,6 +2400,15 @@ impl PeerNetwork {
 
         let last_inv_update_at = self.inv_state.as_ref().unwrap().last_change_at;
 
+        // NOTE: have to do this out here due to the borrow-checker
+        let hint_full_scan = self
+            .block_downloader
+            .as_ref()
+            .map(|dl| dl.hint_full_rescan)
+            .unwrap_or(false);
+        let start_sortition_height =
+            self.get_download_rescan_sortition_height(hint_full_scan, sortdb.first_block_height);
+
         match self.block_downloader {
             Some(ref mut downloader) => {
                 if downloader.empty_block_download_passes > 0
@@ -2368,10 +2428,11 @@ impl PeerNetwork {
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
-                            "{:?}: Noticed an inventory change; re-starting a download scan",
-                            &self.local_peer
+                            "{:?}: Noticed an inventory change; re-starting a download scan at sortition {}",
+                            &self.local_peer, start_sortition_height
                         );
-                        downloader.restart_scan();
+
+                        downloader.restart_scan(start_sortition_height);
 
                         downloader.last_inv_update_at = last_inv_update_at;
                     }
