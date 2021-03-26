@@ -2349,15 +2349,15 @@ impl PeerNetwork {
     }
 
     /// Update the state of our neighbors' block inventories.
-    /// Return true if we finish
+    /// Return (done?, throttled?, full-scan?) if we finish
     fn do_network_inv_sync(
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> Result<(bool, bool), net_error> {
+    ) -> Result<(bool, bool, bool), net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
-            return Ok((true, false));
+            return Ok((true, false, false));
         }
 
         debug!("{:?}: network inventory sync", &self.local_peer);
@@ -2367,7 +2367,7 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, broken_neighbors, dead_neighbors) =
+        let (done, throttled, full_scan, broken_neighbors, dead_neighbors) =
             self.sync_inventories(sortdb, ibd)?;
 
         // disconnect and ban broken peers
@@ -2380,7 +2380,7 @@ impl PeerNetwork {
             self.deregister_neighbor(&dead);
         }
 
-        Ok((done, throttled))
+        Ok((done, throttled, full_scan))
     }
 
     /// Download blocks, and add them to our network result.
@@ -2941,7 +2941,8 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd)?;
+                    let (inv_done, inv_throttled, inv_full_scan) =
+                        self.do_network_inv_sync(sortdb, ibd)?;
                     if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
@@ -2956,11 +2957,22 @@ impl PeerNetwork {
                             if inv_sync.hint_learned_data {
                                 // tell the downloader to wake up
                                 if let Some(ref mut downloader) = self.block_downloader {
-                                    downloader.hint_download_rescan(cmp::min(
-                                        self.chain_view.burn_block_height,
-                                        inv_sync.hint_learned_data_height,
-                                    ));
+                                    downloader.hint_download_rescan(
+                                        cmp::min(
+                                            self.chain_view.burn_block_height,
+                                            inv_sync.hint_learned_data_height,
+                                        )
+                                        .saturating_sub(sortdb.first_block_height)
+                                        .saturating_sub(1),
+                                    );
                                 }
+                            }
+                        }
+
+                        if inv_full_scan {
+                            if let Some(ref mut downloader) = self.block_downloader {
+                                // NOTE: this is only possibly true if we did an inv scan.
+                                downloader.hint_full_download_rescan();
                             }
                         }
 
@@ -4012,7 +4024,12 @@ impl PeerNetwork {
 
             // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs(self.chain_view.burn_stable_block_height);
-            self.hint_download_rescan(self.chain_view.burn_stable_block_height);
+            self.hint_download_rescan(
+                self.chain_view
+                    .burn_stable_block_height
+                    .saturating_sub(sortdb.first_block_height)
+                    .saturating_sub(1),
+            );
             self.chain_view = new_chain_view;
         }
 
