@@ -1,10 +1,10 @@
 use async_std::io::ReadExt;
 use std::io::Cursor;
-use std::time::Instant;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+use std::time::Instant;
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -198,7 +198,7 @@ impl BitcoinRegtestController {
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
-        should_keep_running: Option<Arc<AtomicBool>>
+        should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Self {
         std::fs::create_dir_all(&config.get_burnchain_path_str())
             .expect("Unable to create workdir");
@@ -478,7 +478,7 @@ impl BitcoinRegtestController {
     fn should_keep_running(&self) -> bool {
         match self.should_keep_running {
             Some(ref should_keep_running) => should_keep_running.load(Ordering::SeqCst),
-            _ => true
+            _ => true,
         }
     }
 

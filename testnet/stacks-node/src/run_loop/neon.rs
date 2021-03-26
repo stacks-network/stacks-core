@@ -270,7 +270,8 @@ impl RunLoop {
             })
             .unwrap();
 
-        let mut burnchain_tip = burnchain.wait_for_sortitions(None)
+        let mut burnchain_tip = burnchain
+            .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
 
         let chainstate_path = self.config.get_chainstate_path_str();
@@ -385,7 +386,7 @@ impl RunLoop {
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
 
-            debug!(
+            info!(
                 "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
                 next_burnchain_height, target_burnchain_block_height, next_height, block_height
             );
