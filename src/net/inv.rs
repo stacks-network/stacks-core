@@ -1949,21 +1949,30 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Finish receiving the next batch of block inventories
+    /// Finish receiving the next batch of block inventories.
+    /// Indicate whether or not we're done, and whether or not to do a full rescan.
     fn inv_getblocksinv_try_finish(
         &mut self,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
-    ) -> Result<bool, net_error> {
+        ibd: bool,
+    ) -> Result<(bool, bool), net_error> {
         if stats.done {
-            return Ok(true);
+            return Ok((true, false));
         }
         if !stats.getblocksinv_try_finish(self)? {
-            return Ok(false);
+            return Ok((false, false));
         }
         if !stats.is_peer_online() {
             // done
-            return Ok(true);
+            if ibd && stats.status == NodeStatus::Diverged {
+                // we were in the initial block download, and we diverged.
+                // we should try and deepen the scan.
+                debug!("{:?}: In initial block download and diverged from always-allowed peer -- schedule a full inventory sync for next time.", &self.local_peer);
+                return Ok((true, true));
+            } else {
+                return Ok((true, false));
+            }
         }
 
         // if we get a blocksinv, then it means the remote peer still agrees with us on PoX state
@@ -2009,7 +2018,7 @@ impl PeerNetwork {
             stats.done = true;
         }
 
-        Ok(true)
+        Ok((true, false))
     }
 
     /// Run a single state-machine to completion
@@ -2021,7 +2030,8 @@ impl PeerNetwork {
         request_timeout: u64,
         full_rescan: bool,
         ibd: bool,
-    ) -> Result<bool, net_error> {
+    ) -> Result<(bool, bool), net_error> {
+        let mut do_full_rescan = false;
         while !stats.done {
             if !stats.is_peer_online() {
                 debug!("{:?}: {:?} is not online", &self.local_peer, nk);
@@ -2039,7 +2049,17 @@ impl PeerNetwork {
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
                     .and_then(|_| Ok(true))?,
-                InvWorkState::GetBlocksInvFinish => self.inv_getblocksinv_try_finish(nk, stats)?,
+                InvWorkState::GetBlocksInvFinish => {
+                    match self.inv_getblocksinv_try_finish(nk, stats, ibd) {
+                        Ok((go_again, need_full_rescan)) => {
+                            do_full_rescan = need_full_rescan;
+                            go_again
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
                 InvWorkState::Done => {
                     stats.done = true;
                     false
@@ -2049,7 +2069,7 @@ impl PeerNetwork {
                 break;
             }
         }
-        Ok(stats.done)
+        Ok((stats.done, do_full_rescan))
     }
 
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
@@ -2123,6 +2143,7 @@ impl PeerNetwork {
             );
 
             let mut all_done = true;
+            let mut do_full_rescan = false;
 
             if !inv_state.hint_do_rescan
                 && !inv_state.hint_learned_data
@@ -2152,7 +2173,7 @@ impl PeerNetwork {
                     stats.done
                 );
                 if !stats.done {
-                    let done = match network.inv_sync_run(
+                    let (done, need_full_rescan) = match network.inv_sync_run(
                         sortdb,
                         nk,
                         stats,
@@ -2168,11 +2189,11 @@ impl PeerNetwork {
                             stats.done = true;
                             inv_state.hint_learned_data = true;
                             inv_state.hint_learned_data_height = u64::MAX;
-                            true
+                            (true, false)
                         }
                         Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
                             stats.status = NodeStatus::Dead;
-                            true
+                            (true, false)
                         }
                         Err(e) => {
                             debug!(
@@ -2180,10 +2201,12 @@ impl PeerNetwork {
                                 &network.local_peer, &e
                             );
                             stats.status = NodeStatus::Broken;
-                            true
+                            (true, false)
                         }
                     };
+
                     all_done = done && all_done;
+                    do_full_rescan = do_full_rescan || need_full_rescan;
 
                     if stats.learned_data {
                         // update hints
@@ -2242,8 +2265,10 @@ impl PeerNetwork {
                     );
                 }
 
-                if inv_state.last_full_rescanned_at + network.connection_opts.full_inv_sync_interval
-                    < get_epoch_time_secs()
+                if do_full_rescan
+                    || inv_state.last_full_rescanned_at
+                        + network.connection_opts.full_inv_sync_interval
+                        < get_epoch_time_secs()
                 {
                     debug!("{:?}: schedule full inventory sync", &network.local_peer);
                     inv_state.hint_do_full_rescan = true;
