@@ -118,6 +118,7 @@ impl RunLoop {
             self.config.clone(),
             Some(coordinator_senders.clone()),
             burnchain_opt,
+            Some(should_keep_running.clone()),
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -269,7 +270,8 @@ impl RunLoop {
             })
             .unwrap();
 
-        let mut burnchain_tip = burnchain.wait_for_sortitions(None);
+        let mut burnchain_tip = burnchain.wait_for_sortitions(None)
+            .expect("Unable to get burnchain tip");
 
         let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(

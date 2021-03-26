@@ -1,6 +1,10 @@
 use async_std::io::ReadExt;
 use std::io::Cursor;
 use std::time::Instant;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -70,6 +74,7 @@ pub struct BitcoinRegtestController {
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
+    should_keep_running: Option<Arc<AtomicBool>>,
 }
 
 struct OngoingBlockCommit {
@@ -186,13 +191,14 @@ impl LeaderBlockCommitFees {
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
-        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None)
+        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
     }
 
     pub fn with_burnchain(
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
+        should_keep_running: Option<Arc<AtomicBool>>
     ) -> Self {
         std::fs::create_dir_all(&config.get_burnchain_path_str())
             .expect("Unable to create workdir");
@@ -239,6 +245,7 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config,
             ongoing_block_commit: None,
+            should_keep_running,
         }
     }
 
@@ -274,6 +281,7 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config: None,
             ongoing_block_commit: None,
+            should_keep_running: None,
         }
     }
 
@@ -392,8 +400,8 @@ impl BitcoinRegtestController {
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, burnchain_height, state_transition) = loop {
-            if coordinator_comms.is_stopped() {
-                return Err(BurnchainControllerError::CoordinatorClosed)
+            if !self.should_keep_running() {
+                return Err(BurnchainControllerError::CoordinatorClosed);
             }
             match burnchain.sync_with_indexer(
                 &mut burnchain_indexer,
@@ -465,6 +473,13 @@ impl BitcoinRegtestController {
         debug!("Done receiving blocks");
 
         Ok((burnchain_tip, burnchain_height))
+    }
+
+    fn should_keep_running(&self) -> bool {
+        match self.should_keep_running {
+            Some(ref should_keep_running) => should_keep_running.load(Ordering::SeqCst),
+            _ => true
+        }
     }
 
     #[cfg(test)]
@@ -1285,7 +1300,7 @@ impl BitcoinRegtestController {
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
     ///   canonical chain tip, or has processed up to height_to_wait
-    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> BurnchainTip {
+    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> Option<BurnchainTip> {
         loop {
             let canonical_burnchain_tip = self
                 .burnchain_db
@@ -1302,11 +1317,11 @@ impl BitcoinRegtestController {
                     .expect("Sortition DB error.")
                     .expect("BUG: no data for the canonical chain tip");
 
-                return BurnchainTip {
+                return Some(BurnchainTip {
                     block_snapshot: canonical_sortition_tip,
                     received_at: Instant::now(),
                     state_transition,
-                };
+                });
             } else if let Some(height_to_wait) = height_to_wait {
                 if canonical_sortition_tip.block_height >= height_to_wait {
                     let (_, state_transition) = self
@@ -1315,14 +1330,16 @@ impl BitcoinRegtestController {
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 
-                    return BurnchainTip {
+                    return Some(BurnchainTip {
                         block_snapshot: canonical_sortition_tip,
                         received_at: Instant::now(),
                         state_transition,
-                    };
+                    });
                 }
             }
-
+            if !self.should_keep_running() {
+                return None;
+            }
             // yield some time
             sleep_ms(100);
         }
