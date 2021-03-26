@@ -24,6 +24,7 @@ const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
+const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -782,7 +783,21 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()
                     }),
                     inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| {
-                        HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval
+                    }),
+                    full_inv_sync_interval: opts.full_inv_sync_interval.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.full_inv_sync_interval
+                    }),
+                    inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
+                        if burnchain.mode == "mainnet" {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
+                        }
+                        else {
+                            // testnet reward cycles are a bit smaller (and blocks can go by
+                            // faster), so make our inventory
+                            // reward cycle depth a bit longer to compensate
+                            INV_REWARD_CYCLES_TESTNET
+                        }
                     }),
                     public_ip_address: ip_addr,
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
@@ -1224,6 +1239,8 @@ pub struct ConnectionOptionsFile {
     pub maximum_call_argument_size: Option<u32>,
     pub download_interval: Option<u64>,
     pub inv_sync_interval: Option<u64>,
+    pub full_inv_sync_interval: Option<u64>,
+    pub inv_reward_cycles: Option<u64>,
     pub public_ip_address: Option<String>,
     pub disable_inbound_walks: Option<bool>,
     pub disable_inbound_handshakes: Option<bool>,
