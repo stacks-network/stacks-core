@@ -371,7 +371,7 @@ impl RunLoop {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Burnchain controller stopped: {}", e);
-                        return;
+                        continue;
                     }
                 };
 
@@ -454,7 +454,7 @@ impl RunLoop {
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
                         error!("Block relayer and miner hung up, exiting.");
-                        return;
+                        continue;
                     }
                 }
             }

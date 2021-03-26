@@ -357,7 +357,7 @@ impl AttachmentsBatchStateContext {
                     };
 
                     if !has_attachment {
-                        info!(
+                        debug!(
                             "Atlas: peer does not have attachment ({}, {}) in its inventory {:?}",
                             page_index, position_in_page, response.pages
                         );

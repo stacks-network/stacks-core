@@ -408,6 +408,7 @@ impl BitcoinRegtestController {
                 coordinator_comms.clone(),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
+                self.should_keep_running.clone(),
             ) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
