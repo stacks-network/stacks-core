@@ -1409,8 +1409,10 @@ impl PeerNetwork {
                     }
                 };
 
-                let max_reward_cycle =
-                    cmp::min(self.pox_id.num_inventory_reward_cycles() as u64, tip_reward_cycle);
+                let max_reward_cycle = cmp::min(
+                    self.pox_id.num_inventory_reward_cycles() as u64,
+                    tip_reward_cycle,
+                );
                 test_debug!(
                     "{:?}: request up to reward cycle min({},{}) = {}",
                     &self.local_peer,
