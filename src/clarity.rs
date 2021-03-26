@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::process;
 
 use util::log;
+use util::hash::hex_bytes;
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
@@ -37,7 +38,7 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use util::db::FromColumn;
 
-use util::hash::Sha512Trunc256Sum;
+use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
 use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
@@ -56,10 +57,14 @@ use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Valu
 use address::c32::c32_address;
 
 use burnchains::BurnchainHeaderHash;
+use burnchains::Txid;
 use chainstate::burn::VRFSeed;
 use chainstate::stacks::StacksAddress;
 
 use serde::Serialize;
+use serde_json::json;
+
+use net::StacksMessageCodec;
 
 use crate::vm::database::marf::WritableMarfStore;
 
@@ -82,17 +87,19 @@ fn print_usage(invoked_by: &str) {
         "Usage: {} [command]
 where command is one of:
 
-  initialize         to initialize a local VM state database.
-  check              to typecheck a potential contract definition.
-  launch             to launch a initialize a new contract in the local state database.
-  eval               to evaluate (in read-only mode) a program in a given contract context.
-  eval_at_chaintip   like `eval`, but does not advance to a new block.
-  eval_at_block      like `eval_at_chaintip`, but accepts a index-block-hash to evaluate at,
-                     must be passed eval string via stdin.
-  eval_raw           to typecheck and evaluate an expression without a contract or database context.
-  repl               to typecheck and evaluate expressions in a stdin/stdout loop.
-  execute            to execute a public function of a defined contract.
-  generate_address   to generate a random Stacks public address for testing purposes.
+  initialize              to initialize a local VM state database.
+  check                   to typecheck a potential contract definition.
+  launch                  to launch a initialize a new contract in the local state database.
+  eval                    to evaluate (in read-only mode) a program in a given contract context.
+  eval_at_chaintip        like `eval`, but does not advance to a new block.
+  eval_at_chaintip_json   like `eval_at_chaintip`, but outputs JSON
+  eval_at_block           like `eval_at_chaintip`, but accepts a index-block-hash to evaluate at,
+                          must be passed eval string via stdin.
+  eval_raw                to typecheck and evaluate an expression without a contract or database context.
+  repl                    to typecheck and evaluate expressions in a stdin/stdout loop.
+  execute                 to execute a public function of a defined contract.
+  execute_json            to run `execute`, but outputs JSON
+  generate_address        to generate a random Stacks public address for testing purposes.
 ",
         invoked_by
     );
@@ -824,6 +831,55 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }
         }
+        "eval_at_chaintip_json" => {
+            let evalInput = get_eval_input(invoked_by, args);
+            let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
+            let header_db = CLIHeadersDB::new(&vm_filename);
+            let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
+                let result = {
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
+                    vm_env
+                        .get_exec_environment(None)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                };
+                (marf, result)
+            });
+
+            match result {
+                Ok(x) => {
+                    let result_raw = {
+                        let bytes = x.serialize_to_vec();
+                        bytes_to_hex(&bytes)
+                    };
+                    println!(
+                        "{}",
+                        json!({
+                            "success": true,
+                            "result_raw": result_raw,
+                        })
+                    );
+                }
+                Err(error) => {
+                    println!(
+                        "{}",
+                        json!({
+                            "success": false,
+                            "error": format!("{}", error),
+                        })
+                    );
+                    panic_test!();
+                }
+            }
+        }
         "eval_at_block" => {
             if args.len() != 4 {
                 eprintln!(
@@ -1033,6 +1089,112 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }
         }
+        "execute_json" => {
+            if args.len() < 5 {
+                eprintln!("Usage: {} {} [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
+                panic_test!();
+            }
+            let vm_filename = &args[1];
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
+            let header_db = CLIHeadersDB::new(&vm_filename);
+
+            let contract_identifier = friendly_expect(
+                QualifiedContractIdentifier::parse(&args[2]),
+                "Failed to parse contract identifier.",
+            );
+
+            let tx_name = &args[3];
+            let sender_in = &args[4];
+
+            let sender = {
+                if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
+                    PrincipalData::Standard(sender)
+                } else {
+                    eprintln!("Unexpected result parsing sender: {}", sender_in);
+                    panic_test!();
+                }
+            };
+
+            let arguments: Vec<_> = args[5..]
+                .iter()
+                .map(|argument| {
+                    let argument_parsed = friendly_expect(
+                        vm_execute(argument),
+                        &format!("Error parsing argument \"{}\"", argument),
+                    );
+                    let argument_value = friendly_expect_opt(
+                        argument_parsed,
+                        &format!("Failed to parse a value from the argument: {}", argument),
+                    );
+                    SymbolicExpression::atom_value(argument_value)
+                })
+                .collect();
+
+            let result = in_block(vm_filename, marf_kv, |mut marf| {
+                let result = {
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        false,
+                        db,
+                        LimitedCostTracker::new_free(),
+                    );
+                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
+                };
+                (marf, result)
+            });
+
+            match result {
+                Ok((x, _, events)) => {
+                    if let Value::Response(data) = x {
+                        let result_raw = {
+                            let bytes = (*data.data).serialize_to_vec();
+                            bytes_to_hex(&bytes)
+                        };
+                        if data.committed {
+                            let txid = Txid::from_bytes(
+                                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
+                                .unwrap());
+                            let serialized_events: Vec<serde_json::Value> = events
+                                .iter()
+                                .enumerate()
+                                .map(|(index, event)| {
+                                    event.json_serialize(index, &txid.unwrap(), data.committed)
+                                })
+                                .collect();
+                            
+                            println!(
+                                "{}",
+                                json!({
+                                    "result_raw": result_raw,
+                                    "events": serialized_events,
+                                    "success": true,
+                                })
+                            );
+                        } else {
+                            println!(
+                                "{}",
+                                json!({
+                                    "success": false,
+                                    "result_raw": result_raw,
+                                })
+                            );
+                        }
+                    } else {
+                        panic!(format!(
+                            "Expected a ResponseType result from transaction. Found: {}",
+                            x
+                        ));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Transaction execution error: \n{}", error);
+                    panic_test!();
+                }
+            }
+        }
         _ => print_usage(invoked_by),
     }
 }
@@ -1153,6 +1315,19 @@ mod test {
             "test",
             &[
                 "execute".to_string(),
+                db_name.clone(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "mint!".to_string(),
+                "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
+                "(+ u900 u100)".to_string(),
+            ],
+        );
+
+        eprintln!("execute_json tokens");
+        invoke_command(
+            "test",
+            &[
+                "execute_json".to_string(),
                 db_name.clone(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                 "mint!".to_string(),
