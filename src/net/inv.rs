@@ -87,7 +87,7 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 pub const INV_SYNC_INTERVAL: u64 = 0;
 
 #[cfg(not(test))]
-pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
+pub const FULL_INV_SYNC_INTERVAL: u64 = 2 * 3600;
 #[cfg(test)]
 pub const FULL_INV_SYNC_INTERVAL: u64 = 120;
 
@@ -2104,12 +2104,12 @@ impl PeerNetwork {
     }
 
     /// Drive all state machines.
-    /// returns (done?, throttled?, peers-to-disconnect, peers-that-are-dead)
+    /// returns (done?, throttled?, full-scan? peers-to-disconnect, peers-that-are-dead)
     pub fn sync_inventories(
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    ) -> Result<(bool, bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked",
@@ -2130,7 +2130,7 @@ impl PeerNetwork {
                     &network.local_peer,
                     inv_state.last_rescanned_at + inv_state.sync_interval
                 );
-                return Ok((true, true, vec![], vec![]));
+                return Ok((true, true, false, vec![], vec![]));
             }
 
             for (nk, stats) in inv_state.block_stats.iter_mut() {
@@ -2199,6 +2199,7 @@ impl PeerNetwork {
                 }
             }
 
+            let mut was_full_scan = false;
             if all_done {
                 let mut new_sync_peers = network.get_outbound_sync_peers();
                 let broken_peers = inv_state.get_broken_peers();
@@ -2210,8 +2211,8 @@ impl PeerNetwork {
                     inv_state.hint_do_rescan = false;
                     inv_state.num_inv_syncs += 1;
 
-                    let was_full = inv_state.hint_do_full_rescan;
-                    if was_full {
+                    was_full_scan = inv_state.hint_do_full_rescan;
+                    if was_full_scan {
                         inv_state.last_full_rescanned_at = get_epoch_time_secs();
                         inv_state.hint_do_full_rescan = false;
                         inv_state.num_full_inv_syncs += 1;
@@ -2220,7 +2221,7 @@ impl PeerNetwork {
                     debug!(
                         "{:?}: inv sync finished (full={}), learned nothing new from {:?} neighbor(s)",
                         &network.local_peer,
-                        was_full,
+                        was_full_scan,
                         &inv_state.block_stats.len()
                     );
                 } else {
@@ -2239,7 +2240,10 @@ impl PeerNetwork {
                 if inv_state.last_full_rescanned_at + network.connection_opts.full_inv_sync_interval
                     < get_epoch_time_secs()
                 {
-                    debug!("{:?}: schedule full inventory sync", &network.local_peer);
+                    debug!(
+                        "{:?}: schedule full inventory sync on next inventory scan",
+                        &network.local_peer
+                    );
                     inv_state.hint_do_full_rescan = true;
                 }
 
@@ -2297,9 +2301,9 @@ impl PeerNetwork {
                     network.connection_opts.num_neighbors as usize,
                 );
 
-                Ok((true, false, broken_peers, dead_peers))
+                Ok((true, false, was_full_scan, broken_peers, dead_peers))
             } else {
-                Ok((false, false, vec![], vec![]))
+                Ok((false, false, false, vec![], vec![]))
             }
         })
     }
