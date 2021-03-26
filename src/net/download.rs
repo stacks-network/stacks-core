@@ -2079,7 +2079,7 @@ impl PeerNetwork {
             debug!("{:?}: Scheduling full downloader re-scan", &self.local_peer);
             0
         } else {
-            let start_reward_cycle = (self.pox_id().num_inventory_reward_cycles() as u64)
+            let start_reward_cycle = (self.pox_id.num_inventory_reward_cycles() as u64)
                 .saturating_sub(self.connection_opts.inv_reward_cycles);
             let start_sortition_height = self
                 .burnchain
