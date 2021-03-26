@@ -92,7 +92,7 @@ pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
 pub const FULL_INV_SYNC_INTERVAL: u64 = 120;
 
 #[cfg(not(test))]
-pub const INV_REWARD_CYCLES: u64 = 3;
+pub const INV_REWARD_CYCLES: u64 = 6;
 #[cfg(test)]
 pub const INV_REWARD_CYCLES: u64 = 1;
 
