@@ -1409,10 +1409,8 @@ impl PeerNetwork {
                     }
                 };
 
-                let max_reward_cycle = cmp::min(
-                    self.pox_id.num_inventory_reward_cycles(),
-                    tip_reward_cycle as u64,
-                );
+                let max_reward_cycle =
+                    cmp::min(self.pox_id.num_inventory_reward_cycles() as u64, tip_reward_cycle);
                 test_debug!(
                     "{:?}: request up to reward cycle min({},{}) = {}",
                     &self.local_peer,
@@ -2034,7 +2032,7 @@ impl PeerNetwork {
                     .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout, full_rescan)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetPoxInvFinish => {
-                    self.inv_getpoxinv_try_finish(nk, stats, full_scan, ibd)?
+                    self.inv_getpoxinv_try_finish(nk, stats, full_rescan, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
