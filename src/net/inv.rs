@@ -1409,8 +1409,10 @@ impl PeerNetwork {
                     }
                 };
 
-                let max_reward_cycle =
-                    cmp::min(self.pox_id.num_inventory_reward_cycles() as u64, tip_reward_cycle);
+                let max_reward_cycle = cmp::min(
+                    self.pox_id.num_inventory_reward_cycles() as u64,
+                    tip_reward_cycle,
+                );
                 test_debug!(
                     "{:?}: request up to reward cycle min({},{}) = {}",
                     &self.local_peer,
@@ -1807,7 +1809,7 @@ impl PeerNetwork {
                     .truncate_block_inventories(&self.burnchain, stats.target_pox_reward_cycle);
 
                 // proceed with block scan.
-                // If we're in IBD, then this is an always-allowed peer and we should 
+                // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
                 let scan_start = self.get_block_scan_start(ibd);
                 debug!(
@@ -2018,7 +2020,7 @@ impl PeerNetwork {
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
         full_rescan: bool,
-        ibd: bool
+        ibd: bool,
     ) -> Result<bool, net_error> {
         while !stats.done {
             if !stats.is_peer_online() {
@@ -2070,7 +2072,10 @@ impl PeerNetwork {
         };
 
         // find the lowest reward cycle whose bit has since changed from a 0 to a 1.
-        let num_reward_cycles = cmp::min(new_pox_id.num_inventory_reward_cycles(), self.pox_id.num_inventory_reward_cycles());
+        let num_reward_cycles = cmp::min(
+            new_pox_id.num_inventory_reward_cycles(),
+            self.pox_id.num_inventory_reward_cycles(),
+        );
         for i in 0..num_reward_cycles {
             if !self.pox_id.has_ith_anchor_block(i) && new_pox_id.has_ith_anchor_block(i) {
                 // we learned of a new anchor block intermittently.  Invalidate all cached state at and after this reward cycle.
@@ -2153,7 +2158,7 @@ impl PeerNetwork {
                         stats,
                         inv_state.request_timeout,
                         inv_state.hint_do_full_rescan,
-                        ibd
+                        ibd,
                     ) {
                         Ok(d) => d,
                         Err(net_error::StaleView) => {
