@@ -92,7 +92,7 @@ pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
 pub const FULL_INV_SYNC_INTERVAL: u64 = 120;
 
 #[cfg(not(test))]
-pub const INV_REWARD_CYCLES: u64 = 3;
+pub const INV_REWARD_CYCLES: u64 = 6;
 #[cfg(test)]
 pub const INV_REWARD_CYCLES: u64 = 1;
 
@@ -1368,8 +1368,8 @@ impl PeerNetwork {
         nk: &NeighborKey,
         target_pox_reward_cycle: u64,
     ) -> Result<Option<GetPoxInv>, net_error> {
-        if target_pox_reward_cycle >= (self.pox_id.len() as u64) - 1 {
-            debug!("{:?}: target reward cycle for neighbor {:?} is {}, which is equal to or higher than our PoX bit vector length {}", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.len() - 1);
+        if target_pox_reward_cycle >= self.pox_id.num_inventory_reward_cycles() as u64 {
+            debug!("{:?}: target reward cycle for neighbor {:?} is {}, which is equal to or higher than our PoX bit vector length {}", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.num_inventory_reward_cycles());
             return Ok(None);
         }
 
@@ -1410,11 +1410,11 @@ impl PeerNetwork {
                 };
 
                 let max_reward_cycle =
-                    cmp::min((self.pox_id.len() as u64) - 1, tip_reward_cycle as u64);
+                    cmp::min(self.pox_id.num_inventory_reward_cycles(), tip_reward_cycle as u64);
                 test_debug!(
                     "{:?}: request up to reward cycle min({},{}) = {}",
                     &self.local_peer,
-                    self.pox_id.len() - 1,
+                    self.pox_id.num_inventory_reward_cycles(),
                     tip_reward_cycle,
                     max_reward_cycle
                 );
@@ -1435,7 +1435,7 @@ impl PeerNetwork {
             };
 
         if num_reward_cycles == 0 {
-            debug!("{:?}: will not send GetPoxInv to {:?}, since we are sync'ed up to its highest reward cycle (our target was {}, our max len is {})", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.len() - 1);
+            debug!("{:?}: will not send GetPoxInv to {:?}, since we are sync'ed up to its highest reward cycle (our target was {}, our max len is {})", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.num_inventory_reward_cycles());
             return Ok(None);
         }
         assert!(num_reward_cycles <= GETPOXINV_MAX_BITLEN);
@@ -1484,12 +1484,12 @@ impl PeerNetwork {
         stats: &NeighborBlockStats,
         convo: &ConversationP2P,
     ) -> Result<u64, net_error> {
-        if target_block_reward_cycle >= (self.pox_id.len() as u64) - 1 {
+        if target_block_reward_cycle >= (self.pox_id.num_inventory_reward_cycles() as u64) {
             test_debug!(
                 "{:?}: target reward cycle {} >= our max reward cycle {}",
                 &self.local_peer,
                 target_block_reward_cycle,
-                self.pox_id.len() - 1
+                self.pox_id.num_inventory_reward_cycles()
             );
             return Ok(0);
         }
@@ -1685,13 +1685,13 @@ impl PeerNetwork {
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
     ) -> Result<Option<(u64, GetPoxInv)>, net_error> {
-        if stats.inv.num_reward_cycles < (self.pox_id.len() as u64) - 1 {
+        if stats.inv.num_reward_cycles < self.pox_id.num_inventory_reward_cycles() as u64 {
             // We don't yet know all of the PoX bits for this node
-            debug!("{:?}: PoX inventory not sync'ed with {:?} yet (target {} < our tip {}); make GetPoxInv based at {}", &self.local_peer, nk, stats.inv.num_reward_cycles, self.pox_id.len() - 1, stats.inv.num_reward_cycles);
+            debug!("{:?}: PoX inventory not sync'ed with {:?} yet (target {} < our tip {}); make GetPoxInv based at {}", &self.local_peer, nk, stats.inv.num_reward_cycles, self.pox_id.num_inventory_reward_cycles(), stats.inv.num_reward_cycles);
             match self.make_getpoxinv(sortdb, nk, stats.inv.num_reward_cycles)? {
                 Some(request) => Ok(Some((stats.inv.num_reward_cycles, request))),
                 None => {
-                    debug!("{:?}: will not fetch PoX inventory from {:?} even though target reward cycle {} < our tip {}", &self.local_peer, nk, stats.inv.num_reward_cycles, self.pox_id.len() - 1);
+                    debug!("{:?}: will not fetch PoX inventory from {:?} even though target reward cycle {} < our tip {}", &self.local_peer, nk, stats.inv.num_reward_cycles, self.pox_id.num_inventory_reward_cycles());
                     Ok(None)
                 }
             }
@@ -1704,7 +1704,7 @@ impl PeerNetwork {
             match self.make_getpoxinv(sortdb, nk, stats.pox_reward_cycle)? {
                 Some(request) => Ok(Some((stats.pox_reward_cycle, request))),
                 None => {
-                    debug!("{:?}: will not fetch PoX inventory from {:?} even though rescan reward cycle {} >= our tip {}", &self.local_peer, nk, stats.pox_reward_cycle, self.pox_id.len() - 1);
+                    debug!("{:?}: will not fetch PoX inventory from {:?} even though rescan reward cycle {} >= our tip {}", &self.local_peer, nk, stats.pox_reward_cycle, self.pox_id.num_inventory_reward_cycles());
                     Ok(None)
                 }
             }
@@ -1731,11 +1731,7 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(&self, full_rescan: bool) -> u64 {
-        let highest_known_reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.chain_view.burn_block_height)
-            .unwrap_or(0);
-
+        let highest_known_reward_cycle = self.pox_id.num_inventory_reward_cycles() as u64;
         if full_rescan {
             0
         } else {
@@ -1784,6 +1780,7 @@ impl PeerNetwork {
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         full_rescan: bool,
+        ibd: bool,
     ) -> Result<bool, net_error> {
         if stats.done {
             return Ok(true);
@@ -1809,11 +1806,13 @@ impl PeerNetwork {
                     .inv
                     .truncate_block_inventories(&self.burnchain, stats.target_pox_reward_cycle);
 
-                // proceed with block scan
-                let scan_start = self.get_block_scan_start(full_rescan);
+                // proceed with block scan.
+                // If we're in IBD, then this is an always-allowed peer and we should 
+                // react to divergences by deepening our rescan.
+                let scan_start = self.get_block_scan_start(ibd);
                 debug!(
-                    "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
-                    &self.local_peer, nk, scan_start
+                    "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
+                    &self.local_peer, nk, scan_start, ibd
                 );
                 stats.reset_block_scan(scan_start);
             }
@@ -1875,7 +1874,7 @@ impl PeerNetwork {
             local_uncertain
         );
 
-        if stats.target_pox_reward_cycle >= (self.pox_id.len() as u64) - 1 ||                                   // did full pass?
+        if stats.target_pox_reward_cycle >= (self.pox_id.num_inventory_reward_cycles() as u64) ||                                   // did full pass?
            remote_uncertain != (pox_inv.bitlen as u64) + stats.target_pox_reward_cycle ||                   // remote node is less certain than we are?
            local_uncertain != (pox_inv.bitlen as u64) + stats.target_pox_reward_cycle
         {
@@ -1898,7 +1897,7 @@ impl PeerNetwork {
                     .inv
                     .truncate_block_inventories(&self.burnchain, minimum_certainty);
             } else {
-                debug!("{:?}: Sync'ed PoX inventory with {:?}, and it is equally certain up to reward cycle {}", &self.local_peer, nk, self.pox_id.len() - 1);
+                debug!("{:?}: Sync'ed PoX inventory with {:?}, and it is equally certain up to reward cycle {}", &self.local_peer, nk, self.pox_id.num_inventory_reward_cycles());
             }
 
             // proceed to block scan.
@@ -1996,8 +1995,8 @@ impl PeerNetwork {
 
         assert_eq!(stats.state, InvWorkState::Done);
 
-        if stats.target_block_reward_cycle < (self.pox_id.len() as u64) - 1
-            && stats.block_reward_cycle < (self.pox_id.len() as u64)
+        if stats.target_block_reward_cycle < self.pox_id.num_inventory_reward_cycles() as u64
+            && stats.block_reward_cycle < self.pox_id.num_inventory_reward_cycles() as u64
         {
             // ask for more blocks
             stats.block_reward_cycle += 1;
@@ -2019,6 +2018,7 @@ impl PeerNetwork {
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
         full_rescan: bool,
+        ibd: bool
     ) -> Result<bool, net_error> {
         while !stats.done {
             if !stats.is_peer_online() {
@@ -2032,7 +2032,7 @@ impl PeerNetwork {
                     .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout, full_rescan)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetPoxInvFinish => {
-                    self.inv_getpoxinv_try_finish(nk, stats, full_rescan)?
+                    self.inv_getpoxinv_try_finish(nk, stats, full_scan, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
@@ -2070,7 +2070,7 @@ impl PeerNetwork {
         };
 
         // find the lowest reward cycle whose bit has since changed from a 0 to a 1.
-        let num_reward_cycles = cmp::min(new_pox_id.len(), self.pox_id.len()) - 1;
+        let num_reward_cycles = cmp::min(new_pox_id.num_inventory_reward_cycles(), self.pox_id.num_inventory_reward_cycles());
         for i in 0..num_reward_cycles {
             if !self.pox_id.has_ith_anchor_block(i) && new_pox_id.has_ith_anchor_block(i) {
                 // we learned of a new anchor block intermittently.  Invalidate all cached state at and after this reward cycle.
@@ -2088,7 +2088,7 @@ impl PeerNetwork {
         }
 
         // if the PoX bitvector shrinks, then invalidate block inventories that are no longer represented
-        if new_pox_id.len() < self.pox_id.len() {
+        if new_pox_id.num_inventory_reward_cycles() < self.pox_id.num_inventory_reward_cycles() {
             inv_state.invalidate_block_inventories(&self.burnchain, self.pox_id.len() as u64);
         }
 
@@ -2153,6 +2153,7 @@ impl PeerNetwork {
                         stats,
                         inv_state.request_timeout,
                         inv_state.hint_do_full_rescan,
+                        ibd
                     ) {
                         Ok(d) => d,
                         Err(net_error::StaleView) => {

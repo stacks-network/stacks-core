@@ -2988,7 +2988,7 @@ impl PeerNetwork {
                                         }
 
                                         if stats.inv.num_reward_cycles
-                                            >= (self.pox_id.len() - 1) as u64
+                                            >= self.pox_id.num_inventory_reward_cycles() as u64
                                         {
                                             debug!(
                                                 "{:?}: Fully-sync'ed PoX inventory from {}",
