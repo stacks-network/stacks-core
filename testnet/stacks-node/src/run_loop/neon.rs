@@ -416,7 +416,7 @@ impl RunLoop {
                     }
                 }
 
-                debug!(
+                info!(
                     "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
                     next_height, block_height, burnchain_height
                 );
@@ -447,7 +447,7 @@ impl RunLoop {
                     mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
-                    debug!(
+                    info!(
                         "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
                         block_height
                     );
