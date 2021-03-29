@@ -332,6 +332,7 @@ impl RunLoop {
         let mut block_height = 1.max(burnchain_config.first_block_height);
 
         let mut burnchain_height = block_height;
+        let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
@@ -356,8 +357,15 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions
-            let ibd =
-                pox_watchdog.pox_sync_wait(&burnchain_config, &burnchain_tip, burnchain_height);
+            let ibd = pox_watchdog.pox_sync_wait(
+                &burnchain_config,
+                &burnchain_tip,
+                burnchain_height,
+                num_sortitions_in_last_cycle,
+            );
+
+            // will recalculate this
+            num_sortitions_in_last_cycle = 0;
 
             let (next_burnchain_tip, next_burnchain_height) =
                 match burnchain.sync(Some(target_burnchain_block_height)) {
@@ -385,6 +393,8 @@ impl RunLoop {
             );
 
             if next_height > block_height {
+                let mut sort_count = 0;
+
                 // first, let's process all blocks in (block_height, next_height]
                 for block_to_process in (block_height + 1)..(next_height + 1) {
                     let block = {
@@ -393,6 +403,10 @@ impl RunLoop {
                             .unwrap()
                             .expect("Failed to find block in fork processed by bitcoin indexer")
                     };
+                    if block.sortition {
+                        sort_count += 1;
+                    }
+
                     let sortition_id = &block.sortition_id;
 
                     // Have the node process the new block, that can include, or not, a sortition.
@@ -409,9 +423,10 @@ impl RunLoop {
                     }
                 }
 
+                num_sortitions_in_last_cycle = sort_count;
                 debug!(
-                    "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
-                    next_height, block_height, burnchain_height
+                    "Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
+                    next_height, block_height, burnchain_height, num_sortitions_in_last_cycle;
                 );
 
                 block_height = next_height;
