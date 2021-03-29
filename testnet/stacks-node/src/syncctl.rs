@@ -423,6 +423,7 @@ impl PoxSyncWatchdog {
         burnchain: &Burnchain,
         burnchain_tip: &BurnchainTip,
         burnchain_height: u64,
+        num_sortitions_in_last_cycle: u64,
     ) -> bool {
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
@@ -449,6 +450,7 @@ impl PoxSyncWatchdog {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
             sleep_ms(self.steady_state_burnchain_sync_interval);
 
+            self.relayer_comms.set_ibd(ibbd);
             return ibbd;
         }
 
@@ -461,9 +463,15 @@ impl PoxSyncWatchdog {
             // we are far behind the burnchain tip (i.e. not in the last reward cycle),
             // so make sure the downloader knows about blocks it doesn't have yet so we can go and
             // fetch its blocks before proceeding.
-            debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS);
-            waited = true;
+            if num_sortitions_in_last_cycle > 0 {
+                debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
+                self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS);
+                waited = true;
+            } else {
+                debug!("PoX watchdog: In initial block download, and no sortitions to consider in this reward cycle -- sync immediately");
+                self.relayer_comms.set_ibd(ibbd);
+                return ibbd;
+            }
         } else {
             debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
         }
