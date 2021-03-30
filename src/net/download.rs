@@ -336,12 +336,12 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self) -> () {
+    pub fn restart_scan(&mut self, sortition_start: u64) -> () {
         // prepare to restart a full-chain scan for block downloads
-        self.block_sortition_height = 0;
-        self.microblock_sortition_height = 0;
-        self.next_block_sortition_height = 0;
-        self.next_microblock_sortition_height = 0;
+        self.block_sortition_height = sortition_start;
+        self.microblock_sortition_height = sortition_start;
+        self.next_block_sortition_height = sortition_start;
+        self.next_microblock_sortition_height = sortition_start;
         self.empty_block_download_passes = 0;
         self.empty_microblock_download_passes = 0;
     }
@@ -2082,6 +2082,12 @@ impl PeerNetwork {
 
         let now = get_epoch_time_secs();
 
+        let inv_sortition_start = self
+            .inv_state
+            .as_ref()
+            .map(|inv_state| inv_state.block_sortition_start)
+            .unwrap_or(0);
+
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             // extract blocks and microblocks downloaded
             for (request_key, block) in downloader.blocks.drain() {
@@ -2209,11 +2215,12 @@ impl PeerNetwork {
                     > network.chain_view.burn_block_height
                 {
                     debug!(
-                        "{:?}: Downloader for blocks has reached the chain tip",
-                        &network.local_peer
+                        "{:?}: Downloader for blocks has reached the chain tip; wrapping around to {}",
+                        &network.local_peer,
+                        inv_sortition_start
                     );
-                    downloader.block_sortition_height = 0;
-                    downloader.next_block_sortition_height = 0;
+                    downloader.block_sortition_height = inv_sortition_start;
+                    downloader.next_block_sortition_height = inv_sortition_start;
 
                     if downloader.num_blocks_downloaded == 0 {
                         downloader.empty_block_download_passes += 1;
@@ -2227,11 +2234,12 @@ impl PeerNetwork {
                     > network.chain_view.burn_block_height
                 {
                     debug!(
-                        "{:?}: Downloader for microblocks has reached the chain tip",
-                        &network.local_peer
+                        "{:?}: Downloader for microblocks has reached the chain tip; wrapping around to {}",
+                        &network.local_peer,
+                        inv_sortition_start
                     );
-                    downloader.microblock_sortition_height = 0;
-                    downloader.next_microblock_sortition_height = 0;
+                    downloader.microblock_sortition_height = inv_sortition_start;
+                    downloader.next_microblock_sortition_height = inv_sortition_start;
 
                     if downloader.num_microblocks_downloaded == 0 {
                         downloader.empty_microblock_download_passes += 1;
@@ -2350,7 +2358,12 @@ impl PeerNetwork {
             self.init_block_downloader();
         }
 
-        let last_inv_update_at = self.inv_state.as_ref().unwrap().last_change_at;
+        let mut last_inv_update_at = 0;
+        let mut inv_start_sortition = 0;
+        if let Some(ref inv_state) = self.inv_state {
+            last_inv_update_at = inv_state.last_change_at;
+            inv_start_sortition = inv_state.block_sortition_start;
+        }
 
         match self.block_downloader {
             Some(ref mut downloader) => {
@@ -2374,7 +2387,7 @@ impl PeerNetwork {
                             "{:?}: Noticed an inventory change; re-starting a download scan",
                             &self.local_peer
                         );
-                        downloader.restart_scan();
+                        downloader.restart_scan(inv_start_sortition);
 
                         downloader.last_inv_update_at = last_inv_update_at;
                     }
