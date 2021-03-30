@@ -3010,6 +3010,29 @@ impl PeerNetwork {
                                 "{:?}: Finished full inventory state-machine pass ({})",
                                 &self.local_peer, self.num_inv_sync_passes
                             );
+
+                            if ibd {
+                                // hint to the downloader to start scanning at the sortition
+                                // height we just synchronized
+                                let start_download_sortition = if let Some(ref inv_state) =
+                                    self.inv_state
+                                {
+                                    debug!("{:?}: Begin downloader synchronization at sortition height {}", &self.local_peer, inv_state.block_sortition_start);
+                                    inv_state.block_sortition_start
+                                } else {
+                                    // really unreachable, but why tempt fate?
+                                    0
+                                };
+
+                                if let Some(ref mut downloader) = self.block_downloader {
+                                    downloader.hint_block_sortition_height_available(
+                                        start_download_sortition,
+                                    );
+                                    downloader.hint_microblock_sortition_height_available(
+                                        start_download_sortition,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
