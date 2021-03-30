@@ -2676,15 +2676,17 @@ impl PeerNetwork {
             neighbor_keys.push(nk.clone());
         }
 
-        let reward_cycle_start = 
-            if let Some(ref inv_state) = self.inv_state {
-                let lowest_reward_cycle = self.burnchain.block_height_to_reward_cycle(inv_state.block_sortition_start + sortdb.first_block_height)
-                    .unwrap_or(0);
-                (self.pox_id.len() as u64).saturating_sub(lowest_reward_cycle + 1)
-            }
-            else {
-                0
-            };
+        let reward_cycle_start = if let Some(ref inv_state) = self.inv_state {
+            let lowest_reward_cycle = self
+                .burnchain
+                .block_height_to_reward_cycle(
+                    inv_state.block_sortition_start + sortdb.first_block_height,
+                )
+                .unwrap_or(0);
+            (self.pox_id.len() as u64).saturating_sub(lowest_reward_cycle + 1)
+        } else {
+            0
+        };
 
         debug!(
             "{:?}: Run anti-entropy protocol for {} neighbors, starting at reward cycle {}",
@@ -3028,7 +3030,10 @@ impl PeerNetwork {
                             let start_download_sortition = if let Some(ref inv_state) =
                                 self.inv_state
                             {
-                                debug!("{:?}: Begin downloader synchronization at sortition height {}", &self.local_peer, inv_state.block_sortition_start);
+                                debug!(
+                                    "{:?}: Begin downloader synchronization at sortition height {}",
+                                    &self.local_peer, inv_state.block_sortition_start
+                                );
                                 inv_state.block_sortition_start
                             } else {
                                 // really unreachable, but why tempt fate?
