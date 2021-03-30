@@ -999,6 +999,9 @@ pub struct InvState {
     /// How many passes -- short and full -- have we done?
     num_inv_syncs: u64,
     num_full_inv_syncs: u64,
+
+    /// What's the last reward cycle we _started_ the inv scan at?
+    pub block_sortition_start: u64,
 }
 
 impl InvState {
@@ -1021,6 +1024,8 @@ impl InvState {
 
             num_inv_syncs: 0,
             num_full_inv_syncs: 0,
+
+            block_sortition_start: 0,
         }
     }
 
@@ -2251,6 +2256,14 @@ impl PeerNetwork {
                 let mut new_sync_peers = network.get_outbound_sync_peers();
                 let broken_peers = inv_state.get_broken_peers();
                 let dead_peers = inv_state.get_dead_peers();
+
+                // hint to downloader as to where to begin scanning
+                inv_state.block_sortition_start = network
+                    .burnchain
+                    .reward_cycle_to_block_height(
+                        network.get_block_scan_start(inv_state.hint_do_full_rescan),
+                    )
+                    .saturating_sub(sortdb.first_block_height);
 
                 let was_full = inv_state.hint_do_full_rescan;
                 if was_full {
