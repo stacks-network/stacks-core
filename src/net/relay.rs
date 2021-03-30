@@ -930,8 +930,6 @@ impl Relayer {
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
-        let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-
         {
             let sort_ic = sortdb.index_conn();
 
