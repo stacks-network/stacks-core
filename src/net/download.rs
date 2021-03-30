@@ -939,7 +939,10 @@ impl BlockDownloader {
             self.next_microblock_sortition_height = target_height;
         }
 
-        debug!("Awaken downloader to restart scanning");
+        debug!(
+            "Awaken downloader to restart scanning at sortition height {}",
+            target_height
+        );
     }
 
     // are we doing the initial block download?
