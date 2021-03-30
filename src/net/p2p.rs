@@ -2629,6 +2629,7 @@ impl PeerNetwork {
 
     /// Push any blocks and microblock streams that we're holding onto out to our neighbors, if we have no public inbound
     /// connections.
+    /// Start scanning at the same height as the last inv sync.
     fn try_push_local_data(
         &mut self,
         sortdb: &SortitionDB,
@@ -2675,16 +2676,27 @@ impl PeerNetwork {
             neighbor_keys.push(nk.clone());
         }
 
+        let reward_cycle_start = 
+            if let Some(ref inv_state) = self.inv_state {
+                let lowest_reward_cycle = self.burnchain.block_height_to_reward_cycle(inv_state.block_sortition_start + sortdb.first_block_height)
+                    .unwrap_or(0);
+                (self.pox_id.len() as u64).saturating_sub(lowest_reward_cycle + 1)
+            }
+            else {
+                0
+            };
+
         debug!(
-            "{:?}: Run anti-entropy protocol for {} neighbors",
+            "{:?}: Run anti-entropy protocol for {} neighbors, starting at reward cycle {}",
             &self.local_peer,
-            &neighbor_keys.len()
+            &neighbor_keys.len(),
+            reward_cycle_start
         );
         if neighbor_keys.len() == 0 {
             return Ok(());
         }
 
-        for reward_cycle in (0..(self.pox_id.len() as u64)).rev() {
+        for reward_cycle in (reward_cycle_start..(self.pox_id.len() as u64)).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
@@ -3011,27 +3023,25 @@ impl PeerNetwork {
                                 &self.local_peer, self.num_inv_sync_passes
                             );
 
-                            if ibd {
-                                // hint to the downloader to start scanning at the sortition
-                                // height we just synchronized
-                                let start_download_sortition = if let Some(ref inv_state) =
-                                    self.inv_state
-                                {
-                                    debug!("{:?}: Begin downloader synchronization at sortition height {}", &self.local_peer, inv_state.block_sortition_start);
-                                    inv_state.block_sortition_start
-                                } else {
-                                    // really unreachable, but why tempt fate?
-                                    0
-                                };
+                            // hint to the downloader to start scanning at the sortition
+                            // height we just synchronized
+                            let start_download_sortition = if let Some(ref inv_state) =
+                                self.inv_state
+                            {
+                                debug!("{:?}: Begin downloader synchronization at sortition height {}", &self.local_peer, inv_state.block_sortition_start);
+                                inv_state.block_sortition_start
+                            } else {
+                                // really unreachable, but why tempt fate?
+                                0
+                            };
 
-                                if let Some(ref mut downloader) = self.block_downloader {
-                                    downloader.hint_block_sortition_height_available(
-                                        start_download_sortition,
-                                    );
-                                    downloader.hint_microblock_sortition_height_available(
-                                        start_download_sortition,
-                                    );
-                                }
+                            if let Some(ref mut downloader) = self.block_downloader {
+                                downloader.hint_block_sortition_height_available(
+                                    start_download_sortition,
+                                );
+                                downloader.hint_microblock_sortition_height_available(
+                                    start_download_sortition,
+                                );
                             }
                         }
                     }
