@@ -934,10 +934,6 @@ impl Relayer {
 
         {
             let sort_ic = sortdb.index_conn();
-            let cur_pox_id = {
-                let sortdb_reader = SortitionHandleConn::open_reader(&sort_ic, &tip_sort_id)?;
-                sortdb_reader.get_pox_id()?
-            };
 
             // process blocks we downloaded
             let new_dled_blocks =
