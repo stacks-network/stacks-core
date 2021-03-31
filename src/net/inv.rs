@@ -675,8 +675,8 @@ impl NeighborBlockStats {
                         debug!("Remote always-allowed neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Diverged.", _nk);
                         diverged = true;
                     } else {
-                        debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Broken.", _nk);
-                        broken = true;
+                        debug!("Remote neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Diverged.", _nk);
+                        diverged = true;
                     }
                 }
             }
