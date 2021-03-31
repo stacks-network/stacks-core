@@ -801,6 +801,7 @@ impl Config {
                     public_ip_address: ip_addr,
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
+                    disable_block_download: opts.disable_block_download.unwrap_or(false),
                     force_disconnect_interval: opts.force_disconnect_interval,
                     max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
@@ -808,6 +809,7 @@ impl Config {
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
                     handshake_timeout: opts.connect_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
+                    antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
                 }
             }
@@ -1243,7 +1245,9 @@ pub struct ConnectionOptionsFile {
     pub public_ip_address: Option<String>,
     pub disable_inbound_walks: Option<bool>,
     pub disable_inbound_handshakes: Option<bool>,
+    pub disable_block_download: Option<bool>,
     pub force_disconnect_interval: Option<u64>,
+    pub antientropy_public: Option<bool>,
 }
 
 #[derive(Clone, Default, Deserialize)]
