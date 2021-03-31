@@ -453,6 +453,19 @@ fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
     )
 }
 
+fn get_chain_tip_height(http_origin: &str) -> u64 {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/info", http_origin);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    res.stacks_tip_height
+}
+
 #[test]
 #[ignore]
 fn liquid_ustx_integration() {
@@ -3145,8 +3158,10 @@ fn pox_integration_test() {
     channel.stop_chains_coordinator();
 }
 
+#[derive(Debug)]
 enum Signal {
     BootstrapNodeReady,
+    FollowerNodeReady,
     ReplicatingAttachmentsStartTest1,
     ReplicatingAttachmentsCheckTest1(u64),
     ReplicatingAttachmentsStartTest2,
@@ -3672,4 +3687,199 @@ fn atlas_integration_test() {
     channel.stop_chains_coordinator();
 
     bootstrap_node_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+fn antientropy_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let user_1 = StacksPrivateKey::new();
+    let initial_balance_user_1 = InitialBalance {
+        address: to_addr(&user_1).into(),
+        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+    };
+
+    // Prepare the config of the bootstrap node
+    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let bootstrap_node_public_key = {
+        let keychain = Keychain::default(conf_bootstrap_node.node.seed.clone());
+        let mut pk = keychain.generate_op_signer().get_public_key();
+        pk.set_compressed(true);
+        pk.to_hex()
+    };
+    conf_bootstrap_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+    conf_bootstrap_node.connection_options.antientropy_retry = 10; // move this along -- do anti-entropy protocol once every 10 seconds
+    conf_bootstrap_node.connection_options.antientropy_public = true; // always push blocks, even if we're not NAT'ed
+    conf_bootstrap_node.connection_options.max_block_push = 1000;
+    conf_bootstrap_node.connection_options.max_microblock_push = 1000;
+
+    // Prepare the config of the follower node
+    let (mut conf_follower_node, _) = neon_integration_test_conf();
+    let bootstrap_node_url = format!(
+        "{}@{}",
+        bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
+    );
+    conf_follower_node.connection_options.disable_block_download = true;
+    conf_follower_node.node.set_bootstrap_nodes(
+        bootstrap_node_url,
+        conf_follower_node.burnchain.chain_id,
+        conf_follower_node.burnchain.peer_version,
+    );
+    conf_follower_node.node.miner = false;
+    conf_follower_node
+        .initial_balances
+        .push(initial_balance_user_1.clone());
+    conf_follower_node
+        .events_observers
+        .push(EventObserverConfig {
+            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            events_keys: vec![EventKeyType::AnyEvent],
+        });
+
+    // Our 2 nodes will share the bitcoind node
+    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
+    let (follower_node_tx, follower_node_rx) = mpsc::channel();
+
+    let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
+    let target_height = 3 + (3 * burnchain_config.pox_constants.reward_cycle_length);
+
+    let bootstrap_node_thread = thread::spawn(move || {
+        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+            conf_bootstrap_node.clone(),
+            None,
+            Some(burnchain_config.clone()),
+        );
+        let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
+
+        btc_regtest_controller.bootstrap_chain(201);
+
+        eprintln!("Chain bootstrapped...");
+
+        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+        let blocks_processed = run_loop.get_blocks_processed_arc();
+        let client = reqwest::blocking::Client::new();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+
+        thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+        // give the run loop some time to start up!
+        wait_for_runloop(&blocks_processed);
+
+        // first block wakes up the run loop
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        // first block will hold our VRF registration
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        for i in 0..(target_height - 3) {
+            eprintln!("Mine block {}", i);
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            let sort_height = channel.get_sortitions_processed();
+            eprintln!("Sort height: {}", sort_height);
+        }
+
+        // Let's setup the follower now.
+        follower_node_tx
+            .send(Signal::BootstrapNodeReady)
+            .expect("Unable to send signal");
+
+        // wait for bootstrap node to terminate
+        match bootstrap_node_rx.recv() {
+            Ok(Signal::FollowerNodeReady) => {
+                println!("Follower has finished");
+            }
+            Ok(x) => {
+                println!("Follower gave a bad signal: {:?}", &x);
+                panic!();
+            }
+            Err(e) => {
+                println!("Failed to recv: {:?}", &e);
+                panic!();
+            }
+        };
+
+        channel.stop_chains_coordinator();
+    });
+
+    // Start the attached observer
+    test_observer::spawn();
+
+    // The bootstrap node mined a few blocks and is ready, let's setup this node.
+    match follower_node_rx.recv() {
+        Ok(Signal::BootstrapNodeReady) => {
+            println!("Booting follower node...");
+        }
+        _ => panic!("Bootstrap node could not boot. Aborting test."),
+    };
+
+    let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
+    let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let thread_burnchain_config = burnchain_config.clone();
+    thread::spawn(move || run_loop.start(Some(thread_burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    while sort_height < (target_height + 201) as u64 {
+        wait_for_runloop(&blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+    }
+
+    eprintln!("Follower booted up; waiting for blocks");
+
+    // wait for block height to reach target
+    let mut tip_height = get_chain_tip_height(&http_origin);
+    eprintln!(
+        "Follower Stacks tip height is {}, wait until {} >= {} - 3",
+        tip_height, tip_height, target_height
+    );
+
+    let mut passes = 0;
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf_follower_node.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+
+    while tip_height < (target_height - 3) as u64 {
+        sleep_ms(1000);
+        tip_height = get_chain_tip_height(&http_origin);
+
+        eprintln!("Follower Stacks tip height is {}", tip_height);
+        passes += 1;
+        if passes % 30 == 0 {
+            eprintln!("Advance bitcoin block height to advance antientropy protocols");
+            btc_regtest_controller.build_next_block(1);
+        }
+    }
+
+    bootstrap_node_tx
+        .send(Signal::FollowerNodeReady)
+        .expect("Unable to send signal");
+    bootstrap_node_thread.join().unwrap();
+
+    eprintln!("Follower node finished");
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 }
