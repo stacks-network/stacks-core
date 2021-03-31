@@ -369,6 +369,7 @@ pub struct ConnectionOptions {
     pub max_block_push: u64,
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
+    pub antientropy_public: bool,
     pub max_buffered_blocks_available: u64,
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
@@ -448,8 +449,9 @@ impl std::default::Default for ConnectionOptions {
             public_ip_timeout: 3600,       // re-learn the public IP ever hour, if it's not given
             public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
-            max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entrop protocol
-            antientropy_retry: 3600 * 24, // retry pushing data only once every day
+            max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
+            antientropy_retry: 3600, // retry pushing data only once every hour
+            antientropy_public: true, // run antientropy even if we're NOT NAT'ed
             max_buffered_blocks_available: 1,
             max_buffered_microblocks_available: 1,
             max_buffered_blocks: 1,
