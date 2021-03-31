@@ -3730,7 +3730,7 @@ mod test {
 
         // should be stable; but got nacked (so this would be inappropriate)
         assert_eq!(
-            NodeStatus::Broken,
+            NodeStatus::Diverged,
             NeighborBlockStats::diagnose_nack(
                 &neighbor_key,
                 nack_no_block.clone(),
