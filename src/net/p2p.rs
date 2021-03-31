@@ -3114,16 +3114,22 @@ impl PeerNetwork {
                     }
                 }
                 PeerNetworkWorkState::AntiEntropy => {
-                    match self.try_push_local_data(sortdb, chainstate) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            debug!(
-                                "{:?}: Failed to push local data: {:?}",
-                                &self.local_peer, &e
-                            );
-                        }
-                    };
-
+                    if ibd {
+                        debug!(
+                            "{:?}: Skip AntiEntropy while in initial block download",
+                            &self.local_peer
+                        );
+                    } else {
+                        match self.try_push_local_data(sortdb, chainstate) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                debug!(
+                                    "{:?}: Failed to push local data: {:?}",
+                                    &self.local_peer, &e
+                                );
+                            }
+                        };
+                    }
                     self.work_state = PeerNetworkWorkState::Prune;
                 }
                 PeerNetworkWorkState::Prune => {
