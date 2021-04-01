@@ -3768,7 +3768,6 @@ fn antientropy_integration_test() {
 
         let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
         let blocks_processed = run_loop.get_blocks_processed_arc();
-        let client = reqwest::blocking::Client::new();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
         thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
@@ -3793,6 +3792,8 @@ fn antientropy_integration_test() {
         follower_node_tx
             .send(Signal::BootstrapNodeReady)
             .expect("Unable to send signal");
+
+        eprintln!("Bootstrap node informed follower that it's ready; waiting for acknowledgement");
 
         // wait for bootstrap node to terminate
         match bootstrap_node_rx.recv() {
@@ -3830,7 +3831,6 @@ fn antientropy_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf_follower_node.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     let thread_burnchain_config = burnchain_config.clone();
@@ -3840,9 +3840,15 @@ fn antientropy_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     let mut sort_height = channel.get_sortitions_processed();
-    while sort_height < (target_height + 201) as u64 {
+    while sort_height < (target_height + 200) as u64 {
+        eprintln!(
+            "Follower sortition is {}, target is {}",
+            sort_height,
+            target_height + 200
+        );
         wait_for_runloop(&blocks_processed);
         sort_height = channel.get_sortitions_processed();
+        sleep_ms(1000);
     }
 
     eprintln!("Follower booted up; waiting for blocks");
@@ -3854,23 +3860,20 @@ fn antientropy_integration_test() {
         tip_height, tip_height, target_height
     );
 
-    let mut passes = 0;
     let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf_follower_node.clone(),
         None,
         Some(burnchain_config.clone()),
     );
 
+    // antientropy protocol won't consider the last sortition's block
+    btc_regtest_controller.build_next_block(1);
+
     while tip_height < (target_height - 3) as u64 {
         sleep_ms(1000);
         tip_height = get_chain_tip_height(&http_origin);
 
         eprintln!("Follower Stacks tip height is {}", tip_height);
-        passes += 1;
-        if passes % 30 == 0 {
-            eprintln!("Advance bitcoin block height to advance antientropy protocols");
-            btc_regtest_controller.build_next_block(1);
-        }
     }
 
     bootstrap_node_tx
