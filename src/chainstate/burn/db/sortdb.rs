@@ -1972,7 +1972,7 @@ impl PoxId {
     }
 
     pub fn num_inventory_reward_cycles(&self) -> usize {
-        self.0.len() - 1
+        self.0.len().saturating_sub(1)
     }
 }
 
