@@ -34,7 +34,7 @@ use net::StacksMessageCodec;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
-    Error as ChainstateError, StacksAddress, StacksBlockHeader, StacksTransaction,
+    Error as ChainstateError, StacksAddress, StacksBlockHeader, StacksBlockId, StacksTransaction,
 };
 use std::fs;
 use std::io::Read;
@@ -60,6 +60,7 @@ use monitoring::increment_stx_mempool_gc;
 use vm::types::PrincipalData;
 
 use crate::monitoring;
+use chainstate::stacks::db::StacksHeaderInfo;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -405,213 +406,15 @@ impl MemPoolDB {
         })
     }
 
-    /// Gets the lowest ancestor block(where `height > curr_tip_height && height <= max_tip_height`)
-    /// that is in the mempool of the "max" block (identified by `max_tip_block_hash` and
-    /// `max_tip_consensus_hash`). If found, this function returns a `MemPoolWalkResult::Chainstate`
-    /// enum along with identifying information about the ancestor block: its height
-    /// (`next_height`), its consensus hash, its block hash, and the earliest timestamp of the
-    /// transactions in it that are also in the mempool.
-    ///
-    /// If the mempool has tips at a certain height (but not an ancestor of the "max" block), the
-    /// function returns a `MemPoolWalkResult::NoneAtHeight` enum with that height (`next_height`).
-    ///
-    /// If there is no block height that satisfies
-    /// `height > curr_tip_height && height <= max_tip_height`, if the height of the lowest
-    /// block found matches the curr_tip_height, or if the function is unable to find the ancestor
-    /// of the "max" block at `next_height`, the `MemPoolWalkResult::Done` enum is returned.
-    ///
-    /// # Parameters
-    /// - `curr_tip_height`: setting `curr_tip_height` to `None` is equivalent to searching for
-    ///   blocks with `height >= 0`. Setting `curr_tip_height` to `Some(0)` is equivalent to
-    ///   searching for blocks with `height > 0` instead.
-    /// - `max_{}`: these parameters identify the max (or highest) block in the search. The search
-    ///   is inclusive of this block. The function will only return a block (through the Chainstate
-    ///   enum) that is either an ancestor of this block or the block itself.
-    fn walk_forwards(
-        &self,
-        chainstate: &mut StacksChainState,
-        tip_consensus_hash: &ConsensusHash,
-        tip_block_hash: &BlockHeaderHash,
-        curr_tip_height: Option<u64>,
-        max_tip_consensus_hash: &ConsensusHash,
-        max_tip_block_hash: &BlockHeaderHash,
-        max_tip_height: u64,
-    ) -> Result<MemPoolWalkResult, ChainstateError> {
-        // Get the height of the block with the lowest height that is in the mempool
-        let next_height = match MemPoolDB::get_lowest_block_height_in_mempool(
-            &self.db,
-            max_tip_height,
-            curr_tip_height,
-        )? {
-            Some(next_height) => next_height,
-            None => {
-                debug!("Done scanning mempool: no transactions left"; "height" => curr_tip_height);
-                return Ok(MemPoolWalkResult::Done);
-            }
-        };
-
-        if let Some(h) = curr_tip_height {
-            if next_height == max_tip_height && h == max_tip_height {
-                // we're done -- tried every tx
-                debug!("Done scanning mempool: at height {}", max_tip_height);
-                return Ok(MemPoolWalkResult::Done);
-            }
-        }
-
-        let next_tips = MemPoolDB::get_chain_tips_at_height(&self.db, next_height)?;
-
-        let ancestor_tip = {
-            let headers_conn = chainstate.index_conn()?;
-            let index_block = StacksBlockHeader::make_index_block_hash(
-                max_tip_consensus_hash,
-                max_tip_block_hash,
-            );
-            match StacksChainState::get_index_tip_ancestor_conn(
-                &headers_conn,
-                &index_block,
-                next_height,
-            )? {
-                Some(tip_info) => tip_info,
-                None => {
-                    // no ancestor at the height, this is a error because this shouldn't ever
-                    //   happen: a chain tip should have an ancestor at every height < than its own
-                    //   height
-                    error!(
-                        "Done scanning mempool: no known ancestor of tip at height";
-                        "height" => next_height,
-                        "tip_consensus_hash" => %tip_consensus_hash,
-                        "tip_block_hash" => %tip_block_hash,
-                        "tip_index_hash" => %StacksBlockHeader::make_index_block_hash(
-                            tip_consensus_hash,
-                            tip_block_hash
-                        ),
-                    );
-                    return Ok(MemPoolWalkResult::Done);
-                }
-            }
-        };
-
-        // find out which tip is the ancestor tip
-        let mut found = false;
-        let mut next_tip_consensus_hash = tip_consensus_hash.clone();
-        let mut next_tip_block_hash = tip_block_hash.clone();
-
-        let ancestor_bh = ancestor_tip.anchored_header.block_hash();
-
-        for (consensus_hash, block_bhh) in next_tips.into_iter() {
-            if ancestor_tip.consensus_hash == consensus_hash && ancestor_bh == block_bhh {
-                found = true;
-                next_tip_consensus_hash = consensus_hash;
-                next_tip_block_hash = block_bhh;
-                break;
-            }
-        }
-
-        if !found {
-            // no ancestor at height, try a later height
-            debug!(
-                "None of the available prior chain tips at {} is an ancestor of {}/{}",
-                next_height, max_tip_consensus_hash, max_tip_block_hash
-            );
-            return Ok(MemPoolWalkResult::NoneAtHeight(
-                ancestor_tip.consensus_hash,
-                ancestor_bh,
-                next_height,
-            ));
-        }
-
-        let next_timestamp = match MemPoolDB::get_next_timestamp(
-            &self.db,
-            &next_tip_consensus_hash,
-            &next_tip_block_hash,
-            0,
-        )? {
-            Some(ts) => ts,
-            None => {
-                unreachable!("No transactions at a chain tip that exists");
-            }
-        };
-
-        debug!(
-            "Will start scaning mempool at {}/{} height={} ts={}",
-            &next_tip_consensus_hash, &next_tip_block_hash, next_height, next_timestamp
-        );
-        Ok(MemPoolWalkResult::Chainstate(
-            next_tip_consensus_hash,
-            next_tip_block_hash,
-            next_height,
-            next_timestamp,
-        ))
-    }
-
-    fn get_next_timestamp_at_next_block<E>(
-        &self,
-        chainstate: &mut StacksChainState,
-        mut curr_tip_consensus_hash: ConsensusHash,
-        mut curr_tip_block_hash: BlockHeaderHash,
-        mut curr_tip_height: Option<u64>,
-        max_tip_consensus_hash: &ConsensusHash,
-        max_tip_block_hash: &BlockHeaderHash,
-        max_tip_height: u64,
-    ) -> Result<Option<MemPoolWalkResult>, E>
-    where
-        E: From<db_error> + From<ChainstateError>,
-    {
-        loop {
-            // walk to where the first transaction we can mine can be found
-            match self.walk_forwards(
-                chainstate,
-                &curr_tip_consensus_hash,
-                &curr_tip_block_hash,
-                curr_tip_height,
-                &max_tip_consensus_hash,
-                &max_tip_block_hash,
-                max_tip_height,
-            )? {
-                MemPoolWalkResult::Chainstate(
-                    next_consensus_hash,
-                    next_block_bhh,
-                    next_height,
-                    next_timestamp,
-                ) => {
-                    return Ok(Some(MemPoolWalkResult::Chainstate(
-                        next_consensus_hash,
-                        next_block_bhh,
-                        next_height,
-                        next_timestamp,
-                    )));
-                }
-                MemPoolWalkResult::NoneAtHeight(
-                    next_consensus_hash,
-                    next_block_hash,
-                    next_height,
-                ) => {
-                    if std::env::var("STACKS_MEMPOOL_BAD_BEHAVIOR") == Ok("1".into()) {
-                        warn!(
-                            "Stopping mempool walk because no mempool entries at height = {}",
-                            next_height
-                        );
-                        return Ok(None);
-                    } else {
-                        curr_tip_consensus_hash = next_consensus_hash;
-                        curr_tip_block_hash = next_block_hash;
-                        curr_tip_height = Some(next_height);
-                    }
-                }
-                MemPoolWalkResult::Done => {
-                    return Ok(None);
-                }
-            }
-        }
-    }
-
     ///
     /// Iterate over candidates in the mempool
     ///  todo will be called once for each bundle of transactions at
-    ///  each ancestor chain tip from the given one, starting with the
-    ///  least recent chain tip and working forwards until there are
+    ///  each nonce, starting with the smallest nonce and going higher until there are
     ///  no more transactions to consider. Each batch of transactions
-    ///  passed to todo will be sorted in nonce order.
+    ///  passed to todo will be sorted by sponsor_nonce.
+    ///
+    /// Consider transactions across all forks where the transactions have
+    /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
     pub fn iterate_candidates<F, E>(
         &self,
         tip_consensus_hash: &ConsensusHash,
@@ -624,112 +427,62 @@ impl MemPoolDB {
         F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
         E: From<db_error> + From<ChainstateError>,
     {
-        // Want to consider transactions at height (`tip_height - MEMPOOL_MAX_TRANSACTION_AGE`)
-        let min_tip_height = match tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE) {
+        // Want to consider transactions with
+        // height > max(0, `tip_height - MEMPOOL_MAX_TRANSACTION_AGE`) - 1
+        let min_height = match tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE) {
             None => None,
             Some(h) if h == 0 => None,
             Some(h) => Some(h - 1),
         };
-        let (
-            mut curr_tip_consensus_hash,
-            max_tip_consensus_hash,
-            mut curr_tip_block_hash,
-            max_tip_block_hash,
-            max_tip_height,
-            mut curr_tip_height,
-        ) = (
-            tip_consensus_hash.clone(),
-            tip_consensus_hash.clone(),
-            tip_block_hash.clone(),
-            tip_block_hash.clone(),
-            tip_height,
-            min_tip_height,
-        );
 
-        debug!(
-            "Begin scanning transaction mempool with max block {}/{} height={:?}",
-            &max_tip_consensus_hash, &max_tip_block_hash, max_tip_height
-        );
-
-        let mut next_timestamp = match self.get_next_timestamp_at_next_block::<E>(
-            chainstate,
-            curr_tip_consensus_hash,
-            curr_tip_block_hash,
-            curr_tip_height,
-            &max_tip_consensus_hash,
-            &max_tip_block_hash,
-            max_tip_height,
-        )? {
-            None => {
-                return Ok(());
-            }
-            Some(MemPoolWalkResult::Chainstate(
-                next_consensus_hash,
-                next_block_bhh,
-                next_height,
-                next_timestamp,
-            )) => {
-                curr_tip_consensus_hash = next_consensus_hash;
-                curr_tip_block_hash = next_block_bhh;
-                curr_tip_height = Some(next_height);
-                next_timestamp
-            }
-            _ => {
-                unreachable!("Function only returns MemPoolWalkResult of type Chainstate")
-            }
-        };
+        let (mut next_nonce, mut next_timestamp) =
+            match MemPoolDB::get_next_nonce(&self.db, min_height, tip_height, None)? {
+                None => {
+                    return Ok(());
+                }
+                Some((nonce, ts)) => (nonce, ts),
+            };
 
         loop {
-            let available_txs = MemPoolDB::get_txs_at(
+            let available_txs = MemPoolDB::get_txs_at_nonce_and_timestamp(
                 &self.db,
-                &curr_tip_consensus_hash,
-                &curr_tip_block_hash,
+                min_height,
+                tip_height,
+                next_nonce,
                 next_timestamp,
             )?;
             debug!(
-                "Have {} transactions at {}/{} height={:?} at or after {}",
+                "Have {} transactions at nonce={} at or after {}",
                 available_txs.len(),
-                &curr_tip_consensus_hash,
-                &curr_tip_block_hash,
-                curr_tip_height,
+                next_nonce,
                 next_timestamp
             );
 
             todo(available_txs)?;
-            next_timestamp = match MemPoolDB::get_next_timestamp(
+            next_timestamp = match MemPoolDB::get_next_timestamp_at_nonce(
                 &self.db,
-                &curr_tip_consensus_hash,
-                &curr_tip_block_hash,
+                min_height,
+                tip_height,
                 next_timestamp,
+                next_nonce,
             )? {
                 Some(ts) => ts,
-                None => match self.get_next_timestamp_at_next_block::<E>(
-                    chainstate,
-                    curr_tip_consensus_hash,
-                    curr_tip_block_hash,
-                    curr_tip_height,
-                    &max_tip_consensus_hash,
-                    &max_tip_block_hash,
-                    max_tip_height,
-                )? {
-                    None => {
-                        return Ok(());
+                None => {
+                    match MemPoolDB::get_next_nonce(
+                        &self.db,
+                        min_height,
+                        tip_height,
+                        Some(next_nonce),
+                    )? {
+                        None => {
+                            return Ok(());
+                        }
+                        Some((nonce, ts)) => {
+                            next_nonce = nonce;
+                            ts
+                        }
                     }
-                    Some(MemPoolWalkResult::Chainstate(
-                        next_consensus_hash,
-                        next_block_bhh,
-                        next_height,
-                        next_timestamp,
-                    )) => {
-                        curr_tip_consensus_hash = next_consensus_hash;
-                        curr_tip_block_hash = next_block_bhh;
-                        curr_tip_height = Some(next_height);
-                        next_timestamp
-                    }
-                    _ => {
-                        unreachable!("Function only returns MemPoolWalkResult of type Chainstate")
-                    }
-                },
+                }
             };
         }
     }
@@ -768,16 +521,89 @@ impl MemPoolDB {
         Ok(rows)
     }
 
-    /// Get the next timestamp after this one that occurs in this chain tip.
-    pub fn get_next_timestamp(
+    /// Get all transactions at a specific block
+    #[cfg(test)]
+    pub fn get_num_tx_at_block(
         conn: &DBConn,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
-        timestamp: u64,
-    ) -> Result<Option<u64>, db_error> {
-        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY accept_time ASC LIMIT 1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, consensus_hash, block_header_hash];
+    ) -> Result<usize, db_error> {
+        let sql = "SELECT * FROM mempool WHERE consensus_hash = ?1 AND block_header_hash = ?2";
+        let args: &[&dyn ToSql] = &[consensus_hash, block_header_hash];
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        Ok(rows.len())
+    }
+
+    /// Get the next nonce/timestamp after this nonce that occurs in the height range.
+    pub fn get_next_nonce(
+        conn: &DBConn,
+        min_height: Option<u64>,
+        max_height: u64,
+        nonce: Option<u64>,
+    ) -> Result<Option<(u64, u64)>, db_error> {
+        let nonce = match nonce {
+            None => -1,
+            Some(n) => u64_to_sql(n)?,
+        };
+        let min_height_sql_arg = match min_height {
+            None => -1,
+            Some(h) => u64_to_sql(h)?,
+        };
+        let sql = "SELECT origin_nonce, accept_time FROM mempool WHERE origin_nonce > ?1 AND \
+        height > ?2 AND height <= ?3 ORDER BY origin_nonce, accept_time ASC LIMIT 1";
+
+        let args: &[&dyn ToSql] = &[&nonce, &min_height_sql_arg, &u64_to_sql(max_height)?];
         query_row(conn, sql, args)
+    }
+
+    /// Get the next timestamp after this one that occurs with this nonce in the height range.
+    pub fn get_next_timestamp_at_nonce(
+        conn: &DBConn,
+        min_height: Option<u64>,
+        max_height: u64,
+        timestamp: u64,
+        nonce: u64,
+    ) -> Result<Option<(u64)>, db_error> {
+        let min_height_sql_arg = match min_height {
+            None => -1,
+            Some(h) => u64_to_sql(h)?,
+        };
+
+        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND \
+        origin_nonce = ?2 AND height > ?3 AND height <= ?4 ORDER BY accept_time ASC LIMIT 1";
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(timestamp)?,
+            &u64_to_sql(nonce)?,
+            &min_height_sql_arg,
+            &u64_to_sql(max_height)?,
+        ];
+        query_row(conn, sql, args)
+    }
+
+    /// Get all transactions at a particular nonce and timestamp on a given chain tip.
+    /// Order them by sponsor nonce.
+    pub fn get_txs_at_nonce_and_timestamp(
+        conn: &DBConn,
+        min_height: Option<u64>,
+        max_height: u64,
+        nonce: u64,
+        timestamp: u64,
+    ) -> Result<Vec<MemPoolTxInfo>, db_error> {
+        let min_height_sql_arg = match min_height {
+            None => -1,
+            Some(h) => u64_to_sql(h)?,
+        };
+
+        let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND accept_time = ?2 AND \
+        height > ?3 AND height <= ?4 ORDER BY sponsor_nonce ASC";
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(nonce)?,
+            &u64_to_sql(timestamp)?,
+            &min_height_sql_arg,
+            &u64_to_sql(max_height)?,
+        ];
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        Ok(rows)
     }
 
     /// Get all transactions at a particular timestamp on a given chain tip.
@@ -799,46 +625,6 @@ impl MemPoolDB {
         let sql = "SELECT height FROM mempool WHERE height < ?1 ORDER BY height DESC LIMIT 1";
         let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
         query_row(conn, sql, args)
-    }
-
-    /// Given a chain tip, find the lowest block-height with height <= max_height and height >
-    /// curr_height in the mempool
-    pub fn get_lowest_block_height_in_mempool(
-        conn: &DBConn,
-        max_height: u64,
-        curr_height: Option<u64>,
-    ) -> Result<Option<u64>, db_error> {
-        let sql = "SELECT height FROM mempool WHERE height <= ?1 AND height > ?2 \
-        ORDER BY height ASC LIMIT 1";
-        let curr_height_sql_arg = match curr_height {
-            None => -1,
-            Some(h) => u64_to_sql(h)?,
-        };
-        let args: &[&dyn ToSql] = &[&u64_to_sql(max_height)?, &curr_height_sql_arg];
-        query_row(conn, sql, args)
-    }
-
-    /// Get chain tip(s) at a given height that have transactions
-    pub fn get_chain_tips_at_height(
-        conn: &DBConn,
-        height: u64,
-    ) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, db_error> {
-        let sql = "SELECT consensus_hash,block_header_hash FROM mempool WHERE height = ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
-
-        let mut stmt = conn.prepare(sql).map_err(db_error::SqliteError)?;
-
-        let mut rows = stmt.query(args).map_err(db_error::SqliteError)?;
-
-        // gather
-        let mut tips = vec![];
-        while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {
-            let consensus_hash = ConsensusHash::from_column(&row, "consensus_hash")?;
-            let block_hash = BlockHeaderHash::from_column(&row, "block_header_hash")?;
-            tips.push((consensus_hash, block_hash));
-        }
-
-        Ok(tips)
     }
 
     /// Get a number of transactions after a given timestamp on a given chain tip.
@@ -1520,8 +1306,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            count_txs, 2,
-            "Mempool should find two transactions from b_5"
+            count_txs, 3,
+            "Mempool should find three transactions from b_5"
         );
 
         let mut count_txs = 0;
@@ -1537,7 +1323,10 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(count_txs, 1, "Mempool should find one transaction from b_3");
+        assert_eq!(
+            count_txs, 2,
+            "Mempool should find two transactions from b_3"
+        );
 
         let mut count_txs = 0;
         mempool
@@ -1553,8 +1342,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            count_txs, 2,
-            "Mempool should find two transactions from b_4"
+            count_txs, 3,
+            "Mempool should find three transactions from b_4"
         );
 
         // let's test replace-across-fork while we're here.
@@ -1603,6 +1392,15 @@ mod tests {
         mempool_tx.commit().unwrap();
 
         // now try replace-across-fork from b_2 to b_4
+        // check that the number of transactions at b_2 and b_4 starts at 1 each
+        assert_eq!(
+            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
+            1
+        );
+        assert_eq!(
+            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
+            1
+        );
         let mut mempool_tx = mempool.tx_begin().unwrap();
         let block = &b_4;
         let tx = &txs[1];
@@ -1647,60 +1445,14 @@ mod tests {
 
         mempool_tx.commit().unwrap();
 
-        // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork
-        //  to b_4
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_2.0,
-                &b_2.1,
-                2,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
-            .unwrap();
+        // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to b_4
         assert_eq!(
-            count_txs, 1,
-            "After replace, mempool should find one transaction from b_2"
+            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
+            2
         );
-
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_5.0,
-                &b_5.1,
-                3,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
-            .unwrap();
         assert_eq!(
-            count_txs, 1,
-            "After replace, mempool should find one transaction from b_5"
-        );
-
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_4.0,
-                &b_4.1,
-                3,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
-            .unwrap();
-        assert_eq!(
-            count_txs, 3,
-            "After replace, mempool should find *three* transactions from b_4"
+            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
+            0
         );
     }
 
