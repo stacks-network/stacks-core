@@ -314,7 +314,7 @@ pub struct PeerNetwork {
     antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
     antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
     antientropy_start_reward_cycle: u64,
-    antientropy_last_push_ts: u64,
+    pub antientropy_last_push_ts: u64,
 
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
