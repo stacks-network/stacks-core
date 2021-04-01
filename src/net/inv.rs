@@ -1822,10 +1822,10 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start = self.get_block_scan_start(ibd);
+                let scan_start = self.get_block_scan_start(ibd || full_rescan);
                 debug!(
-                    "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
-                    &self.local_peer, nk, scan_start, ibd
+                    "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={}, full={})",
+                    &self.local_peer, nk, scan_start, ibd, full_rescan
                 );
                 stats.reset_block_scan(scan_start);
             }
