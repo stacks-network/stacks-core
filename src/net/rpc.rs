@@ -1202,15 +1202,15 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let mut cost_limit = options.read_only_call_limit.clone();
+        cost_limit.write_length = 0;
+        cost_limit.write_count = 0;
+
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(
-                            mainnet,
-                            options.read_only_call_limit.clone(),
-                            clarity_db,
-                        )
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
