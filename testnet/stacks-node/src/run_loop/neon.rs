@@ -360,21 +360,16 @@ impl RunLoop {
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
 
             // wait until it's okay to process the next sortitions
-            let ibd = {
-                let ibd = pox_watchdog.pox_sync_wait(
-                    &burnchain_config,
-                    &burnchain_tip,
-                    burnchain_height,
-                    num_sortitions_in_last_cycle,
-                );
+            let ibd = pox_watchdog.pox_sync_wait(
+                &burnchain_config,
+                &burnchain_tip,
                 if learned_burnchain_height {
-                    ibd
+                    Some(burnchain_height)
                 } else {
-                    // just assume we're in the initial block download if we haven't ever called
-                    // .sync()
-                    true
-                }
-            };
+                    None
+                },
+                num_sortitions_in_last_cycle,
+            );
 
             // will recalculate this
             num_sortitions_in_last_cycle = 0;

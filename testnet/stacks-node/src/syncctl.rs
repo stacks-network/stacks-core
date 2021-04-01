@@ -414,9 +414,21 @@ impl PoxSyncWatchdog {
         &mut self,
         burnchain: &Burnchain,
         burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
-        burnchain_height: u64,        // this is the absolute burnchain block height
+        burnchain_height_opt: Option<u64>, // this is the absolute burnchain block height, if known
         num_sortitions_in_last_cycle: u64,
     ) -> bool {
+        let burnchain_height = match burnchain_height_opt {
+            Some(bh) => bh,
+            None => {
+                // not known yet, so assume IBD
+                debug!("Pox watchdog: burnchain height not known yet, so assume IBD");
+                self.relayer_comms.set_ibd(true);
+
+                sleep_ms(self.steady_state_burnchain_sync_interval);
+                return true;
+            }
+        };
+
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
         }
@@ -436,9 +448,9 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
-            sleep_ms(self.steady_state_burnchain_sync_interval);
-
             self.relayer_comms.set_ibd(ibbd);
+
+            sleep_ms(self.steady_state_burnchain_sync_interval);
             return ibbd;
         }
 
