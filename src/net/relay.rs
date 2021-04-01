@@ -3439,8 +3439,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let done_flag = *done.borrow();
@@ -3671,7 +3670,6 @@ mod test {
                     // available via its inventory.  It only uses its anti-entropy protocol to
                     // discover that peer 1 doesn't have them, and sends them to peer 1 that way.
                     peer_configs[0].connection_opts.disable_block_advertisement = true;
-                    peer_configs[0].connection_opts.disable_inv_chat = true;
                     peer_configs[0].connection_opts.disable_block_download = true;
 
                     peer_configs[1].connection_opts.disable_block_download = true;
@@ -3682,8 +3680,15 @@ mod test {
                     peer_configs[0].connection_opts.disable_natpunch = true;
                     peer_configs[1].connection_opts.disable_natpunch = true;
 
-                    // peer 0 ignores peer 1's handshakes
-                    peer_configs[0].connection_opts.disable_inbound_handshakes = true;
+                    // permit anti-entropy protocol even if nat'ed
+                    peer_configs[0].connection_opts.antientropy_public = true;
+                    peer_configs[1].connection_opts.antientropy_public = true;
+                    peer_configs[0].connection_opts.antientropy_retry = 1;
+                    peer_configs[1].connection_opts.antientropy_retry = 1;
+
+                    // full rescan by default
+                    peer_configs[0].connection_opts.full_inv_sync_interval = 1;
+                    peer_configs[1].connection_opts.full_inv_sync_interval = 1;
 
                     // make peer 0 go slowly
                     peer_configs[0].connection_opts.max_block_push = 2;
@@ -3746,13 +3751,26 @@ mod test {
                             Some(microblocks),
                         ));
                     }
+
+                    // cap with an empty sortition, so the antientropy protocol picks up all stacks
+                    // blocks
+                    let (_, burn_header_hash, consensus_hash) =
+                        peers[0].next_burnchain_block(vec![]);
+                    for i in 1..peers.len() {
+                        peers[i].next_burnchain_block_raw(vec![]);
+                    }
+                    let sn = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    block_data.push((sn.consensus_hash.clone(), None, None));
+
                     block_data
                 },
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let tip_opt = peers[1]
@@ -3874,8 +3892,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let mut i = idx.borrow_mut();
