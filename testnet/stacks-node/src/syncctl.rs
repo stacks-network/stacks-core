@@ -55,10 +55,6 @@ impl PoxSyncWatchdogComms {
         self.download_passes.load(Ordering::SeqCst)
     }
 
-    pub fn get_burnchain_tip_height(&self) -> u64 {
-        self.burnchain_tip_height.load(Ordering::SeqCst)
-    }
-
     pub fn get_ibd(&self) -> bool {
         self.last_ibd.load(Ordering::SeqCst)
     }
@@ -120,10 +116,6 @@ impl PoxSyncWatchdogComms {
 
     pub fn notify_download_pass(&mut self) {
         self.download_passes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn set_burnchain_tip_height(&mut self, height: u64) {
-        self.download_passes.store(height, Ordering::SeqCst);
     }
 
     pub fn set_ibd(&mut self, value: bool) {
@@ -421,8 +413,8 @@ impl PoxSyncWatchdog {
     pub fn pox_sync_wait(
         &mut self,
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip,
-        burnchain_height: u64,
+        burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
+        burnchain_height: u64,        // this is the absolute burnchain block height
         num_sortitions_in_last_cycle: u64,
     ) -> bool {
         if self.watch_start_ts == 0 {
@@ -432,10 +424,6 @@ impl PoxSyncWatchdog {
             self.steady_state_resync_ts =
                 get_epoch_time_secs() + self.steady_state_burnchain_sync_interval;
         }
-
-        // inform any listeners about the new burnchain height
-        self.relayer_comms
-            .set_burnchain_tip_height(burnchain_height);
 
         let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
             burnchain,
