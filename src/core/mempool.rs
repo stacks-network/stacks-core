@@ -255,31 +255,36 @@ impl<'a> MemPoolTx<'a> {
         self.tx.commit().map_err(db_error::SqliteError)
     }
 
-    fn is_block_in_fork(
+    fn are_blocks_in_same_fork(
         &mut self,
         chainstate: &mut StacksChainState,
-        check_consensus_hash: &ConsensusHash,
-        check_stacks_block: &BlockHeaderHash,
-        cur_consensus_hash: &ConsensusHash,
-        cur_stacks_block: &BlockHeaderHash,
+        first_consensus_hash: &ConsensusHash,
+        first_stacks_block: &BlockHeaderHash,
+        second_consensus_hash: &ConsensusHash,
+        second_stacks_block: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let admitter_block =
-            StacksBlockHeader::make_index_block_hash(cur_consensus_hash, cur_stacks_block);
-        let index_block =
-            StacksBlockHeader::make_index_block_hash(check_consensus_hash, check_stacks_block);
+        let first_block =
+            StacksBlockHeader::make_index_block_hash(first_consensus_hash, first_stacks_block);
+        let second_block =
+            StacksBlockHeader::make_index_block_hash(second_consensus_hash, second_stacks_block);
         // short circuit equality
-        if admitter_block == index_block {
+        if second_block == first_block {
             return Ok(true);
         }
 
-        let height_result = chainstate
-            .with_clarity_marf(|marf| marf.get_block_height_of(&index_block, &admitter_block));
-        match height_result {
-            Ok(x) => {
-                eprintln!("{} from {} => {:?}", &index_block, &admitter_block, x);
-                Ok(x.is_some())
-            }
-            Err(x) => Err(db_error::IndexError(x)),
+        let height_of_first_with_second_tip = chainstate
+            .with_clarity_marf(|marf| marf.get_block_height_of(&first_block, &second_block));
+        let height_of_second_with_first_tip = chainstate
+            .with_clarity_marf(|marf| marf.get_block_height_of(&second_block, &first_block));
+
+        match (
+            height_of_first_with_second_tip,
+            height_of_second_with_first_tip,
+        ) {
+            (Ok(None), Ok(None)) => Ok(false),
+            (Ok(_), Ok(_)) => Ok(true),
+            (Err(x), _) => Err(db_error::IndexError(x)),
+            (_, Err(x)) => Err(db_error::IndexError(x)),
         }
     }
 }
@@ -951,7 +956,7 @@ impl MemPoolDB {
                 // is this a replace-by-fee ?
                 replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
-            } else if !tx.is_block_in_fork(
+            } else if !tx.are_blocks_in_same_fork(
                 chainstate,
                 &prior_tx.consensus_hash,
                 &prior_tx.block_header_hash,
@@ -1553,6 +1558,51 @@ mod tests {
         );
 
         // let's test replace-across-fork while we're here.
+        // first try to replace a tx in b_2 in b_1 - should fail because they are in the same fork
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        let block = &b_1;
+        let tx = &txs[1];
+        let origin_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&[0; 32]),
+        };
+        let sponsor_address = StacksAddress {
+            version: 22,
+            bytes: Hash160::from_data(&[1; 32]),
+        };
+
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let tx_fee = tx.get_tx_fee();
+
+        let height = 3;
+        let origin_nonce = 1;
+        let sponsor_nonce = 1;
+
+        // make sure that we already have the transaction we're testing for replace-across-fork
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        assert!(MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &block.0,
+            &block.1,
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .is_err());
+
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+        mempool_tx.commit().unwrap();
+
+        // now try replace-across-fork from b_2 to b_4
         let mut mempool_tx = mempool.tx_begin().unwrap();
         let block = &b_4;
         let tx = &txs[1];
