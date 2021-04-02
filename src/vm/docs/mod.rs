@@ -989,9 +989,9 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
 (add-10 (some 5)) ;; Returns 15
 (add-10 none) ;; Returns 10
 
-(define-private (add-or-pass-err (x (response int (string-ascii 10))) (to-add int))
+(define-private (add-or-pass-err (x (response int (buff 10))) (to-add int))
   (match x
-   value (+ to-add value)
+   value (ok (+ to-add value))
    err-value (err err-value)))
 (add-or-pass-err (ok 5) 20) ;; Returns 25
 (add-or-pass-err (err \"ERROR\") 20) ;; Returns (err \"ERROR\")
