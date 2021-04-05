@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::sleep_ms;
@@ -30,16 +30,19 @@ pub struct PoxSyncWatchdogComms {
     burnchain_tip_height: Arc<AtomicU64>,
     /// What's our last IBD status?
     last_ibd: Arc<AtomicBool>,
+    /// Should keep running?
+    should_keep_running: Arc<AtomicBool>,
 }
 
 impl PoxSyncWatchdogComms {
-    pub fn new() -> PoxSyncWatchdogComms {
+    pub fn new(should_keep_running: Arc<AtomicBool>) -> PoxSyncWatchdogComms {
         PoxSyncWatchdogComms {
             p2p_state_passes: Arc::new(AtomicU64::new(0)),
             inv_sync_passes: Arc::new(AtomicU64::new(0)),
             download_passes: Arc::new(AtomicU64::new(0)),
             burnchain_tip_height: Arc::new(AtomicU64::new(0)),
             last_ibd: Arc::new(AtomicBool::new(true)),
+            should_keep_running,
         }
     }
 
@@ -80,26 +83,25 @@ impl PoxSyncWatchdogComms {
     }
 
     /// Wait for at least one inv-sync state-machine passes
-    pub fn wait_for_inv_sync_pass(
-        &self,
-        timeout: u64,
-        should_keep_running: Arc<AtomicBool>,
-    ) -> bool {
+    pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> Result<bool, burnchain_error> {
         let current = self.get_inv_sync_passes();
 
-        let now = get_epoch_time_secs();
         while current >= self.get_inv_sync_passes() {
-            if !should_keep_running.load(Ordering::SeqCst) {
-                return false;
-            }
-            if now + timeout < get_epoch_time_secs() {
-                debug!("PoX watchdog comms: timed out waiting for one inv sync pass");
-                return false;
-            }
-            sleep_ms(1000);
+            self.interruptable_sleep(timeout)?;
             std::sync::atomic::spin_loop_hint();
         }
-        return true;
+        return Ok(true);
+    }
+
+    fn interruptable_sleep(&self, secs: u64) -> Result<(), burnchain_error> {
+        let deadline = secs + get_epoch_time_secs();
+        while get_epoch_time_secs() < deadline {
+            sleep_ms(1000);
+            if !self.should_keep_running.load(Ordering::SeqCst) {
+                return Err(burnchain_error::CoordinatorClosed);
+            }
+        }
+        Ok(())
     }
 
     pub fn wait_for_download_pass(&self, timeout: u64) -> bool {
@@ -189,6 +191,7 @@ impl PoxSyncWatchdog {
         download_timeout: u64,
         max_samples: u64,
         unconditionally_download: bool,
+        should_keep_running: Arc<AtomicBool>,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -215,7 +218,7 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            relayer_comms: PoxSyncWatchdogComms::new(),
+            relayer_comms: PoxSyncWatchdogComms::new(should_keep_running),
         })
     }
 
@@ -431,7 +434,7 @@ impl PoxSyncWatchdog {
         burnchain_tip: &BurnchainTip,
         burnchain_height: u64,
         should_keep_running: Arc<AtomicBool>,
-    ) -> bool {
+    ) -> Result<bool, burnchain_error> {
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
         }
@@ -455,13 +458,14 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
-            sleep_ms(self.steady_state_burnchain_sync_interval);
+            self.relayer_comms
+                .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;
 
-            return ibbd;
+            return Ok(ibbd);
         }
 
         if self.unconditionally_download {
-            return ibbd;
+            return Ok(ibbd);
         }
 
         let mut waited = false;
@@ -487,10 +491,11 @@ impl PoxSyncWatchdog {
                     "PoX watchdog in last reward cycle -- sync after {} seconds",
                     self.steady_state_burnchain_sync_interval
                 );
-                sleep_ms(1000 * self.steady_state_burnchain_sync_interval);
+                self.relayer_comms
+                    .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;
             }
             self.relayer_comms.set_ibd(ibbd);
-            return ibbd;
+            return Ok(ibbd);
         }
 
         // have we reached steady-state behavior?  i.e. have we stopped processing both burnchain
@@ -650,6 +655,6 @@ impl PoxSyncWatchdog {
 
         let ret = ibbd || !steady_state;
         self.relayer_comms.set_ibd(ret);
-        ret
+        Ok(ret)
     }
 }

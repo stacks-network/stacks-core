@@ -283,6 +283,7 @@ impl RunLoop {
             self.config.connection_options.timeout,
             self.config.node.pox_sync_sample_secs,
             self.config.node.pox_sync_sample_secs == 0,
+            should_keep_running.clone(),
         )
         .unwrap();
 
@@ -359,12 +360,19 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions
-            let ibd = pox_watchdog.pox_sync_wait(
+            let ibd = match pox_watchdog.pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
                 burnchain_height,
+                num_sortitions_in_last_cycle,
                 should_keep_running.clone(),
-            );
+            ) {
+                Ok(ibd) => ibd,
+                Err(e) => {
+                    debug!("Pox sync wait routine aborted: {:?}", e);
+                    continue;
+                }
+            };
 
             let (next_burnchain_tip, next_burnchain_height) =
                 match burnchain.sync(Some(target_burnchain_block_height)) {

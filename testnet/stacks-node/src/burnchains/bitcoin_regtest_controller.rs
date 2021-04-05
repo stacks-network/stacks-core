@@ -1,7 +1,7 @@
 use async_std::io::ReadExt;
 use std::io::Cursor;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Instant;
@@ -418,7 +418,7 @@ impl BitcoinRegtestController {
 
                     // wait for the chains coordinator to catch up with us
                     if block_for_sortitions {
-                        self.wait_for_sortitions(Some(x.block_height));
+                        self.wait_for_sortitions(Some(x.block_height))?;
                     }
 
                     // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
@@ -1301,7 +1301,10 @@ impl BitcoinRegtestController {
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
     ///   canonical chain tip, or has processed up to height_to_wait
-    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> Option<BurnchainTip> {
+    pub fn wait_for_sortitions(
+        &self,
+        height_to_wait: Option<u64>,
+    ) -> Result<BurnchainTip, BurnchainControllerError> {
         loop {
             let canonical_burnchain_tip = self
                 .burnchain_db
@@ -1317,8 +1320,7 @@ impl BitcoinRegtestController {
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
                     .expect("Sortition DB error.")
                     .expect("BUG: no data for the canonical chain tip");
-
-                return Some(BurnchainTip {
+                return Ok(BurnchainTip {
                     block_snapshot: canonical_sortition_tip,
                     received_at: Instant::now(),
                     state_transition,
@@ -1331,7 +1333,7 @@ impl BitcoinRegtestController {
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 
-                    return Some(BurnchainTip {
+                    return Ok(BurnchainTip {
                         block_snapshot: canonical_sortition_tip,
                         received_at: Instant::now(),
                         state_transition,
@@ -1339,7 +1341,7 @@ impl BitcoinRegtestController {
                 }
             }
             if !self.should_keep_running() {
-                return None;
+                return Err(BurnchainControllerError::CoordinatorClosed);
             }
             // yield some time
             sleep_ms(100);
