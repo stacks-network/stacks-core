@@ -373,7 +373,6 @@ impl RunLoop {
                     None
                 },
                 num_sortitions_in_last_cycle,
-                should_keep_running.clone(),
             ) {
                 Ok(ibd) => ibd,
                 Err(e) => {
