@@ -109,10 +109,7 @@ impl PoxSyncWatchdogComms {
                 debug!("PoX watchdog comms: timed out waiting for one download pass");
                 return Ok(());
             }
-            if !self.should_keep_running() {
-                return Err(burnchain_error::CoordinatorClosed);
-            }
-            sleep_ms(1000);
+            self.interruptable_sleep(1)?;
             std::sync::atomic::spin_loop_hint();
         }
         return Ok(());
