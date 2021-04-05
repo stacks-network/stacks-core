@@ -42,6 +42,8 @@ const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
+/// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
+pub const PATH_MICROBLOCK_SUBMIT: &str = "new_microblocks";
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
@@ -109,6 +111,20 @@ impl EventObserver {
             }
             sleep(backoff);
         }
+    }
+
+    fn make_new_microblocks_payload(receipts: Vec<StacksTransactionReceipt>) -> serde_json::Value {
+        let mut tx_index = 0;
+        let mut serialized_txs = Vec::new();
+        for receipt in receipts.iter() {
+            let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+            serialized_txs.push(payload);
+            tx_index += 1;
+        }
+
+        json!({
+            "transactions": serialized_txs,
+        })
     }
 
     fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
@@ -224,6 +240,10 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
+    fn send_new_microblocks(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MICROBLOCK_SUBMIT);
+    }
+
     fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_DROP);
     }
@@ -287,6 +307,7 @@ pub struct EventDispatcher {
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
     burn_block_observers_lookup: HashSet<u16>,
     mempool_observers_lookup: HashSet<u16>,
+    microblock_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
     boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
@@ -357,6 +378,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
+            microblock_observers_lookup: HashSet::new(),
             boot_receipts: Arc::new(Mutex::new(None)),
         }
     }
@@ -541,6 +563,28 @@ impl EventDispatcher {
         }
     }
 
+    pub fn process_new_microblocks(&self, receipts: Vec<StacksTransactionReceipt>) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.microblock_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = EventObserver::make_new_microblocks_payload(receipts);
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_microblocks(&payload);
+        }
+    }
+
     pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -628,7 +672,6 @@ impl EventDispatcher {
     }
 
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
-        // let event_observer = EventObserver::new(&conf.address, conf.port);
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
@@ -658,6 +701,9 @@ impl EventDispatcher {
                 }
                 EventKeyType::MemPoolTransactions => {
                     self.mempool_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::Microblocks => {
+                    self.microblock_observers_lookup.insert(observer_index);
                 }
                 EventKeyType::STXEvent => {
                     self.stx_observers_lookup.insert(observer_index);

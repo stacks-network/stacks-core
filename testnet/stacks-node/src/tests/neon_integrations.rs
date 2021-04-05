@@ -100,6 +100,7 @@ mod test_observer {
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
         pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
@@ -117,6 +118,14 @@ mod test_observer {
     async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
         let mut blocks = NEW_BLOCKS.lock().unwrap();
         blocks.push(block);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_microblocks(
+        microblocks: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
+        microblock_events.push(microblocks);
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -175,6 +184,10 @@ mod test_observer {
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_microblocks() -> Vec<serde_json::Value> {
+        NEW_MICROBLOCKS.lock().unwrap().clone()
+    }
+
     pub fn get_burn_blocks() -> Vec<serde_json::Value> {
         BURN_BLOCKS.lock().unwrap().clone()
     }
@@ -183,6 +196,7 @@ mod test_observer {
         ATTACHMENTS.lock().unwrap().clone()
     }
 
+    /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
@@ -204,6 +218,10 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_attachments);
+        let new_microblocks = warp::path!("new_microblocks")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_microblocks);
 
         info!("Spawning warp server");
         warp::serve(
@@ -211,7 +229,8 @@ mod test_observer {
                 .or(mempool_txs)
                 .or(mempool_drop_txs)
                 .or(new_burn_blocks)
-                .or(new_attachments),
+                .or(new_attachments)
+                .or(new_microblocks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -1270,6 +1289,18 @@ fn microblock_integration_test() {
             .json::<serde_json::Value>()
             .unwrap()
     );
+
+    // wait at least two p2p refreshes so it can produce the microblock
+    for i in 0..30 {
+        debug!(
+            "wait {} more seconds for microblock miner to find our transaction...",
+            30 - i
+        );
+        sleep_ms(1000);
+    }
+
+    let microblock_events = test_observer::get_microblocks();
+    assert_eq!(microblock_events.len(), 1);
 
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);

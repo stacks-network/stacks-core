@@ -786,6 +786,11 @@ fn spawn_miner_relayer(
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
 
+                    let num_unconfirmed_microblock_tx_receipts = net_receipts.unconfirmed_microblock_tx_receipts.len();
+                    if num_unconfirmed_microblock_tx_receipts > 0 {
+                        event_dispatcher.process_new_microblocks(net_receipts.unconfirmed_microblock_tx_receipts);
+                    }
+
                     // Dispatch retrieved attachments, if any.
                     if net_result.has_attachments() {
                         event_dispatcher.process_new_attachments(&net_result.attachments);
@@ -1001,6 +1006,7 @@ enum LeaderKeyRegistrationState {
     Active(RegisteredKey),
 }
 
+/// This node is used for both neon testnet and for mainnet
 impl InitializedNeonNode {
     fn new(
         config: Config,

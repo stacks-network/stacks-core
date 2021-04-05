@@ -1280,6 +1280,7 @@ pub enum EventKeyType {
     AssetEvent(AssetIdentifier),
     STXEvent,
     MemPoolTransactions,
+    Microblocks,
     AnyEvent,
     BurnchainBlocks,
 }
@@ -1300,6 +1301,10 @@ impl EventKeyType {
 
         if raw_key == "burn_blocks" {
             return Some(EventKeyType::BurnchainBlocks);
+        }
+
+        if raw_key == "microblocks" {
+            return Some(EventKeyType::Microblocks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
