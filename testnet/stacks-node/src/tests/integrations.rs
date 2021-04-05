@@ -1034,7 +1034,7 @@ fn mine_transactions_out_of_order() {
     conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr.to_string(), 100000);
 
-    let num_rounds = 6;
+    let num_rounds = 5;
     let mut run_loop = RunLoop::new(conf);
 
     run_loop
@@ -1131,36 +1131,9 @@ fn mine_transactions_out_of_order() {
                 }
                 4 => {
                     assert_eq!(chain_tip.metadata.block_height, 5);
-                    assert_eq!(chain_tip.block.txs.len(), 2);
+                    assert_eq!(chain_tip.block.txs.len(), 5);
 
                     // check that 1000 stx _was_ transfered to the contract principal
-                    let curr_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
-                        chain_tip.metadata.anchored_header.block_hash(),
-                    );
-                    assert_eq!(
-                        chain_state
-                            .with_read_only_clarity_tx(
-                                burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&curr_tip.0, &curr_tip.1),
-                                |conn| {
-                                    conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(
-                                            &contract_identifier.clone().into(),
-                                        )
-                                        .amount_unlocked
-                                    })
-                                }
-                            )
-                            .unwrap(),
-                        1000
-                    );
-                }
-                5 => {
-                    assert_eq!(chain_tip.metadata.block_height, 6);
-                    assert_eq!(chain_tip.block.txs.len(), 4);
-
-                    // check that 3000 stx _was_ transferred to the contract principal total
                     let curr_tip = (
                         chain_tip.metadata.consensus_hash.clone(),
                         chain_tip.metadata.anchored_header.block_hash(),

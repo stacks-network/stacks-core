@@ -307,6 +307,15 @@ impl StacksChainState {
         Ok(ancestors)
     }
 
+    /// Get an ancestor's height given the tip index hash and the ancestor index hash
+    pub fn get_block_height_of_ancestor(
+        conn: &StacksDBConn,
+        tip_index_hash: &StacksBlockId,
+        ancestor_index_hash: &StacksBlockId,
+    ) -> Result<Option<u64>, db_error> {
+        conn.get_ancestor_block_height(ancestor_index_hash, tip_index_hash)
+    }
+
     /// Get the genesis (boot code) block header
     pub fn get_genesis_header_info(conn: &Connection) -> Result<StacksHeaderInfo, Error> {
         // by construction, only one block can have height 0 in this DB

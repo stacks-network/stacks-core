@@ -1424,6 +1424,10 @@ impl StacksChainState {
         Ok(StacksDBTx::new(&mut self.state_index, ()))
     }
 
+    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
+        Ok(StacksDBConn::new(&self.state_index, ()))
+    }
+
     /// Begin a transaction against the underlying DB
     /// Does not create a Clarity instance, and does not affect the MARF.
     pub fn db_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, Error> {

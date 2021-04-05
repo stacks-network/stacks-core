@@ -169,17 +169,6 @@ impl FromRow<u64> for u64 {
     }
 }
 
-impl FromRow<(u64, u64)> for (u64, u64) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), Error> {
-        let t1: i64 = row.get_unwrap(0);
-        let t2: i64 = row.get_unwrap(1);
-        if t1 < 0 || t2 < 0 {
-            return Err(Error::ParseError);
-        }
-        Ok((t1 as u64, t2 as u64))
-    }
-}
-
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
         let x: i64 = row.get_unwrap(column_name);

@@ -40,13 +40,13 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use util::db::query_row;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::FromColumn;
+use util::db::{query_row, Error};
 use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 
@@ -196,6 +196,24 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     }
 }
 
+impl FromRow<(u64, u64)> for (u64, u64) {
+    fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), db_error> {
+        let t1: i64 = row.get_unwrap(0);
+        let t2: i64 = row.get_unwrap(1);
+        if t1 < 0 || t2 < 0 {
+            return Err(db_error::ParseError);
+        }
+        Ok((t1 as u64, t2 as u64))
+    }
+}
+
+pub fn u32_to_sql(x: u32) -> Result<i32, Error> {
+    if x > (i32::max_value() as u32) {
+        return Err(Error::ParseError);
+    }
+    Ok(x as i32)
+}
+
 const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE mempool(
@@ -254,39 +272,6 @@ impl<'a> MemPoolTx<'a> {
 
     pub fn commit(self) -> Result<(), db_error> {
         self.tx.commit().map_err(db_error::SqliteError)
-    }
-
-    fn are_blocks_in_same_fork(
-        &mut self,
-        chainstate: &mut StacksChainState,
-        first_consensus_hash: &ConsensusHash,
-        first_stacks_block: &BlockHeaderHash,
-        second_consensus_hash: &ConsensusHash,
-        second_stacks_block: &BlockHeaderHash,
-    ) -> Result<bool, db_error> {
-        let first_block =
-            StacksBlockHeader::make_index_block_hash(first_consensus_hash, first_stacks_block);
-        let second_block =
-            StacksBlockHeader::make_index_block_hash(second_consensus_hash, second_stacks_block);
-        // short circuit equality
-        if second_block == first_block {
-            return Ok(true);
-        }
-
-        let height_of_first_with_second_tip = chainstate
-            .with_clarity_marf(|marf| marf.get_block_height_of(&first_block, &second_block));
-        let height_of_second_with_first_tip = chainstate
-            .with_clarity_marf(|marf| marf.get_block_height_of(&second_block, &first_block));
-
-        match (
-            height_of_first_with_second_tip,
-            height_of_second_with_first_tip,
-        ) {
-            (Ok(None), Ok(None)) => Ok(false),
-            (Ok(_), Ok(_)) => Ok(true),
-            (Err(x), _) => Err(db_error::IndexError(x)),
-            (_, Err(x)) => Err(db_error::IndexError(x)),
-        }
     }
 }
 
@@ -415,14 +400,7 @@ impl MemPoolDB {
     ///
     /// Consider transactions across all forks where the transactions have
     /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
-    pub fn iterate_candidates<F, E>(
-        &self,
-        tip_consensus_hash: &ConsensusHash,
-        tip_block_hash: &BlockHeaderHash,
-        tip_height: u64,
-        chainstate: &mut StacksChainState,
-        mut todo: F,
-    ) -> Result<(), E>
+    pub fn iterate_candidates<F, E>(&self, tip_height: u64, mut todo: F) -> Result<(), E>
     where
         F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
         E: From<db_error> + From<ChainstateError>,
@@ -434,14 +412,16 @@ impl MemPoolDB {
             Some(h) if h == 0 => None,
             Some(h) => Some(h - 1),
         };
+        let mut curr_page = 0;
 
-        let (mut next_nonce, mut next_timestamp) =
-            match MemPoolDB::get_next_nonce(&self.db, min_height, tip_height, None)? {
-                None => {
-                    return Ok(());
-                }
-                Some((nonce, ts)) => (nonce, ts),
-            };
+        let (mut next_nonce, mut next_timestamp) = match MemPoolDB::get_next_nonce_and_timestamp(
+            &self.db, min_height, tip_height, None,
+        )? {
+            None => {
+                return Ok(());
+            }
+            Some((nonce, ts)) => (nonce, ts),
+        };
 
         loop {
             let available_txs = MemPoolDB::get_txs_at_nonce_and_timestamp(
@@ -450,6 +430,7 @@ impl MemPoolDB {
                 tip_height,
                 next_nonce,
                 next_timestamp,
+                curr_page,
             )?;
             debug!(
                 "Have {} transactions at nonce={} at or after {}",
@@ -458,32 +439,37 @@ impl MemPoolDB {
                 next_timestamp
             );
 
-            todo(available_txs)?;
-            next_timestamp = match MemPoolDB::get_next_timestamp_at_nonce(
-                &self.db,
-                min_height,
-                tip_height,
-                next_timestamp,
-                next_nonce,
-            )? {
-                Some(ts) => ts,
-                None => {
-                    match MemPoolDB::get_next_nonce(
-                        &self.db,
-                        min_height,
-                        tip_height,
-                        Some(next_nonce),
-                    )? {
-                        None => {
-                            return Ok(());
-                        }
-                        Some((nonce, ts)) => {
-                            next_nonce = nonce;
-                            ts
+            if available_txs.len() > 0 {
+                todo(available_txs)?;
+                curr_page += 1;
+            } else {
+                curr_page = 0;
+                next_timestamp = match MemPoolDB::get_next_timestamp_at_nonce(
+                    &self.db,
+                    min_height,
+                    tip_height,
+                    next_timestamp,
+                    next_nonce,
+                )? {
+                    Some(ts) => ts,
+                    None => {
+                        match MemPoolDB::get_next_nonce_and_timestamp(
+                            &self.db,
+                            min_height,
+                            tip_height,
+                            Some(next_nonce),
+                        )? {
+                            None => {
+                                return Ok(());
+                            }
+                            Some((nonce, ts)) => {
+                                next_nonce = nonce;
+                                ts
+                            }
                         }
                     }
-                }
-            };
+                };
+            }
         }
     }
 
@@ -535,7 +521,7 @@ impl MemPoolDB {
     }
 
     /// Get the next nonce/timestamp after this nonce that occurs in the height range.
-    pub fn get_next_nonce(
+    pub fn get_next_nonce_and_timestamp(
         conn: &DBConn,
         min_height: Option<u64>,
         max_height: u64,
@@ -563,7 +549,7 @@ impl MemPoolDB {
         max_height: u64,
         timestamp: u64,
         nonce: u64,
-    ) -> Result<Option<(u64)>, db_error> {
+    ) -> Result<Option<u64>, db_error> {
         let min_height_sql_arg = match min_height {
             None => -1,
             Some(h) => u64_to_sql(h)?,
@@ -588,19 +574,23 @@ impl MemPoolDB {
         max_height: u64,
         nonce: u64,
         timestamp: u64,
+        curr_page: u32,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let min_height_sql_arg = match min_height {
             None => -1,
             Some(h) => u64_to_sql(h)?,
         };
+        let limit = 200;
 
         let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND accept_time = ?2 AND \
-        height > ?3 AND height <= ?4 ORDER BY sponsor_nonce ASC";
+        height > ?3 AND height <= ?4 ORDER BY sponsor_nonce ASC LIMIT ?5 OFFSET ?6";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(nonce)?,
             &u64_to_sql(timestamp)?,
             &min_height_sql_arg,
             &u64_to_sql(max_height)?,
+            &u32_to_sql(limit)?,
+            &u32_to_sql(limit * curr_page)?,
         ];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
@@ -700,6 +690,45 @@ impl MemPoolDB {
         Ok(cmp::max(as_origin, as_sponsor))
     }
 
+    fn are_blocks_in_same_fork(
+        chainstate: &mut StacksChainState,
+        first_consensus_hash: &ConsensusHash,
+        first_stacks_block: &BlockHeaderHash,
+        second_consensus_hash: &ConsensusHash,
+        second_stacks_block: &BlockHeaderHash,
+    ) -> Result<bool, db_error> {
+        let first_block =
+            StacksBlockHeader::make_index_block_hash(first_consensus_hash, first_stacks_block);
+        let second_block =
+            StacksBlockHeader::make_index_block_hash(second_consensus_hash, second_stacks_block);
+        // short circuit equality
+        if second_block == first_block {
+            return Ok(true);
+        }
+
+        let headers_conn = chainstate
+            .index_conn()
+            .map_err(|_e| db_error::Other("ChainstateError".to_string()))?;
+        let height_of_first_with_second_tip = StacksChainState::get_block_height_of_ancestor(
+            &headers_conn,
+            &second_block,
+            &first_block,
+        )?;
+        let height_of_second_with_first_tip = StacksChainState::get_block_height_of_ancestor(
+            &headers_conn,
+            &first_block,
+            &second_block,
+        )?;
+
+        match (
+            height_of_first_with_second_tip,
+            height_of_second_with_first_tip,
+        ) {
+            (None, None) => Ok(false),
+            (_, _) => Ok(true),
+        }
+    }
+
     /// Add a transaction to the mempool.  If it already exists, then replace it if the given fee
     /// is higher than the one that's already there.
     /// Carry out the mempool admission test before adding.
@@ -742,7 +771,7 @@ impl MemPoolDB {
                 // is this a replace-by-fee ?
                 replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
-            } else if !tx.are_blocks_in_same_fork(
+            } else if !MemPoolDB::are_blocks_in_same_fork(
                 chainstate,
                 &prior_tx.consensus_hash,
                 &prior_tx.block_header_hash,
@@ -1103,6 +1132,75 @@ mod tests {
         let _mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
     }
 
+    fn make_block(
+        chainstate: &mut StacksChainState,
+        block_consensus: ConsensusHash,
+        parent: &(ConsensusHash, BlockHeaderHash),
+        burn_height: u64,
+        block_height: u64,
+    ) -> (ConsensusHash, BlockHeaderHash) {
+        let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+
+        let anchored_header = StacksBlockHeader {
+            version: 1,
+            total_work: StacksWorkScore {
+                work: block_height,
+                burn: 1,
+            },
+            proof: VRFProof::empty(),
+            parent_block: parent.1.clone(),
+            parent_microblock: BlockHeaderHash([0; 32]),
+            parent_microblock_sequence: 0,
+            tx_merkle_root: Sha512Trunc256Sum::empty(),
+            state_index_root: TrieHash::from_empty_data(),
+            microblock_pubkey_hash: Hash160([0; 20]),
+        };
+
+        let block_hash = anchored_header.block_hash();
+
+        let c_tx = StacksChainState::chainstate_block_begin(
+            &chainstate_tx,
+            clar_tx,
+            &NULL_BURN_STATE_DB,
+            &parent.0,
+            &parent.1,
+            &block_consensus,
+            &block_hash,
+        );
+
+        let new_tip_info = StacksHeaderInfo {
+            anchored_header,
+            microblock_tail: None,
+            index_root: TrieHash::from_empty_data(),
+            block_height,
+            consensus_hash: block_consensus.clone(),
+            burn_header_hash: BurnchainHeaderHash([0; 32]),
+            burn_header_height: burn_height as u32,
+            burn_header_timestamp: 0,
+            anchored_block_size: 1,
+        };
+
+        c_tx.commit_block();
+
+        let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
+
+        chainstate_tx
+            .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
+            .unwrap();
+
+        StacksChainState::insert_stacks_block_header(
+            &mut chainstate_tx,
+            &new_index_hash,
+            &new_tip_info,
+            &ExecutionCost::zero(),
+        )
+        .unwrap();
+
+        chainstate_tx.commit().unwrap();
+
+        (block_consensus, block_hash)
+    }
+
     #[test]
     fn mempool_walk_over_fork() {
         let mut chainstate = instantiate_chainstate_with_balances(
@@ -1111,75 +1209,6 @@ mod tests {
             "mempool_walk_over_fork",
             vec![],
         );
-
-        fn make_block(
-            chainstate: &mut StacksChainState,
-            block_consensus: ConsensusHash,
-            parent: &(ConsensusHash, BlockHeaderHash),
-            burn_height: u64,
-            block_height: u64,
-        ) -> (ConsensusHash, BlockHeaderHash) {
-            let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-
-            let anchored_header = StacksBlockHeader {
-                version: 1,
-                total_work: StacksWorkScore {
-                    work: block_height,
-                    burn: 1,
-                },
-                proof: VRFProof::empty(),
-                parent_block: parent.1.clone(),
-                parent_microblock: BlockHeaderHash([0; 32]),
-                parent_microblock_sequence: 0,
-                tx_merkle_root: Sha512Trunc256Sum::empty(),
-                state_index_root: TrieHash::from_empty_data(),
-                microblock_pubkey_hash: Hash160([0; 20]),
-            };
-
-            let block_hash = anchored_header.block_hash();
-
-            let c_tx = StacksChainState::chainstate_block_begin(
-                &chainstate_tx,
-                clar_tx,
-                &NULL_BURN_STATE_DB,
-                &parent.0,
-                &parent.1,
-                &block_consensus,
-                &block_hash,
-            );
-
-            let new_tip_info = StacksHeaderInfo {
-                anchored_header,
-                microblock_tail: None,
-                index_root: TrieHash::from_empty_data(),
-                block_height,
-                consensus_hash: block_consensus.clone(),
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-                burn_header_height: burn_height as u32,
-                burn_header_timestamp: 0,
-                anchored_block_size: 1,
-            };
-
-            c_tx.commit_block();
-
-            let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
-
-            chainstate_tx
-                .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
-                .unwrap();
-
-            StacksChainState::insert_stacks_block_header(
-                &mut chainstate_tx,
-                &new_index_hash,
-                &new_tip_info,
-                &ExecutionCost::zero(),
-            )
-            .unwrap();
-
-            chainstate_tx.commit().unwrap();
-
-            (block_consensus, block_hash)
-        }
 
         // genesis -> b_1* -> b_2*
         //               \-> b_3 -> b_4
@@ -1276,16 +1305,10 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_2.0,
-                &b_2.1,
-                2,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
+            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
+                count_txs += available_txs.len();
+                Ok(())
+            })
             .unwrap();
         assert_eq!(
             count_txs, 2,
@@ -1294,16 +1317,10 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_5.0,
-                &b_5.1,
-                3,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
+            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
+                count_txs += available_txs.len();
+                Ok(())
+            })
             .unwrap();
         assert_eq!(
             count_txs, 3,
@@ -1312,16 +1329,10 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_3.0,
-                &b_3.1,
-                2,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
+            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
+                count_txs += available_txs.len();
+                Ok(())
+            })
             .unwrap();
         assert_eq!(
             count_txs, 2,
@@ -1330,16 +1341,10 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(
-                &b_4.0,
-                &b_4.1,
-                3,
-                &mut chainstate,
-                |available_txs| {
-                    count_txs += available_txs.len();
-                    Ok(())
-                },
-            )
+            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
+                count_txs += available_txs.len();
+                Ok(())
+            })
             .unwrap();
         assert_eq!(
             count_txs, 3,
@@ -1467,65 +1472,19 @@ mod tests {
 
         // genesis -> b_1 -> b_2
         //      \-> b_3
-
-        let b_1 = (ConsensusHash([0x1; 20]), BlockHeaderHash([0x4; 32]));
-        let b_2 = (ConsensusHash([0x2; 20]), BlockHeaderHash([0x5; 32]));
-        let b_3 = (ConsensusHash([0x3; 20]), BlockHeaderHash([0x6; 32]));
-
-        eprintln!(
-            "b_1 => {}",
-            &StacksBlockHeader::make_index_block_hash(&b_1.0, &b_1.1)
+        //
+        let b_1 = make_block(
+            &mut chainstate,
+            ConsensusHash([0x1; 20]),
+            &(
+                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                FIRST_STACKS_BLOCK_HASH.clone(),
+            ),
+            1,
+            1,
         );
-        eprintln!(
-            "b_2 => {}",
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1)
-        );
-        eprintln!(
-            "b_3 => {}",
-            &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1)
-        );
-
-        {
-            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(
-                &chainstate_tx,
-                clar_tx,
-                &NULL_BURN_STATE_DB,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-                &b_1.0,
-                &b_1.1,
-            );
-            c_tx.commit_block();
-        }
-
-        {
-            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(
-                &chainstate_tx,
-                clar_tx,
-                &NULL_BURN_STATE_DB,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-                &b_3.0,
-                &b_3.1,
-            );
-            c_tx.commit_block();
-        }
-
-        {
-            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(
-                &chainstate_tx,
-                clar_tx,
-                &NULL_BURN_STATE_DB,
-                &b_1.0,
-                &b_1.1,
-                &b_2.0,
-                &b_2.1,
-            );
-            c_tx.commit_block();
-        }
+        let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+        let b_3 = make_block(&mut chainstate, ConsensusHash([0x3; 20]), &b_1, 1, 1);
 
         let chainstate_path = chainstate_path("mempool_do_not_replace_tx");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
