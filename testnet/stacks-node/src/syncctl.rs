@@ -58,10 +58,6 @@ impl PoxSyncWatchdogComms {
         self.download_passes.load(Ordering::SeqCst)
     }
 
-    pub fn get_burnchain_tip_height(&self) -> u64 {
-        self.burnchain_tip_height.load(Ordering::SeqCst)
-    }
-
     pub fn get_ibd(&self) -> bool {
         self.last_ibd.load(Ordering::SeqCst)
     }
@@ -129,10 +125,6 @@ impl PoxSyncWatchdogComms {
 
     pub fn notify_download_pass(&mut self) {
         self.download_passes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn set_burnchain_tip_height(&mut self, height: u64) {
-        self.download_passes.store(height, Ordering::SeqCst);
     }
 
     pub fn set_ibd(&mut self, value: bool) {
@@ -431,10 +423,23 @@ impl PoxSyncWatchdog {
     pub fn pox_sync_wait(
         &mut self,
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip,
-        burnchain_height: u64,
+        burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
+        burnchain_height_opt: Option<u64>, // this is the absolute burnchain block height, if known
+        num_sortitions_in_last_cycle: u64,
         should_keep_running: Arc<AtomicBool>,
     ) -> Result<bool, burnchain_error> {
+        let burnchain_height = match burnchain_height_opt {
+            Some(bh) => bh,
+            None => {
+                // not known yet, so assume IBD
+                debug!("Pox watchdog: burnchain height not known yet, so assume IBD");
+                self.relayer_comms.set_ibd(true);
+
+                sleep_ms(self.steady_state_burnchain_sync_interval);
+                return Ok(true);
+            }
+        };
+
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
         }
@@ -442,10 +447,6 @@ impl PoxSyncWatchdog {
             self.steady_state_resync_ts =
                 get_epoch_time_secs() + self.steady_state_burnchain_sync_interval;
         }
-
-        // inform any listeners about the new burnchain height
-        self.relayer_comms
-            .set_burnchain_tip_height(burnchain_height);
 
         let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
             burnchain,
@@ -458,6 +459,8 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
+            self.relayer_comms.set_ibd(ibbd);
+
             self.relayer_comms
                 .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;
 
@@ -473,10 +476,15 @@ impl PoxSyncWatchdog {
             // we are far behind the burnchain tip (i.e. not in the last reward cycle),
             // so make sure the downloader knows about blocks it doesn't have yet so we can go and
             // fetch its blocks before proceeding.
-            debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms
-                .wait_for_inv_sync_pass(SYNC_WAIT_SECS, should_keep_running.clone());
-            waited = true;
+            if num_sortitions_in_last_cycle > 0 {
+                debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
+                self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS)?;
+                waited = true;
+            } else {
+                debug!("PoX watchdog: In initial block download, and no sortitions to consider in this reward cycle -- sync immediately");
+                self.relayer_comms.set_ibd(ibbd);
+                return Ok(ibbd);
+            }
         } else {
             debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
         }

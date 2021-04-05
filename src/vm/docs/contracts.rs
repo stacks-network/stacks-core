@@ -89,7 +89,24 @@ is expired, or if there's never been such a stacker, then returns none."),
 
     let bns_descriptions = vec![
         ("namespace-preorder", "Registers the salted hash of the namespace with BNS nodes, and burns the requisite amount of cryptocurrency. Additionally, this step proves to the BNS nodes that user has honored the BNS consensus rules by including a recent consensus hash in the transaction. Returns pre-order's expiration date (in blocks)."),
-        ("namespace-reveal", "Reveals the salt and the namespace ID (after a namespace preorder). It reveals how long names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace that determines how cheap or expensive names its will be."),
+        ("namespace-reveal", "Reveals the salt and the namespace ID (after a namespace preorder). It reveals how long names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace that determines how cheap or expensive names its will be.\
+All of the parameters prefixed by `p` make up the `price function`. These parameters govern the pricing and lifetime of names in the namespace.
+
+The rules for a namespace are as follows:
+* a name can fall into one of 16 buckets, measured by length. Bucket 16 incorporates all names at least 16 characters long.
+* the pricing structure applies a multiplicative penalty for having numeric characters, or punctuation characters.
+* the price of a name in a bucket is `((coeff) * (base) ^ (bucket exponent)) / ((numeric discount multiplier) * (punctuation discount multiplier))`
+
+Example:
+
+* base = 10
+* coeff = 2
+* nonalpha discount: 10
+* no-vowel discount: 10
+* buckets 1, 2: 9
+* buckets 3, 4, 5, 6: 8
+* buckets 7, 8, 9, 10, 11, 12, 13, 14: 7
+* buckets 15, 16+:"),
         ("name-import", "Imports name to a revealed namespace. Each imported name is given both an owner and some off-chain state."),
         ("namespace-ready", "Launches the namespace and makes it available to the public. Once a namespace is launched, anyone can register a name in it if they pay the appropriate amount of cryptocurrency."),
         ("name-preorder", "Preorders a name by telling all BNS nodes the salted hash of the BNS name. It pays the registration fee to the namespace owner's designated address."),

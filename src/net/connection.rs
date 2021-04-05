@@ -49,7 +49,7 @@ use net::StacksP2P;
 use net::MAX_MESSAGE_LEN;
 
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::inv::INV_SYNC_INTERVAL;
+use net::inv::{FULL_INV_SYNC_INTERVAL, INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use net::neighbors::{
     NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_MAX_DURATION,
     WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT, WALK_STATE_TIMEOUT,
@@ -348,6 +348,8 @@ pub struct ConnectionOptions {
     pub walk_reset_interval: u64,
     pub walk_state_timeout: u64,
     pub inv_sync_interval: u64,
+    pub full_inv_sync_interval: u64,
+    pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
     pub dns_timeout: u128,
@@ -367,6 +369,7 @@ pub struct ConnectionOptions {
     pub max_block_push: u64,
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
+    pub antientropy_public: bool,
     pub max_buffered_blocks_available: u64,
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
@@ -421,6 +424,8 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
+            full_inv_sync_interval: FULL_INV_SYNC_INTERVAL, // how often to synchronize the *full* inventory
+            inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
             dns_timeout: 15_000,            // DNS timeout, in millis
@@ -444,8 +449,9 @@ impl std::default::Default for ConnectionOptions {
             public_ip_timeout: 3600,       // re-learn the public IP ever hour, if it's not given
             public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
-            max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entrop protocol
-            antientropy_retry: 3600 * 24, // retry pushing data only once every day
+            max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
+            antientropy_retry: 3600, // retry pushing data only once every hour
+            antientropy_public: true, // run antientropy even if we're NOT NAT'ed
             max_buffered_blocks_available: 1,
             max_buffered_microblocks_available: 1,
             max_buffered_blocks: 1,

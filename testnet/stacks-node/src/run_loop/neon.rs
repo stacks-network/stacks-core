@@ -336,6 +336,8 @@ impl RunLoop {
         let mut block_height = 1.max(burnchain_config.first_block_height);
 
         let mut burnchain_height = block_height;
+        let mut num_sortitions_in_last_cycle = 1;
+        let mut learned_burnchain_height = false;
 
         // prepare to fetch the first reward cycle!
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
@@ -357,13 +359,19 @@ impl RunLoop {
                 info!("Exiting stacks-node");
                 break;
             }
+
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
+
             // wait until it's okay to process the next sortitions
             let ibd = match pox_watchdog.pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                burnchain_height,
+                if learned_burnchain_height {
+                    Some(burnchain_height)
+                } else {
+                    None
+                },
                 num_sortitions_in_last_cycle,
                 should_keep_running.clone(),
             ) {
@@ -373,6 +381,8 @@ impl RunLoop {
                     continue;
                 }
             };
+            // will recalculate this
+            num_sortitions_in_last_cycle = 0;
 
             let (next_burnchain_tip, next_burnchain_height) =
                 match burnchain.sync(Some(target_burnchain_block_height)) {
@@ -388,6 +398,8 @@ impl RunLoop {
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
 
+            // *now* we know the burnchain height
+            learned_burnchain_height = true;
             burnchain_tip = next_burnchain_tip;
             burnchain_height = next_burnchain_height;
 
@@ -400,6 +412,8 @@ impl RunLoop {
             );
 
             if next_height > block_height {
+                let mut sort_count = 0;
+
                 // first, let's process all blocks in (block_height, next_height]
                 for block_to_process in (block_height + 1)..(next_height + 1) {
                     let block = {
@@ -408,6 +422,10 @@ impl RunLoop {
                             .unwrap()
                             .expect("Failed to find block in fork processed by bitcoin indexer")
                     };
+                    if block.sortition {
+                        sort_count += 1;
+                    }
+
                     let sortition_id = &block.sortition_id;
 
                     // Have the node process the new block, that can include, or not, a sortition.
@@ -424,9 +442,10 @@ impl RunLoop {
                     }
                 }
 
-                info!(
-                    "Synchronized burnchain up to block height {} from {} (chain tip height is {})",
-                    next_height, block_height, burnchain_height
+                num_sortitions_in_last_cycle = sort_count;
+                debug!(
+                    "Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
+                    next_height, block_height, burnchain_height, num_sortitions_in_last_cycle;
                 );
 
                 block_height = next_height;
