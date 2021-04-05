@@ -1302,7 +1302,7 @@ impl Burnchain {
                             Some(ref should_keep_running)
                                 if !should_keep_running.load(Ordering::SeqCst) =>
                             {
-                                break
+                                return Err(burnchain_error::CoordinatorClosed);
                             }
                             _ => {}
                         };
