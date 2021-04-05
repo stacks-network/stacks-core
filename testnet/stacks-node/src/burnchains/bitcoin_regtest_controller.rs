@@ -1305,6 +1305,8 @@ impl BitcoinRegtestController {
         &self,
         height_to_wait: Option<u64>,
     ) -> Result<BurnchainTip, BurnchainControllerError> {
+        let mut timeout = 0;
+        let step = 100;
         loop {
             let canonical_burnchain_tip = self
                 .burnchain_db
@@ -1314,12 +1316,18 @@ impl BitcoinRegtestController {
                 .unwrap();
             let canonical_sortition_tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
-            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+
+            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height
+                || timeout > 30_000
+            {
                 let (_, state_transition) = self
                     .sortdb_ref()
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
                     .expect("Sortition DB error.")
                     .expect("BUG: no data for the canonical chain tip");
+                if timeout > 30_000 {
+                    error!("Aborting wait_for_sortitions");
+                }
                 return Ok(BurnchainTip {
                     block_snapshot: canonical_sortition_tip,
                     received_at: Instant::now(),
@@ -1344,7 +1352,8 @@ impl BitcoinRegtestController {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
             // yield some time
-            sleep_ms(100);
+            sleep_ms(step);
+            timeout += step;
         }
     }
 
