@@ -24,10 +24,13 @@ use stacks::{
 };
 use stacks::{
     chainstate::stacks::{
-        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
-        StacksPublicKey, StacksTransaction, TransactionPayload,
+        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
     },
     net::RPCPoxInfoData,
+    util::db::query_row_columns,
+    util::db::query_rows,
+    util::db::u64_to_sql,
 };
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -36,12 +39,15 @@ use crate::{
     config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
     BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
 };
+use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
-    AccountEntryResponse, GetAttachmentResponse, PostTransactionRequestBody, RPCPeerInfoData,
+    AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
-use stacks::util::{get_epoch_time_secs, sleep_ms};
+use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use std::cmp;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -57,6 +63,8 @@ use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
 use stacks::core::BLOCK_LIMIT_MAINNET;
+
+use rusqlite::types::ToSql;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1614,7 +1622,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 
     // small-sized contracts for microblocks
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
-    for _i in 0..((1024 * 1024 + 500) / 5) {
+    for _i in 0..((1024 * 1024 + 500) / 2) {
         small_contract.push_str(" ");
     }
 
@@ -1633,7 +1641,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                 vec![make_contract_publish(
                     spender_sk,
                     0,
-                    1049230,
+                    1100000,
                     "large-0",
                     &giant_contract,
                 )]
@@ -1643,7 +1651,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                     let tx = make_contract_publish_microblock_only(
                         spender_sk,
                         i as u64,
-                        210000,
+                        600000,
                         &format!("small-{}", i),
                         &small_contract,
                     );
@@ -1659,7 +1667,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
-            amount: 1049230,
+            amount: 10492300000,
         });
     }
 
@@ -1714,7 +1722,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     for spender_addr in spender_addrs.iter() {
         let account = get_account(&http_origin, &spender_addr);
         assert_eq!(account.nonce, 0);
-        assert_eq!(account.balance, 1049230);
+        assert_eq!(account.balance, 10492300000);
     }
 
     for tx_batch in txs.iter() {
@@ -1786,12 +1794,18 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         max_big_txs_per_microblock, max_big_txs_per_block, total_big_txs_per_block, total_big_txs_per_microblock
     );
 
-    // can't have too many
-    assert!(max_big_txs_per_microblock <= 9);
-    assert!(max_big_txs_per_block <= 2);
+    assert!(max_big_txs_per_block > 0);
+    assert!(max_big_txs_per_microblock > 0);
+    assert!(total_big_txs_per_block > 0);
+    assert!(total_big_txs_per_microblock > 0);
 
-    assert!(total_big_txs_per_block <= 3);
-    assert!(total_big_txs_per_microblock <= 18);
+    // can't have too many
+    assert!(max_big_txs_per_microblock <= 3);
+    assert!(max_big_txs_per_block <= 1);
+
+    // NOTE: last-mined blocks aren't counted by the observer
+    assert!(total_big_txs_per_block <= 2);
+    assert!(total_big_txs_per_microblock <= 3);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -1824,71 +1838,45 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                     1049230,
                     &format!("large-{}", ix),
                     &format!("
-                        (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
-                        (define-private (folder (idx uint) (data (buff 1024)))
+                        ;; a single one of these transactions consumes over half the runtime budget
+                        (define-constant BUFF_TO_BYTE (list 
+                           0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
+                           0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
+                           0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
+                           0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0x3a 0x3b 0x3c 0x3d 0x3e 0x3f
+                           0x40 0x41 0x42 0x43 0x44 0x45 0x46 0x47 0x48 0x49 0x4a 0x4b 0x4c 0x4d 0x4e 0x4f
+                           0x50 0x51 0x52 0x53 0x54 0x55 0x56 0x57 0x58 0x59 0x5a 0x5b 0x5c 0x5d 0x5e 0x5f
+                           0x60 0x61 0x62 0x63 0x64 0x65 0x66 0x67 0x68 0x69 0x6a 0x6b 0x6c 0x6d 0x6e 0x6f
+                           0x70 0x71 0x72 0x73 0x74 0x75 0x76 0x77 0x78 0x79 0x7a 0x7b 0x7c 0x7d 0x7e 0x7f
+                           0x80 0x81 0x82 0x83 0x84 0x85 0x86 0x87 0x88 0x89 0x8a 0x8b 0x8c 0x8d 0x8e 0x8f
+                           0x90 0x91 0x92 0x93 0x94 0x95 0x96 0x97 0x98 0x99 0x9a 0x9b 0x9c 0x9d 0x9e 0x9f
+                           0xa0 0xa1 0xa2 0xa3 0xa4 0xa5 0xa6 0xa7 0xa8 0xa9 0xaa 0xab 0xac 0xad 0xae 0xaf
+                           0xb0 0xb1 0xb2 0xb3 0xb4 0xb5 0xb6 0xb7 0xb8 0xb9 0xba 0xbb 0xbc 0xbd 0xbe 0xbf
+                           0xc0 0xc1 0xc2 0xc3 0xc4 0xc5 0xc6 0xc7 0xc8 0xc9 0xca 0xcb 0xcc 0xcd 0xce 0xcf
+                           0xd0 0xd1 0xd2 0xd3 0xd4 0xd5 0xd6 0xd7 0xd8 0xd9 0xda 0xdb 0xdc 0xdd 0xde 0xdf
+                           0xe0 0xe1 0xe2 0xe3 0xe4 0xe5 0xe6 0xe7 0xe8 0xe9 0xea 0xeb 0xec 0xed 0xee 0xef
+                           0xf0 0xf1 0xf2 0xf3 0xf4 0xf5 0xf6 0xf7 0xf8 0xf9 0xfa 0xfb 0xfc 0xfd 0xfe 0xff
+                        ))
+                        (define-private (crash-me-folder (input (buff 1)) (ctr uint))
                             (begin
-                                ;; write 32 kb
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                (map-insert data-map {{ input: idx }} {{ output: data }})
-                                data
-                            ))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                (+ u1 ctr)
+                            )
+                        )
                         (define-public (crash-me (name (string-ascii 128)))
-                            (let (
-                                (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
-                                (b2 (concat b b))
-                                (b3 (concat b2 b2))
-                                (b4 (concat b3 b3))
-                                (b5 (concat b4 b4))
-                                (b6 (concat b5 b5)))  ;; 1024 bytes
                             (begin
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
-                                (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 1MB writes
+                                (fold crash-me-folder BUFF_TO_BYTE u0)
                                 (print name)
-                                (ok (len b6)))))
+                                (ok u0)
+                            )
+                        )
                         (begin
                             (crash-me \"{}\"))
                         ",
@@ -1897,48 +1885,52 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                 )]
             } else {
                 let mut ret = vec![];
-                for i in 0..10 {
+                for i in 0..1 {
                     let tx = make_contract_publish_microblock_only(
                         spender_sk,
                         i as u64,
                         210000,
                         &format!("small-{}-{}", ix, i),
                         &format!("
-                            (define-map data-map {{ input: uint }} {{ output: (buff 1024) }})
-                            (define-private (folder (idx uint) (data (buff 1024)))
+                            ;; a single one of these transactions consumes over half the runtime budget
+                            (define-constant BUFF_TO_BYTE (list 
+                               0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
+                               0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
+                               0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
+                               0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0x3a 0x3b 0x3c 0x3d 0x3e 0x3f
+                               0x40 0x41 0x42 0x43 0x44 0x45 0x46 0x47 0x48 0x49 0x4a 0x4b 0x4c 0x4d 0x4e 0x4f
+                               0x50 0x51 0x52 0x53 0x54 0x55 0x56 0x57 0x58 0x59 0x5a 0x5b 0x5c 0x5d 0x5e 0x5f
+                               0x60 0x61 0x62 0x63 0x64 0x65 0x66 0x67 0x68 0x69 0x6a 0x6b 0x6c 0x6d 0x6e 0x6f
+                               0x70 0x71 0x72 0x73 0x74 0x75 0x76 0x77 0x78 0x79 0x7a 0x7b 0x7c 0x7d 0x7e 0x7f
+                               0x80 0x81 0x82 0x83 0x84 0x85 0x86 0x87 0x88 0x89 0x8a 0x8b 0x8c 0x8d 0x8e 0x8f
+                               0x90 0x91 0x92 0x93 0x94 0x95 0x96 0x97 0x98 0x99 0x9a 0x9b 0x9c 0x9d 0x9e 0x9f
+                               0xa0 0xa1 0xa2 0xa3 0xa4 0xa5 0xa6 0xa7 0xa8 0xa9 0xaa 0xab 0xac 0xad 0xae 0xaf
+                               0xb0 0xb1 0xb2 0xb3 0xb4 0xb5 0xb6 0xb7 0xb8 0xb9 0xba 0xbb 0xbc 0xbd 0xbe 0xbf
+                               0xc0 0xc1 0xc2 0xc3 0xc4 0xc5 0xc6 0xc7 0xc8 0xc9 0xca 0xcb 0xcc 0xcd 0xce 0xcf
+                               0xd0 0xd1 0xd2 0xd3 0xd4 0xd5 0xd6 0xd7 0xd8 0xd9 0xda 0xdb 0xdc 0xdd 0xde 0xdf
+                               0xe0 0xe1 0xe2 0xe3 0xe4 0xe5 0xe6 0xe7 0xe8 0xe9 0xea 0xeb 0xec 0xed 0xee 0xef
+                               0xf0 0xf1 0xf2 0xf3 0xf4 0xf5 0xf6 0xf7 0xf8 0xf9 0xfa 0xfb 0xfc 0xfd 0xfe 0xff
+                            ))
+                            (define-private (crash-me-folder (input (buff 1)) (ctr uint))
                                 (begin
-                                    ;; write 8 kb
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    (map-insert data-map {{ input: idx }} {{ output: data }})
-                                    data
-                                ))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (unwrap-panic (index-of BUFF_TO_BYTE input))
+                                    (+ u1 ctr)
+                                )
+                            )
                             (define-public (crash-me (name (string-ascii 128)))
-                                (let (
-                                    (b 0x1111111111111111111111111111111111111111111111111111111111111111)  ;; 32 bytes
-                                    (b2 (concat b b))
-                                    (b3 (concat b2 b2))
-                                    (b4 (concat b3 b3))
-                                    (b5 (concat b4 b4))
-                                    (b6 (concat b5 b5)))  ;; 1024 bytes
                                 (begin
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
-                                    (fold folder (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31) b6) ;; 262k writes
+                                    (fold crash-me-folder BUFF_TO_BYTE u0)
                                     (print name)
-                                    (ok (len b6)))))
+                                    (ok u0)
+                                )
+                            )
                             (begin
                                 (crash-me \"{}\"))
                             ", &format!("small-contract-{}-{}-{}", &spender_addrs_c32[ix], &ix, i))
@@ -1962,6 +1954,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
+    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
@@ -2021,7 +2014,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     }
 
     debug!("Wait for 1st microblock to be mined");
-    sleep_ms(450_000);
+    sleep_ms(150_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -2035,12 +2028,12 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     //    which *should* have also confirmed the microblock.
 
     debug!("Wait for 2nd microblock to be mined");
-    sleep_ms(450_000);
+    sleep_ms(150_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     debug!("Wait for 3nd microblock to be mined");
-    sleep_ms(450_000);
+    sleep_ms(150_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -2053,8 +2046,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     let mut total_big_txs_per_microblock = 0;
 
     for block in blocks {
+        eprintln!("block {:?}", &block);
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        eprintln!("{}", transactions.len());
 
         let mut num_big_anchored_txs = 0;
         let mut num_big_microblock_txs = 0;
@@ -2066,11 +2059,12 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            eprintln!("tx: {:?}", &parsed);
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
-                if tsc.name.to_string().find("large-contract").is_some() {
+                if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
                     total_big_txs_per_block += 1;
-                } else if tsc.name.to_string().find("small-contract").is_some() {
+                } else if tsc.name.to_string().find("small-").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
                 }
@@ -2085,12 +2079,22 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    // can't have too many
-    assert!(max_big_txs_per_microblock <= 8);
-    assert!(max_big_txs_per_block <= 2);
+    debug!(
+        "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}",
+        max_big_txs_per_microblock, max_big_txs_per_block
+    );
+    debug!(
+        "total_big_txs_per_microblock: {}, total_big_txs_per_block: {}",
+        total_big_txs_per_microblock, total_big_txs_per_block
+    );
 
-    assert!(total_big_txs_per_block <= 3);
-    assert!(total_big_txs_per_microblock <= 16);
+    // at most one big tx per block and at most one big tx per stream, always.
+    assert!(max_big_txs_per_microblock == 1);
+    assert!(max_big_txs_per_block == 1);
+
+    // if the mblock stream has a big tx, the anchored block won't (and vice versa)
+    assert!(total_big_txs_per_block == 1); // last block didn't get counted by the observer
+    assert!(total_big_txs_per_microblock == 2);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -3760,7 +3764,6 @@ fn antientropy_integration_test() {
             None,
             Some(burnchain_config.clone()),
         );
-        let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
 
         btc_regtest_controller.bootstrap_chain(201);
 
@@ -3866,14 +3869,17 @@ fn antientropy_integration_test() {
         Some(burnchain_config.clone()),
     );
 
-    // antientropy protocol won't consider the last sortition's block
-    btc_regtest_controller.build_next_block(1);
-
+    let mut burnchain_deadline = get_epoch_time_secs() + 60;
     while tip_height < (target_height - 3) as u64 {
         sleep_ms(1000);
         tip_height = get_chain_tip_height(&http_origin);
 
         eprintln!("Follower Stacks tip height is {}", tip_height);
+
+        if burnchain_deadline < get_epoch_time_secs() {
+            burnchain_deadline = get_epoch_time_secs() + 60;
+            btc_regtest_controller.build_next_block(1);
+        }
     }
 
     bootstrap_node_tx
@@ -3885,4 +3891,779 @@ fn antientropy_integration_test() {
 
     test_observer::clear();
     channel.stop_chains_coordinator();
+}
+
+fn wait_for_mined(
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    http_origin: &str,
+    users: &[StacksPrivateKey],
+    account_before_nonces: &Vec<u64>,
+    batch_size: usize,
+    batches: usize,
+    index_block_hashes: &mut Vec<StacksBlockId>,
+) {
+    let mut all_mined_vec = vec![false; batches * batch_size];
+    let mut account_after_nonces = vec![0; batches * batch_size];
+    let mut all_mined = false;
+    for _k in 0..10 {
+        next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        sleep_ms(10_000);
+
+        let (ch, bhh) = get_chain_tip(http_origin);
+        let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
+
+        if let Some(last_ibh) = index_block_hashes.last() {
+            if *last_ibh != ibh {
+                index_block_hashes.push(ibh);
+                eprintln!("Tip is now {}", &ibh);
+            }
+        }
+
+        for j in 0..batches * batch_size {
+            let account_after = get_account(&http_origin, &to_addr(&users[j]));
+            let account_after_nonce = account_after.nonce;
+            account_after_nonces[j] = account_after_nonce;
+
+            if account_before_nonces[j] + 1 <= account_after_nonce {
+                all_mined_vec[j] = true;
+            }
+        }
+
+        all_mined = all_mined_vec.iter().fold(true, |acc, elem| acc && *elem);
+        if all_mined {
+            break;
+        }
+    }
+    if !all_mined {
+        eprintln!(
+            "Failed to mine all transactions: nonces = {:?}, expected {:?} + {}",
+            &account_after_nonces, account_before_nonces, batch_size
+        );
+        panic!();
+    }
+}
+
+#[test]
+#[ignore]
+fn atlas_stress_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut initial_balances = vec![];
+    let mut users = vec![];
+
+    let batches = 1;
+    let batch_size = 1;
+
+    for _i in 0..(2 * batches * batch_size + 1) {
+        let user = StacksPrivateKey::new();
+        let initial_balance_user = InitialBalance {
+            address: to_addr(&user).into(),
+            amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+        };
+        users.push(user);
+        initial_balances.push(initial_balance_user);
+    }
+
+    // Prepare the config of the bootstrap node
+    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    conf_bootstrap_node
+        .initial_balances
+        .append(&mut initial_balances.clone());
+
+    let user_1 = users.pop().unwrap();
+    let initial_balance_user_1 = initial_balances.pop().unwrap();
+
+    // Start the attached observer
+    test_observer::spawn();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf_bootstrap_node.clone(),
+        None,
+        Some(burnchain_config.clone()),
+    );
+    let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut index_block_hashes = vec![];
+
+    // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
+
+    // (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
+    //                            (stx-to-burn uint))
+    let namespace = "passport";
+    let salt = "some-salt";
+    let salted_namespace = format!("{}{}", namespace, salt);
+    let hashed_namespace = Hash160::from_data(salted_namespace.as_bytes());
+    let tx_1 = make_contract_call(
+        &user_1,
+        0,
+        260,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "bns",
+        "namespace-preorder",
+        &[
+            Value::buff_from(hashed_namespace.to_bytes().to_vec()).unwrap(),
+            Value::UInt(1000000000),
+        ],
+    );
+
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx_1.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx_1[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+    // (define-public (namespace-reveal (namespace (buff 20))
+    //                                  (namespace-salt (buff 20))
+    //                                  (p-func-base uint)
+    //                                  (p-func-coeff uint)
+    //                                  (p-func-b1 uint)
+    //                                  (p-func-b2 uint)
+    //                                  (p-func-b3 uint)
+    //                                  (p-func-b4 uint)
+    //                                  (p-func-b5 uint)
+    //                                  (p-func-b6 uint)
+    //                                  (p-func-b7 uint)
+    //                                  (p-func-b8 uint)
+    //                                  (p-func-b9 uint)
+    //                                  (p-func-b10 uint)
+    //                                  (p-func-b11 uint)
+    //                                  (p-func-b12 uint)
+    //                                  (p-func-b13 uint)
+    //                                  (p-func-b14 uint)
+    //                                  (p-func-b15 uint)
+    //                                  (p-func-b16 uint)
+    //                                  (p-func-non-alpha-discount uint)
+    //                                  (p-func-no-vowel-discount uint)
+    //                                  (lifetime uint)
+    //                                  (namespace-import principal))
+    let tx_2 = make_contract_call(
+        &user_1,
+        1,
+        1000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "bns",
+        "namespace-reveal",
+        &[
+            Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+            Value::buff_from(salt.as_bytes().to_vec()).unwrap(),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1),
+            Value::UInt(1000),
+            Value::Principal(initial_balance_user_1.address.clone()),
+        ],
+    );
+
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx_2.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx_2[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+    let mut mined_namespace_reveal = false;
+    for _j in 0..10 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sleep_ms(10_000);
+
+        let account_after = get_account(&http_origin, &to_addr(&user_1));
+        if account_after.nonce == 2 {
+            mined_namespace_reveal = true;
+            break;
+        }
+    }
+    if !mined_namespace_reveal {
+        eprintln!("Did not mine namespace preorder or reveal");
+        panic!();
+    }
+
+    let mut all_zonefiles = vec![];
+
+    // make a _ton_ of name-imports
+    for i in 0..batches {
+        let account_before = get_account(&http_origin, &to_addr(&user_1));
+
+        for j in 0..batch_size {
+            // (define-public (name-import (namespace (buff 20))
+            //                             (name (buff 48))
+            //                             (zonefile-hash (buff 20)))
+            let zonefile_hex = format!("facade00{:04x}{:04x}{:04x}", batch_size * i + j, i, j);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+
+            all_zonefiles.push(zonefile_hex.clone());
+
+            let tx_3 = make_contract_call(
+                &user_1,
+                2 + (batch_size * i + j) as u64,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-import",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(format!("johndoe{}", i * batch_size + j).as_bytes().to_vec())
+                        .unwrap(),
+                    Value::Principal(to_addr(&users[i * batch_size + j]).into()),
+                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx_3),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        // wait for them all to be mined
+        let mut all_mined = false;
+        let account_after_nonce = 0;
+        for _j in 0..10 {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sleep_ms(10_000);
+
+            let (ch, bhh) = get_chain_tip(&http_origin);
+            let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
+            index_block_hashes.push(ibh);
+
+            let account_after = get_account(&http_origin, &to_addr(&user_1));
+            let account_after_nonce = account_after.nonce;
+            if account_before.nonce + (batch_size as u64) <= account_after_nonce {
+                all_mined = true;
+                break;
+            }
+        }
+        if !all_mined {
+            eprintln!(
+                "Failed to mine all transactions: nonce = {}, expected {}",
+                account_after_nonce,
+                account_before.nonce + (batch_size as u64)
+            );
+            panic!();
+        }
+    }
+
+    // launch namespace
+    // (define-public (namespace-ready (namespace (buff 20)))
+    let namespace = "passport";
+    let tx_4 = make_contract_call(
+        &user_1,
+        2 + (batch_size as u64) * (batches as u64),
+        260,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "bns",
+        "namespace-ready",
+        &[Value::buff_from(namespace.as_bytes().to_vec()).unwrap()],
+    );
+
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx_4.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if !res.status().is_success() {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+    let mut mined_namespace_ready = false;
+    for _j in 0..10 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sleep_ms(10_000);
+
+        let (ch, bhh) = get_chain_tip(&http_origin);
+        let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
+        index_block_hashes.push(ibh);
+
+        let account_after = get_account(&http_origin, &to_addr(&user_1));
+        if account_after.nonce == 2 + (batch_size as u64) * (batches as u64) {
+            mined_namespace_ready = true;
+            break;
+        }
+    }
+    if !mined_namespace_ready {
+        eprintln!("Did not mine namespace ready");
+        panic!();
+    }
+
+    // make a _ton_ of preorders
+    {
+        let mut account_before_nonces = vec![0; batches * batch_size];
+        for j in 0..batches * batch_size {
+            let account_before =
+                get_account(&http_origin, &to_addr(&users[batches * batch_size + j]));
+            account_before_nonces[j] = account_before.nonce;
+
+            let fqn = format!("janedoe{}.passport", j);
+            let fqn_bytes = fqn.as_bytes().to_vec();
+            let salt = format!("{:04x}", j);
+            let salt_bytes = salt.as_bytes().to_vec();
+            let mut hash_data = fqn_bytes.clone();
+            hash_data.append(&mut salt_bytes.clone());
+
+            let salted_hash = Hash160::from_data(&hash_data);
+
+            let tx_5 = make_contract_call(
+                &users[batches * batch_size + j],
+                0,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-preorder",
+                &[
+                    Value::buff_from(salted_hash.0.to_vec()).unwrap(),
+                    Value::UInt(500),
+                ],
+            );
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/octet-stream")
+                .body(tx_5.clone())
+                .send()
+                .unwrap();
+
+            eprintln!(
+                "sent preorder for {}:\n{:#?}",
+                &to_addr(&users[batches * batch_size + j]),
+                res
+            );
+            if !res.status().is_success() {
+                panic!("");
+            }
+        }
+
+        wait_for_mined(
+            &mut btc_regtest_controller,
+            &blocks_processed,
+            &http_origin,
+            &users[batches * batch_size..],
+            &account_before_nonces,
+            batch_size,
+            batches,
+            &mut index_block_hashes,
+        );
+    }
+
+    // make a _ton_ of registers
+    {
+        let mut account_before_nonces = vec![0; batches * batch_size];
+        for j in 0..batches * batch_size {
+            let account_before =
+                get_account(&http_origin, &to_addr(&users[batches * batch_size + j]));
+            account_before_nonces[j] = account_before.nonce;
+
+            let name = format!("janedoe{}", j);
+            let salt = format!("{:04x}", j);
+
+            let zonefile_hex = format!("facade01{:04x}", j);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+
+            all_zonefiles.push(zonefile_hex.clone());
+
+            let tx_6 = make_contract_call(
+                &users[batches * batch_size + j],
+                1,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-register",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(salt.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx_6),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        wait_for_mined(
+            &mut btc_regtest_controller,
+            &blocks_processed,
+            &http_origin,
+            &users[batches * batch_size..],
+            &account_before_nonces,
+            batch_size,
+            batches,
+            &mut index_block_hashes,
+        );
+    }
+
+    // make a _ton_ of updates
+    {
+        let mut account_before_nonces = vec![0; batches * batch_size];
+        for j in 0..batches * batch_size {
+            let account_before =
+                get_account(&http_origin, &to_addr(&users[batches * batch_size + j]));
+            account_before_nonces[j] = account_before.nonce;
+
+            let name = format!("janedoe{}", j);
+            let zonefile_hex = format!("facade02{:04x}", j);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+
+            all_zonefiles.push(zonefile_hex.clone());
+
+            let tx_7 = make_contract_call(
+                &users[batches * batch_size + j],
+                2,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-update",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx_7),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        wait_for_mined(
+            &mut btc_regtest_controller,
+            &blocks_processed,
+            &http_origin,
+            &users[batches * batch_size..],
+            &account_before_nonces,
+            batch_size,
+            batches,
+            &mut index_block_hashes,
+        );
+    }
+
+    // make a _ton_ of renewals
+    {
+        let mut account_before_nonces = vec![0; batches * batch_size];
+        for j in 0..batches * batch_size {
+            let account_before =
+                get_account(&http_origin, &to_addr(&users[batches * batch_size + j]));
+            account_before_nonces[j] = account_before.nonce;
+
+            let name = format!("janedoe{}", j);
+            let zonefile_hex = format!("facade03{:04x}", j);
+            let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
+
+            all_zonefiles.push(zonefile_hex.clone());
+
+            let tx_8 = make_contract_call(
+                &users[batches * batch_size + j],
+                3,
+                500,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "bns",
+                "name-renewal",
+                &[
+                    Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
+                    Value::buff_from(name.as_bytes().to_vec()).unwrap(),
+                    Value::UInt(500),
+                    Value::none(),
+                    Value::some(Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap())
+                        .unwrap(),
+                ],
+            );
+
+            let body = {
+                let content = PostTransactionRequestBody {
+                    tx: bytes_to_hex(&tx_8),
+                    attachment: Some(zonefile_hex.to_string()),
+                };
+                serde_json::to_vec(&json!(content)).unwrap()
+            };
+
+            let path = format!("{}/v2/transactions", &http_origin);
+            let res = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .unwrap();
+            eprintln!("{:#?}", res);
+            if !res.status().is_success() {
+                eprintln!("{}", res.text().unwrap());
+                panic!("");
+            }
+        }
+
+        wait_for_mined(
+            &mut btc_regtest_controller,
+            &blocks_processed,
+            &http_origin,
+            &users[batches * batch_size..],
+            &account_before_nonces,
+            batch_size,
+            batches,
+            &mut index_block_hashes,
+        );
+    }
+
+    // find all attachment indexes and make sure we can get them
+    let mut attachment_indexes = HashMap::new();
+    let mut attachment_hashes = HashMap::new();
+    {
+        let atlasdb_path = conf_bootstrap_node.get_atlas_db_file_path();
+        let atlasdb = AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, false).unwrap();
+        for ibh in index_block_hashes.iter() {
+            let indexes = query_rows::<u64, _>(
+                &atlasdb.conn,
+                "SELECT attachment_index FROM attachment_instances WHERE index_block_hash = ?1",
+                &[ibh],
+            )
+            .unwrap();
+            if indexes.len() > 0 {
+                attachment_indexes.insert(ibh.clone(), indexes.clone());
+            }
+
+            for index in indexes.iter() {
+                let mut hashes = query_row_columns::<Hash160, _>(
+                    &atlasdb.conn,
+                    "SELECT content_hash FROM attachment_instances WHERE index_block_hash = ?1 AND attachment_index = ?2",
+                    &[ibh as &dyn ToSql, &u64_to_sql(*index).unwrap() as &dyn ToSql],
+                    "content_hash")
+                .unwrap();
+                if hashes.len() > 0 {
+                    assert_eq!(hashes.len(), 1);
+                    attachment_hashes.insert((ibh.clone(), *index), hashes.pop());
+                }
+            }
+        }
+    }
+    eprintln!("attachment_indexes = {:?}", &attachment_indexes);
+
+    for (ibh, attachments) in attachment_indexes.iter() {
+        let l = attachments.len();
+        for i in 0..(l / MAX_ATTACHMENT_INV_PAGES_PER_REQUEST + 1) {
+            if i * MAX_ATTACHMENT_INV_PAGES_PER_REQUEST >= l {
+                break;
+            }
+
+            let attachments_batch = attachments[i * MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+                ..cmp::min((i + 1) * MAX_ATTACHMENT_INV_PAGES_PER_REQUEST, l)]
+                .to_vec();
+            let path = format!(
+                "{}/v2/attachments/inv?index_block_hash={}&pages_indexes={}",
+                &http_origin,
+                ibh,
+                attachments_batch
+                    .iter()
+                    .map(|a| format!("{}", &a))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            );
+
+            let attempts = 100;
+            let ts_begin = get_epoch_time_ms();
+            for _ in 0..attempts {
+                let res = client.get(&path).send().unwrap();
+
+                if res.status().is_success() {
+                    let attachment_inv_response: GetAttachmentsInvResponse = res.json().unwrap();
+                    eprintln!(
+                        "attachment inv response for {}: {:?}",
+                        &path, &attachment_inv_response
+                    );
+                } else {
+                    eprintln!("Bad response for `{}`: `{:?}`", &path, res.text().unwrap());
+                    panic!();
+                }
+            }
+            let ts_end = get_epoch_time_ms();
+            let total_time = ts_end.saturating_sub(ts_begin);
+            eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
+
+            // requests should take no more than 20ms
+            assert!(
+                total_time < attempts * 40,
+                format!(
+                    "Atlas inventory request is too slow: {} >= {} * 40",
+                    total_time, attempts
+                )
+            );
+        }
+
+        for i in 0..l {
+            if attachments[i] == 0 {
+                continue;
+            }
+            let page_index = attachments[i] % 64; // AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+            let content_hash = attachment_hashes
+                .get(&(*ibh, page_index))
+                .cloned()
+                .unwrap()
+                .unwrap();
+
+            let path = format!("{}/v2/attachments/{}", &http_origin, &content_hash);
+
+            let attempts = 100;
+            let ts_begin = get_epoch_time_ms();
+            for _ in 0..attempts {
+                let res = client.get(&path).send().unwrap();
+
+                if res.status().is_success() {
+                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                    eprintln!(
+                        "attachment response for {}: {:?}",
+                        &path, &attachment_response
+                    );
+                } else {
+                    eprintln!("Bad response for `{}`: `{:?}`", &path, res.text().unwrap());
+                    panic!();
+                }
+            }
+            let ts_end = get_epoch_time_ms();
+            let total_time = ts_end.saturating_sub(ts_begin);
+            eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
+
+            // requests should take no more than 40ms
+            assert!(
+                total_time < attempts * 40,
+                format!(
+                    "Atlas chunk request is too slow: {} >= {} * 40",
+                    total_time, attempts
+                )
+            );
+        }
+    }
+
+    test_observer::clear();
 }
