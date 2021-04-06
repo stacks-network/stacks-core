@@ -4591,7 +4591,7 @@ fn atlas_stress_integration_test() {
                     .join(",")
             );
 
-            let attempts = 100;
+            let attempts = 10;
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
@@ -4613,9 +4613,9 @@ fn atlas_stress_integration_test() {
 
             // requests should take no more than 20ms
             assert!(
-                total_time < attempts * 40,
+                total_time < attempts * 50,
                 format!(
-                    "Atlas inventory request is too slow: {} >= {} * 40",
+                    "Atlas inventory request is too slow: {} >= {} * 50",
                     total_time, attempts
                 )
             );
@@ -4625,16 +4625,15 @@ fn atlas_stress_integration_test() {
             if attachments[i] == 0 {
                 continue;
             }
-            let page_index = attachments[i] % 64; // AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
             let content_hash = attachment_hashes
-                .get(&(*ibh, page_index))
+                .get(&(*ibh, attachments[i]))
                 .cloned()
                 .unwrap()
                 .unwrap();
 
             let path = format!("{}/v2/attachments/{}", &http_origin, &content_hash);
 
-            let attempts = 100;
+            let attempts = 10;
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
@@ -4656,9 +4655,9 @@ fn atlas_stress_integration_test() {
 
             // requests should take no more than 40ms
             assert!(
-                total_time < attempts * 40,
+                total_time < attempts * 50,
                 format!(
-                    "Atlas chunk request is too slow: {} >= {} * 40",
+                    "Atlas chunk request is too slow: {} >= {} * 50",
                     total_time, attempts
                 )
             );
