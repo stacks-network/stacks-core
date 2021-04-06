@@ -245,7 +245,20 @@ impl PoxSyncWatchdog {
         last_processed_height: u64,
         burnchain_height: u64,
     ) -> bool {
-        last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height
+        let ibd =
+            last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+        if ibd {
+            debug!(
+                "PoX watchdog: {} + {} < {}, so iniitial block download",
+                last_processed_height, burnchain.stable_confirmations, burnchain_height
+            );
+        } else {
+            debug!(
+                "PoX watchdog: {} + {} >= {}, so steady-state",
+                last_processed_height, burnchain.stable_confirmations, burnchain_height
+            );
+        }
+        ibd
     }
 
     /// Calculate the first derivative of a list of points
@@ -455,6 +468,11 @@ impl PoxSyncWatchdog {
         }
 
         if self.unconditionally_download {
+            debug!(
+                "PoX watchdog set to unconditionally download (ibd={})",
+                ibbd
+            );
+            self.relayer_comms.set_ibd(ibbd);
             return ibbd;
         }
 
@@ -487,6 +505,8 @@ impl PoxSyncWatchdog {
                     self.steady_state_burnchain_sync_interval
                 );
                 sleep_ms(1000 * self.steady_state_burnchain_sync_interval);
+            } else {
+                debug!("PoX watchdog in last reward cycle -- sync immediately",);
             }
             self.relayer_comms.set_ibd(ibbd);
             return ibbd;
