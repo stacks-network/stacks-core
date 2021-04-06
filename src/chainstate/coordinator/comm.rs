@@ -147,6 +147,11 @@ impl CoordinatorChannels {
         false
     }
 
+    pub fn is_stopped(&self) -> bool {
+        let bools = self.signal_bools.lock().unwrap();
+        bools.stop.clone()
+    }
+
     pub fn get_stacks_blocks_processed(&self) -> u64 {
         self.stacks_blocks_processed.load(Ordering::SeqCst)
     }

@@ -357,7 +357,7 @@ impl AttachmentsBatchStateContext {
                     };
 
                     if !has_attachment {
-                        info!(
+                        debug!(
                             "Atlas: peer does not have attachment ({}, {}) in its inventory {:?}",
                             page_index, position_in_page, response.pages
                         );
@@ -762,13 +762,13 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     match network.http.get_conversation(event_id) {
                         None => {
                             if network.http.is_connecting(event_id) {
-                                info!(
+                                debug!(
                                     "Atlas: Request {} (event_id: {}) is still connecting",
                                     request, event_id
                                 );
                                 pending_requests.insert(event_id, request);
                             } else {
-                                info!(
+                                debug!(
                                     "Atlas: Request {} (event_id: {}) failed to connect. Temporarily blocking URL",
                                     request,
                                     event_id
@@ -781,7 +781,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                             match convo.try_get_response() {
                                 None => {
                                     // still waiting
-                                    info!(
+                                    debug!(
                                         "Atlas: Request {} (event_id: {}) is still waiting for a response",
                                         request,
                                         event_id
@@ -796,7 +796,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                         state.faulty_peers.insert(event_id, peer_url);
                                         continue;
                                     }
-                                    info!(
+                                    debug!(
                                         "Atlas: Request {} (event_id: {}) received response {:?}",
                                         request, event_id, response
                                     );
@@ -814,7 +814,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                     return fsm;
                 }
-                info!(
+                debug!(
                     "Atlas: Processed request batch ({} success, {} faults)",
                     state.succeeded.len(),
                     state.faulty_peers.len()
