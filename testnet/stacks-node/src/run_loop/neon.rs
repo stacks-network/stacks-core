@@ -180,7 +180,7 @@ impl RunLoop {
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
         for observer in self.config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, should_keep_running.clone());
         }
 
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
@@ -269,6 +269,11 @@ impl RunLoop {
                 );
             })
             .unwrap();
+
+        // We announce a new burn block so that the chains coordinator
+        // can resume prior work and handle eventual unprocessed sortitions
+        // stored during a previous session.
+        coordinator_senders.announce_new_burn_block();
 
         let mut burnchain_tip = burnchain
             .wait_for_sortitions(None)
