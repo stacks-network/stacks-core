@@ -271,7 +271,7 @@ impl RunLoop {
             .unwrap();
 
         // We announce a new burn block so that the chains coordinator
-        // can resume prior work and handle eventual unprocessed sortitions 
+        // can resume prior work and handle eventual unprocessed sortitions
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
 
