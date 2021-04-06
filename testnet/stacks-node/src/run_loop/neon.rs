@@ -118,6 +118,7 @@ impl RunLoop {
             self.config.clone(),
             Some(coordinator_senders.clone()),
             burnchain_opt,
+            Some(should_keep_running.clone()),
         );
         let pox_constants = burnchain.get_pox_constants();
 
@@ -269,7 +270,9 @@ impl RunLoop {
             })
             .unwrap();
 
-        let mut burnchain_tip = burnchain.wait_for_sortitions(None);
+        let mut burnchain_tip = burnchain
+            .wait_for_sortitions(None)
+            .expect("Unable to get burnchain tip");
 
         let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(
@@ -280,6 +283,7 @@ impl RunLoop {
             self.config.connection_options.timeout,
             self.config.node.pox_sync_sample_secs,
             self.config.node.pox_sync_sample_secs == 0,
+            should_keep_running.clone(),
         )
         .unwrap();
 
@@ -360,7 +364,7 @@ impl RunLoop {
             debug!("Wait until we reach steady-state before processing more burnchain blocks...");
 
             // wait until it's okay to process the next sortitions
-            let ibd = pox_watchdog.pox_sync_wait(
+            let ibd = match pox_watchdog.pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
                 if learned_burnchain_height {
@@ -369,8 +373,13 @@ impl RunLoop {
                     None
                 },
                 num_sortitions_in_last_cycle,
-            );
-
+            ) {
+                Ok(ibd) => ibd,
+                Err(e) => {
+                    debug!("Pox sync wait routine aborted: {:?}", e);
+                    continue;
+                }
+            };
             // will recalculate this
             num_sortitions_in_last_cycle = 0;
 
@@ -379,7 +388,7 @@ impl RunLoop {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Burnchain controller stopped: {}", e);
-                        return;
+                        continue;
                     }
                 };
 
@@ -396,7 +405,7 @@ impl RunLoop {
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
 
-            debug!(
+            info!(
                 "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
                 next_burnchain_height, target_burnchain_block_height, next_height, block_height
             );
@@ -464,14 +473,14 @@ impl RunLoop {
                     mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
-                    debug!(
+                    info!(
                         "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
                         block_height
                     );
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
                         error!("Block relayer and miner hung up, exiting.");
-                        return;
+                        continue;
                     }
                 }
             }

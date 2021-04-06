@@ -519,6 +519,7 @@ fn liquid_ustx_integration() {
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -639,6 +640,7 @@ fn lockup_integration() {
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -2271,6 +2273,7 @@ fn cost_voting_integration() {
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -2720,6 +2723,7 @@ fn pox_integration_test() {
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -3236,6 +3240,7 @@ fn atlas_integration_test() {
             conf_bootstrap_node.clone(),
             None,
             Some(burnchain_config.clone()),
+            None,
         );
         let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
 
@@ -3763,6 +3768,7 @@ fn antientropy_integration_test() {
             conf_bootstrap_node.clone(),
             None,
             Some(burnchain_config.clone()),
+            None,
         );
 
         btc_regtest_controller.bootstrap_chain(201);
@@ -3867,6 +3873,7 @@ fn antientropy_integration_test() {
         conf_follower_node.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
 
     let mut burnchain_deadline = get_epoch_time_secs() + 60;
