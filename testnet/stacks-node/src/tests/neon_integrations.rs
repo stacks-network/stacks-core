@@ -3954,8 +3954,8 @@ fn atlas_stress_integration_test() {
     let mut initial_balances = vec![];
     let mut users = vec![];
 
-    let batches = 1;
-    let batch_size = 1;
+    let batches = 5;
+    let batch_size = 20;
 
     for _i in 0..(2 * batches * batch_size + 1) {
         let user = StacksPrivateKey::new();
