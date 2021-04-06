@@ -55,6 +55,7 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
+use stacks::chainstate::stacks::StacksBlockId;
 use stacks::core::BLOCK_LIMIT_MAINNET;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
@@ -1279,6 +1280,11 @@ fn microblock_integration_test() {
         .json::<RPCPeerInfoData>()
         .unwrap();
     assert!(tip_info.stacks_tip_height >= 3);
+    let stacks_tip = tip_info.stacks_tip;
+    let stacks_tip_consensus_hash =
+        ConsensusHash::from_hex(&tip_info.stacks_tip_consensus_hash).unwrap();
+    let stacks_id_tip =
+        StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     eprintln!(
         "{:#?}",
@@ -1299,8 +1305,21 @@ fn microblock_integration_test() {
         sleep_ms(1000);
     }
 
-    let microblock_events = test_observer::get_microblocks();
+    let mut microblock_events = test_observer::get_microblocks();
     assert_eq!(microblock_events.len(), 1);
+    let microblock = microblock_events.pop().unwrap();
+    let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
+    assert_eq!(transactions.len(), 1);
+    let microblock_associated_hash = microblock
+        .get("parent_index_block_hash")
+        .unwrap()
+        .as_str()
+        .unwrap();
+    let index_block_hash_bytes = hex_bytes(&microblock_associated_hash[2..]).unwrap();
+    assert_eq!(
+        StacksBlockId::from_vec(&index_block_hash_bytes),
+        Some(stacks_id_tip)
+    );
 
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);

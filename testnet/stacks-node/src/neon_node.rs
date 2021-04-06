@@ -788,7 +788,15 @@ fn spawn_miner_relayer(
 
                     let num_unconfirmed_microblock_tx_receipts = net_receipts.unconfirmed_microblock_tx_receipts.len();
                     if num_unconfirmed_microblock_tx_receipts > 0 {
-                        event_dispatcher.process_new_microblocks(net_receipts.unconfirmed_microblock_tx_receipts);
+                        let (canonical_consensus_hash, canonical_block_hash) =
+                            SortitionDB::get_canonical_stacks_chain_tip_hash(
+                                sortdb.conn()).expect(
+                                "FATAL: failed to query sortition DB for canonical stacks chain tip");
+                        let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                            &canonical_consensus_hash,
+                            &canonical_block_hash,
+                        );
+                        event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.unconfirmed_microblock_tx_receipts);
                     }
 
                     // Dispatch retrieved attachments, if any.
