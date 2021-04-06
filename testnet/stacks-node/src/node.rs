@@ -18,6 +18,7 @@ use stacks::chainstate::stacks::db::{
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
+use stacks::chainstate::stacks::index::TrieHash;
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
@@ -33,6 +34,11 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
+use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::strings::UrlString;
+use stacks::util::vrf::VRFPublicKey;
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
     chainstate::stacks::db::{
@@ -41,13 +47,7 @@ use stacks::{
     },
 };
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-
-use stacks::chainstate::stacks::index::TrieHash;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
-use stacks::util::vrf::VRFPublicKey;
+use std::sync::{atomic::AtomicBool, Arc};
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -311,7 +311,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -342,7 +342,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
         }
 
         let chainstate_path = config.get_chainstate_path_str();
