@@ -3998,6 +3998,7 @@ fn atlas_stress_integration_test() {
         conf_bootstrap_node.clone(),
         None,
         Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
 
