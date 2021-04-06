@@ -1218,7 +1218,7 @@ impl StacksChainState {
                             .map_err(|e| e.into())
                     })
                 })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+                .expect("FATAL: `ustx-liquid-supply` overflowed");
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
