@@ -425,6 +425,7 @@ fn try_mine_microblock(
             if microblock_miner.parent_consensus_hash == *ch
                 && microblock_miner.parent_block_hash == *bhh
             {
+                // this check is redundant (checked that microblock frequency is not exceeded in p2p thread)
                 if microblock_miner.last_mined + (microblock_miner.frequency as u128)
                     < get_epoch_time_ms()
                 {
@@ -987,6 +988,7 @@ fn spawn_miner_relayer(
                 RelayerDirective::RunMicroblockTenure => {
                     if last_microblock_tenure_time + (config.node.microblock_frequency as u128) > get_epoch_time_ms() {
                         // only mine when necessary -- the deadline to begin hasn't passed yet
+                        // this check is redundant (checked that microblock frequency is not exceeded in p2p thread)
                         continue;
                     }
                     last_microblock_tenure_time = get_epoch_time_ms();

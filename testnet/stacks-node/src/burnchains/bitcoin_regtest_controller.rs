@@ -567,6 +567,11 @@ impl BitcoinRegtestController {
         result_vec
     }
 
+    pub fn create_wallet(&self, wallet_name: &str) {
+        BitcoinRPCRequest::create_wallet(&self.config, wallet_name)
+            .expect("Wallet creation failed");
+    }
+
     pub fn get_utxos(
         &self,
         public_key: &Secp256k1PublicKey,
@@ -1872,6 +1877,18 @@ impl BitcoinRPCRequest {
         let payload = BitcoinRPCRequest {
             method: "importaddress".to_string(),
             params: vec![address.to_b58().into(), label.into(), rescan.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        BitcoinRPCRequest::send(&config, payload)?;
+        Ok(())
+    }
+
+    pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "createwallet".to_string(),
+            params: vec![wallet_name.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };

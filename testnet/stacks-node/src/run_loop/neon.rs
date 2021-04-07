@@ -121,6 +121,8 @@ impl RunLoop {
             Some(should_keep_running.clone()),
         );
         let pox_constants = burnchain.get_pox_constants();
+        // Initialize the wallet.
+        burnchain.create_wallet("test");
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
