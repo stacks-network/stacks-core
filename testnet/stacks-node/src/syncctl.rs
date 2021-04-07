@@ -62,28 +62,17 @@ impl PoxSyncWatchdogComms {
         self.last_ibd.load(Ordering::SeqCst)
     }
 
-    /// Wait for at least one p2p state-machine passes
-    pub fn wait_for_p2p_state_pass(&self, timeout: u64) -> bool {
-        let current = self.get_p2p_state_passes();
-
-        let now = get_epoch_time_secs();
-        while current >= self.get_p2p_state_passes() {
-            if now + timeout < get_epoch_time_secs() {
-                debug!("PoX watchdog comms: timed out waiting for one p2p state-machine pass");
-                return false;
-            }
-            sleep_ms(1000);
-            std::sync::atomic::spin_loop_hint();
-        }
-        return true;
-    }
-
     /// Wait for at least one inv-sync state-machine passes
     pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> Result<bool, burnchain_error> {
         let current = self.get_inv_sync_passes();
 
+        let now = get_epoch_time_secs();
         while current >= self.get_inv_sync_passes() {
-            self.interruptable_sleep(timeout)?;
+            if now + timeout < get_epoch_time_secs() {
+                debug!("PoX watchdog comms: timed out waiting for one inv-sync pass");
+                return Ok(false);
+            }
+            self.interruptable_sleep(1)?;
             std::sync::atomic::spin_loop_hint();
         }
         return Ok(true);
@@ -100,19 +89,19 @@ impl PoxSyncWatchdogComms {
         Ok(())
     }
 
-    pub fn wait_for_download_pass(&self, timeout: u64) -> Result<(), burnchain_error> {
+    pub fn wait_for_download_pass(&self, timeout: u64) -> Result<bool, burnchain_error> {
         let current = self.get_download_passes();
 
         let now = get_epoch_time_secs();
         while current >= self.get_download_passes() {
             if now + timeout < get_epoch_time_secs() {
                 debug!("PoX watchdog comms: timed out waiting for one download pass");
-                return Ok(());
+                return Ok(false);
             }
             self.interruptable_sleep(1)?;
             std::sync::atomic::spin_loop_hint();
         }
-        return Ok(());
+        return Ok(true);
     }
 
     pub fn should_keep_running(&self) -> bool {
