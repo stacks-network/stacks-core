@@ -567,9 +567,16 @@ impl BitcoinRegtestController {
         result_vec
     }
 
-    pub fn create_wallet(&self, wallet_name: &str) {
-        BitcoinRPCRequest::create_wallet(&self.config, wallet_name)
-            .expect("Wallet creation failed");
+    /// Checks if there is a default wallet with the name of "".
+    /// If the default wallet does not exist, this function creates a wallet with name "".
+    pub fn create_wallet_if_dne(&self) {
+        let wallets =
+            BitcoinRPCRequest::list_wallets(&self.config).expect("Call to listwallets failed");
+
+        if !wallets.contains(&("".to_string())) {
+            BitcoinRPCRequest::create_wallet(&self.config, "")
+                .expect("Call to createwallet failed");
+        }
     }
 
     pub fn get_utxos(
@@ -1885,6 +1892,45 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
+    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
+    pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
+        let payload = BitcoinRPCRequest {
+            method: "listwallets".to_string(),
+            params: vec![],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let mut wallets = Vec::new();
+        match res.as_object_mut() {
+            Some(ref mut object) => match object.get_mut("result") {
+                Some(serde_json::Value::Array(entries)) => {
+                    while let Some(entry) = entries.pop() {
+                        let parsed_wallet_name: String = match serde_json::from_value(entry) {
+                            Ok(wallet_name) => wallet_name,
+                            Err(err) => {
+                                warn!("Failed parsing wallet name: {}", err);
+                                continue;
+                            }
+                        };
+
+                        wallets.push(parsed_wallet_name);
+                    }
+                }
+                _ => {
+                    warn!("Failed to get wallet");
+                }
+            },
+            _ => {
+                warn!("Failed to get wallets");
+            }
+        };
+
+        Ok(wallets)
+    }
+
+    /// Tries to create a wallet with the given name
     pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "createwallet".to_string(),
