@@ -121,10 +121,12 @@ impl RunLoop {
             Some(should_keep_running.clone()),
         );
         let pox_constants = burnchain.get_pox_constants();
-        // Initialize the wallet.
-        burnchain.create_wallet_if_dne();
 
         let is_miner = if self.config.node.miner {
+            // Initialize the wallet.
+            info!("Miner node: creating the wallet if it does not exist");
+            burnchain.create_wallet_if_dne();
+
             let keychain = Keychain::default(self.config.node.seed.clone());
             let node_address = Keychain::address_from_burnchain_signer(
                 &keychain.get_burnchain_signer(),

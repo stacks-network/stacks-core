@@ -570,12 +570,25 @@ impl BitcoinRegtestController {
     /// Checks if there is a default wallet with the name of "".
     /// If the default wallet does not exist, this function creates a wallet with name "".
     pub fn create_wallet_if_dne(&self) {
-        let wallets =
-            BitcoinRPCRequest::list_wallets(&self.config).expect("Call to listwallets failed");
+        let wallet_res = BitcoinRPCRequest::list_wallets(&self.config);
+        let wallets = match wallet_res {
+            Ok(wallets) => wallets,
+            Err(e) => {
+                warn!("Call to listwallets failed during wallet creation: {:?}", e);
+                return;
+            }
+        };
 
         if !wallets.contains(&("".to_string())) {
-            BitcoinRPCRequest::create_wallet(&self.config, "")
-                .expect("Call to createwallet failed");
+            match BitcoinRPCRequest::create_wallet(&self.config, "") {
+                Err(e) => {
+                    warn!(
+                        "Call to createwallet failed during wallet creation: {:?}",
+                        e
+                    );
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1919,7 +1932,7 @@ impl BitcoinRPCRequest {
                     }
                 }
                 _ => {
-                    warn!("Failed to get wallet");
+                    warn!("Failed to get wallets");
                 }
             },
             _ => {

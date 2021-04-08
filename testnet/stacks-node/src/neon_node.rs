@@ -758,8 +758,8 @@ fn spawn_miner_relayer(
     coord_comms: CoordinatorChannels,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
-    // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
-    //   no other codepaths should be writing once this is spawned.
+    // Note: the chainstate coordinator is *the* block processor, it is responsible for writes to
+    // the chainstate -- eventually, no other codepaths should be writing to it.
     //
     // the relayer _should not_ be modifying the sortdb,
     //   however, it needs a mut reference to create read TXs.
