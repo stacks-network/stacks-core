@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
 ## [Unreleased]
 
@@ -36,6 +36,12 @@ compatible with prior chainstate directories.
 
 - Fixed faulty logic in the mempool that was still treating the transaction fee
   as a fee rate, which prevented replace-by-fee from working as expected.
+
+## [2.0.10.0.1]
+
+This is a low-priority hotfix release to address a bug in the deserialization logic. The
+chainstate directory of 2.0.10.0.1 is compatible with 2.0.10. This release also begins the
+usage of the versioning scheme outlined in the [README.md](README.md).
 
 ## [2.0.10]
 
