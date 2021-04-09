@@ -406,37 +406,26 @@ impl MemPoolDB {
         E: From<db_error> + From<ChainstateError>,
     {
         // Want to consider transactions with
-        // height > max(0, `tip_height - MEMPOOL_MAX_TRANSACTION_AGE`) - 1
-        let min_height = match tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE) {
-            None => None,
-            Some(h) if h == 0 => None,
-            Some(h) => Some(h - 1),
-        };
+        // height > max(-1, tip_height - (MEMPOOL_MAX_TRANSACTION_AGE + 1))
+        let min_height = tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE + 1);
         let mut curr_page = 0;
 
-        let (mut next_nonce, mut next_timestamp) = match MemPoolDB::get_next_nonce_and_timestamp(
-            &self.db, min_height, tip_height, None,
-        )? {
-            None => {
-                return Ok(());
-            }
-            Some((nonce, ts)) => (nonce, ts),
-        };
+        let mut next_nonce =
+            match MemPoolDB::get_next_nonce(&self.db, min_height, tip_height, None)? {
+                None => {
+                    return Ok(());
+                }
+                Some(nonce) => nonce,
+            };
 
         loop {
-            let available_txs = MemPoolDB::get_txs_at_nonce_and_timestamp(
-                &self.db,
-                min_height,
-                tip_height,
-                next_nonce,
-                next_timestamp,
-                curr_page,
+            let available_txs = MemPoolDB::get_txs_at_nonce_and_offset(
+                &self.db, min_height, tip_height, next_nonce, curr_page,
             )?;
             debug!(
-                "Have {} transactions at nonce={} at or after {}",
+                "Have {} transactions at nonce={}",
                 available_txs.len(),
                 next_nonce,
-                next_timestamp
             );
 
             if available_txs.len() > 0 {
@@ -444,30 +433,16 @@ impl MemPoolDB {
                 curr_page += 1;
             } else {
                 curr_page = 0;
-                next_timestamp = match MemPoolDB::get_next_timestamp_at_nonce(
+                next_nonce = match MemPoolDB::get_next_nonce(
                     &self.db,
                     min_height,
                     tip_height,
-                    next_timestamp,
-                    next_nonce,
+                    Some(next_nonce),
                 )? {
-                    Some(ts) => ts,
                     None => {
-                        match MemPoolDB::get_next_nonce_and_timestamp(
-                            &self.db,
-                            min_height,
-                            tip_height,
-                            Some(next_nonce),
-                        )? {
-                            None => {
-                                return Ok(());
-                            }
-                            Some((nonce, ts)) => {
-                                next_nonce = nonce;
-                                ts
-                            }
-                        }
+                        return Ok(());
                     }
+                    Some(nonce) => nonce,
                 };
             }
         }
@@ -521,12 +496,12 @@ impl MemPoolDB {
     }
 
     /// Get the next nonce/timestamp after this nonce that occurs in the height range.
-    pub fn get_next_nonce_and_timestamp(
+    pub fn get_next_nonce(
         conn: &DBConn,
         min_height: Option<u64>,
         max_height: u64,
         nonce: Option<u64>,
-    ) -> Result<Option<(u64, u64)>, db_error> {
+    ) -> Result<Option<u64>, db_error> {
         let nonce = match nonce {
             None => -1,
             Some(n) => u64_to_sql(n)?,
@@ -535,45 +510,20 @@ impl MemPoolDB {
             None => -1,
             Some(h) => u64_to_sql(h)?,
         };
-        let sql = "SELECT origin_nonce, accept_time FROM mempool WHERE origin_nonce > ?1 AND \
+        let sql = "SELECT origin_nonce FROM mempool WHERE origin_nonce > ?1 AND \
         height > ?2 AND height <= ?3 ORDER BY origin_nonce, accept_time ASC LIMIT 1";
 
         let args: &[&dyn ToSql] = &[&nonce, &min_height_sql_arg, &u64_to_sql(max_height)?];
         query_row(conn, sql, args)
     }
 
-    /// Get the next timestamp after this one that occurs with this nonce in the height range.
-    pub fn get_next_timestamp_at_nonce(
-        conn: &DBConn,
-        min_height: Option<u64>,
-        max_height: u64,
-        timestamp: u64,
-        nonce: u64,
-    ) -> Result<Option<u64>, db_error> {
-        let min_height_sql_arg = match min_height {
-            None => -1,
-            Some(h) => u64_to_sql(h)?,
-        };
-
-        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND \
-        origin_nonce = ?2 AND height > ?3 AND height <= ?4 ORDER BY accept_time ASC LIMIT 1";
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(timestamp)?,
-            &u64_to_sql(nonce)?,
-            &min_height_sql_arg,
-            &u64_to_sql(max_height)?,
-        ];
-        query_row(conn, sql, args)
-    }
-
     /// Get all transactions at a particular nonce and timestamp on a given chain tip.
     /// Order them by sponsor nonce.
-    pub fn get_txs_at_nonce_and_timestamp(
+    pub fn get_txs_at_nonce_and_offset(
         conn: &DBConn,
         min_height: Option<u64>,
         max_height: u64,
         nonce: u64,
-        timestamp: u64,
         curr_page: u32,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let min_height_sql_arg = match min_height {
@@ -582,11 +532,10 @@ impl MemPoolDB {
         };
         let limit = 200;
 
-        let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND accept_time = ?2 AND \
-        height > ?3 AND height <= ?4 ORDER BY sponsor_nonce ASC LIMIT ?5 OFFSET ?6";
+        let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND \
+        height > ?2 AND height <= ?3 ORDER BY sponsor_nonce ASC LIMIT ?4 OFFSET ?5";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(nonce)?,
-            &u64_to_sql(timestamp)?,
             &min_height_sql_arg,
             &u64_to_sql(max_height)?,
             &u32_to_sql(limit)?,
@@ -706,19 +655,13 @@ impl MemPoolDB {
             return Ok(true);
         }
 
-        let headers_conn = chainstate
+        let headers_conn = &chainstate
             .index_conn()
             .map_err(|_e| db_error::Other("ChainstateError".to_string()))?;
-        let height_of_first_with_second_tip = StacksChainState::get_block_height_of_ancestor(
-            &headers_conn,
-            &second_block,
-            &first_block,
-        )?;
-        let height_of_second_with_first_tip = StacksChainState::get_block_height_of_ancestor(
-            &headers_conn,
-            &first_block,
-            &second_block,
-        )?;
+        let height_of_first_with_second_tip =
+            headers_conn.get_ancestor_block_height(&second_block, &first_block)?;
+        let height_of_second_with_first_tip =
+            headers_conn.get_ancestor_block_height(&first_block, &second_block)?;
 
         match (
             height_of_first_with_second_tip,
