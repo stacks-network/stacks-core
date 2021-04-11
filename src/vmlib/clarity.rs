@@ -47,7 +47,7 @@ use chainstate::stacks::boot::{
 use std::error;
 use std::fmt;
 
-use super::database::marf::ReadOnlyMarfStore;
+use vm::database::marf::ReadOnlyMarfStore;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.

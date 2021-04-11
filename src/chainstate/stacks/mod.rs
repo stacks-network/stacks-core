@@ -65,13 +65,13 @@ use rusqlite::Error as RusqliteError;
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
 use vm::errors::Error as clarity_interpreter_error;
-
-use vm::clarity::Error as clarity_error;
 use vm::costs::CostErrors;
 use vm::costs::ExecutionCost;
 use vm::representations::{ClarityName, ContractName};
 
 use vm::contexts::GlobalContext;
+
+use vmlib::clarity::Error as clarity_error;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;

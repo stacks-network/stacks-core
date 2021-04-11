@@ -72,14 +72,14 @@ use vm::contexts::AssetMap;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 
-use vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
-
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 
 use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
+
+use vmlib::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 
 use rand::thread_rng;
 use rand::Rng;

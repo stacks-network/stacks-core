@@ -25,10 +25,10 @@ use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-use vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use vm::database::marf::*;
 use vm::database::*;
 use vm::types::*;
+use vmlib::clarity::{ClarityConnection, ClarityTransactionConnection};
 
 use util::db::Error as db_error;
 use util::db::*;

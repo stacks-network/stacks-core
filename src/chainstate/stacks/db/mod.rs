@@ -77,10 +77,6 @@ use net::Error as net_error;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
-use vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error,
-};
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::marf::MarfedKV;
@@ -90,6 +86,11 @@ use vm::database::{
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
+
+use vmlib::clarity::{
+    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
+    Error as clarity_error,
+};
 
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 

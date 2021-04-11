@@ -83,6 +83,7 @@ pub mod address;
 pub mod burnchains;
 pub mod core;
 pub mod deps;
+pub mod vmlib;
 
 pub mod clarity;
 

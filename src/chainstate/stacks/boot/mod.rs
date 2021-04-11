@@ -41,10 +41,11 @@ use chainstate::stacks::StacksBlockId;
 
 use burnchains::Burnchain;
 
-use vm::clarity::ClarityConnection;
 use vm::contexts::ContractContext;
 use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::representations::ContractName;
+
+use vmlib::clarity::ClarityConnection;
 
 use util::hash::Hash160;
 

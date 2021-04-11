@@ -55,15 +55,10 @@ use vm::costs::runtime_cost;
 use vm::costs::CostTracker;
 use vm::costs::ExecutionCost;
 
-use vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
-};
-
 use vm::errors::Error as InterpreterError;
 
 pub use vm::analysis::errors::CheckErrors;
 use vm::analysis::types::ContractAnalysis;
-use vm::clarity::Error as clarity_error;
 
 use vm::database::ClarityDatabase;
 
@@ -71,6 +66,12 @@ use vm::contracts::Contract;
 
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+
+use vmlib::clarity::{
+    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
+    Error as clarity_error
+};
+
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {

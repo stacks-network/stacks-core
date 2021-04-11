@@ -107,7 +107,7 @@ use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 
 use chainstate::stacks::index::Error as marf_error;
-use vm::clarity::Error as clarity_error;
+use vmlib::clarity::Error as clarity_error;
 
 use crate::util::hash::Sha256Sum;
 

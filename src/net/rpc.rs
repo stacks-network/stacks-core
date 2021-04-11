@@ -94,7 +94,6 @@ use crate::{
 };
 
 use vm::{
-    clarity::ClarityConnection,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
@@ -111,6 +110,7 @@ use rand::thread_rng;
 use vm::types::TraitIdentifier;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
+use vmlib::clarity::ClarityConnection;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 

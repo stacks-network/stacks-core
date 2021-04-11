@@ -33,7 +33,6 @@ use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::db::MINER_REWARD_MATURITY;
 use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use chainstate::stacks::StacksMicroblockHeader;
-use vm::clarity::ClarityTransactionConnection;
 
 use util::hash::Hash160;
 

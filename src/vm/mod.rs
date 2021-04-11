@@ -27,7 +27,6 @@ pub mod types;
 pub mod contracts;
 
 pub mod ast;
-pub mod clarity;
 pub mod contexts;
 pub mod database;
 pub mod representations;
