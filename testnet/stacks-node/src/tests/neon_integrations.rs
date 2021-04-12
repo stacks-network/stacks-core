@@ -50,12 +50,14 @@ use std::{
 };
 use std::{env, thread};
 
+use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use crate::util::secp256k1::MessageSignature;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
-use stacks::chainstate::stacks::StacksBlockId;
+use stacks::chainstate::stacks::{StacksBlockId, StacksMicroblockHeader};
 use stacks::core::BLOCK_LIMIT_MAINNET;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
@@ -1113,6 +1115,32 @@ fn bitcoind_forking_test() {
     channel.stop_chains_coordinator();
 }
 
+/// Returns a StacksMicroblock with the given transactions, sequence, and parent block that is
+/// signed with the given private key.
+fn make_signed_microblock(
+    block_privk: &StacksPrivateKey,
+    txs: Vec<StacksTransaction>,
+    parent_block: BlockHeaderHash,
+    seq: u16,
+) -> StacksMicroblock {
+    let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+    let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+    let tx_merkle_root = merkle_tree.root();
+
+    let mut mblock = StacksMicroblock {
+        header: StacksMicroblockHeader {
+            version: 0x12,
+            sequence: seq,
+            prev_block: parent_block,
+            tx_merkle_root: tx_merkle_root,
+            signature: MessageSignature([0u8; 65]),
+        },
+        txs: txs,
+    };
+    mblock.sign(block_privk).unwrap();
+    mblock
+}
+
 #[test]
 #[ignore]
 fn microblock_integration_test() {
@@ -1122,12 +1150,18 @@ fn microblock_integration_test() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    let second_spender_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
         amount: 100300,
+    });
+    conf.initial_balances.push(InitialBalance {
+        address: second_spender_addr.clone(),
+        amount: 10000,
     });
 
     conf.node.mine_microblocks = true;
@@ -1175,15 +1209,19 @@ fn microblock_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
-
     info!("Miner account: {}", miner_account);
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
 
-    // and our spender
+    // and our first spender
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.balance, 100300);
+    assert_eq!(account.nonce, 0);
+
+    // and our second spender
+    let account = get_account(&http_origin, &second_spender_addr);
+    assert_eq!(account.balance, 10000);
     assert_eq!(account.nonce, 0);
 
     // okay, let's push a transaction that is marked microblock only!
@@ -1212,18 +1250,31 @@ fn microblock_integration_test() {
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.nonce, 1);
 
-    // push another transaction that is marked microblock only
+    // push another two transactions that are marked microblock only
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
     let unconfirmed_tx =
         StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
+    let second_unconfirmed_tx_bytes =
+        make_stacks_transfer_mblock_only(&second_spender_sk, 0, 1000, &recipient.into(), 1500);
+    let second_unconfirmed_tx =
+        StacksTransaction::consensus_deserialize(&mut &second_unconfirmed_tx_bytes[..]).unwrap();
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
 
-    // put it into a microblock
-    let microblock = {
+    // put each into a microblock
+    let (microblock, second_microblock) = {
+        let path = format!("{}/v2/info", &http_origin);
+        let tip_info = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
+        let stacks_tip = tip_info.stacks_tip;
+
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
         let tip_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
@@ -1237,15 +1288,19 @@ fn microblock_integration_test() {
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
             .unwrap();
-
-        make_microblock(
+        let first_microblock = make_microblock(
             &privk,
             &mut chainstate,
             &btc_regtest_controller.sortdb_ref().index_conn(),
             consensus_hash,
-            stacks_block,
+            stacks_block.clone(),
             vec![unconfirmed_tx],
-        )
+        );
+
+        let second_microblock =
+            make_signed_microblock(&privk, vec![second_unconfirmed_tx], stacks_tip, 1);
+
+        (first_microblock, second_microblock)
     };
 
     let mut microblock_bytes = vec![];
@@ -1253,7 +1308,7 @@ fn microblock_integration_test() {
         .consensus_serialize(&mut microblock_bytes)
         .unwrap();
 
-    // post it
+    // post the first microblock
     let path = format!("{}/v2/microblocks", &http_origin);
     let res: String = client
         .post(&path)
@@ -1271,6 +1326,24 @@ fn microblock_integration_test() {
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.nonce, 1);
     assert_eq!(account.balance, 98300);
+
+    let mut second_microblock_bytes = vec![];
+    second_microblock
+        .consensus_serialize(&mut second_microblock_bytes)
+        .unwrap();
+
+    // post the second microblock
+    let path = format!("{}/v2/microblocks", &http_origin);
+    let res: String = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(second_microblock_bytes.clone())
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+
+    assert_eq!(res, format!("{}", &second_microblock.block_hash()));
 
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client
@@ -1305,11 +1378,15 @@ fn microblock_integration_test() {
         sleep_ms(1000);
     }
 
+    // check event observer for new microblock event (expect 2)
     let mut microblock_events = test_observer::get_microblocks();
-    assert_eq!(microblock_events.len(), 1);
+    assert_eq!(microblock_events.len(), 2);
+    // this microblock should correspond to `second_microblock`
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
     assert_eq!(transactions.len(), 1);
+    let tx_sequence = transactions[0].get("sequence").unwrap().as_u64().unwrap();
+    assert_eq!(tx_sequence, 1);
     let microblock_associated_hash = microblock
         .get("parent_index_block_hash")
         .unwrap()
@@ -1320,6 +1397,12 @@ fn microblock_integration_test() {
         StacksBlockId::from_vec(&index_block_hash_bytes),
         Some(stacks_id_tip)
     );
+    // this microblock should correspond to the first microblock that was posted
+    let microblock = microblock_events.pop().unwrap();
+    let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
+    assert_eq!(transactions.len(), 1);
+    let tx_sequence = transactions[0].get("sequence").unwrap().as_u64().unwrap();
+    assert_eq!(tx_sequence, 0);
 
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);

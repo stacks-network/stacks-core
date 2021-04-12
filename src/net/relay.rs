@@ -61,6 +61,7 @@ use rand::Rng;
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -92,7 +93,7 @@ pub struct RelayerStats {
 
 pub struct ProcessedNetReceipts {
     pub mempool_txs_added: Vec<StacksTransaction>,
-    pub unconfirmed_microblock_tx_receipts: Vec<StacksTransactionReceipt>,
+    pub processed_unconfirmed_state: ProcessedUnconfirmedState,
 }
 
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
@@ -1137,7 +1138,7 @@ impl Relayer {
     pub fn setup_unconfirmed_state(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+    ) -> Result<ProcessedUnconfirmedState, Error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
@@ -1149,10 +1150,10 @@ impl Relayer {
             "Reload unconfirmed state off of {}/{}",
             &canonical_consensus_hash, &canonical_block_hash
         );
-        let (_, _, receipts) =
+        let processed_unconfirmed_state =
             chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
 
-        Ok(receipts)
+        Ok(processed_unconfirmed_state)
     }
 
     /// Set up unconfirmed chain state in a read-only fashion
@@ -1179,9 +1180,9 @@ impl Relayer {
     pub fn refresh_unconfirmed(
         chainstate: &mut StacksChainState,
         sortdb: &mut SortitionDB,
-    ) -> Vec<StacksTransactionReceipt> {
+    ) -> ProcessedUnconfirmedState {
         match Relayer::setup_unconfirmed_state(chainstate, sortdb) {
-            Ok(receipts) => receipts,
+            Ok(processed_unconfirmed_state) => processed_unconfirmed_state,
             Err(e) => {
                 if let net_error::ChainstateError(ref err_msg) = e {
                     if err_msg == "Stacks chainstate error: NoSuchBlockError" {
@@ -1192,7 +1193,7 @@ impl Relayer {
                 } else {
                     warn!("Failed to instantiate unconfirmed state: {:?}", &e);
                 }
-                Vec::new()
+                Default::default()
             }
         }
     }
@@ -1313,16 +1314,16 @@ impl Relayer {
             }
         }
 
-        let mut unconfirmed_microblock_tx_receipts = Vec::new();
+        let mut processed_unconfirmed_state = Default::default();
 
         // finally, refresh the unconfirmed chainstate, if need be
         if network_result.has_microblocks() {
-            unconfirmed_microblock_tx_receipts = Relayer::refresh_unconfirmed(chainstate, sortdb);
+            processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 
         let receipts = ProcessedNetReceipts {
             mempool_txs_added,
-            unconfirmed_microblock_tx_receipts,
+            processed_unconfirmed_state,
         };
 
         Ok(receipts)

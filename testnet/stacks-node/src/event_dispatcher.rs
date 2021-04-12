@@ -32,6 +32,7 @@ use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
 use super::node::ChainTip;
+use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -155,10 +156,10 @@ impl EventObserver {
         })
     }
 
-    fn make_new_block_txs_payload(
+    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
+    fn generate_payload_info_for_receipt(
         receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> serde_json::Value {
+    ) -> (String, &str, String, String, serde_json::Value) {
         let tx = &receipt.transaction;
 
         let success = match (receipt.post_condition_aborted, &receipt.result) {
@@ -192,6 +193,17 @@ impl EventObserver {
                 None => json!(null),
             }
         };
+        (txid, success, raw_result, raw_tx, contract_interface_json)
+    }
+
+    /// Returns json payload to send for new block event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> serde_json::Value {
+        let (txid, success, raw_result, raw_tx, contract_interface_json) =
+            EventObserver::generate_payload_info_for_receipt(receipt);
+
         json!({
             "txid": format!("0x{}", &txid),
             "tx_index": tx_index,
@@ -200,6 +212,27 @@ impl EventObserver {
             "raw_tx": format!("0x{}", &raw_tx),
             "contract_abi": contract_interface_json,
             "execution_cost": receipt.execution_cost,
+        })
+    }
+
+    /// Returns json payload to send for new microblock event
+    fn make_new_microblock_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+        sequence: u16,
+    ) -> serde_json::Value {
+        let (txid, success, raw_result, raw_tx, contract_interface_json) =
+            EventObserver::generate_payload_info_for_receipt(receipt);
+
+        json!({
+            "txid": format!("0x{}", &txid),
+            "tx_index": tx_index,
+            "status": success,
+            "raw_result": format!("0x{}", &raw_result),
+            "raw_tx": format!("0x{}", &raw_tx),
+            "contract_abi": contract_interface_json,
+            "execution_cost": receipt.execution_cost,
+            "sequence": sequence,
         })
     }
 
@@ -231,7 +264,7 @@ impl EventObserver {
         &self,
         parent_index_block_hash: StacksBlockId,
         filtered_events: Vec<(usize, &(bool, Txid, StacksTransactionEvent))>,
-        receipts: &Vec<StacksTransactionReceipt>,
+        serialized_txs: &Vec<serde_json::Value>,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -240,15 +273,6 @@ impl EventObserver {
                 event.json_serialize(*event_index, txid, *committed)
             })
             .collect();
-
-        // Serialize receipts
-        let mut tx_index = 0;
-        let mut serialized_txs = Vec::new();
-        for receipt in receipts.iter() {
-            let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
-            serialized_txs.push(payload);
-            tx_index += 1;
-        }
 
         let payload = json!({
             "parent_index_block_hash": format!("0x{}", parent_index_block_hash),
@@ -609,7 +633,7 @@ impl EventDispatcher {
     pub fn process_new_microblocks(
         &self,
         parent_index_block_hash: StacksBlockId,
-        receipts: Vec<StacksTransactionReceipt>,
+        processed_unconfirmed_state: ProcessedUnconfirmedState,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -624,7 +648,34 @@ impl EventDispatcher {
         if interested_observers.len() < 1 {
             return;
         }
-        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&receipts);
+        let (dispatch_matrix, events) =
+            self.create_dispatch_matrix_and_event_vector(&processed_unconfirmed_state.receipts);
+
+        // Serialize receipts
+        let sequence_indices = processed_unconfirmed_state.sequence_indices_for_receipts;
+        let mut tx_index = 0;
+        let mut microblock_index = 0;
+        let mut serialized_txs = Vec::new();
+        let mut curr_sequence_number = sequence_indices[microblock_index].1;
+
+        for (i, receipt) in processed_unconfirmed_state.receipts.iter().enumerate() {
+            // if the current receipt index "belongs" to the next microblock, reset `tx_index` to 0,
+            // increment the `microblock_index`, and update the sequence number
+            if microblock_index + 1 < sequence_indices.len()
+                && i >= sequence_indices[microblock_index + 1].0
+            {
+                microblock_index += 1;
+                tx_index = 0;
+                curr_sequence_number = sequence_indices[microblock_index].1;
+            }
+            let payload = EventObserver::make_new_microblock_txs_payload(
+                receipt,
+                tx_index,
+                curr_sequence_number,
+            );
+            serialized_txs.push(payload);
+            tx_index += 1;
+        }
 
         for (obs_id, observer) in interested_observers.iter() {
             let filtered_events_ids = &dispatch_matrix[*obs_id];
@@ -633,7 +684,11 @@ impl EventDispatcher {
                 .map(|event_id| (*event_id, &events[*event_id]))
                 .collect();
 
-            observer.send_new_microblocks(parent_index_block_hash, filtered_events, &receipts);
+            observer.send_new_microblocks(
+                parent_index_block_hash,
+                filtered_events,
+                &serialized_txs,
+            );
         }
     }
 

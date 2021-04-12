@@ -786,7 +786,7 @@ fn spawn_miner_relayer(
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
 
-                    let num_unconfirmed_microblock_tx_receipts = net_receipts.unconfirmed_microblock_tx_receipts.len();
+                    let num_unconfirmed_microblock_tx_receipts = net_receipts.processed_unconfirmed_state.receipts.len();
                     if num_unconfirmed_microblock_tx_receipts > 0 {
                         let (canonical_consensus_hash, canonical_block_hash) =
                             SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -796,7 +796,7 @@ fn spawn_miner_relayer(
                             &canonical_consensus_hash,
                             &canonical_block_hash,
                         );
-                        event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.unconfirmed_microblock_tx_receipts);
+                        event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.processed_unconfirmed_state);
                     }
 
                     // Dispatch retrieved attachments, if any.
