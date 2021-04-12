@@ -16,7 +16,7 @@
 
 use super::{ClarityBackingStore, ClarityDeserializable, MarfedKV};
 use chainstate::{
-    burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof, stacks::StacksBlockId,
+    stacks::index::proofs::TrieMerkleProof, stacks::StacksBlockId,
 };
 use std::collections::HashMap;
 use std::{clone::Clone, cmp::Eq, hash::Hash};
@@ -322,7 +322,7 @@ impl<'a> RollbackWrapper<'a> {
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, String)>
     where
         T: ClarityDeserializable<T>,
     {

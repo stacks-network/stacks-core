@@ -400,7 +400,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_value(key, expected)
     }
 
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, String)>
     where
         T: ClarityDeserializable<T>,
     {
