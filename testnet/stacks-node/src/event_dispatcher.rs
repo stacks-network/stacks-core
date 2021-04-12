@@ -7,7 +7,10 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use async_h1::client;
@@ -37,6 +40,7 @@ use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
+    should_keep_running: Arc<AtomicBool>,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -76,6 +80,11 @@ impl EventObserver {
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
         loop {
+            if !self.should_keep_running.load(Ordering::SeqCst) {
+                info!("Terminating event observer");
+                return;
+            }
+
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
             req.append_header("Content-Type", "application/json")
@@ -778,10 +787,15 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
+    pub fn register_observer(
+        &mut self,
+        conf: &EventObserverConfig,
+        should_keep_running: Arc<AtomicBool>,
+    ) {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
+            should_keep_running,
         };
 
         let observer_index = self.registered_observers.len() as u16;

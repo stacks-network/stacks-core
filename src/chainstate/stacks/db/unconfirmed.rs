@@ -88,13 +88,15 @@ impl UnconfirmedState {
         let clarity_instance =
             ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+            .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: ExecutionCost::zero(),
+            cost_so_far: cost_so_far.clone(),
             bytes_so_far: 0,
 
             last_mblock: None,
@@ -116,13 +118,15 @@ impl UnconfirmedState {
         let clarity_instance =
             ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+            .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: ExecutionCost::zero(),
+            cost_so_far: cost_so_far,
             bytes_so_far: 0,
 
             last_mblock: None,
@@ -170,6 +174,7 @@ impl UnconfirmedState {
         let mut num_new_mblocks = 0;
 
         if mblocks.len() > 0 {
+            let cur_cost = self.cost_so_far.clone();
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
                 chainstate.db(),
@@ -177,6 +182,8 @@ impl UnconfirmedState {
                 burn_dbconn,
                 &self.confirmed_chain_tip,
             );
+
+            clarity_tx.reset_cost(cur_cost);
 
             for mblock in mblocks.into_iter() {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq)

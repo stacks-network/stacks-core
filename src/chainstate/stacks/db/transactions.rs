@@ -914,6 +914,10 @@ impl StacksChainState {
                             (Value::err_none(), AssetMap::new(), vec![])
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
+                            info!("Contract-call aborted by post-condition";
+                                      "contract_name" => %contract_id,
+                                      "function_name" => %contract_call.function_name,
+                                      "function_args" => %VecDisplay(&contract_call.function_args));
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
