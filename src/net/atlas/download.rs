@@ -1,4 +1,22 @@
-use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use super::{
+    AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST, MAX_RETRY_DELAY,
+};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
@@ -23,6 +41,10 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
+use rand::thread_rng;
+use rand::Rng;
+use std::cmp;
+
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
@@ -40,6 +62,29 @@ impl AttachmentsDownloader {
             processed_batches: vec![],
             reliability_reports: HashMap::new(),
             initial_batch,
+        }
+    }
+
+    pub fn has_ready_batches(&self) -> bool {
+        for batch in self.priority_queue.iter() {
+            if batch.retry_deadline < get_epoch_time_secs() {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn pop_next_ready_batch(&mut self) -> Option<AttachmentsBatch> {
+        let next_is_ready = if let Some(ref next) = self.priority_queue.peek() {
+            next.retry_deadline < get_epoch_time_secs()
+        } else {
+            false
+        };
+
+        if next_is_ready {
+            self.priority_queue.pop()
+        } else {
+            None
         }
     }
 
@@ -66,7 +111,7 @@ impl AttachmentsDownloader {
         let ongoing_fsm = match self.ongoing_batch.take() {
             Some(batch) => batch,
             None => {
-                if self.priority_queue.is_empty() {
+                if self.priority_queue.is_empty() || !self.has_ready_batches() {
                     // Nothing to do!
                     return Ok((vec![], vec![]));
                 }
@@ -88,8 +133,7 @@ impl AttachmentsDownloader {
                 }
 
                 let attachments_batch = self
-                    .priority_queue
-                    .pop()
+                    .pop_next_ready_batch()
                     .expect("Unable to pop attachments bactch from queue");
                 let ctx = AttachmentsBatchStateContext::new(
                     attachments_batch,
@@ -1003,6 +1047,7 @@ pub struct AttachmentsBatch {
     pub index_block_hash: StacksBlockId,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
+    pub retry_deadline: u64,
 }
 
 impl AttachmentsBatch {
@@ -1012,6 +1057,7 @@ impl AttachmentsBatch {
             index_block_hash: StacksBlockId([0u8; 32]),
             attachments_instances: HashMap::new(),
             retry_count: 0,
+            retry_deadline: 0,
         }
     }
 
@@ -1023,7 +1069,7 @@ impl AttachmentsBatch {
             if self.block_height != attachment.block_height
                 || self.index_block_hash != attachment.index_block_hash
             {
-                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentBatch", attachment.attachment_index, attachment.index_block_hash);
+                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch", attachment.attachment_index, attachment.index_block_hash);
                 return;
             }
         }
@@ -1048,6 +1094,14 @@ impl AttachmentsBatch {
 
     pub fn bump_retry_count(&mut self) {
         self.retry_count += 1;
+        let delay = cmp::min(
+            MAX_RETRY_DELAY,
+            2u64.saturating_pow(self.retry_count as u32)
+                + (thread_rng().gen::<u64>() % 2u64.saturating_pow((self.retry_count - 1) as u32)),
+        );
+
+        debug!("Atlas: Re-attempt download in {} seconds", delay);
+        self.retry_deadline = get_epoch_time_secs() + delay;
     }
 
     pub fn has_fully_succeed(&self) -> bool {
@@ -1105,8 +1159,8 @@ impl AttachmentsBatch {
 impl Ord for AttachmentsBatch {
     fn cmp(&self, other: &AttachmentsBatch) -> Ordering {
         other
-            .retry_count
-            .cmp(&self.retry_count)
+            .retry_deadline
+            .cmp(&self.retry_deadline)
             .then_with(|| {
                 self.attachments_instances_count()
                     .cmp(&other.attachments_instances_count())
