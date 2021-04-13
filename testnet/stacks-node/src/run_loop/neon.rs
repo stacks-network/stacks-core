@@ -90,6 +90,18 @@ impl RunLoop {
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
 
+    #[cfg(test)]
+    fn create_wallet_if_dne(&self, burnchain: &BitcoinRegtestController) {
+        info!("Miner node: creating the wallet if it does not exist");
+        match burnchain.create_wallet_if_dne() {
+            Err(e) => warn!("Error when creating wallet: {:?}", e),
+            _ => {}
+        }
+    }
+
+    #[cfg(not(test))]
+    fn create_wallet_if_dne(&self, burnchain: &BitcoinRegtestController) {}
+
     /// Starts the testnet runloop.
     ///
     /// This function will block by looping infinitely.
@@ -124,8 +136,7 @@ impl RunLoop {
 
         let is_miner = if self.config.node.miner {
             // Initialize the wallet.
-            info!("Miner node: creating the wallet if it does not exist");
-            burnchain.create_wallet_if_dne();
+            self.create_wallet_if_dne(&burnchain);
 
             let keychain = Keychain::default(self.config.node.seed.clone());
             let node_address = Keychain::address_from_burnchain_signer(

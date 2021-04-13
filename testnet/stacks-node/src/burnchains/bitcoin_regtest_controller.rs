@@ -569,27 +569,13 @@ impl BitcoinRegtestController {
 
     /// Checks if there is a default wallet with the name of "".
     /// If the default wallet does not exist, this function creates a wallet with name "".
-    pub fn create_wallet_if_dne(&self) {
-        let wallet_res = BitcoinRPCRequest::list_wallets(&self.config);
-        let wallets = match wallet_res {
-            Ok(wallets) => wallets,
-            Err(e) => {
-                warn!("Call to listwallets failed during wallet creation: {:?}", e);
-                return;
-            }
-        };
+    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
+        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
 
         if !wallets.contains(&("".to_string())) {
-            match BitcoinRPCRequest::create_wallet(&self.config, "") {
-                Err(e) => {
-                    warn!(
-                        "Call to createwallet failed during wallet creation: {:?}",
-                        e
-                    );
-                }
-                _ => {}
-            }
+            BitcoinRPCRequest::create_wallet(&self.config, "")?;
         }
+        Ok(())
     }
 
     pub fn get_utxos(
@@ -1701,7 +1687,7 @@ struct BitcoinRPCRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-enum RPCError {
+pub enum RPCError {
     Network(String),
     Parsing(String),
     Bitcoind(String),
