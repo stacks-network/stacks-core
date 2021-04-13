@@ -25,7 +25,8 @@ use stacks::{
 use stacks::{
     chainstate::stacks::{
         db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
+        StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+        TransactionPayload,
     },
     net::RPCPoxInfoData,
     util::db::query_row_columns,
@@ -64,9 +65,9 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
 use stacks::chainstate::stacks::boot::boot_code_id;
-use stacks::chainstate::stacks::{StacksBlockId, StacksMicroblockHeader};
 use stacks::core::BLOCK_LIMIT_MAINNET;
 
+use rand::Rng;
 use rusqlite::types::ToSql;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
@@ -1147,13 +1148,15 @@ fn make_signed_microblock(
     parent_block: BlockHeaderHash,
     seq: u16,
 ) -> StacksMicroblock {
+    let mut rng = rand::thread_rng();
+
     let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
     let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
     let tx_merkle_root = merkle_tree.root();
 
     let mut mblock = StacksMicroblock {
         header: StacksMicroblockHeader {
-            version: 0x12,
+            version: rng.gen(),
             sequence: seq,
             prev_block: parent_block,
             tx_merkle_root: tx_merkle_root,
@@ -1393,6 +1396,7 @@ fn microblock_integration_test() {
             .unwrap()
     );
 
+    // todo - pipe in the PoxSyncWatchdog to the RunLoop struct to avoid flakiness here
     // wait at least two p2p refreshes so it can produce the microblock
     for i in 0..30 {
         debug!(
@@ -1428,6 +1432,7 @@ fn microblock_integration_test() {
     let tx_sequence = transactions[0].get("sequence").unwrap().as_u64().unwrap();
     assert_eq!(tx_sequence, 0);
 
+    // check mempool tx events
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);
     assert_eq!(&memtx_events[0], &format!("0x{}", &bytes_to_hex(&tx)));

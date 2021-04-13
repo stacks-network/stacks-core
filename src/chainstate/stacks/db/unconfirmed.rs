@@ -170,7 +170,7 @@ impl UnconfirmedState {
         let mut sequence_indices_for_receipts = vec![];
         let mut mined_txs = UnconfirmedTxMap::new();
         let mut new_cost = ExecutionCost::zero();
-        let mut new_bytes;
+        let mut new_bytes = 0;
         let mut num_new_mblocks = 0;
 
         if mblocks.len() > 0 {
@@ -241,7 +241,6 @@ impl UnconfirmedState {
                     }
                     total as u64
                 };
-                self.bytes_so_far += new_bytes;
 
                 for tx in &mblock.txs {
                     mined_txs.insert(
@@ -259,6 +258,7 @@ impl UnconfirmedState {
         self.last_mblock_seq = last_mblock_seq;
         self.mined_txs.extend(mined_txs);
         self.cost_so_far = new_cost;
+        self.bytes_so_far += new_bytes;
         self.num_mblocks_added += num_new_mblocks;
 
         Ok(ProcessedUnconfirmedState {
