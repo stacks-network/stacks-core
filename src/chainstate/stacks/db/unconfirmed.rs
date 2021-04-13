@@ -207,7 +207,7 @@ impl UnconfirmedState {
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
-                new_bytes = {
+                new_bytes += {
                     let mut total = 0;
                     for tx in mblock.txs.iter() {
                         let mut bytes = vec![];
