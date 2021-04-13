@@ -40,7 +40,7 @@ use self::type_checker::TypeChecker;
 
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use vm::ast::parse;
-    use vm::database::MemoryBackingStore;
+    use crate::vmlib::database::MemoryBackingStore;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut marf = MemoryBackingStore::new();

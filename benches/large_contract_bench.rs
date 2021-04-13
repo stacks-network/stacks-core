@@ -7,10 +7,10 @@ use blockstack_lib::{
     chainstate::burn::BlockHeaderHash,
     chainstate::stacks::index::storage::TrieFileStorage,
     vm::clarity::ClarityInstance,
-    vm::database::{MarfedKV, NULL_HEADER_DB},
+    vm::database::NULL_HEADER_DB,
     vm::types::QualifiedContractIdentifier,
 };
-
+use blockstack_lib::vmlib::database::marf::MarfedKV;
 use criterion::Criterion;
 
 pub fn rollback_log_memory_test() {

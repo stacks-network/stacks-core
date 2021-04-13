@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::StacksBlockId;
 use util::hash::hex_bytes;
 use vm::ast;
@@ -25,7 +25,7 @@ use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
 use vm::database::{
-    ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
@@ -35,6 +35,9 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+
+use crate::vmlib::database::marf::MarfedKV;
+use crate::vmlib::database::MemoryBackingStore;
 
 /*
  * This test exhibits memory inflation --

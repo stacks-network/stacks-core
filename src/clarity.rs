@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rand::Rng;
 use std::convert::TryInto;
 use std::env;
 use std::fs;
@@ -24,44 +23,40 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
-use util::log;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use chainstate::stacks::StacksBlockId;
-
-use rusqlite::types::ToSql;
+use rand::Rng;
+use rusqlite::{Connection, NO_PARAMS, OpenFlags};
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::types::ToSql;
+use serde::Serialize;
 
+use address::c32::c32_address;
+use burnchains::BurnchainHeaderHash;
+use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::VRFSeed;
+use chainstate::stacks::index::{MarfTrieId, storage::TrieFileStorage};
+use chainstate::stacks::StacksAddress;
+use chainstate::stacks::StacksBlockId;
 use util::db::FromColumn;
-
 use util::hash::Sha512Trunc256Sum;
-
+use util::log;
+use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis;
+use vm::analysis::{AnalysisDatabase, ContractAnalysis, errors::CheckResult};
 use vm::analysis::contract_interface_builder::build_contract_interface;
-use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
-    ClarityDatabase, HeadersDB, MarfedKV, MemoryBackingStore, STXBalance, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    SqliteConnection, STXBalance,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
-use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
-use address::c32::c32_address;
-
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::VRFSeed;
-use chainstate::stacks::StacksAddress;
-
-use serde::Serialize;
-
-use crate::vm::database::marf::WritableMarfStore;
+use crate::vmlib::database::marf::WritableMarfStore;
+use crate::vmlib::database::marf::MarfedKV;
+use crate::vmlib::database::MemoryBackingStore;
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -1040,6 +1035,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 #[cfg(test)]
 mod test {
     use super::*;
+
     #[test]
     fn test_initial_alloc() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());

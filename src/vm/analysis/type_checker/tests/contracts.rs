@@ -22,7 +22,7 @@ use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use vm::ast::parse;
-use vm::database::MemoryBackingStore;
+use crate::vmlib::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })

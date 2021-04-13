@@ -17,7 +17,7 @@
 use std::convert::From;
 use std::convert::TryFrom;
 use vm::contexts::OwnedEnvironment;
-use vm::database::MemoryBackingStore;
+use crate::vmlib::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::execute;
 use vm::types::{

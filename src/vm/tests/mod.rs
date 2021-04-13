@@ -14,23 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksBlockId;
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::hash::hex_bytes;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::database::{
-    ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error;
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
 
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
-
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::vmlib::database::marf::MarfedKV;
+use crate::vmlib::database::MemoryBackingStore;
 
 mod assets;
 mod contracts;

@@ -14,10 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksBlockId;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
 use util::hash::hex_bytes;
 use vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use vm::contexts::Environment;
 use vm::contracts::Contract;
+use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::database::{
+    ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
@@ -28,22 +43,8 @@ use vm::tests::{
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::boot::boot_code_id;
-use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::StacksBlockId;
-use vm::contexts::Environment;
-use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use vm::database::{
-    ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-
-use chainstate::stacks::StacksBlockHeader;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use vm::costs::cost_functions::ClarityCostFunction;
+use crate::vmlib::database::marf::MarfedKV;
+use crate::vmlib::database::MemoryBackingStore;
 
 lazy_static! {
     static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =

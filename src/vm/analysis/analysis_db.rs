@@ -19,11 +19,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::ContractAnalysis;
 use vm::database::{
-    ClarityBackingStore, ClarityDeserializable, ClaritySerializable, MarfedKV, RollbackWrapper,
+    ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
 use vm::representations::ClarityName;
-use vm::types::signatures::FunctionSignature;
 use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use vm::types::signatures::FunctionSignature;
+
+use crate::vmlib::database::marf::MarfedKV;
 
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,

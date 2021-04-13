@@ -79,7 +79,7 @@ use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
-use vm::database::marf::MarfedKV;
+use crate::vmlib::database::marf::MarfedKV;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };

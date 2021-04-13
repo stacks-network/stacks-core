@@ -14,12 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod clarity_db;
-mod key_value_wrapper;
-pub mod marf;
-mod sqlite;
-mod structures;
-
 use std::collections::HashMap;
 
 pub use self::clarity_db::{
@@ -27,9 +21,16 @@ pub use self::clarity_db::{
     STORE_CONTRACT_SRC_INTERFACE,
 };
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
-pub use self::marf::{ClarityBackingStore, MarfedKV, MemoryBackingStore};
+pub use self::marf::ClarityBackingStore;
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
+
+mod clarity_db;
+mod key_value_wrapper;
+pub mod marf;
+mod sqlite;
+mod structures;
+

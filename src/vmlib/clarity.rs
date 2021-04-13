@@ -14,16 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::error;
+use std::fmt;
+
+use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::boot::{
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_COSTS, boot_code_id,
+    BOOT_CODE_POX_TESTNET,
+};
+use chainstate::stacks::Error as ChainstateError;
+use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::index::{MarfTrieId, TrieHash};
+use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::StacksMicroblockHeader;
 use vm::analysis;
+use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::analysis::AnalysisDatabase;
-use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
 use vm::ast;
-use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
+use vm::ast::{ContractAST, errors::ParseError, errors::ParseErrors};
 use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
-    marf::WritableMarfStore, BurnStateDB, ClarityDatabase, HeadersDB, MarfedKV, RollbackWrapper,
-    RollbackWrapperPersistedLog, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB, RollbackWrapper, RollbackWrapperPersistedLog, SqliteConnection,
 };
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
@@ -31,23 +45,8 @@ use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::{MarfTrieId, TrieHash};
-use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::StacksBlockId;
-use chainstate::stacks::StacksMicroblockHeader;
-
-use chainstate::stacks::boot::{
-    boot_code_id, BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET,
-};
-
-use std::error;
-use std::fmt;
-
-use vm::database::marf::ReadOnlyMarfStore;
+use crate::vmlib::database::marf::{MarfedKV, WritableMarfStore};
+use crate::vmlib::database::marf::ReadOnlyMarfStore;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -992,15 +991,20 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use chainstate::stacks::index::storage::TrieFileStorage;
-    use rusqlite::NO_PARAMS;
     use std::fs;
+
+    use rusqlite::NO_PARAMS;
+
+    use chainstate::stacks::index::storage::TrieFileStorage;
     use vm::analysis::errors::CheckErrors;
     use vm::database::{
-        ClarityBackingStore, MarfedKV, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+        ClarityBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB, STXBalance,
     };
     use vm::types::{StandardPrincipalData, Value};
+
+    use crate::vmlib::database::marf::MarfedKV;
+
+    use super::*;
 
     #[test]
     pub fn bad_syntax_test() {

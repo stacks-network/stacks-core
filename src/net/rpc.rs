@@ -17,43 +17,34 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::net::SocketAddr;
 use std::{convert::TryFrom, fmt};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::io;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::prelude::*;
+use std::net::SocketAddr;
 
+use rand::prelude::*;
+use rand::thread_rng;
+use rusqlite::{DatabaseName, NO_PARAMS};
+
+use burnchains::*;
+use burnchains::Burnchain;
+use burnchains::BurnchainHeaderHash;
+use burnchains::BurnchainView;
+use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::stacks::*;
+use chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
+};
+use chainstate::stacks::db::blocks::CheckError;
+use chainstate::stacks::Error as chain_error;
 use core::mempool::*;
-use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use net::connection::ConnectionHttp;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::db::PeerDB;
-use net::http::*;
-use net::p2p::PeerMap;
-use net::p2p::PeerNetwork;
-use net::relay::Relayer;
-use net::ClientError;
-use net::Error as net_error;
-use net::HttpRequestMetadata;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponseType;
-use net::MicroblocksData;
-use net::NeighborAddress;
-use net::NeighborsData;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttp;
-use net::StacksHttpMessage;
-use net::StacksMessageCodec;
-use net::StacksMessageType;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::UrlString;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_NEIGHBORS_DATA_LEN;
+use monitoring;
 use net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
@@ -61,56 +52,62 @@ use net::{
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainView;
-
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use monitoring;
-
-use rusqlite::{DatabaseName, NO_PARAMS};
-
+use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use net::ClientError;
+use net::connection::ConnectionHttp;
+use net::connection::ConnectionOptions;
+use net::connection::ReplyHandleHttp;
+use net::db::PeerDB;
+use net::Error as net_error;
+use net::http::*;
+use net::HTTP_REQUEST_ID_RESERVED;
+use net::HttpRequestMetadata;
+use net::HttpRequestType;
+use net::HttpResponseMetadata;
+use net::HttpResponseType;
+use net::MAX_NEIGHBORS_DATA_LEN;
+use net::MicroblocksData;
+use net::NeighborAddress;
+use net::NeighborsData;
+use net::p2p::PeerMap;
+use net::p2p::PeerNetwork;
+use net::PeerAddress;
+use net::PeerHost;
+use net::ProtocolFamily;
+use net::relay::Relayer;
+use net::StacksHttp;
+use net::StacksHttpMessage;
+use net::StacksMessageCodec;
+use net::StacksMessageType;
+use net::UnconfirmedTransactionResponse;
+use net::UnconfirmedTransactionStatus;
+use net::UrlString;
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
-use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
+use util::hash::Hash160;
+use vm::{
+    ClarityName,
+    ContractName,
+    costs::{ExecutionCost, LimitedCostTracker},
+    database::{
+        ClarityDatabase, ClaritySerializable, marf::ContractCommitment, STXBalance,
+    },
+    errors::Error as ClarityRuntimeError,
+    errors::InterpreterError, SymbolicExpression, types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData}, Value,
+};
+use vm::types::TraitIdentifier;
+use vmlib::clarity::ClarityConnection;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
     version_string,
 };
-
-use vm::{
-    costs::{ExecutionCost, LimitedCostTracker},
-    database::{
-        marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
-    },
-    errors::Error as ClarityRuntimeError,
-    errors::InterpreterError,
-    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
-    ClarityName, ContractName, SymbolicExpression, Value,
-};
-
-use chainstate::stacks::db::blocks::CheckError;
-use rand::prelude::*;
-use rand::thread_rng;
-use vm::types::TraitIdentifier;
+use crate::vmlib::database::marf::MarfedKV;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
-use vmlib::clarity::ClarityConnection;
+use vm::database::marf::make_contract_hash_key;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -1266,7 +1263,7 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
                     let contract_commit_key =
-                        MarfedKV::make_contract_hash_key(&contract_identifier);
+                        make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
@@ -2831,38 +2828,34 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
     use std::cell::RefCell;
+    use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use address::*;
+    use burnchains::*;
     use burnchains::Burnchain;
     use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
-
-    use burnchains::*;
     use chainstate::burn::BlockHeaderHash;
     use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::*;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;
+    use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chain_error;
-    use chainstate::stacks::*;
-
-    use address::*;
-
+    use net::*;
+    use net::codec::*;
+    use net::http::*;
+    use net::test::*;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::pipe::*;
-
-    use std::convert::TryInto;
-
     use vm::types::*;
+
+    use super::*;
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)

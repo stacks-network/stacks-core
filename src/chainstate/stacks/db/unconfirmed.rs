@@ -32,7 +32,7 @@ use chainstate::stacks::*;
 use net::Error as net_error;
 use util::db::Error as db_error;
 
-use vm::database::marf::MarfedKV;
+use crate::vmlib::database::marf::MarfedKV;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
 use vm::database::NULL_BURN_STATE_DB;
