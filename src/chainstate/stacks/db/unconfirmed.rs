@@ -46,10 +46,9 @@ pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u
 pub struct ProcessedUnconfirmedState {
     pub total_burns: u128,
     pub total_fees: u128,
-    pub receipts: Vec<StacksTransactionReceipt>,
-    // tuple representing (index, sequence #), where the index corresponds to the starting index of
-    // receipts corresponding to that sequence number in the receipts vector
-    pub sequence_indices_for_receipts: Vec<(usize, u16)>,
+    // each element of this vector is a tuple, where each tuple contains a microblock
+    // sequence number, and a vector of transaction receipts for that microblock
+    pub receipts: Vec<(u16, Vec<StacksTransactionReceipt>)>,
 }
 
 impl Default for ProcessedUnconfirmedState {
@@ -58,7 +57,6 @@ impl Default for ProcessedUnconfirmedState {
             total_burns: 0,
             total_fees: 0,
             receipts: vec![],
-            sequence_indices_for_receipts: vec![],
         }
     }
 }
@@ -167,7 +165,6 @@ impl UnconfirmedState {
         let mut total_fees = 0;
         let mut total_burns = 0;
         let mut all_receipts = vec![];
-        let mut sequence_indices_for_receipts = vec![];
         let mut mined_txs = UnconfirmedTxMap::new();
         let mut new_cost = ExecutionCost::zero();
         let mut new_bytes = 0;
@@ -224,10 +221,7 @@ impl UnconfirmedState {
                 total_fees += stx_fees;
                 total_burns += stx_burns;
                 num_new_mblocks += 1;
-                if receipts.len() > 0 {
-                    sequence_indices_for_receipts.push((all_receipts.len(), seq));
-                }
-                all_receipts.append(&mut receipts);
+                all_receipts.push((seq, receipts));
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
@@ -264,7 +258,6 @@ impl UnconfirmedState {
         Ok(ProcessedUnconfirmedState {
             total_fees,
             total_burns,
-            sequence_indices_for_receipts,
             receipts: all_receipts,
         })
     }

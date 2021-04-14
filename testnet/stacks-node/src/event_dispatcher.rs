@@ -657,33 +657,29 @@ impl EventDispatcher {
         if interested_observers.len() < 1 {
             return;
         }
-        let (dispatch_matrix, events) =
-            self.create_dispatch_matrix_and_event_vector(&processed_unconfirmed_state.receipts);
+        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(
+            &processed_unconfirmed_state
+                .receipts
+                .iter()
+                .flat_map(|(_, r)| r.clone())
+                .collect(),
+        );
 
         // Serialize receipts
-        let sequence_indices = processed_unconfirmed_state.sequence_indices_for_receipts;
         let mut tx_index = 0;
-        let mut microblock_index = 0;
         let mut serialized_txs = Vec::new();
-        let mut curr_sequence_number = sequence_indices[microblock_index].1;
 
-        for (i, receipt) in processed_unconfirmed_state.receipts.iter().enumerate() {
-            // if the current receipt index "belongs" to the next microblock, reset `tx_index` to 0,
-            // increment the `microblock_index`, and update the sequence number
-            if microblock_index + 1 < sequence_indices.len()
-                && i >= sequence_indices[microblock_index + 1].0
-            {
-                microblock_index += 1;
-                tx_index = 0;
-                curr_sequence_number = sequence_indices[microblock_index].1;
+        for (curr_sequence_number, receipts) in processed_unconfirmed_state.receipts.iter() {
+            tx_index = 0;
+            for receipt in receipts.iter() {
+                let payload = EventObserver::make_new_microblock_txs_payload(
+                    receipt,
+                    tx_index,
+                    *curr_sequence_number,
+                );
+                serialized_txs.push(payload);
+                tx_index += 1;
             }
-            let payload = EventObserver::make_new_microblock_txs_payload(
-                receipt,
-                tx_index,
-                curr_sequence_number,
-            );
-            serialized_txs.push(payload);
-            tx_index += 1;
         }
 
         for (obs_id, observer) in interested_observers.iter() {
