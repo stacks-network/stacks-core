@@ -207,13 +207,6 @@ impl FromRow<(u64, u64)> for (u64, u64) {
     }
 }
 
-pub fn u32_to_sql(x: u32) -> Result<i32, Error> {
-    if x > (i32::max_value() as u32) {
-        return Err(Error::ParseError);
-    }
-    Ok(x as i32)
-}
-
 const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE mempool(
@@ -531,6 +524,7 @@ impl MemPoolDB {
             Some(h) => u64_to_sql(h)?,
         };
         let limit = 200;
+        let offset = limit * curr_page;
 
         let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND \
         height > ?2 AND height <= ?3 ORDER BY sponsor_nonce ASC LIMIT ?4 OFFSET ?5";
@@ -538,8 +532,8 @@ impl MemPoolDB {
             &u64_to_sql(nonce)?,
             &min_height_sql_arg,
             &u64_to_sql(max_height)?,
-            &u32_to_sql(limit)?,
-            &u32_to_sql(limit * curr_page)?,
+            &limit,
+            &offset,
         ];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
