@@ -25,7 +25,7 @@ use vm::representations::ClarityName;
 use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use vm::types::signatures::FunctionSignature;
 
-use crate::vmlib::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,

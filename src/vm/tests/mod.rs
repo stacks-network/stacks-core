@@ -30,8 +30,8 @@ use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
 
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 mod assets;
 mod contracts;

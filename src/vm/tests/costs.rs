@@ -24,7 +24,7 @@ use chainstate::stacks::StacksBlockId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use util::hash::hex_bytes;
-use vm::clarity::ClarityInstance;
+use clarity_vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contexts::Environment;
 use vm::contracts::Contract;
@@ -43,8 +43,8 @@ use vm::tests::{
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 lazy_static! {
     static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =

@@ -79,7 +79,7 @@ use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
-use crate::vmlib::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::MarfedKV;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
@@ -87,7 +87,7 @@ use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
 
-use vmlib::clarity::{
+use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
 };

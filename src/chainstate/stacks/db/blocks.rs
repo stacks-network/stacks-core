@@ -79,7 +79,7 @@ use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
 
-use vmlib::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 
 use rand::thread_rng;
 use rand::Rng;

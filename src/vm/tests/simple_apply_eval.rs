@@ -20,7 +20,7 @@ use vm::ast::parse;
 use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
 use vm::types::signatures::BufferLength;

@@ -18,7 +18,7 @@ use chainstate::stacks::events::*;
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::tests::execute;
 use vm::types::TypeSignature::UIntType;

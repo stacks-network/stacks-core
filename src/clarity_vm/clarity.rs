@@ -45,8 +45,8 @@ use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
-use crate::vmlib::database::marf::{MarfedKV, WritableMarfStore};
-use crate::vmlib::database::marf::ReadOnlyMarfStore;
+use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -1002,7 +1002,7 @@ mod tests {
     };
     use vm::types::{StandardPrincipalData, Value};
 
-    use crate::vmlib::database::marf::MarfedKV;
+    use crate::clarity_vm::database::marf::MarfedKV;
 
     use super::*;
 

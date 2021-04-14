@@ -26,7 +26,6 @@ use chainstate::stacks::index::marf::{MARF, MarfConnection, MarfTransaction};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use net::StacksMessageCodec;
 use util::db::IndexDBConn;
 use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum, to_hex};
 use vm::analysis::AnalysisDatabase;

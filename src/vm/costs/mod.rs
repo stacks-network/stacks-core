@@ -37,8 +37,6 @@ use vm::types::signatures::{FunctionSignature, TupleTypeSignature};
 use vm::types::signatures::FunctionType::Fixed;
 use vm::types::Value::UInt;
 
-use crate::vmlib::database::MemoryBackingStore;
-
 pub mod constants;
 pub mod cost_functions;
 

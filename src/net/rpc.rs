@@ -98,13 +98,13 @@ use vm::{
     errors::InterpreterError, SymbolicExpression, types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData}, Value,
 };
 use vm::types::TraitIdentifier;
-use vmlib::clarity::ClarityConnection;
+use clarity_vm::clarity::ClarityConnection;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
     version_string,
 };
-use crate::vmlib::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use vm::database::marf::make_contract_hash_key;

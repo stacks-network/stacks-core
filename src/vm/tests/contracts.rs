@@ -21,7 +21,7 @@ use chainstate::stacks::StacksBlockId;
 use util::hash::hex_bytes;
 use vm::ast;
 use vm::ast::errors::ParseErrors;
-use vm::clarity::ClarityInstance;
+use clarity_vm::clarity::ClarityInstance;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
@@ -37,8 +37,8 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))

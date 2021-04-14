@@ -52,7 +52,7 @@ use vm::database::ClarityDatabase;
 
 use vm::contracts::Contract;
 
-use vmlib::clarity::ClarityConnection;
+use clarity_vm::clarity::ClarityConnection;
 
 impl StacksChainState {
     pub fn get_contract<T: ClarityConnection>(

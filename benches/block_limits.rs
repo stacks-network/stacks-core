@@ -23,7 +23,7 @@ use blockstack_lib::{
     vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
 };
-use blockstack_lib::vmlib::database::marf::MarfedKV;
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use chainstate::{
     burn::VRFSeed,
     stacks::{boot::boot_code_id, StacksAddress},

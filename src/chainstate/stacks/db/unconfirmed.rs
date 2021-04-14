@@ -32,7 +32,7 @@ use chainstate::stacks::*;
 use net::Error as net_error;
 use util::db::Error as db_error;
 
-use crate::vmlib::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::MarfedKV;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
 use vm::database::NULL_BURN_STATE_DB;
@@ -40,7 +40,7 @@ use vm::database::NULL_HEADER_DB;
 
 use vm::costs::ExecutionCost;
 
-use vmlib::clarity::{ClarityInstance, Error as clarity_error};
+use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 

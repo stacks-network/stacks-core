@@ -67,7 +67,7 @@ use vm::contracts::Contract;
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 
-use vmlib::clarity::{
+use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
     Error as clarity_error
 };

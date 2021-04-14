@@ -21,7 +21,7 @@ use vm::ast::errors::ParseResult;
 use vm::ast::expression_identifier::ExpressionIdentifier;
 use vm::ast::parser;
 use vm::ast::types::{BuildASTPass, ContractAST};
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
 fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {

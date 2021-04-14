@@ -42,7 +42,6 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;

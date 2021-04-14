@@ -20,7 +20,7 @@ use vm::analysis::type_check;
 use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use vm::ast::errors::ParseErrors;
 use vm::ast::{build_ast, parse};
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 #[test]

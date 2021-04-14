@@ -16,7 +16,7 @@
 
 use vm::analysis::{mem_type_check, type_check, AnalysisDatabase, CheckError, CheckErrors};
 use vm::ast::parse;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
 #[test]

@@ -27,7 +27,7 @@ use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 use vm::types::Value;
 
-use crate::vmlib::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 

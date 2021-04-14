@@ -29,7 +29,7 @@ use vm::types::{
     BUFF_32, BUFF_64,
 };
 
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 

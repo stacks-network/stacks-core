@@ -48,7 +48,7 @@ use vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,
 };
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -369,7 +369,7 @@ mod test {
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;
-    use crate::vmlib::database::MemoryBackingStore;
+    use crate::clarity_vm::database::MemoryBackingStore;
     use vm::errors::RuntimeErrorType;
     use vm::eval;
     use vm::execute;

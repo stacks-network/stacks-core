@@ -10,7 +10,7 @@ use blockstack_lib::{
     vm::database::NULL_HEADER_DB,
     vm::types::QualifiedContractIdentifier,
 };
-use blockstack_lib::vmlib::database::marf::MarfedKV;
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use criterion::Criterion;
 
 pub fn rollback_log_memory_test() {

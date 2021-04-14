@@ -20,7 +20,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::StacksBlockId;
 use util::hash::hex_bytes;
 use vm::ast;
-use vm::clarity::{ClarityInstance, Error as ClarityError};
+use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
@@ -36,8 +36,8 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 /*
  * This test exhibits memory inflation --

@@ -31,7 +31,7 @@ use std::mem;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 use net::StacksMessageCodec;
-use vmlib::clarity::ClarityConnection;
+use clarity_vm::clarity::ClarityConnection;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;

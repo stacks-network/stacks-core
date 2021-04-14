@@ -35,8 +35,7 @@ use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memo
 use vm::tests::costs::get_simple_test;
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();

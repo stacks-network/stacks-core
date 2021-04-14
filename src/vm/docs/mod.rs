@@ -1755,7 +1755,7 @@ mod test {
     };
 
     use crate::vm::analysis::type_check;
-    use crate::vmlib::database::marf::MarfedKV;
+    use crate::clarity_vm::database::marf::MarfedKV;
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;

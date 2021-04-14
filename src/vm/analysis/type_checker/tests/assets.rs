@@ -18,7 +18,7 @@ use std::convert::TryInto;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{mem_type_check, AnalysisDatabase};
 use vm::ast::parse;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
 
 fn string_ascii_type(size: u32) -> TypeSignature {

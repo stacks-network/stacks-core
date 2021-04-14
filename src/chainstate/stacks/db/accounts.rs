@@ -28,7 +28,7 @@ use chainstate::stacks::*;
 use vm::database::marf::*;
 use vm::database::*;
 use vm::types::*;
-use vmlib::clarity::{ClarityConnection, ClarityTransactionConnection};
+use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 
 use util::db::Error as db_error;
 use util::db::*;

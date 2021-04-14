@@ -54,9 +54,9 @@ use vm::database::{
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
-use crate::vmlib::database::marf::WritableMarfStore;
-use crate::vmlib::database::marf::MarfedKV;
-use crate::vmlib::database::MemoryBackingStore;
+use crate::clarity_vm::database::marf::WritableMarfStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 #[cfg(test)]
 macro_rules! panic_test {
