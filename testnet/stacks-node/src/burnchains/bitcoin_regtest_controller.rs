@@ -1546,6 +1546,11 @@ impl BurnchainController for BitcoinRegtestController {
                     panic!();
                 }
             }
+            info!("Creating wallet if it does not exist");
+            match self.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
         }
     }
 }
