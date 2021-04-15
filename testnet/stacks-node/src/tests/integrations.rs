@@ -41,7 +41,7 @@ const OTHER_CONTRACT: &'static str = "
     (ok (var-set x val)))
 ";
 
-const MAIN_CONTRACT: &'static str = "
+const CALL_READ_CONTRACT: &'static str = "
   (define-public (public-no-write)
     (ok (contract-call? .other f1)))
   (define-public (public-write)
@@ -209,7 +209,7 @@ fn integration_test_get_info() {
                         publish_tx,
                     )
                     .unwrap();
-                let publish_tx = make_contract_publish(&contract_sk, 2, 0, "main", MAIN_CONTRACT);
+                let publish_tx = make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
