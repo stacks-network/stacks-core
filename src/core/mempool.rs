@@ -14,52 +14,46 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::ToSql;
+use std::cmp;
+use std::fs;
+use std::io::Read;
+use std::ops::Deref;
+use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
+
 use rusqlite::Connection;
+use rusqlite::Error as SqliteError;
+use rusqlite::NO_PARAMS;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
-
-use std::cmp;
-use std::ops::Deref;
-use std::ops::DerefMut;
+use rusqlite::types::ToSql;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-
-use net::StacksMessageCodec;
-
-use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
-    Error as ChainstateError, StacksAddress, StacksBlockHeader, StacksTransaction,
+    db::blocks::MemPoolRejection, db::StacksChainState, Error as ChainstateError,
+    index::Error as MarfError, StacksTransaction,
 };
-use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
+use chainstate::stacks::TransactionPayload;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
+use monitoring::increment_stx_mempool_gc;
+use net::StacksMessageCodec;
+use util::db::{DBConn, DBTx, FromRow, sql_pragma};
+use util::db::Error as db_error;
+use util::db::FromColumn;
 use util::db::query_row;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::FromColumn;
-use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
-
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-
-use rusqlite::Error as SqliteError;
-
-use chainstate::stacks::TransactionPayload;
-use monitoring::increment_stx_mempool_gc;
 use vm::types::PrincipalData;
 
 use crate::monitoring;
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -1146,53 +1140,50 @@ impl MemPoolDB {
 
 #[cfg(test)]
 mod tests {
-
     use address::AddressHashMode;
     use burnchains::Address;
-    use chainstate::burn::{BlockHeaderHash, VRFSeed};
-    use net::{Error as NetError, StacksMessageCodec};
-    use util::hash::Hash160;
-    use util::secp256k1::MessageSignature;
-    use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
-    use vm::{
-        database::HeadersDB,
-        database::NULL_BURN_STATE_DB,
-        errors::Error as ClarityError,
-        errors::RuntimeErrorType,
-        types::{PrincipalData, QualifiedContractIdentifier},
-        ClarityName, ContractName, Value,
-    };
-
-    use chainstate::stacks::{
-        db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
-        Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksAddress,
-        StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
-        StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-        TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-        TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
-        TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-
-    use crate::{
-        burnchains::BurnchainHeaderHash,
-        chainstate::stacks::{
-            db::StacksHeaderInfo, index::TrieHash, StacksBlockId, StacksWorkScore,
-        },
-        util::vrf::VRFProof,
-        vm::costs::ExecutionCost,
-    };
-
-    use super::MemPoolDB;
-    use util::db::{DBConn, FromRow};
-
     use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::{
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, CoinbasePayload, db::blocks::MemPoolRejection,
+        db::StacksChainState, Error as ChainstateError, index::MarfTrieId, SinglesigHashMode,
+        SinglesigSpendingCondition, StacksMicroblockHeader,
+        StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
+        TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+        TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+        TransactionSmartContract, TransactionSpendingCondition,
+        TransactionVersion,
+    };
     use chainstate::stacks::db::test::chainstate_path;
     use chainstate::stacks::db::test::instantiate_chainstate;
     use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
     use chainstate::stacks::test::codec_all_transactions;
     use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
     use core::FIRST_STACKS_BLOCK_HASH;
+    use net::{Error as NetError, StacksMessageCodec};
+    use util::{hash::*, hash::hex_bytes, hash::to_hex, log, secp256k1::*, strings::StacksString};
+    use util::db::{DBConn, FromRow};
+    use util::hash::Hash160;
+    use util::secp256k1::MessageSignature;
+    use vm::{
+        ClarityName,
+        ContractName,
+        database::HeadersDB,
+        database::NULL_BURN_STATE_DB,
+        errors::Error as ClarityError,
+        errors::RuntimeErrorType, types::{PrincipalData, QualifiedContractIdentifier}, Value,
+    };
+
+    use crate::{
+        chainstate::stacks::{
+            db::StacksHeaderInfo,
+        },
+        util::vrf::VRFProof,
+        vm::costs::ExecutionCost,
+    };
+    use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed};
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+
+    use super::MemPoolDB;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";

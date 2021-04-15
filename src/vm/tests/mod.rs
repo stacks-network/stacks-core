@@ -16,8 +16,8 @@
 
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::hash::hex_bytes;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};

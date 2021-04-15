@@ -14,45 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-
 use std::collections::{HashMap, HashSet};
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::*;
-
-use chainstate::burn::BlockHeaderHash;
-
-use net::codec::{read_next, write_next};
-use net::Error as net_error;
-use net::StacksMessageCodec;
-use net::MAX_MESSAGE_LEN;
-
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::MessageSignature;
-
-use net::StacksPublicKeyBuffer;
+use std::io;
+use std::io::{Read, Write};
+use std::io::prelude::*;
 
 use sha2::Digest;
 use sha2::Sha512Trunc256;
 
-use chainstate::burn::operations::*;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::*;
-use chainstate::stacks::Error;
-
-use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
-
+use chainstate::burn::*;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::operations::*;
+use chainstate::stacks::*;
+use chainstate::stacks::Error;
 use core::*;
-
+use net::codec::{read_next, write_next};
+use net::Error as net_error;
+use net::MAX_MESSAGE_LEN;
+use net::StacksMessageCodec;
+use net::StacksPublicKeyBuffer;
+use util::hash::MerkleTree;
+use util::hash::Sha512Trunc256Sum;
+use util::retry::BoundReader;
+use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
-use util::retry::BoundReader;
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, TrieHash};
+use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
+use crate::types::chainstate::BurnchainHeaderHash;
 
 impl StacksMessageCodec for VRFProof {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -930,30 +921,28 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use net::codec::test::*;
-    use net::codec::*;
-    use net::*;
-
-    use util::hash::*;
+    use std::error::Error;
 
     use address::*;
-
     use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::BurnchainBlockHeader;
     use burnchains::BurnchainSigner;
     use burnchains::Txid;
-
-    use burnchains::bitcoin::BitcoinNetworkType;
-
+    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use chainstate::stacks::*;
+    use chainstate::stacks::test::*;
     use chainstate::stacks::test::make_codec_test_block;
+    use net::*;
+    use net::codec::*;
+    use net::codec::test::*;
+    use util::hash::*;
 
-    use std::error::Error;
+    use crate::types::chainstate::StacksAddress;
+
+    use super::*;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {

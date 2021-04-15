@@ -45,7 +45,7 @@ use vm::{eval, is_reserved};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 
 use serde::Serialize;

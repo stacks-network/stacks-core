@@ -1,20 +1,19 @@
-use super::{
-    make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
-    SK_2,
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
 };
-use stacks::core;
-use stacks::core::CHAIN_ID_TESTNET;
-use stacks::net::StacksMessageCodec;
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::database::ClarityDeserializable;
-use stacks::vm::execute;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::Value;
+use std::{env, thread};
+use std::cmp;
+use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+use rusqlite::types::ToSql;
+
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{
-        burn::{BlockHeaderHash, ConsensusHash},
+        burn::ConsensusHash,
         stacks::StacksMicroblock,
     },
 };
@@ -24,7 +23,7 @@ use stacks::{
 };
 use stacks::{
     chainstate::stacks::{
-        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+        db::StacksChainState, StacksBlock,
         StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
     },
     net::RPCPoxInfoData,
@@ -32,39 +31,43 @@ use stacks::{
     util::db::query_rows,
     util::db::u64_to_sql,
 };
-
-use super::bitcoin_regtest::BitcoinCoreController;
-use crate::{
-    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
-};
-use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::Txid;
+use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::stacks::boot::boot_code_id;
+use stacks::core;
+use stacks::core::BLOCK_LIMIT_MAINNET;
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData,
 };
-use stacks::util::hash::Hash160;
-use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use stacks::net::StacksMessageCodec;
+use stacks::types::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
-use std::cmp;
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicU64, Ordering},
+use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::util::hash::Hash160;
+use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::database::ClarityDeserializable;
+use stacks::vm::execute;
+use stacks::vm::types::PrincipalData;
+use stacks::vm::Value;
+
+use crate::{
+    BitcoinRegtestController, BurnchainController,
+    burnchains::bitcoin_regtest_controller::UTXO, Config, config::EventKeyType, config::EventObserverConfig,
+    config::InitialBalance, ConfigFile, Keychain, neon, operations::BurnchainOpSigner,
 };
-use std::{env, thread};
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{BurnchainHeaderHash, Txid};
-use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::chainstate::stacks::boot::boot_code_id;
-use stacks::core::BLOCK_LIMIT_MAINNET;
-
-use rusqlite::types::ToSql;
+use super::{
+    ADDR_4, make_contract_call, make_contract_publish,
+    make_contract_publish_microblock_only, make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, SK_1, SK_2,
+    to_addr,
+};
+use super::bitcoin_regtest::BitcoinCoreController;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -101,6 +104,7 @@ mod test_observer {
     use std::convert::Infallible;
     use std::sync::Mutex;
     use std::thread;
+
     use tokio;
     use warp;
     use warp::Filter;

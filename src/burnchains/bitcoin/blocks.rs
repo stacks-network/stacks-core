@@ -16,42 +16,35 @@
 
 use std::ops::Deref;
 
+use burnchains::{
+    BurnchainBlock, BurnchainTransaction, MAGIC_BYTES_LENGTH, MagicBytes, Txid,
+};
+use burnchains::bitcoin::{BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput};
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::BitcoinInputType;
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::bits;
+use burnchains::bitcoin::Error as btc_error;
+use burnchains::bitcoin::indexer::BitcoinIndexer;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::PeerMessage;
+use burnchains::Error as burnchain_error;
+use burnchains::indexer::{
+    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnHeaderIPC,
+};
 use deps;
 use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use deps::bitcoin::blockdata::script::{Instruction, Script};
 use deps::bitcoin::blockdata::transaction::Transaction;
-
 use deps::bitcoin::network::message as btc_message;
 use deps::bitcoin::network::serialize::BitcoinHash;
-
 use deps::bitcoin::util::hash::bitcoin_merkle_root;
-
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::bits;
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::BitcoinInputType;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::PeerMessage;
-
-use burnchains::indexer::{
-    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
-};
-
-use burnchains::Error as burnchain_error;
-
+use util::hash::to_hex;
 use util::log;
 
-use burnchains::bitcoin::{BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput};
-
-use burnchains::{
-    BurnchainBlock, BurnchainHeaderHash, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
-};
-
-use util::hash::to_hex;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
@@ -477,26 +470,23 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-
-    use super::BitcoinBlockParser;
-    use util::hash::hex_bytes;
-
+    use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
+    use burnchains::bitcoin::{
+        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
+    };
+    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::encodable::VarInt;
     use deps::bitcoin::network::serialize::deserialize;
-
-    use burnchains::bitcoin::{
-        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-    };
-
-    use burnchains::{BurnchainBlock, BurnchainHeaderHash, BurnchainTransaction, MagicBytes, Txid};
-
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-
+    use util::hash::hex_bytes;
     use util::log;
+
+    use crate::types::chainstate::BurnchainHeaderHash;
+
+    use super::BitcoinBlockParser;
 
     struct TxFixture {
         txstr: String,

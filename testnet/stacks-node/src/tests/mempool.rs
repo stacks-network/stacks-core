@@ -1,32 +1,31 @@
-use stacks::chainstate::burn::BlockHeaderHash;
+use std::convert::From;
+use std::convert::TryFrom;
+use std::sync::Mutex;
+
+use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
+use stacks::chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, db::blocks::MemPoolRejection, Error as ChainstateError,
+    StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAuth,
+    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
+};
+use stacks::core::CHAIN_ID_TESTNET;
+use stacks::core::mempool::MemPoolDB;
 use stacks::net::{Error as NetError, StacksMessageCodec};
+use stacks::types::BlockHeaderHash;
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
-use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
-
-use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, Error as ChainstateError, StacksAddress, StacksBlockHeader,
-    StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
-    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-};
-
-use stacks::core::mempool::MemPoolDB;
-use std::convert::From;
-use std::convert::TryFrom;
-use std::sync::Mutex;
 
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-use stacks::core::CHAIN_ID_TESTNET;
-
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
-    serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
+    serialize_sign_standard_single_sig_tx_anchor_mode_version, SK_1, SK_2, to_addr,
 };
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))

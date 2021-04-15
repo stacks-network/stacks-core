@@ -14,32 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::operations::leader_block_commit::*;
-use chainstate::burn::operations::*;
-use chainstate::coordinator::{Error as CoordError, *};
-use chainstate::stacks::*;
+use std::cmp;
+use std::collections::HashSet;
 use std::collections::VecDeque;
-use util::hash::Hash160;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc::sync_channel, RwLock,
+};
 
-use burnchains::{db::*, *};
-use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionId};
+use rusqlite::Connection;
+
+use address;
+use burnchains::{*, db::*};
+use chainstate;
 use chainstate::burn::*;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::*;
+use chainstate::burn::operations::leader_block_commit::*;
+use chainstate::coordinator::{*, Error as CoordError};
+use chainstate::stacks::*;
 use chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
-use chainstate::stacks::index::TrieHash;
 use core;
 use core::*;
-use std::cmp;
-
 use monitoring::increment_stx_blocks_processed_counter;
-use rusqlite::Connection;
-use std::collections::HashSet;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc::sync_channel,
-    Arc, RwLock,
-};
+use util::hash::Hash160;
 use util::vrf::*;
 use vm::{
     clarity::ClarityConnection,
@@ -49,8 +51,8 @@ use vm::{
     Value,
 };
 
-use address;
-use chainstate;
+use crate::types::chainstate::{StacksBlockId, TrieHash};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed};
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -100,8 +102,6 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 
     produce_burn_block_do_not_set_height(burnchain_db, par, ops, others)
 }
-
-use chainstate::burn::distribution::BurnSamplePoint;
 
 fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<BurnSamplePoint> {
     conn.query_row(

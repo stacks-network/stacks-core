@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 use util::hash::hex_bytes;
 use vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};

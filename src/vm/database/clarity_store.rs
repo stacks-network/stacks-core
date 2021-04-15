@@ -19,12 +19,6 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
-use chainstate::stacks::index::{Error as MarfError, MarfTrieId, MARFValue, TrieHash};
-use chainstate::stacks::index::marf::{MARF, MarfConnection, MarfTransaction};
-use chainstate::stacks::index::proofs::TrieMerkleProof;
-use chainstate::stacks::index::storage::TrieFileStorage;
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
 use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum, to_hex};
@@ -38,6 +32,8 @@ use vm::errors::{
     InterpreterResult, RuntimeErrorType,
 };
 use vm::types::QualifiedContractIdentifier;
+
+use crate::types::chainstate::{StacksBlockHeader, TrieHash, VRFSeed, BlockHeaderHash, StacksBlockId};
 
 pub struct NullBackingStore {}
 

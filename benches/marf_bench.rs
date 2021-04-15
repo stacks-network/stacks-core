@@ -3,7 +3,7 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
-use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::types::BlockHeaderHash;
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage, MARFValue};
 
 use criterion::Criterion;

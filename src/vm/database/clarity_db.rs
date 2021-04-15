@@ -17,11 +17,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::burn::db::sortdb::SortitionId;
-use chainstate::stacks::{StacksAddress, StacksBlockId};
-use chainstate::stacks::StacksBlockHeader;
 use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -46,6 +41,11 @@ use vm::representations::ClarityName;
 use vm::types::{
     NONE, OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
     TupleData, TupleTypeSignature, TypeSignature, Value,
+};
+
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress,
+    VRFSeed, StacksBlockHeader, StacksBlockId,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;

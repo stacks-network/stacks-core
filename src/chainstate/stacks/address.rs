@@ -26,9 +26,9 @@ use address::c32::c32_address;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 
-use chainstate::stacks::StacksAddress;
+use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::STACKS_ADDRESS_ENCODED_SIZE;
+use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;

@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
 use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use util::hash::hex_bytes;

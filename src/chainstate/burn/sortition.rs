@@ -18,36 +18,30 @@ use std::collections::BTreeMap;
 
 use rusqlite::Connection;
 
-use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash, Txid, VRFSeed};
-
-use util::db::Error as db_error;
-
-use core::*;
-
-use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
-
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::{db::StacksChainState, StacksBlockId};
-
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlock;
 use burnchains::BurnchainBlockHeader;
 use burnchains::PublicKey;
-
+use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash, Txid};
+use chainstate::burn::BlockSnapshot;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
+use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+};
+use chainstate::stacks::{db::StacksChainState};
+use chainstate::stacks::index::MarfTrieId;
+use core::*;
+use util::db::Error as db_error;
 use util::hash::Hash160;
+use util::log;
 use util::uint::BitArray;
 use util::uint::Uint256;
 use util::uint::Uint512;
 
-use chainstate::stacks::index::TrieHash;
-
-use util::log;
+use crate::types::chainstate::{StacksBlockId, TrieHash};
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
@@ -413,22 +407,22 @@ impl BlockSnapshot {
 
 #[cfg(test)]
 mod test {
-
-    use super::*;
-    use burnchains::test::*;
+    use address::*;
     use burnchains::*;
+    use burnchains::test::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
-    use chainstate::burn::BlockHeaderHash;
-    use chainstate::burn::VRFSeed;
     use chainstate::stacks::*;
+    use util::get_epoch_time_secs;
+    use util::hash::hex_bytes;
     use util::vrf::VRFPrivateKey;
     use util::vrf::VRFPublicKey;
 
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use crate::types::chainstate::VRFSeed;
 
-    use address::*;
+    use super::*;
 
     fn test_make_snapshot(
         sort_tx: &mut SortitionHandleTx,

@@ -20,14 +20,16 @@ use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 use burnchains::{
-    db::{BurnchainBlockData, BurnchainDB},
-    Address, Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError, Txid,
+    Address,
+    Burnchain, BurnchainBlockHeader, db::{BurnchainBlockData, BurnchainDB}, Error as BurnchainError, Txid,
 };
 use chainstate::burn::{
-    db::sortdb::{PoxId, SortitionDB, SortitionId},
-    operations::leader_block_commit::RewardSetInfo,
-    operations::BlockstackOperationType,
-    BlockHeaderHash, BlockSnapshot, ConsensusHash,
+    BlockSnapshot,
+    ConsensusHash,
+    db::sortdb::SortitionDB, operations::BlockstackOperationType, operations::leader_block_commit::RewardSetInfo,
+};
+use chainstate::coordinator::comm::{
+    ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use chainstate::stacks::{
     boot::boot_code_id,
@@ -35,10 +37,11 @@ use chainstate::stacks::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
     },
-    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
-    Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+    Error as ChainstateError,
+    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin}, StacksBlock,
     TransactionPayload,
 };
+use chainstate::stacks::index::MarfTrieId;
 use monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
     update_stacks_tip_height,
@@ -51,17 +54,13 @@ use vm::{
     Value,
 };
 
-pub mod comm;
-use chainstate::stacks::index::MarfTrieId;
-
-#[cfg(test)]
-pub mod tests;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader, StacksBlockId};
 
 pub use self::comm::CoordinatorCommunication;
 
-use chainstate::coordinator::comm::{
-    ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
-};
+pub mod comm;
+#[cfg(test)]
+pub mod tests;
 
 /// The 3 different states for the current
 ///  reward cycle's relationship to its PoX anchor

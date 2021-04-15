@@ -14,49 +14,41 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
-};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs;
 use std::mem;
 
+use burnchains::PrivateKey;
+use burnchains::PublicKey;
+use chainstate::burn::*;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use chainstate::burn::operations::*;
+use chainstate::stacks::*;
+use chainstate::stacks::db::{
+    blocks::MemPoolRejection, ClarityTx, MINER_REWARD_MATURITY, StacksChainState,
+};
+use chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use chainstate::stacks::Error;
+use chainstate::stacks::events::StacksTransactionReceipt;
+use clarity_vm::clarity::ClarityConnection;
+use core::*;
+use core::mempool::*;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 use net::StacksMessageCodec;
-use clarity_vm::clarity::ClarityConnection;
-
+use net::StacksPublicKeyBuffer;
+use util::get_epoch_time_ms;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-
-use net::StacksPublicKeyBuffer;
-
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-
-use burnchains::BurnchainHeaderHash;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-
 use util::vrf::*;
-
-use core::mempool::*;
-use core::*;
-
-use util::get_epoch_time_ms;
-
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
+
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, TrieHash};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use crate::types::chainstate::BurnchainHeaderHash;
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {
@@ -1544,43 +1536,39 @@ impl StacksBlockBuilder {
 
 #[cfg(test)]
 pub mod test {
-    use crate::chainstate::stacks::boot::boot_code_addr;
-
-    use super::*;
-    use core::BLOCK_LIMIT_MAINNET;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+    use std::collections::VecDeque;
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
 
+    use rand::Rng;
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+
     use address::*;
+    use burnchains::*;
+    use burnchains::test::*;
+    use chainstate::burn::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
     use chainstate::stacks::*;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-    use std::collections::VecDeque;
-
-    use burnchains::test::*;
-    use burnchains::*;
-
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::db::test::*;
+    use core::BLOCK_LIMIT_MAINNET;
+    use net::test::*;
+    use util::sleep_ms;
     use util::vrf::VRFProof;
-
     use vm::types::*;
 
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
-    use rand::Rng;
+    use crate::chainstate::stacks::boot::boot_code_addr;
+    use crate::types::chainstate::SortitionId;
 
-    use net::test::*;
-
-    use util::sleep_ms;
-
-    use std::cell::RefCell;
+    use super::*;
 
     pub const COINBASE: u128 = 500 * 1_000_000;
 

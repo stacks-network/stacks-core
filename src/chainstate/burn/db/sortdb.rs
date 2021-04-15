@@ -14,84 +14,70 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::ToSql;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::TransactionBehavior;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
-
-use rand;
-use rand::RngCore;
-
+use std::{cmp, fmt, fs, str::FromStr};
+use std::collections::HashMap;
 use std::convert::{From, TryFrom, TryInto};
 use std::io::{ErrorKind, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::{cmp, fmt, fs, str::FromStr};
 
-use util::db::tx_begin_immediate;
-use util::db::Error as db_error;
-use util::db::{
-    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
-};
-use util::get_epoch_time_secs;
+use rand;
+use rand::RngCore;
+use rusqlite::{Connection, NO_PARAMS, OpenFlags, OptionalExtension};
+use rusqlite::Row;
+use rusqlite::Transaction;
+use rusqlite::TransactionBehavior;
+use rusqlite::types::ToSql;
+use sha2::{Digest, Sha512Trunc256};
 
-use chainstate::ChainstateDB;
-
-use chainstate::burn::Opcodes;
-use chainstate::burn::{
-    BlockHeaderHash, BlockSnapshot, ConsensusHash, OpsHash, SortitionHash, VRFSeed,
-};
-
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-
-use chainstate::burn::operations::{
-    leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
-};
-
-use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
-
+use address::AddressHashMode;
+use burnchains::{Address, PublicKey, Txid};
 use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
-
 use burnchains::bitcoin::BitcoinNetworkType;
-
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId, TrieHash};
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksPublicKey;
+use chainstate::burn::{
+    BlockSnapshot, ConsensusHash, OpsHash, SortitionHash,
+};
+use chainstate::burn::Opcodes;
+use chainstate::burn::operations::{
+    BlockstackOperationType,
+    leader_block_commit::{MissedBlockCommit, OUTPUTS_PER_COMMIT, RewardSetInfo}, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
+};
+use chainstate::ChainstateDB;
+use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
 use chainstate::stacks::*;
-
-use address::AddressHashMode;
-
-use net::Error as NetError;
-use sha2::{Digest, Sha512Trunc256};
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
-
-use util::db::tx_busy_handler;
-use util::strings::StacksString;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use std::collections::HashMap;
-
+use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use chainstate::stacks::index::{Error as MARFError, MarfTrieId, MARFValue};
+use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::MarfConnection;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::StacksPublicKey;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-
+use net::{Error as NetError, Error};
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use util::db::{
+    db_mkdirs, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx, query_count,
+    query_row, query_row_columns, query_row_panic, query_rows, sql_pragma, u64_to_sql,
+};
+use util::db::Error as db_error;
+use util::db::tx_begin_immediate;
+use util::db::tx_busy_handler;
+use util::get_epoch_time_secs;
+use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum, to_hex};
+use util::log;
+use util::secp256k1::MessageSignature;
+use util::strings::StacksString;
+use util::vrf::*;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
+
+use crate::types::chainstate::{StacksAddress, TrieHash};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -687,28 +673,6 @@ fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64
 
     Some(block_height - first_block_height)
 }
-
-/// Identifier used to identify "sortitions" in the
-///  SortitionDB. A sortition is the collection of
-///  valid burnchain operations (and any dependent
-///  variables, e.g., the sortition winner, the
-///  consensus hash, the next VRF key)
-pub struct SortitionId(pub [u8; 32]);
-impl_array_newtype!(SortitionId, u8, 32);
-impl_array_hexstring_fmt!(SortitionId);
-impl_byte_array_newtype!(SortitionId, u8, 32);
-impl_byte_array_from_column!(SortitionId);
-impl_byte_array_message_codec!(SortitionId, 32);
-
-/// Identifier used to identify Proof-of-Transfer forks
-///  (or Rewards Cycle forks). These identifiers are opaque
-///  outside of the PoX DB, however, they are sufficient
-///  to uniquely identify a "sortition" when paired with
-///  a burn header hash
-// TODO: Vec<bool> is an aggressively unoptimized implementation,
-//       replace with a real bitvec
-#[derive(Clone, Debug, PartialEq)]
-pub struct PoxId(Vec<bool>);
 
 struct db_keys;
 impl db_keys {
@@ -1918,64 +1882,6 @@ impl<'a> SortitionHandleConn<'a> {
     }
 }
 
-impl PoxId {
-    pub fn initial() -> PoxId {
-        PoxId(vec![true])
-    }
-
-    pub fn from_bools(bools: Vec<bool>) -> PoxId {
-        PoxId(bools)
-    }
-
-    pub fn extend_with_present_block(&mut self) {
-        self.0.push(true);
-    }
-    pub fn extend_with_not_present_block(&mut self) {
-        self.0.push(false);
-    }
-
-    pub fn stubbed() -> PoxId {
-        PoxId(vec![])
-    }
-
-    pub fn has_ith_anchor_block(&self, i: usize) -> bool {
-        if i >= self.0.len() {
-            false
-        } else {
-            self.0[i]
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
-        let mut ret = vec![0x00];
-        let mut count = 0;
-        for bit in start..(start + len) {
-            if bit >= self.len() {
-                break;
-            }
-            let i = bit - start;
-            if i > 0 && i % 8 == 0 {
-                ret.push(0x00);
-            }
-
-            let sz = ret.len() - 1;
-            if self.0[bit] {
-                ret[sz] |= 1 << (i % 8);
-            }
-            count += 1;
-        }
-        (ret, count)
-    }
-
-    pub fn num_inventory_reward_cycles(&self) -> usize {
-        self.0.len().saturating_sub(1)
-    }
-}
-
 impl FromStr for PoxId {
     type Err = NetError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1991,16 +1897,7 @@ impl FromStr for PoxId {
                 ));
             }
         }
-        Ok(PoxId(result))
-    }
-}
-
-impl fmt::Display for PoxId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for val in self.0.iter() {
-            write!(f, "{}", if *val { 1 } else { 0 })?;
-        }
-        Ok(())
+        Ok(PoxId::new(result))
     }
 }
 
@@ -4021,31 +3918,30 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
-
-    use util::db::Error as db_error;
-    use util::get_epoch_time_secs;
-
-    use chainstate::burn::operations::{
-        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
-        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-    };
-
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-
-    use burnchains::*;
-    use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-    use util::hash::{hex_bytes, Hash160};
-    use util::vrf::*;
-
-    use address::AddressHashMode;
-    use chainstate::stacks::StacksAddress;
-    use chainstate::stacks::StacksPublicKey;
-    use core::*;
     use std::sync::mpsc::sync_channel;
     use std::thread;
+
+    use address::AddressHashMode;
+    use burnchains::*;
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use chainstate::burn::ConsensusHash;
+    use chainstate::burn::operations::{
+        BlockstackOperationType, leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS,
+        LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    };
+    use chainstate::stacks::StacksPublicKey;
+    use core::*;
+    use util::db::Error as db_error;
+    use util::get_epoch_time_secs;
+    use util::hash::{Hash160, hex_bytes};
+    use util::vrf::*;
+
+    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
+    use crate::types::chainstate::StacksAddress;
+
+    use super::*;
 
     #[test]
     fn test_instantiate() {

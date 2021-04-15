@@ -14,6 +14,75 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::borrow::Borrow;
+use std::cmp::PartialEq;
+use std::collections::{HashMap, HashSet};
+use std::convert::From;
+use std::convert::TryFrom;
+use std::error;
+use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::io;
+use std::io::{Read, Write};
+use std::io::prelude::*;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
+use std::ops::Deref;
+use std::str::FromStr;
+
+use rand::RngCore;
+use rand::thread_rng;
+use regex::Regex;
+use rusqlite;
+use serde::{Deserialize, Serialize};
+use serde::de::Error as de_Error;
+use serde::ser::Error as ser_Error;
+use serde_json;
+use url;
+
+use burnchains::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use burnchains::Txid;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::{
+    Error as chain_error, StacksBlock, StacksMicroblock,
+    StacksPublicKey, StacksTransaction,
+};
+use chainstate::stacks::db::blocks::MemPoolRejection;
+use chainstate::stacks::Error as chainstate_error;
+use chainstate::stacks::index::Error as marf_error;
+use clarity_vm::clarity::Error as clarity_error;
+use core::mempool::*;
+use core::POX_REWARD_CYCLE_LENGTH;
+use net::atlas::{Attachment, AttachmentInstance};
+use util::db::DBConn;
+use util::db::Error as db_error;
+use util::get_epoch_time_secs;
+use util::hash::{hex_bytes, to_hex};
+use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
+use util::hash::Hash160;
+use util::hash::HASH160_ENCODED_SIZE;
+use util::log;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::secp256k1::MessageSignature;
+use util::secp256k1::Secp256k1PublicKey;
+use util::strings::UrlString;
+use vm::{
+    analysis::contract_interface_builder::ContractInterface, ClarityName, ContractName,
+    types::PrincipalData, Value,
+};
+use vm::types::TraitIdentifier;
+
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::PoxId;
+use crate::util::hash::Sha256Sum;
+
+use self::dns::*;
+pub use self::http::StacksHttp;
+
 pub mod asn;
 pub mod atlas;
 pub mod chat;
@@ -31,91 +100,6 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
-
-use std::borrow::Borrow;
-use std::cmp::PartialEq;
-use std::collections::{HashMap, HashSet};
-use std::convert::From;
-use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
-use std::net::SocketAddr;
-use std::ops::Deref;
-use std::str::FromStr;
-
-use rusqlite;
-use url;
-
-use rand::thread_rng;
-use rand::RngCore;
-
-use serde::{Deserialize, Serialize};
-use serde_json;
-
-use regex::Regex;
-
-use core::mempool::*;
-
-use burnchains::BurnchainHeaderHash;
-use burnchains::Txid;
-use burnchains::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-
-use chainstate::burn::db::sortdb::PoxId;
-
-use chainstate::stacks::db::blocks::MemPoolRejection;
-use chainstate::stacks::{
-    Error as chain_error, StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock,
-    StacksPublicKey, StacksTransaction,
-};
-
-use chainstate::stacks::Error as chainstate_error;
-
-use vm::{
-    analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
-    ContractName, Value,
-};
-
-use util::hash::Hash160;
-use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
-use util::hash::HASH160_ENCODED_SIZE;
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-
-use util::log;
-
-use util::secp256k1::MessageSignature;
-use util::secp256k1::Secp256k1PublicKey;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::strings::UrlString;
-
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex};
-
-use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
-
-use chainstate::stacks::index::Error as marf_error;
-use clarity_vm::clarity::Error as clarity_error;
-
-use crate::util::hash::Sha256Sum;
-
-use self::dns::*;
-
-use net::atlas::{Attachment, AttachmentInstance};
-
-use core::POX_REWARD_CYCLE_LENGTH;
 
 #[derive(Debug)]
 pub enum Error {
@@ -1537,9 +1521,6 @@ pub trait ProtocolFamily {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksP2P {}
 
-pub use self::http::StacksHttp;
-use vm::types::TraitIdentifier;
-
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();
 
@@ -1888,58 +1869,8 @@ pub trait Requestable: std::fmt::Display {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use net::asn::*;
-    use net::atlas::*;
-    use net::chat::*;
-    use net::codec::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::neighbors::*;
-    use net::p2p::*;
-    use net::poll::*;
-    use net::relay::*;
-    use net::rpc::RPCHandlerArgs;
-    use net::Error as net_error;
-
-    use core::NETWORK_P2P_PORT;
-
-    use chainstate::burn::db::sortdb;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::boot::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::*;
-    use chainstate::*;
-
-    use chainstate::stacks::db::StacksChainState;
-
-    use chainstate::stacks::index::TrieHash;
-
-    use chainstate::coordinator::tests::*;
-    use chainstate::coordinator::*;
-
-    use burnchains::burnchain::*;
-    use burnchains::db::BurnchainDB;
-    use burnchains::test::*;
-    use burnchains::*;
-
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::*;
-    use burnchains::bitcoin::*;
-
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::secp256k1::*;
-    use util::uint::*;
-
-    use address::*;
-    use vm::costs::ExecutionCost;
-
     use std::collections::HashMap;
+    use std::fs;
     use std::io;
     use std::io::Cursor;
     use std::io::ErrorKind;
@@ -1951,18 +1882,57 @@ pub mod test {
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use std::fs;
-
+    use mio;
     use rand;
     use rand::RngCore;
 
-    use mio;
-
+    use address::*;
+    use burnchains::*;
+    use burnchains::bitcoin::*;
+    use burnchains::bitcoin::address::*;
+    use burnchains::bitcoin::keys::*;
+    use burnchains::burnchain::*;
+    use burnchains::db::BurnchainDB;
+    use burnchains::test::*;
+    use chainstate::*;
+    use chainstate::burn::*;
+    use chainstate::burn::db::sortdb;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::*;
+    use chainstate::coordinator::*;
+    use chainstate::coordinator::tests::*;
+    use chainstate::stacks::*;
+    use chainstate::stacks::boot::*;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::db::StacksChainState;
+    use chainstate::stacks::miner::*;
+    use chainstate::stacks::miner::test::*;
+    use core::NETWORK_P2P_PORT;
+    use net::asn::*;
+    use net::atlas::*;
+    use net::chat::*;
+    use net::codec::*;
+    use net::connection::*;
+    use net::db::*;
+    use net::Error as net_error;
+    use net::neighbors::*;
+    use net::p2p::*;
+    use net::poll::*;
+    use net::relay::*;
+    use net::rpc::RPCHandlerArgs;
+    use util::get_epoch_time_secs;
+    use util::hash::*;
+    use util::secp256k1::*;
     use util::strings::*;
+    use util::uint::*;
     use util::vrf::*;
-
+    use vm::costs::ExecutionCost;
     use vm::database::STXBalance;
     use vm::types::*;
+
+    use crate::types::chainstate::TrieHash;
+
+    use super::*;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {

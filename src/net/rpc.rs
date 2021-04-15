@@ -32,9 +32,7 @@ use rusqlite::{DatabaseName, NO_PARAMS};
 
 use burnchains::*;
 use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainView;
-use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::stacks::*;
@@ -43,6 +41,7 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::db::blocks::CheckError;
 use chainstate::stacks::Error as chain_error;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use monitoring;
 use net::{
@@ -92,22 +91,23 @@ use vm::{
     ContractName,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        ClarityDatabase, ClaritySerializable, marf::ContractCommitment, STXBalance,
+        ClarityDatabase, ClaritySerializable, clarity_store::ContractCommitment, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::InterpreterError, SymbolicExpression, types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData}, Value,
 };
+use vm::database::clarity_store::make_contract_hash_key;
 use vm::types::TraitIdentifier;
-use clarity_vm::clarity::ClarityConnection;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
     version_string,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::BlockHeaderHash;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
-use vm::database::marf::make_contract_hash_key;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -2835,9 +2835,7 @@ mod test {
     use address::*;
     use burnchains::*;
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
-    use chainstate::burn::BlockHeaderHash;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::*;
     use chainstate::stacks::db::blocks::test::*;
@@ -2854,6 +2852,9 @@ mod test {
     use util::hash::hex_bytes;
     use util::pipe::*;
     use vm::types::*;
+
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
 

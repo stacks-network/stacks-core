@@ -73,7 +73,7 @@ pub fn build_ast<T: CostTracker>(
 mod tests {
     use super::*;
     use chainstate::stacks::index::MarfTrieId;
-    use chainstate::stacks::StacksBlockId;
+    use crate::types::chainstate::StacksBlockId;
     use std::collections::HashMap;
     use vm::clarity::ClarityInstance;
     use vm::costs::*;

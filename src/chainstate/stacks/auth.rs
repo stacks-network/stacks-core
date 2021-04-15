@@ -33,7 +33,7 @@ use chainstate::stacks::MultisigHashMode;
 use chainstate::stacks::MultisigSpendingCondition;
 use chainstate::stacks::SinglesigHashMode;
 use chainstate::stacks::SinglesigSpendingCondition;
-use chainstate::stacks::StacksAddress;
+use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::TransactionAuth;

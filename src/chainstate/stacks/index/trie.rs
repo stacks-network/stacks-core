@@ -19,31 +19,25 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-
 use std::marker::PhantomData;
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use sha2::Digest;
 
+use chainstate::stacks::index::{MarfTrieId, TrieHasher};
 use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, get_nodetype_hash_bytes};
-
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieLeaf, TrieNode,
+    clear_backptr, CursorError, is_backptr, set_backptr, TrieCursor, TrieLeaf, TrieNode,
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-
-use chainstate::stacks::index::marf::MARF;
-
-use chainstate::stacks::index::{MarfTrieId, TrieHash, TrieHasher, TRIEHASH_ENCODED_SIZE};
-
-use chainstate::stacks::index::Error;
-
-use sha2::Digest;
 use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
+
+use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -900,17 +894,18 @@ impl Trie {
 mod test {
     #![allow(unused_variables)]
     #![allow(unused_assignments)]
-    use super::*;
-    use std::io::Cursor;
 
-    use chainstate::stacks::index::test::*;
+    use std::io::Cursor;
 
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
     use chainstate::stacks::index::storage::*;
+    use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
+
+    use super::*;
 
     fn walk_to_insertion_point(
         f: &mut TrieStorageConnection<BlockHeaderHash>,

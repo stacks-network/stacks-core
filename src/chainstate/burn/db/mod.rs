@@ -14,35 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod processing;
-pub mod sortdb;
-
 use std::error;
 use std::fmt;
 
+use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
-
-use rusqlite::Connection;
-pub type DBConn = Connection;
-
 use serde_json::Error as serde_error;
 
-use burnchains::{Address, BurnchainHeaderHash, Txid};
-
-use util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
-use util::vrf::*;
-
-use chainstate::burn::{BlockHeaderHash, ConsensusHash, OpsHash, SortitionHash, VRFSeed};
-
+use burnchains::{Address, Txid};
+use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
+use crate::types::chainstate::TrieHash;
+use chainstate::stacks::StacksPublicKey;
 use util::db;
 use util::db::Error as db_error;
 use util::db::FromColumn;
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::StacksPublicKey;
-
+use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum};
 use util::secp256k1::MessageSignature;
+use util::vrf::*;
+
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+
+pub mod processing;
+pub mod sortdb;
+
+pub type DBConn = Connection;
 
 impl_byte_array_from_column!(Txid);
 impl_byte_array_from_column!(ConsensusHash);

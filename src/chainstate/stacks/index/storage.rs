@@ -14,53 +14,44 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-use std::io;
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::{cmp, error};
-
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::{TryFrom, TryInto};
+use std::fmt;
+use std::fs;
+use std::io;
+use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-
-use std::fs;
+use std::os;
 use std::path::{Path, PathBuf};
 
-use std::iter::FromIterator;
-use std::os;
-
 use regex::Regex;
+use rusqlite::{
+    Connection,
+    Error as SqliteError, ErrorCode as SqliteErrorCode, NO_PARAMS, OpenFlags, OptionalExtension,
+    Transaction, types::{FromSql, ToSql},
+};
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
-
-use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
-
+use chainstate::stacks::index::{BlockMap, MarfTrieId, trie_sql};
 use chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
-
+use chainstate::stacks::index::Error;
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieLeaf, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
-
-use rusqlite::{
-    types::{FromSql, ToSql},
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
-};
-
-use std::convert::{TryFrom, TryInto};
-
-use chainstate::stacks::index::Error;
-
+use util::db::Error as db_error;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
-use util::db::Error as db_error;
 use util::log;
+
+use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0)).map_err(Error::IOError)
@@ -678,7 +669,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     data: &'a mut TrieStorageTransientData<T>,
 
     // used in testing in order to short-circuit block-height lookups
-    //   when the trie struct is tested outside of marf.rs usage
+    //   when the trie struct is tested outside of clarity_store usage
     #[cfg(test)]
     pub test_genesis_block: &'a mut Option<T>,
 }
@@ -723,7 +714,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     data: TrieStorageTransientData<T>,
 
     // used in testing in order to short-circuit block-height lookups
-    //   when the trie struct is tested outside of marf.rs usage
+    //   when the trie struct is tested outside of clarity_store usage
     #[cfg(test)]
     pub test_genesis_block: Option<T>,
 }
@@ -840,7 +831,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of marf.rs usage
+            //   when the trie struct is tested outside of clarity_store usage
             #[cfg(test)]
             test_genesis_block: None,
         };
@@ -906,7 +897,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of marf.rs usage
+            //   when the trie struct is tested outside of clarity_store usage
             #[cfg(test)]
             test_genesis_block: self.test_genesis_block.clone(),
         };
@@ -954,7 +945,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of marf.rs usage
+            //   when the trie struct is tested outside of clarity_store usage
             #[cfg(test)]
             test_genesis_block: self.test_genesis_block.clone(),
         };
@@ -1693,13 +1684,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
     use std::collections::VecDeque;
     use std::fs;
 
+    use chainstate::stacks::index::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
-    use chainstate::stacks::index::*;
+
+    use super::*;
 
     fn ptrs_cmp(p1: &[TriePtr], p2: &[TriePtr]) -> bool {
         if p1.len() != p2.len() {

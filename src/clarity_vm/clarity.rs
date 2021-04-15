@@ -17,16 +17,15 @@
 use std::error;
 use std::fmt;
 
-use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_COSTS, boot_code_id,
     BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::{MarfTrieId, TrieHash};
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::index::MarfTrieId;
+use crate::types::chainstate::StacksBlockId;
 use chainstate::stacks::StacksMicroblockHeader;
 use vm::analysis;
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
@@ -47,6 +46,7 @@ use vm::types::{
 
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
+use crate::types::chainstate::{BlockHeaderHash, TrieHash};
 
 ///
 /// A high-level interface for interacting with the Clarity VM.

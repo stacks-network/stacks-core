@@ -14,67 +14,57 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::mem;
-
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-
-use net::codec::*;
-use net::relay::*;
-use net::*;
-
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::GetBlocksInv;
-use net::GetPoxInv;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::GETPOXINV_MAX_BITLEN;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::db::*;
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
-
-use burnchains::PublicKey;
-
-use chainstate::burn::db::sortdb;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, PoxId, SortitionDB};
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksPublicKey;
-use monitoring;
-
-use std::net::SocketAddr;
-
+use std::cmp;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-
-use std::cmp;
 use std::convert::TryFrom;
 use std::io::Read;
 use std::io::Write;
+use std::mem;
+use std::net::SocketAddr;
 
+use rand;
+use rand::Rng;
+use rand::thread_rng;
+
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use burnchains::PublicKey;
+use chainstate::burn::db::sortdb;
+use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use chainstate::stacks::db::StacksChainState;
+use crate::types::chainstate::StacksBlockHeader;
+use chainstate::stacks::StacksPublicKey;
+use monitoring;
+use net::*;
+use net::asn::ASEntry4;
+use net::codec::*;
+use net::connection::ConnectionOptions;
+use net::connection::ConnectionP2P;
+use net::connection::ReplyHandleP2P;
+use net::db::*;
+use net::db::PeerDB;
+use net::Error as net_error;
+use net::GetBlocksInv;
+use net::GetPoxInv;
+use net::GETPOXINV_MAX_BITLEN;
+use net::Neighbor;
+use net::NeighborKey;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::PeerAddress;
+use net::relay::*;
+use net::StacksMessage;
+use net::StacksP2P;
+use util::db::DBConn;
+use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
 
-use rand;
-use rand::thread_rng;
-use rand::Rng;
+use crate::types::chainstate::PoxId;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -2312,38 +2302,36 @@ impl ConversationP2P {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use burnchains::burnchain::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use chainstate::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::p2p::*;
-    use net::*;
-    use util::pipe::*;
-    use util::secp256k1::*;
-    use util::uint::*;
-
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::stacks::db::ChainStateBootData;
-    use vm::costs::ExecutionCost;
-
-    use std::net::SocketAddr;
-    use std::net::SocketAddrV4;
-
     use std::fs;
     use std::io::prelude::*;
     use std::io::Read;
     use std::io::Write;
+    use std::net::SocketAddr;
+    use std::net::SocketAddrV4;
 
-    use util::test::*;
-
-    use net::test::*;
-
+    use burnchains::*;
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::burnchain::*;
+    use chainstate::*;
+    use chainstate::burn::*;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::stacks::db::ChainStateBootData;
     use core::{NETWORK_P2P_PORT, PEER_VERSION_TESTNET};
+    use net::*;
+    use net::connection::*;
+    use net::db::*;
+    use net::p2p::*;
+    use net::test::*;
+    use util::pipe::*;
+    use util::secp256k1::*;
+    use util::test::*;
+    use util::uint::*;
+    use vm::costs::ExecutionCost;
+
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+
+    use super::*;
 
     fn make_test_chain_dbs(
         testname: &str,

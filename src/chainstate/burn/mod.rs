@@ -14,6 +14,35 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+use std::fmt;
+use std::io::Write;
+
+use rand::Rng;
+use rand::SeedableRng;
+use rand::seq::index::sample;
+use rand_chacha::ChaCha20Rng;
+use ripemd160::Ripemd160;
+use rusqlite::Connection;
+use rusqlite::Transaction;
+use sha2::Sha256;
+
+use burnchains::Address;
+use burnchains::PublicKey;
+use burnchains::Txid;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
+use core::SYSTEM_FORK_SET_VERSION;
+use util::db::Error as db_error;
+use util::hash::{Hash160, to_hex};
+use util::hash::Hash32;
+use util::hash::Sha512Trunc256Sum;
+use util::log;
+use util::uint::Uint256;
+use util::vrf::VRFProof;
+
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::chainstate::TrieHash;
+
 /// This module contains the code for processing the burn chain state database
 pub mod db;
 pub mod distribution;
@@ -22,59 +51,23 @@ pub mod sortition;
 
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
 
-use std::convert::TryInto;
-use std::fmt;
-use std::io::Write;
-
-use burnchains::Address;
-use burnchains::BurnchainHeaderHash;
-use burnchains::PublicKey;
-use burnchains::Txid;
-
-use util::hash::{to_hex, Hash160};
-use util::vrf::VRFProof;
-
-use rand::seq::index::sample;
-use rand::Rng;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use ripemd160::Ripemd160;
-use rusqlite::Connection;
-use rusqlite::Transaction;
-use sha2::Sha256;
-
-use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
-
-use util::db::Error as db_error;
-
-use core::SYSTEM_FORK_SET_VERSION;
-
-use util::hash::Hash32;
-use util::hash::Sha512Trunc256Sum;
-use util::log;
-use util::uint::Uint256;
-
-use chainstate::stacks::index::TrieHash;
-
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
 pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
-pub struct BlockHeaderHash(pub [u8; 32]);
-impl_array_newtype!(BlockHeaderHash, u8, 32);
-impl_array_hexstring_fmt!(BlockHeaderHash);
-impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
-impl_byte_array_serde!(BlockHeaderHash);
-pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
+// operations hash -- the sha256 hash of a sequence of transaction IDs
+pub struct OpsHash(pub [u8; 32]);
+impl_array_newtype!(OpsHash, u8, 32);
+impl_array_hexstring_fmt!(OpsHash);
+impl_byte_array_newtype!(OpsHash, u8, 32);
 
-pub struct VRFSeed(pub [u8; 32]);
-impl_array_newtype!(VRFSeed, u8, 32);
-impl_array_hexstring_fmt!(VRFSeed);
-impl_byte_array_newtype!(VRFSeed, u8, 32);
-impl_byte_array_serde!(VRFSeed);
-pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
+// rolling hash of PoW outputs to mix with the VRF seed on sortition
+pub struct SortitionHash(pub [u8; 32]);
+impl_array_newtype!(SortitionHash, u8, 32);
+impl_array_hexstring_fmt!(SortitionHash);
+impl_byte_array_newtype!(SortitionHash, u8, 32);
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
@@ -92,18 +85,6 @@ impl VRFSeed {
         self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
     }
 }
-
-// operations hash -- the sha256 hash of a sequence of transaction IDs
-pub struct OpsHash(pub [u8; 32]);
-impl_array_newtype!(OpsHash, u8, 32);
-impl_array_hexstring_fmt!(OpsHash);
-impl_byte_array_newtype!(OpsHash, u8, 32);
-
-// rolling hash of PoW outputs to mix with the VRF seed on sortition
-pub struct SortitionHash(pub [u8; 32]);
-impl_array_newtype!(SortitionHash, u8, 32);
-impl_array_hexstring_fmt!(SortitionHash);
-impl_byte_array_newtype!(SortitionHash, u8, 32);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -384,23 +365,19 @@ impl ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-
-    use super::*;
-
-    use chainstate::burn::db::sortdb::*;
-
-    use burnchains::BurnchainHeaderHash;
+    use rusqlite::Connection;
 
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-
+    use chainstate::burn::db::sortdb::*;
     use util::db::Error as db_error;
-    use util::hash::{hex_bytes, Hash160};
+    use util::get_epoch_time_secs;
+    use util::hash::{Hash160, hex_bytes};
     use util::log;
 
-    use rusqlite::Connection;
+    use crate::types::chainstate::BurnchainHeaderHash;
 
-    use util::get_epoch_time_secs;
+    use super::*;
 
     #[test]
     fn get_prev_consensus_hashes() {

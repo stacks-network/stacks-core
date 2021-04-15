@@ -9,11 +9,9 @@ use std::process;
 use rand::Rng;
 
 use blockstack_lib::{
-    burnchains::BurnchainHeaderHash,
     chainstate::{
         self,
-        burn::BlockHeaderHash,
-        stacks::{index::MarfTrieId, StacksBlockId},
+        stacks::{index::MarfTrieId},
     },
     vm::{
         database::{HeadersDB, NULL_BURN_STATE_DB},
@@ -24,9 +22,10 @@ use blockstack_lib::{
     vm::costs::ExecutionCost,
 };
 use blockstack_lib::clarity_vm::database::marf::MarfedKV;
+use blockstack_lib::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
 use chainstate::{
-    burn::VRFSeed,
-    stacks::{boot::boot_code_id, StacksAddress},
+    stacks::{boot::boot_code_id},
 };
 
 struct TestHeadersDB;

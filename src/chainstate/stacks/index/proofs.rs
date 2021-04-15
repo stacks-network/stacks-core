@@ -14,48 +14,40 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
-use std::io;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::error;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
-use chainstate::burn::{BlockHeaderHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
-
-use chainstate::stacks::index::marf::MARF;
-
+use chainstate::stacks::index::{
+    BlockMap, MarfTrieId, MARFValue, slice_partialeq,
+};
 use chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
 };
-
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
+    clear_backptr, ConsensusSerializable, CursorError, is_backptr, set_backptr, TrieCursor,
     TrieLeaf, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType,
     TriePath, TriePtr,
 };
-
-use chainstate::stacks::index::{
-    slice_partialeq, BlockMap, MARFValue, MarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE,
-};
-
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-
 use chainstate::stacks::index::trie::Trie;
-
-use chainstate::stacks::index::Error;
-
 use net::{codec::read_next, StacksMessageCodec};
 use util::{hash::to_hex, log};
+
+use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::BlockHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProofTriePtr<T: MarfTrieId> {
@@ -1598,10 +1590,11 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use chainstate::stacks::index::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::test::*;
-    use chainstate::stacks::index::*;
+
+    use super::*;
 
     #[test]
     fn verifier_catches_stale_proof() {

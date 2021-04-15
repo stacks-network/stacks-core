@@ -14,26 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod db;
-pub mod download;
+use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
+use std::hash::{Hash, Hasher};
+
+use regex::Regex;
+
+use burnchains::Txid;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::stacks::boot::boot_code_id;
+use crate::types::chainstate::StacksBlockId;
+use net::StacksMessageCodec;
+use util::hash::{Hash160, MerkleHashFunc, to_hex};
+use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
 
-use chainstate::stacks::boot::boot_code_id;
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
-
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use net::StacksMessageCodec;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
-use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
-
-use regex::Regex;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::hash::{Hash, Hasher};
+pub mod db;
+pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 pub const MAX_RETRY_DELAY: u64 = 600; // seconds

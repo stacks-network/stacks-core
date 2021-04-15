@@ -16,42 +16,35 @@
 
 use std::io::{Read, Write};
 
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-
-use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-
-use util::db::DBConn;
-use util::db::DBTx;
-
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::stacks::index::TrieHash;
-
+use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainTransaction;
 use burnchains::PublicKey;
 use burnchains::Txid;
-
-use address::AddressHashMode;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::StacksAddress;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
+use chainstate::burn::Opcodes;
+use chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+};
+use chainstate::burn::operations::Error as op_error;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
-
 use net::codec::write_next;
 use net::Error as net_error;
 use net::StacksMessageCodec;
-
+use util::db::DBConn;
+use util::db::DBTx;
 use util::hash::DoubleSha256;
 use util::log;
-use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use util::vrf::{VRF, VRFPrivateKey, VRFPublicKey};
+
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -261,26 +254,25 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
+    use burnchains::*;
     use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::*;
-
+    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::{
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    };
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::deserialize;
-
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-
-    use chainstate::burn::db::sortdb::*;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex};
     use util::log;
 
-    use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-    };
+    use crate::types::chainstate::SortitionId;
+
+    use super::*;
 
     pub struct OpFixture {
         pub txstr: String,

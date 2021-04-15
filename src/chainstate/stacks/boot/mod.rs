@@ -16,8 +16,8 @@
 
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error;
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksBlockHeader;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockHeader;
 use vm::database::ClarityDatabase;
 
 use address::AddressHashMode;
@@ -37,7 +37,7 @@ use vm::types::{
 };
 
 use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 
 use burnchains::Burnchain;
 

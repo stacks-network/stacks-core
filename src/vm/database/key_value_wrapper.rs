@@ -17,14 +17,15 @@
 use std::{clone::Clone, cmp::Eq, hash::Hash};
 use std::collections::HashMap;
 
-use chainstate::{stacks::StacksBlockId};
 use util::hash::Sha512Trunc256Sum;
+use vm::database::clarity_store::make_contract_hash_key;
 use vm::errors::InterpreterResult as Result;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::Value;
 
+use crate::types::chainstate::StacksBlockId;
+
 use super::{ClarityBackingStore, ClarityDeserializable};
-use vm::database::marf::make_contract_hash_key;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;

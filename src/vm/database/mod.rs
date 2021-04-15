@@ -21,7 +21,7 @@ pub use self::clarity_db::{
     STORE_CONTRACT_SRC_INTERFACE,
 };
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
-pub use self::marf::ClarityBackingStore;
+pub use self::clarity_store::ClarityBackingStore;
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
@@ -30,7 +30,7 @@ pub use self::structures::{
 
 mod clarity_db;
 mod key_value_wrapper;
-pub mod marf;
+pub mod clarity_store;
 mod sqlite;
 mod structures;
 

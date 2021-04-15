@@ -17,31 +17,26 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::burn::db::sortdb::{InitialMiningBonus, PoxId, SortitionHandleTx, SortitionId};
-
-use chainstate::coordinator::RewardCycleInfo;
-
-use chainstate::burn::operations::{
-    leader_block_commit::{MissedBlockCommit, RewardSetInfo},
-    BlockstackOperationType, Error as OpError,
-};
-
+use address::AddressHashMode;
 use burnchains::{
-    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainStateTransition,
+    Burnchain, BurnchainBlockHeader, BurnchainStateTransition,
     Error as BurnchainError,
 };
-
+use chainstate::burn::BlockSnapshot;
+use chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
+use chainstate::burn::operations::{
+    BlockstackOperationType,
+    Error as OpError, leader_block_commit::{MissedBlockCommit, RewardSetInfo},
+};
+use chainstate::coordinator::RewardCycleInfo;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::{
-    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId, TrieHash,
+    Error as MARFError, marf::MARF, MarfTrieId, MARFValue, storage::TrieFileStorage,
 };
 use core::INITIAL_MINING_BONUS_WINDOW;
-
 use util::db::Error as DBError;
 
-use address::AddressHashMode;
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, TrieHash};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -370,17 +365,20 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
     use burnchains::*;
-    use chainstate::burn::db::sortdb::{tests::test_append_snapshot, SortitionDB};
+    use burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
+    use chainstate::burn::*;
+    use chainstate::burn::db::sortdb::{SortitionDB, tests::test_append_snapshot};
     use chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
-    use chainstate::burn::*;
-    use chainstate::stacks::{StacksAddress, StacksPublicKey};
+    use chainstate::stacks::StacksPublicKey;
     use core::MICROSTACKS_PER_STACKS;
     use util::{hash::hex_bytes, vrf::VRFPublicKey};
+
+    use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+
+    use super::*;
 
     #[test]
     fn test_initial_block_reward() {

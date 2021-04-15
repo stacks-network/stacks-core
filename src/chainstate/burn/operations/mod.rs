@@ -14,13 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod leader_block_commit;
-/// This module contains all burn-chain operations
-pub mod leader_key_register;
-pub mod stack_stx;
-pub mod transfer_stx;
-pub mod user_burn_support;
-
 use std::convert::From;
 use std::convert::TryInto;
 use std::error;
@@ -28,33 +21,38 @@ use std::fmt;
 use std::fs;
 use std::io;
 
+use burnchains::{Address, PublicKey};
+use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
+use burnchains::Burnchain;
+use burnchains::BurnchainBlockHeader;
+use burnchains::Error as BurnchainError;
+use burnchains::Txid;
+use crate::types::chainstate::BlockHeaderHash;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
+use chainstate::burn::Opcodes;
+use chainstate::burn::operations::leader_block_commit::{
+    BURN_BLOCK_MINED_AT_MODULUS, MissedBlockCommit,
+};
+use crate::types::chainstate::VRFSeed;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::StacksAddress;
 use util::db::DBConn;
 use util::db::DBTx;
-
-use burnchains::Burnchain;
-use burnchains::Txid;
-use burnchains::{Address, BurnchainHeaderHash, PublicKey};
-use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
+use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
-
-use burnchains::BurnchainBlockHeader;
-
-use burnchains::Error as BurnchainError;
-use chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
-};
-use chainstate::burn::Opcodes;
-use chainstate::burn::VRFSeed;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::StacksAddress;
-
-use util::db::Error as db_error;
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFPublicKey;
+
+use crate::types::chainstate::BurnchainHeaderHash;
+
+pub mod leader_block_commit;
+/// This module contains all burn-chain operations
+pub mod leader_key_register;
+pub mod stack_stx;
+pub mod transfer_stx;
+pub mod user_burn_support;
 
 #[derive(Debug)]
 pub enum Error {

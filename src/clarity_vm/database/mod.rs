@@ -1,17 +1,18 @@
-pub mod marf;
-
 use rusqlite::{Connection, OptionalExtension};
 
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx, SortitionId};
-use chainstate::stacks::{StacksAddress, StacksBlockId};
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx};
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use chainstate::stacks::index::MarfTrieId;
+use crate::types::chainstate::StacksBlockId;
 use util::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB, SqliteConnection};
 use vm::errors::{InterpreterResult, RuntimeErrorType};
-use chainstate::stacks::index::MarfTrieId;
+
+use crate::types::chainstate::{StacksAddress, VRFSeed};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+
+pub mod marf;
 
 impl HeadersDB for DBConn {
     fn get_stacks_block_header_hash_for_block(

@@ -17,68 +17,55 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use std::cmp;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::convert::TryFrom;
+use std::io::Read;
+use std::io::Write;
+use std::net::SocketAddr;
 
-use net::codec::*;
+use rand;
+use rand::Rng;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use chainstate::burn::BlockSnapshot;
+use chainstate::burn::db::sortdb::{
+    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
+};
+use chainstate::stacks::db::StacksChainState;
 use net::*;
-
+use net::asn::ASEntry4;
 use net::chat::ConversationP2P;
+use net::codec::*;
 use net::connection::ConnectionOptions;
 use net::connection::ConnectionP2P;
 use net::connection::ReplyHandleP2P;
+use net::db::*;
+use net::db::PeerDB;
+use net::Error as net_error;
 use net::GetBlocksInv;
+use net::Neighbor;
+use net::NeighborKey;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::p2p::PeerNetwork;
+use net::PeerAddress;
 use net::StacksMessage;
 use net::StacksP2P;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::db::*;
-
-use net::p2p::PeerNetwork;
-
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
-use chainstate::burn::db::sortdb::{
-    BlockHeaderCache, PoxId, SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionId,
-};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::stacks::db::StacksChainState;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-
-use std::net::SocketAddr;
-
-use std::cmp;
-
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-
-use std::io::Read;
-use std::io::Write;
-
-use std::convert::TryFrom;
-
-use util::hash::to_hex;
-use util::log;
-
-use rand;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -2570,13 +2557,15 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::collections::HashMap;
+
     use burnchains::PoxConstants;
     use chainstate::stacks::*;
-    use net::test::*;
     use net::*;
-    use std::collections::HashMap;
+    use net::test::*;
     use util::test::*;
+
+    use super::*;
 
     #[test]
     fn peerblocksinv_has_ith_block() {

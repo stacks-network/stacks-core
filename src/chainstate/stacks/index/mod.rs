@@ -14,16 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod bits;
-pub mod marf;
-pub mod node;
-pub mod proofs;
-pub mod storage;
-pub mod trie;
-pub mod trie_sql;
-
 use std::error;
 use std::fmt;
+use std::hash::Hash;
 use std::io;
 use std::io::{Seek, SeekFrom};
 use std::ptr;
@@ -31,23 +24,22 @@ use std::ptr;
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::db::sortdb::SortitionId;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::StacksBlockId;
-use std::hash::Hash;
-
+use crate::types::chainstate::StacksBlockId;
 use util::db::Error as db_error;
 use util::hash::to_hex;
 use util::log;
 
-/// Hash of a Trie node.  This is a SHA2-512/256.
-pub struct TrieHash(pub [u8; 32]);
-impl_array_newtype!(TrieHash, u8, 32);
-impl_array_hexstring_fmt!(TrieHash);
-impl_byte_array_newtype!(TrieHash, u8, 32);
-impl_byte_array_serde!(TrieHash);
-pub const TRIEHASH_ENCODED_SIZE: usize = 32;
+use crate::types::chainstate::{BurnchainHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::SortitionId;
+
+pub mod bits;
+pub mod marf;
+pub mod node;
+pub mod proofs;
+pub mod storage;
+pub mod trie;
+pub mod trie_sql;
 
 /// Structure that holds the actual data in a MARF leaf node.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
@@ -400,7 +392,9 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 // test infrastructure common to multiple files in the index
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::collections::HashMap;
+    use std::io::{Cursor, Seek, SeekFrom};
+
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
@@ -408,8 +402,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use std::collections::HashMap;
-    use std::io::{Cursor, Seek, SeekFrom};
+    use super::*;
 
     /// Print out a trie to stderr
     pub fn dump_trie(s: &mut TrieStorageConnection<BlockHeaderHash>) -> () {

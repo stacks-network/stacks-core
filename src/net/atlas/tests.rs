@@ -14,28 +14,32 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::download::{
-    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
-    BatchedRequestsResult, ReliabilityReport,
-};
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
-use burnchains::Txid;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use chainstate::stacks::boot::boot_code_id;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
-use net::connection::ConnectionOptions;
-use net::{
-    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
-    PeerHost, Requestable,
-};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::thread;
 use std::time;
+
+use burnchains::Txid;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::db::StacksChainState;
+use crate::types::chainstate::StacksBlockId;
+use net::{
+    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
+    PeerHost, Requestable,
+};
+use net::connection::ConnectionOptions;
 use util::hash::Hash160;
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
+
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+use super::download::{
+    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
+    BatchedRequestsResult, ReliabilityReport,
+};
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {

@@ -15,24 +15,26 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+
+use address::AddressHashMode;
+use address::c32;
+use chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksPrivateKey};
+use chainstate::stacks::StacksPublicKey;
 use util::hash::{hex_bytes, to_hex};
+use vm::{eval, execute as vm_execute};
+use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use vm::ast::parse;
 use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
-use crate::clarity_vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
-use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute};
-use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
+use vm::types::signatures::BufferLength;
 
-use address::c32;
-use address::AddressHashMode;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::{StacksAddress, StacksPrivateKey, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::chainstate::StacksAddress;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

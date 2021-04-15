@@ -14,12 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This module contains drivers and types for all burn chains we support.
-pub mod bitcoin;
-pub mod burnchain;
-pub mod db;
-pub mod indexer;
-
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::default::Default;
@@ -28,42 +22,42 @@ use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 
-use self::bitcoin::Error as btc_error;
+use rusqlite::Error as sqlite_error;
+
+use address::AddressHashMode;
+use chainstate::burn::ConsensusHash;
+use crate::types::chainstate::PoxId;
+use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::BlockstackOperationType;
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::StacksAddress;
+use chainstate::stacks::StacksPublicKey;
+use core::*;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use util::db::Error as db_error;
+use util::hash::Hash160;
+use util::secp256k1::MessageSignature;
+
+use crate::types::chainstate::BurnchainHeaderHash;
 
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
-
+use self::bitcoin::Error as btc_error;
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
 };
 
-use core::*;
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksPublicKey;
-
-use chainstate::burn::db::sortdb::PoxId;
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::ConsensusHash;
-
-use address::AddressHashMode;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use rusqlite::Error as sqlite_error;
-
-use util::db::Error as db_error;
-use util::hash::Hash160;
-
-use util::secp256k1::MessageSignature;
+/// This module contains drivers and types for all burn chains we support.
+pub mod bitcoin;
+pub mod burnchain;
+pub mod db;
+pub mod indexer;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
@@ -72,11 +66,6 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
-#[derive(Serialize, Deserialize)]
-pub struct BurnchainHeaderHash(pub [u8; 32]);
-impl_array_newtype!(BurnchainHeaderHash, u8, 32);
-impl_array_hexstring_fmt!(BurnchainHeaderHash);
-impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
@@ -577,29 +566,28 @@ impl BurnchainView {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
     use std::collections::HashMap;
+
+    use address::*;
+    use burnchains::*;
+    use burnchains::Burnchain;
+    use burnchains::db::*;
+    use chainstate::burn::*;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::*;
+    use chainstate::burn::operations::BlockstackOperationType;
+    use chainstate::coordinator::*;
+    use chainstate::coordinator::comm::*;
+    use chainstate::stacks::*;
     use util::db::*;
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::secp256k1::*;
     use util::vrf::*;
 
-    use burnchains::Burnchain;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::BlockstackOperationType;
+    use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::*;
-
-    use burnchains::db::*;
-    use burnchains::*;
-
-    use chainstate::coordinator::comm::*;
-    use chainstate::coordinator::*;
-
-    use address::*;
+    use super::*;
 
     impl Txid {
         pub fn from_test_data(

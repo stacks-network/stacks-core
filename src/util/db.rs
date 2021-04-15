@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use util::hash::to_hex;
 use util::sleep_ms;
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
 use vm::types::QualifiedContractIdentifier;
 
 use rusqlite::types::{
@@ -49,7 +49,7 @@ use chainstate::stacks::index::storage::TrieStorageTransaction;
 use chainstate::stacks::index::Error as MARFError;
 use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::index::TrieHash;
+use crate::types::chainstate::TrieHash;
 
 use rand::thread_rng;
 use rand::Rng;

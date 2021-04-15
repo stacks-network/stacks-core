@@ -27,7 +27,7 @@ use vm::{ast, ClarityName, eval_all, SymbolicExpression, Value};
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use vm::costs::cost_functions::ClarityCostFunction;
-use vm::database::{ClarityDatabase, marf::NullBackingStore};
+use vm::database::{ClarityDatabase, clarity_store::NullBackingStore};
 use vm::errors::{Error, InterpreterResult};
 use vm::types::{
     FunctionArg, FunctionType, NONE, PrincipalData, QualifiedContractIdentifier,

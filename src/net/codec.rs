@@ -20,16 +20,16 @@ use std::io;
 use std::io::prelude::*;
 use std::io::Read;
 
-use burnchains::BurnchainHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use burnchains::BurnchainView;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
 use chainstate::burn::ConsensusHash;
 
 use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 

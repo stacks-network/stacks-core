@@ -752,11 +752,11 @@ mod test {
     use std::cell::RefCell;
 
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
     use burnchains::BurnchainView;
 
     use burnchains::*;
-    use chainstate::burn::BlockHeaderHash;
+    use crate::types::chainstate::BlockHeaderHash;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;

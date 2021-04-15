@@ -31,12 +31,12 @@ use rusqlite::types::ToSql;
 use serde::Serialize;
 
 use address::c32::c32_address;
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::VRFSeed;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::VRFSeed;
 use chainstate::stacks::index::{MarfTrieId, storage::TrieFileStorage};
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockId;
 use util::db::FromColumn;
 use util::hash::Sha512Trunc256Sum;
 use util::log;

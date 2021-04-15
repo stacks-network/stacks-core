@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
-use stacks::chainstate::burn::VRFSeed;
+use stacks::types::VRFSeed;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,

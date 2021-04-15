@@ -14,88 +14,74 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{btree_map::Entry, BTreeMap};
+use std::fmt;
+use std::fs;
+use std::io;
+use std::io::prelude::*;
+use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
+
+use rusqlite::Connection;
+use rusqlite::NO_PARAMS;
+use rusqlite::OpenFlags;
+use rusqlite::Row;
+use rusqlite::Transaction;
+use rusqlite::types::ToSql;
+
+use burnchains::{Address, Burnchain, BurnchainParameters};
+use burnchains::bitcoin::address::BitcoinAddress;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use chainstate::burn::db::sortdb::*;
+use chainstate::burn::db::sortdb::BlockHeaderCache;
+use chainstate::stacks::*;
+use chainstate::stacks::boot::*;
+use chainstate::stacks::db::accounts::*;
+use chainstate::stacks::db::blocks::*;
+use chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use chainstate::stacks::Error;
+use chainstate::stacks::events::*;
+use chainstate::stacks::index::{MarfTrieId, MARFValue};
+use chainstate::stacks::index::marf::{
+    BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, MarfConnection,
+};
+use chainstate::stacks::index::storage::TrieFileStorage;
+use clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
+    Error as clarity_error,
+};
+use core::*;
+use monitoring;
+use net::atlas::BNS_CHARS_REGEX;
+use net::Error as net_error;
+use util::db::{
+    db_mkdirs, DBConn, DBTx, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_count, query_row, tx_begin_immediate, tx_busy_handler,
+};
+use util::db::Error as db_error;
+use util::hash::to_hex;
+use vm::analysis::analysis_db::AnalysisDatabase;
+use vm::analysis::run_analysis;
+use vm::ast::build_ast;
+use vm::contexts::OwnedEnvironment;
+use vm::costs::{ExecutionCost, LimitedCostTracker};
+use vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, SqliteConnection, STXBalance,
+};
+use vm::representations::ClarityName;
+use vm::representations::ContractName;
+use vm::types::TupleData;
+
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, TrieHash};
+
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
-
-use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
-
-use std::collections::{btree_map::Entry, BTreeMap};
-use std::fmt;
-use std::fs;
-use std::io;
-use std::io::prelude::*;
-
-use std::ops::{Deref, DerefMut};
-
-use core::*;
-
-use burnchains::{Address, Burnchain, BurnchainParameters};
-
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use chainstate::burn::ConsensusHash;
-
-use chainstate::stacks::db::accounts::*;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::events::*;
-use chainstate::stacks::index::marf::{
-    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
-};
-use chainstate::stacks::index::{MARFValue, MarfTrieId, TrieHash};
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-
-use chainstate::stacks::index::storage::TrieFileStorage;
-
-use chainstate::burn::db::sortdb::BlockHeaderCache;
-
-use std::path::{Path, PathBuf};
-
-use util::db::Error as db_error;
-use util::db::{
-    db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBConn, IndexDBTx,
-};
-
-use util::hash::to_hex;
-
-use chainstate::burn::db::sortdb::*;
-
-use chainstate::stacks::boot::*;
-
-use net::atlas::BNS_CHARS_REGEX;
-use net::Error as net_error;
-
-use vm::analysis::analysis_db::AnalysisDatabase;
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-use vm::contexts::OwnedEnvironment;
-use vm::costs::{ExecutionCost, LimitedCostTracker};
-use crate::clarity_vm::database::marf::MarfedKV;
-use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
-};
-use vm::representations::ClarityName;
-use vm::representations::ContractName;
-use vm::types::TupleData;
-
-use clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error,
-};
-
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-
-use burnchains::bitcoin::address::BitcoinAddress;
-use monitoring;
 
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
@@ -1936,14 +1922,14 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::*;
     use std::fs;
 
+    use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
     use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
+
+    use super::*;
 
     pub fn instantiate_chainstate(
         mainnet: bool,

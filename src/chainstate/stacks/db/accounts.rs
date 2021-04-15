@@ -16,22 +16,22 @@
 
 use std::collections::HashMap;
 
-use rusqlite::types::ToSql;
 use rusqlite::Row;
+use rusqlite::types::ToSql;
 
 use burnchains::Address;
-
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
 use chainstate::stacks::*;
-use vm::database::marf::*;
-use vm::database::*;
-use vm::types::*;
+use chainstate::stacks::db::*;
+use chainstate::stacks::db::blocks::*;
+use chainstate::stacks::Error;
 use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-
-use util::db::Error as db_error;
 use util::db::*;
+use util::db::Error as db_error;
+use vm::database::*;
+use vm::database::clarity_store::*;
+use vm::types::*;
+
+use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -742,15 +742,18 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use burnchains::*;
     use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
     use chainstate::stacks::*;
+    use chainstate::stacks::db::test::*;
+    use chainstate::stacks::Error;
+    use chainstate::stacks::index::*;
     use util::hash::*;
     use vm::costs::ExecutionCost;
+
+    use crate::types::chainstate::BurnchainHeaderHash;
+
+    use super::*;
 
     fn make_dummy_miner_payment_schedule(
         addr: &StacksAddress,
