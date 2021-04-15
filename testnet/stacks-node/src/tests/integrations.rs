@@ -209,7 +209,8 @@ fn integration_test_get_info() {
                         publish_tx,
                     )
                     .unwrap();
-                let publish_tx = make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
+                let publish_tx =
+                    make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
