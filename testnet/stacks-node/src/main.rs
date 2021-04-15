@@ -53,11 +53,7 @@ use backtrace::Backtrace;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
-        if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            eprintln!("Process abort due to thread panic: {:?}", s);
-        } else {
-            eprintln!("Process abort due to thread panic");
-        }
+        eprintln!("Process abort due to thread panic: {}", panic_info);
         let bt = Backtrace::new();
         eprintln!("{:?}", &bt);
 
