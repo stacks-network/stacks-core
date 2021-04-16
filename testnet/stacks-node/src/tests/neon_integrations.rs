@@ -1655,7 +1655,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 
     // small-sized contracts for microblocks
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
-    for _i in 0..((1024 * 1024 + 500) / 2) {
+    for _i in 0..(1024 * 1024 + 500) {
         small_contract.push_str(" ");
     }
 
@@ -1684,7 +1684,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                     let tx = make_contract_publish_microblock_only(
                         spender_sk,
                         i as u64,
-                        600000,
+                        1100000,
                         &format!("small-{}", i),
                         &small_contract,
                     );
@@ -1765,7 +1765,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    sleep_ms(75_000);
+    sleep_ms(150_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -1777,7 +1777,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(75_000);
+    sleep_ms(150_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
