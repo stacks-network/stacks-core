@@ -88,9 +88,9 @@ struct MicroblockMinerState {
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
-    RunTenure(RegisteredKey, BlockSnapshot, u128),
+    RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
     RegisterKey(BlockSnapshot),
-    RunMicroblockTenure(u128),
+    RunMicroblockTenure(u128), // time of issuance in ms
     Exit,
 }
 
