@@ -39,6 +39,7 @@ use vm::types::Value::Response;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
 use crate::util::boot::boot_code_id;
+use clarity_vm::database::marf::MarfedKV;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

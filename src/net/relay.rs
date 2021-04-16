@@ -55,6 +55,7 @@ use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::types::chainstate::{PoxId, SortitionId};
+use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -1588,11 +1589,12 @@ mod test {
     use net::test::*;
     use util::sleep_ms;
     use util::test::*;
-    use vm::clarity::ClarityConnection;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
     use super::*;
+    use types::chainstate::BlockHeaderHash;
+    use clarity_vm::clarity::ClarityConnection;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {

@@ -785,6 +785,8 @@ mod test {
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
     use vm::types::*;
+    use types::chainstate::StacksBlockHeader;
+    use chainstate::burn::ConsensusHash;
 
     fn test_http_server<F, C>(
         test_name: &str,

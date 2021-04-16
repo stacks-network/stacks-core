@@ -44,16 +44,17 @@ use monitoring::increment_stx_blocks_processed_counter;
 use util::hash::Hash160;
 use util::vrf::*;
 use vm::{
-    clarity::ClarityConnection,
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
     types::QualifiedContractIdentifier,
     Value,
 };
 
-use crate::{chainstate, types, util};
+use crate::{types, util};
 use crate::types::chainstate::{StacksBlockId, TrieHash};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed};
+
+use clarity_vm::clarity::ClarityConnection;
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
