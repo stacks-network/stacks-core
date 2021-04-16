@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rand::Rng;
-use std::convert::TryInto;
 use std::env;
 use std::fs;
 use std::io;
@@ -23,6 +22,7 @@ use std::io::{Read, Write};
 use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
+use std::{convert::TryInto, ffi::OsStr};
 
 use util::log;
 
@@ -61,7 +61,10 @@ use chainstate::stacks::StacksAddress;
 
 use serde::Serialize;
 
-use crate::vm::database::marf::WritableMarfStore;
+use crate::{
+    util::get_epoch_time_ms,
+    vm::{coverage::CoverageReporter, database::marf::WritableMarfStore},
+};
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -489,6 +492,18 @@ fn consume_arg(
 }
 
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
+    let mut args = Vec::from(args);
+
+    let coverage_folder =
+        if let Some(coverage_flag_index) = args[1..].iter().position(|arg| arg == "-c") {
+            args.remove(1 + coverage_flag_index);
+            let coverage_folder = args.remove(1 + coverage_flag_index);
+            fs::create_dir_all(&coverage_folder).expect("Failed to create code coverage path");
+            Some(coverage_folder)
+        } else {
+            None
+        };
+
     if args.len() < 1 {
         print_usage(invoked_by)
     }
@@ -759,7 +774,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         }
         "eval" => {
-            let evalInput = get_eval_input(invoked_by, args);
+            let evalInput = get_eval_input(invoked_by, &args);
             let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
             let marf_kv = friendly_expect(
                 MarfedKV::open(vm_filename, None),
@@ -792,7 +807,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         }
         "eval_at_chaintip" => {
-            let evalInput = get_eval_input(invoked_by, args);
+            let evalInput = get_eval_input(invoked_by, &args);
             let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
             let marf_kv = friendly_expect(
                 MarfedKV::open(vm_filename, None),
@@ -877,6 +892,27 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }
         }
+        "make_lcov" => {
+            let mut register_files = vec![];
+            let mut coverage_files = vec![];
+            let coverage_folder = &args[1];
+            for folder_entry in
+                fs::read_dir(coverage_folder).expect("Failed to read the coverage folder")
+            {
+                let folder_entry =
+                    folder_entry.expect("Failed to read entry in the coverage folder");
+                let entry_path = folder_entry.path();
+                if entry_path.is_file() {
+                    if entry_path.extension() == Some(OsStr::new("clarcovref")) {
+                        register_files.push(entry_path)
+                    } else if entry_path.extension() == Some(OsStr::new("clarcov")) {
+                        coverage_files.push(entry_path)
+                    }
+                }
+            }
+            CoverageReporter::produce_lcov("/tmp/coverage.lcov", &register_files, &coverage_files)
+                .expect("Failed to produce an lcov output");
+        }
         "launch" => {
             if args.len() < 4 {
                 eprintln!(
@@ -886,6 +922,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
             let vm_filename = &args[3];
+            let contract_src_file = &args[2];
 
             let contract_identifier = friendly_expect(
                 QualifiedContractIdentifier::parse(&args[1]),
@@ -893,14 +930,28 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             );
 
             let contract_content: String = friendly_expect(
-                fs::read_to_string(&args[2]),
-                &format!("Error reading file: {}", args[2]),
+                fs::read_to_string(contract_src_file),
+                &format!("Error reading file: {}", contract_src_file),
             );
 
             let mut ast = friendly_expect(
                 parse(&contract_identifier, &contract_content),
                 "Failed to parse program.",
             );
+
+            if let Some(ref coverage_folder) = coverage_folder {
+                let mut coverage_file = PathBuf::from(coverage_folder);
+                coverage_file.push(&format!("launch_{}", get_epoch_time_ms()));
+                coverage_file.set_extension("clarcovref");
+                CoverageReporter::register_src_file(
+                    &contract_identifier,
+                    contract_src_file,
+                    &ast,
+                    &coverage_file,
+                )
+                .expect("Coverage reference file generation failure");
+            }
+
             let marf_kv = friendly_expect(
                 MarfedKV::open(vm_filename, None),
                 "Failed to open VM database.",
@@ -916,37 +967,58 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 match analysis_result {
                     Err(e) => (marf, Err(e)),
                     Ok(analysis) => {
-                        let result = {
+                        let (result, coverage) = {
                             let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                             let mut vm_env = OwnedEnvironment::new_cost_limited(
                                 false,
                                 db,
                                 LimitedCostTracker::new_free(),
                             );
-                            vm_env.initialize_contract(contract_identifier, &contract_content)
+                            if coverage_folder.is_some() {
+                                vm_env.set_coverage_reporter(CoverageReporter::new());
+                            }
+                            (
+                                vm_env.initialize_contract(contract_identifier, &contract_content),
+                                vm_env.take_coverage_reporter(),
+                            )
                         };
-                        (marf, Ok((analysis, result)))
+                        (marf, Ok((analysis, result, coverage)))
                     }
                 }
             });
 
             match result {
-                Ok((contract_analysis, Ok(_x))) => match args.last() {
-                    Some(s) if s == "--output_analysis" => {
-                        println!(
-                            "{}",
-                            build_contract_interface(&contract_analysis).serialize()
-                        );
+                Ok((contract_analysis, Ok(_x), coverage)) => {
+                    if let Some(ref coverage_folder) = coverage_folder {
+                        let mut coverage_file = PathBuf::from(coverage_folder);
+                        coverage_file.push(&format!("launch_{}", get_epoch_time_ms()));
+                        coverage_file.set_extension("clarcov");
+
+                        coverage
+                            .expect(
+                                "Failed to recover coverage reporter when coverage was requested",
+                            )
+                            .to_file(&coverage_file)
+                            .expect("Coverage reference file generation failure");
                     }
-                    _ => {
-                        println!("Contract initialized!");
+
+                    match args.last() {
+                        Some(s) if s == "--output_analysis" => {
+                            println!(
+                                "{}",
+                                build_contract_interface(&contract_analysis).serialize()
+                            );
+                        }
+                        _ => {
+                            println!("Contract initialized!");
+                        }
                     }
-                },
+                }
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);
                     panic_test!();
                 }
-                Ok((_, Err(error))) => {
+                Ok((_, Err(error), _)) => {
                     eprintln!("Contract initialization error: \n{}", error);
                     panic_test!();
                 }
@@ -1004,14 +1076,37 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         db,
                         LimitedCostTracker::new_free(),
                     );
-                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
+                    if coverage_folder.is_some() {
+                        vm_env.set_coverage_reporter(CoverageReporter::new());
+                    }
+
+                    (
+                        vm_env.execute_transaction(
+                            sender,
+                            contract_identifier,
+                            &tx_name,
+                            &arguments,
+                        ),
+                        vm_env.take_coverage_reporter(),
+                    )
                 };
                 (marf, result)
             });
 
             match result {
-                Ok((x, _, events)) => {
+                (Ok((x, _, events)), coverage) => {
                     if let Value::Response(data) = x {
+                        if let Some(ref coverage_folder) = coverage_folder {
+                            let mut coverage_file = PathBuf::from(coverage_folder);
+                            coverage_file.push(&format!("execute_{}", get_epoch_time_ms()));
+                            coverage_file.set_extension("clarcov");
+
+                            coverage
+                                .expect("Failed to recover coverage reporter when coverage was requested")
+                                .to_file(&coverage_file)
+                                .expect("Coverage reference file generation failure");
+                        }
+
                         if data.committed {
                             println!(
                                 "Transaction executed and committed. Returned: {}\n{:?}",
@@ -1027,7 +1122,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         ));
                     }
                 }
-                Err(error) => {
+                (Err(error), _coverage) => {
                     eprintln!("Transaction execution error: \n{}", error);
                     panic_test!();
                 }

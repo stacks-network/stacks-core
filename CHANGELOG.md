@@ -22,6 +22,7 @@ compatible with prior chainstate directories.
 - New RPC endpoint with path `v2/traits/contractAddr/contractName/traitContractName
   /traitContractAddr/traitName` to determine whether a given trait is implemented 
   within the specified contract (either explicitly or implicitly).
+- lcov compatible coverage reporting in `clarity-cli` for Clarity contract testing.
 
 ## Changed
 
