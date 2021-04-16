@@ -134,7 +134,7 @@ fn set_processed_counter(blocks_processed: &BlocksProcessedCounter, value: u64) 
 }
 
 #[cfg(not(test))]
-fn set_processed_counter(_blocks_processed: &BlocksProcessedCounter) {}
+fn set_processed_counter(_blocks_processed: &BlocksProcessedCounter, value: u64) {}
 
 /// Process artifacts from the tenure.
 /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
