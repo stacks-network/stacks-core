@@ -36,6 +36,7 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    microblocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
@@ -66,6 +67,7 @@ impl RunLoop {
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             blocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            microblocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -80,6 +82,14 @@ impl RunLoop {
 
     #[cfg(not(test))]
     fn get_blocks_processed_arc(&self) {}
+
+    #[cfg(test)]
+    pub fn get_microblocks_processed_arc(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
+        self.microblocks_processed.clone()
+    }
+
+    #[cfg(not(test))]
+    fn get_microblocks_processed_arc(&self) {}
 
     #[cfg(test)]
     fn bump_blocks_processed(&self) {
@@ -303,6 +313,7 @@ impl RunLoop {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
+                self.get_microblocks_processed_arc(),
                 coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
@@ -313,6 +324,7 @@ impl RunLoop {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
+                self.get_microblocks_processed_arc(),
                 coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
@@ -416,6 +428,11 @@ impl RunLoop {
             );
 
             if next_height > block_height {
+                debug!(
+                    "New burnchain block height {} > {}",
+                    next_height, block_height
+                );
+
                 let mut sort_count = 0;
 
                 // first, let's process all blocks in (block_height, next_height]
