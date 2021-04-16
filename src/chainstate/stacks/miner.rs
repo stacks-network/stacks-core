@@ -348,6 +348,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         return Ok(false);
     }
 
+    /// NOTE: this is only used in integration tests.
     pub fn mine_next_microblock_from_txs(
         &mut self,
         txs_and_lens: Vec<(StacksTransaction, u64)>,
