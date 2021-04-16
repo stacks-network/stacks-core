@@ -6,8 +6,7 @@ use reqwest;
 
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState,
-    StacksPrivateKey, StacksTransaction,
+    db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
@@ -15,6 +14,7 @@ use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader};
 use stacks::types::VRFSeed;
 use stacks::util::hash::hex_bytes;
+use stacks::vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -24,15 +24,14 @@ use stacks::vm::{
     types::{QualifiedContractIdentifier, TupleData},
     Value,
 };
-use stacks::vm::clarity::ClarityConnection;
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 use super::{
-    ADDR_4, make_contract_call, make_contract_publish, make_stacks_transfer, SK_1, SK_2, SK_3,
-    to_addr,
+    make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
+    SK_3,
 };
 
 const GET_INFO_CONTRACT: &'static str = "

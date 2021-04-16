@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{clone::Clone, cmp::Eq, hash::Hash};
 use std::collections::HashMap;
+use std::{clone::Clone, cmp::Eq, hash::Hash};
 
 use util::hash::Sha512Trunc256Sum;
 use vm::database::clarity_store::make_contract_hash_key;

@@ -1740,21 +1740,21 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::{index::MarfTrieId};
+    use chainstate::stacks::index::MarfTrieId;
     use vm::{
         ast,
         contexts::OwnedEnvironment,
-        ContractContext,
-        database::{BurnStateDB, HeadersDB, STXBalance}, Error,
-        eval_all,
-        execute, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier, types::PrincipalData,
+        database::{BurnStateDB, HeadersDB, STXBalance},
+        eval_all, execute,
+        types::PrincipalData,
+        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
         Value,
     };
 
     use crate::clarity_vm::database::marf::MarfedKV;
-    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::VRFSeed;
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::vm::analysis::type_check;
 
     use super::make_all_api_reference;

@@ -72,14 +72,14 @@ pub fn build_ast<T: CostTracker>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chainstate::stacks::index::MarfTrieId;
     use crate::types::chainstate::StacksBlockId;
+    use chainstate::stacks::index::MarfTrieId;
+    use clarity_vm::clarity::ClarityInstance;
+    use clarity_vm::database::marf::MarfedKV;
     use std::collections::HashMap;
     use vm::costs::*;
     use vm::database::*;
     use vm::representations::depth_traverse;
-    use clarity_vm::clarity::ClarityInstance;
-    use clarity_vm::database::marf::MarfedKV;
 
     fn dependency_edge_counting_runtime(iters: usize) -> u64 {
         let mut progn = "(define-private (a0) 1)".to_string();

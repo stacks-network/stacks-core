@@ -16,31 +16,31 @@
 
 use std::io::{Read, Write};
 
+use crate::types::chainstate::TrieHash;
 use address::AddressHashMode;
-use burnchains::{BurnchainRecipient, BurnchainSigner};
-use burnchains::{BurnchainTransaction, PublicKey};
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
 use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
+use burnchains::{BurnchainRecipient, BurnchainSigner};
+use burnchains::{BurnchainTransaction, PublicKey};
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use chainstate::burn::Opcodes;
-use chainstate::burn::operations::{BlockstackOperationType, parse_u128_from_be, TransferStxOp};
 use chainstate::burn::operations::Error as op_error;
-use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use chainstate::burn::operations::{parse_u128_from_be, BlockstackOperationType, TransferStxOp};
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use crate::types::chainstate::TrieHash;
+use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use core::POX_MAX_NUM_CYCLES;
 use net::codec::write_next;
 use net::Error as net_error;
 use net::StacksMessageCodec;
 use util::hash::to_hex;
 use util::log;
-use util::vrf::{VRF, VRFPrivateKey, VRFPublicKey};
+use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 use crate::types::chainstate::VRFSeed;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 
 // return type from parse_data below
 struct ParsedData {
@@ -227,16 +227,16 @@ impl TransferStxOp {
 #[cfg(test)]
 mod tests {
     use address::AddressHashMode;
-    use burnchains::*;
-    use burnchains::bitcoin::*;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::burn::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::burn::db::*;
+    use burnchains::bitcoin::*;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
     use chainstate::burn::operations::*;
+    use chainstate::burn::ConsensusHash;
+    use chainstate::burn::*;
     use chainstate::stacks::StacksPublicKey;
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
@@ -244,8 +244,8 @@ mod tests {
     use util::hash::*;
     use util::vrf::VRFPublicKey;
 
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
     use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
 
     use super::*;
 

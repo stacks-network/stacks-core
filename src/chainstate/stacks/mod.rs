@@ -19,8 +19,8 @@ use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -29,21 +29,21 @@ use sha2::{Digest, Sha512Trunc256};
 
 use address::AddressHashMode;
 use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::LeaderBlockCommitOp;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::index::Error as marf_error;
 use clarity_vm::clarity::Error as clarity_error;
-use net::{MAX_MESSAGE_LEN, StacksMessageCodec};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
+use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::hash::Hash160;
-use util::hash::HASH160_ENCODED_SIZE;
 use util::hash::Sha512Trunc256Sum;
+use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1;
 use util::secp256k1::MessageSignature;
 use util::strings::StacksString;
@@ -55,8 +55,12 @@ use vm::errors::Error as clarity_interpreter_error;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TRIEHASH_ENCODED_SIZE};
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash};
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash,
+};
+use crate::types::chainstate::{
+    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TRIEHASH_ENCODED_SIZE,
+};
 
 pub mod address;
 pub mod auth;
@@ -858,12 +862,12 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use chainstate::stacks::*;
     use chainstate::stacks::StacksPublicKey as PubKey;
+    use chainstate::stacks::*;
     use core::*;
-    use net::*;
-    use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
+    use net::codec::*;
+    use net::*;
     use util::hash::*;
     use util::log;
     use vm::representations::{ClarityName, ContractName};
@@ -1193,12 +1197,12 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
         )
-            .unwrap();
+        .unwrap();
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
                 &privk,
             ))
-                .unwrap(),
+            .unwrap(),
         );
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,

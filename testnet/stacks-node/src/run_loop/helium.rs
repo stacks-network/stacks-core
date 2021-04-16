@@ -3,9 +3,9 @@ use crate::burnchains::Error as BurnchainControllerError;
 use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
-use stacks::types::BurnchainHeaderHash;
 use stacks::chainstate::stacks::db::ClarityTx;
 use stacks::net::atlas::AttachmentInstance;
+use stacks::types::BurnchainHeaderHash;
 use std::collections::HashSet;
 use std::sync::mpsc::{sync_channel, Receiver};
 

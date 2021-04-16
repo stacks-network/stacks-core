@@ -18,9 +18,9 @@ use std::convert::TryInto;
 use std::fmt;
 use std::io::Write;
 
+use rand::seq::index::sample;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::seq::index::sample;
 use rand_chacha::ChaCha20Rng;
 use ripemd160::Ripemd160;
 use rusqlite::Connection;
@@ -33,15 +33,15 @@ use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use core::SYSTEM_FORK_SET_VERSION;
 use util::db::Error as db_error;
-use util::hash::{Hash160, to_hex};
 use util::hash::Hash32;
 use util::hash::Sha512Trunc256Sum;
+use util::hash::{to_hex, Hash160};
 use util::log;
 use util::uint::Uint256;
 use util::vrf::VRFProof;
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -372,7 +372,7 @@ mod tests {
     use chainstate::burn::db::sortdb::*;
     use util::db::Error as db_error;
     use util::get_epoch_time_secs;
-    use util::hash::{Hash160, hex_bytes};
+    use util::hash::{hex_bytes, Hash160};
     use util::log;
 
     use crate::types::chainstate::BurnchainHeaderHash;

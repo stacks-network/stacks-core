@@ -20,8 +20,8 @@ pub use self::clarity_db::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE,
 };
-pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 pub use self::clarity_store::ClarityBackingStore;
+pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
@@ -29,8 +29,7 @@ pub use self::structures::{
 };
 
 mod clarity_db;
-mod key_value_wrapper;
 pub mod clarity_store;
+mod key_value_wrapper;
 mod sqlite;
 mod structures;
-

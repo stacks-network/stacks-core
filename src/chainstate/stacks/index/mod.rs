@@ -29,9 +29,9 @@ use util::db::Error as db_error;
 use util::hash::to_hex;
 use util::log;
 
-use crate::types::chainstate::{BurnchainHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
+use crate::types::chainstate::{BurnchainHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
 pub mod marf;

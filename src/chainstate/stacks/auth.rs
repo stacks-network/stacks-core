@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 
-use address::AddressHashMode;
 use address::public_keys_to_address_hash;
+use address::AddressHashMode;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use burnchains::Txid;
@@ -38,20 +38,23 @@ use chainstate::stacks::TransactionPublicKeyEncoding;
 use chainstate::stacks::TransactionSpendingCondition;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
-use net::MAX_MESSAGE_LEN;
-use net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
 use net::StacksMessageCodec;
 use net::StacksPublicKeyBuffer;
+use net::MAX_MESSAGE_LEN;
+use net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
+use util::hash::to_hex;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
-use util::hash::to_hex;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::secp256k1::MessageSignature;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
-use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use crate::types::chainstate::StacksAddress;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -1076,11 +1079,11 @@ impl TransactionAuth {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::*;
     use chainstate::stacks::StacksPublicKey as PubKey;
-    use net::*;
-    use net::codec::*;
+    use chainstate::stacks::*;
     use net::codec::test::check_codec_and_corruption;
+    use net::codec::*;
+    use net::*;
 
     use super::*;
 

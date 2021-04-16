@@ -24,38 +24,37 @@ use std::path::PathBuf;
 use std::process;
 
 use rand::Rng;
-use rusqlite::{Connection, NO_PARAMS, OpenFlags};
+use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::types::ToSql;
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use serde::Serialize;
 
-use address::c32::c32_address;
-use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::VRFSeed;
-use chainstate::stacks::index::{MarfTrieId, storage::TrieFileStorage};
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::VRFSeed;
+use address::c32::c32_address;
+use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use util::db::FromColumn;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
-use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis;
-use vm::analysis::{AnalysisDatabase, ContractAnalysis, errors::CheckResult};
 use vm::analysis::contract_interface_builder::build_contract_interface;
+use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
-    ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-    SqliteConnection, STXBalance,
+    ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
-use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
 
 #[cfg(test)]

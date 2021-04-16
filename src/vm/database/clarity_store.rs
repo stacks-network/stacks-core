@@ -21,11 +21,11 @@ use rusqlite::Connection;
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
-use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum, to_hex};
+use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB, SqliteConnection,
+    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
@@ -33,7 +33,9 @@ use vm::errors::{
 };
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{StacksBlockHeader, TrieHash, VRFSeed, BlockHeaderHash, StacksBlockId};
+use crate::types::chainstate::{
+    BlockHeaderHash, StacksBlockHeader, StacksBlockId, TrieHash, VRFSeed,
+};
 
 pub struct NullBackingStore {}
 

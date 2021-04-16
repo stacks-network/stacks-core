@@ -81,9 +81,9 @@ extern crate stx_genesis;
 
 pub mod address;
 pub mod burnchains;
+pub mod clarity_vm;
 pub mod core;
 pub mod deps;
-pub mod clarity_vm;
 
 pub mod clarity;
 

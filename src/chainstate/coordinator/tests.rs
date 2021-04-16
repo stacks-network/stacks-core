@@ -18,26 +18,26 @@ use std::cmp;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc::sync_channel, RwLock,
+    mpsc::sync_channel,
+    Arc, RwLock,
 };
 
 use rusqlite::Connection;
 
 use address;
-use burnchains::{*, db::*};
+use burnchains::{db::*, *};
 use chainstate;
-use chainstate::burn::*;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::*;
 use chainstate::burn::operations::leader_block_commit::*;
-use chainstate::coordinator::{*, Error as CoordError};
-use chainstate::stacks::*;
+use chainstate::burn::operations::*;
+use chainstate::burn::*;
+use chainstate::coordinator::{Error as CoordError, *};
 use chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
+use chainstate::stacks::*;
 use core;
 use core::*;
 use monitoring::increment_stx_blocks_processed_counter;
@@ -50,9 +50,11 @@ use vm::{
     Value,
 };
 
-use crate::{types, util};
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+};
 use crate::types::chainstate::{StacksBlockId, TrieHash};
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed};
+use crate::{types, util};
 
 use clarity_vm::clarity::ClarityConnection;
 

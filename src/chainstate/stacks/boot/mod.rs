@@ -20,22 +20,22 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use address::AddressHashMode;
-use burnchains::{Address, PoxConstants};
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::Burnchain;
+use burnchains::{Address, PoxConstants};
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::Error;
 use chainstate::stacks::index::marf::MarfConnection;
+use chainstate::stacks::Error;
 use clarity_vm::clarity::ClarityConnection;
 use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use util::hash::Hash160;
 use vm::contexts::ContractContext;
 use vm::costs::{
-    ClarityCostFunctionReference, cost_functions::ClarityCostFunction, CostStateSummary,
+    cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
 };
-use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::database::ClarityDatabase;
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::{
@@ -437,25 +437,25 @@ pub mod test {
 
     use burnchains::Address;
     use burnchains::PublicKey;
-    use chainstate::burn::*;
-    use chainstate::burn::db::*;
     use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
     use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::stacks::*;
-    use chainstate::stacks::db::*;
+    use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
-    use chainstate::stacks::Error as chainstate_error;
-    use chainstate::stacks::miner::*;
+    use chainstate::stacks::db::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::miner::*;
+    use chainstate::stacks::Error as chainstate_error;
+    use chainstate::stacks::*;
     use core::*;
     use net::test::*;
-    use util::*;
     use util::hash::to_hex;
+    use util::*;
     use vm::contracts::Contract;
     use vm::types::*;
 
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::util::boot::{boot_code_id, boot_code_test_addr};
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     use super::*;
 

@@ -1,16 +1,21 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx};
+use crate::types::chainstate::StacksBlockId;
+use chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
-use crate::types::chainstate::StacksBlockId;
 use util::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
-use vm::database::{BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB, SqliteConnection};
+use vm::database::{
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
-use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use crate::types::chainstate::{StacksAddress, VRFSeed};
 
 pub mod marf;
 

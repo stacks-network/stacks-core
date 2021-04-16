@@ -20,12 +20,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use chainstate::stacks::*;
-use chainstate::stacks::db::*;
 use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::Error;
+use chainstate::stacks::db::*;
 use chainstate::stacks::events::*;
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
 use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use core::*;
 use net::Error as net_error;
@@ -502,17 +502,17 @@ mod test {
     use std::fs;
 
     use burnchains::PublicKey;
-    use chainstate::burn::db::*;
     use chainstate::burn::db::sortdb::*;
-    use chainstate::stacks::*;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use chainstate::stacks::db::*;
+    use chainstate::burn::db::*;
     use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::*;
+    use chainstate::stacks::db::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
-    use chainstate::stacks::miner::*;
+    use chainstate::stacks::index::*;
     use chainstate::stacks::miner::test::make_coinbase;
+    use chainstate::stacks::miner::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use chainstate::stacks::*;
     use core::mempool::*;
     use net::test::*;
 

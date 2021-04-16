@@ -4,21 +4,21 @@ use std::convert::TryInto;
 
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::*;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::proofs::TrieMerkleProof;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::*;
 use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
 use util::db::{DBConn, FromRow};
-use util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use util::hash::to_hex;
+use util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use vm::contexts::OwnedEnvironment;
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
@@ -30,15 +30,17 @@ use vm::errors::{
 use vm::eval;
 use vm::representations::SymbolicExpression;
 use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use vm::types::{
-    NONE, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-    StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value,
-};
 use vm::types::Value::Response;
+use vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
+    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+};
 
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+};
 use crate::util::boot::boot_code_id;
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use clarity_vm::database::marf::MarfedKV;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;

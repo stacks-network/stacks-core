@@ -20,27 +20,25 @@ use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 use burnchains::{
-    Address,
-    Burnchain, BurnchainBlockHeader, db::{BurnchainBlockData, BurnchainDB}, Error as BurnchainError, Txid,
+    db::{BurnchainBlockData, BurnchainDB},
+    Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
 use chainstate::burn::{
-    BlockSnapshot,
-    ConsensusHash,
-    db::sortdb::SortitionDB, operations::BlockstackOperationType, operations::leader_block_commit::RewardSetInfo,
+    db::sortdb::SortitionDB, operations::leader_block_commit::RewardSetInfo,
+    operations::BlockstackOperationType, BlockSnapshot, ConsensusHash,
 };
 use chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
+use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::{
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
     },
-    Error as ChainstateError,
-    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin}, StacksBlock,
-    TransactionPayload,
+    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
+    Error as ChainstateError, StacksBlock, TransactionPayload,
 };
-use chainstate::stacks::index::MarfTrieId;
 use monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
     update_stacks_tip_height,
@@ -53,8 +51,11 @@ use vm::{
     Value,
 };
 
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId,
+};
 use crate::util::boot::boot_code_id;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader, StacksBlockId};
 
 pub use self::comm::CoordinatorCommunication;
 

@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use vm::ast::errors::ParseErrors;
 use vm::ast::{build_ast, parse};
-use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 #[test]

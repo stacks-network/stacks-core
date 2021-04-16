@@ -28,8 +28,8 @@ use burnchains::PublicKey;
 use crate::types::chainstate::BlockHeaderHash;
 use chainstate::burn::ConsensusHash;
 
-use chainstate::stacks::StacksBlock;
 use crate::types::chainstate::StacksBlockHeader;
+use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 

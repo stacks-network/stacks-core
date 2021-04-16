@@ -15,17 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::index::storage::TrieFileStorage;
 use crate::types::chainstate::StacksBlockId;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::MarfTrieId;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use vm::representations::SymbolicExpression;
 use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
 use vm::types::Value;
+use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 

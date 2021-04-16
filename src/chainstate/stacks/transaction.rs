@@ -16,8 +16,8 @@
 
 use std::convert::TryFrom;
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 
 use burnchains::Txid;
 use chainstate::stacks::*;
@@ -26,15 +26,15 @@ use net::codec::{read_next, write_next};
 use net::Error as net_error;
 use net::StacksMessageCodec;
 use net::StacksPublicKeyBuffer;
-use util::hash::Sha512Trunc256Sum;
 use util::hash::to_hex;
+use util::hash::Sha512Trunc256Sum;
 use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
-use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::ast::build_ast;
 use vm::representations::{ClarityName, ContractName};
-use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use vm::types::serialization::SerializationError as clarity_serialization_error;
+use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
 use crate::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 
@@ -1016,13 +1016,15 @@ impl StacksTransactionSigner {
 mod test {
     use std::error::Error;
 
-    use chainstate::stacks::*;
-    use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
-    use chainstate::stacks::StacksPublicKey as PubKey;
     use chainstate::stacks::test::codec_all_transactions;
-    use net::*;
-    use net::codec::*;
+    use chainstate::stacks::StacksPublicKey as PubKey;
+    use chainstate::stacks::*;
+    use chainstate::stacks::{
+        C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    };
     use net::codec::test::check_codec_and_corruption;
+    use net::codec::*;
+    use net::*;
     use util::hash::*;
     use util::log;
     use util::retry::BoundReader;

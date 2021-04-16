@@ -15,24 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use crate::util::boot::boot_code_id;
-use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::index::storage::TrieFileStorage;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
+use crate::util::boot::boot_code_id;
+use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::MarfTrieId;
+use clarity_vm::clarity::ClarityInstance;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use util::hash::hex_bytes;
-use clarity_vm::clarity::ClarityInstance;
-use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contexts::Environment;
+use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
-use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use vm::costs::cost_functions::ClarityCostFunction;
-use vm::database::{
-    ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
+use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
+use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;

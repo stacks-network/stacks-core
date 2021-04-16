@@ -25,20 +25,19 @@ use std::ops::{Deref, DerefMut};
 
 use sha2::Digest;
 
-use chainstate::stacks::index::{
-    BlockMap, MARF_VALUE_ENCODED_SIZE, MarfTrieId, MARFValue, slice_partialeq,
-    TrieHasher,
-};
 use chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use chainstate::stacks::index::Error;
+use chainstate::stacks::index::{
+    slice_partialeq, BlockMap, MARFValue, MarfTrieId, TrieHasher, MARF_VALUE_ENCODED_SIZE,
+};
 use net::{codec::read_next, StacksMessageCodec};
 use util::hash::to_hex;
 use util::log;
 
-use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {

@@ -19,27 +19,27 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time;
 
+use crate::types::chainstate::StacksBlockId;
+use crate::util::boot::boot_code_id;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
-use crate::types::chainstate::StacksBlockId;
+use net::connection::ConnectionOptions;
 use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
-use net::connection::ConnectionOptions;
 use util::hash::Hash160;
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
 
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
     BatchedRequestsResult, ReliabilityReport,
 };
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {

@@ -22,19 +22,19 @@ use std::mem;
 
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
-use chainstate::burn::*;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
-use chainstate::stacks::*;
-use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, MINER_REWARD_MATURITY, StacksChainState,
-};
+use chainstate::burn::*;
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::Error;
+use chainstate::stacks::db::{
+    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+};
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
 use clarity_vm::clarity::ClarityConnection;
-use core::*;
 use core::mempool::*;
+use core::*;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 use net::StacksMessageCodec;
@@ -46,9 +46,11 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash};
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use crate::types::chainstate::{
+    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash,
+};
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {
@@ -1544,22 +1546,22 @@ pub mod test {
     use std::io;
     use std::path::{Path, PathBuf};
 
-    use rand::Rng;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
+    use rand::Rng;
 
     use address::*;
-    use burnchains::*;
     use burnchains::test::*;
-    use chainstate::burn::*;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::stacks::*;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use chainstate::stacks::db::*;
+    use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use chainstate::stacks::*;
     use core::BLOCK_LIMIT_MAINNET;
     use net::test::*;
     use util::sleep_ms;

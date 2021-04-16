@@ -27,16 +27,30 @@ extern crate rusqlite;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-use std::{collections::HashMap, env};
-use std::{convert::TryFrom, fs};
 use std::io;
 use std::io::prelude::*;
 use std::process;
+use std::{collections::HashMap, env};
+use std::{convert::TryFrom, fs};
 
+use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
-use rusqlite::types::ToSql;
 
+use blockstack_lib::burnchains::bitcoin::spv;
+use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
+use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
+use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
+use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::*;
+use blockstack_lib::net::StacksMessageCodec;
+use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
+use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
+use blockstack_lib::util::get_epoch_time_ms;
+use blockstack_lib::util::hash::{hex_bytes, to_hex};
+use blockstack_lib::util::log;
+use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::*;
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
@@ -52,20 +66,6 @@ use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
-use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
-use blockstack_lib::burnchains::bitcoin::spv;
-use blockstack_lib::chainstate::burn::ConsensusHash;
-use blockstack_lib::chainstate::stacks::*;
-use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
-use blockstack_lib::chainstate::stacks::index::marf::MARF;
-use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
-use blockstack_lib::net::StacksMessageCodec;
-use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
-use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
-use blockstack_lib::util::get_epoch_time_ms;
-use blockstack_lib::util::hash::{hex_bytes, to_hex};
-use blockstack_lib::util::log;
-use blockstack_lib::util::retry::LogReader;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -680,6 +680,8 @@ simulating a miner.
     }
 
     if argv[1] == "replay-chainstate" {
+        use blockstack_lib::types::chainstate::StacksAddress;
+        use blockstack_lib::types::chainstate::StacksBlockHeader;
         use burnchains::bitcoin::indexer::BitcoinIndexer;
         use burnchains::db::BurnchainDB;
         use burnchains::Address;
@@ -689,8 +691,6 @@ simulating a miner.
         use chainstate::stacks::db::blocks::StagingBlock;
         use chainstate::stacks::db::StacksChainState;
         use chainstate::stacks::index::MarfTrieId;
-        use blockstack_lib::types::chainstate::StacksAddress;
-        use blockstack_lib::types::chainstate::StacksBlockHeader;
         use core::*;
         use net::relay::Relayer;
         use std::collections::HashMap;

@@ -16,12 +16,11 @@
 
 use address::AddressHashMode;
 use util::hash;
-use vm::{Environment, eval, LocalContext};
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{
-    constants as cost_constants, cost_functions, CostTracker, MemoryConsumer, runtime_cost,
-};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -29,12 +28,13 @@ use vm::errors::{
 pub use vm::functions::assets::stx_transfer_consolidated;
 pub use vm::functions::special::handle_contract_call_special_cases;
 use vm::is_reserved;
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{Atom, List};
+use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
-    BUFF_32, BUFF_33, BUFF_65, BuffData, CharType, PrincipalData, ResponseData, SequenceData,
-    TypeSignature, Value,
+    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
+    BUFF_33, BUFF_65,
 };
+use vm::{eval, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
 

@@ -17,25 +17,24 @@
 use std::error;
 use std::fmt;
 
+use crate::types::chainstate::StacksMicroblockHeader;
 use chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_COSTS,
-    BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
-use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MarfTrieId;
-use crate::types::chainstate::StacksMicroblockHeader;
+use chainstate::stacks::Error as ChainstateError;
 use vm::analysis;
-use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::analysis::AnalysisDatabase;
+use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
 use vm::ast;
-use vm::ast::{ContractAST, errors::ParseError, errors::ParseErrors};
+use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
 use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB,
-    NULL_HEADER_DB, RollbackWrapper, RollbackWrapperPersistedLog, SqliteConnection,
+    BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
+    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
@@ -43,11 +42,11 @@ use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
-use crate::util::boot::boot_code_id;
-use crate::types::chainstate::{BlockHeaderHash, TrieHash};
+use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BlockHeaderHash, TrieHash};
+use crate::util::boot::boot_code_id;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -998,9 +997,7 @@ mod tests {
 
     use chainstate::stacks::index::storage::TrieFileStorage;
     use vm::analysis::errors::CheckErrors;
-    use vm::database::{
-        ClarityBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB, STXBalance,
-    };
+    use vm::database::{ClarityBackingStore, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB};
     use vm::types::{StandardPrincipalData, Value};
 
     use crate::clarity_vm::database::marf::MarfedKV;

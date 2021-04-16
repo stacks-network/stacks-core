@@ -22,30 +22,30 @@ use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
-use util::hash::{Hash160, Sha256Sum, Sha512Trunc256Sum, to_hex};
+use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
-use vm::database::ClarityBackingStore;
-use vm::database::RollbackWrapper;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, SimmedBlock,
-    STXBalance, STXBalanceSnapshot,
+    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
+    STXBalanceSnapshot, SimmedBlock,
 };
+use vm::database::ClarityBackingStore;
+use vm::database::RollbackWrapper;
 use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
 use vm::representations::ClarityName;
 use vm::types::{
-    NONE, OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleData, TupleTypeSignature, TypeSignature, Value,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress,
-    VRFSeed, StacksBlockHeader, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId, VRFSeed,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;

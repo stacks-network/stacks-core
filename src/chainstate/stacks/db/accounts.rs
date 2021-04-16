@@ -16,19 +16,19 @@
 
 use std::collections::HashMap;
 
-use rusqlite::Row;
 use rusqlite::types::ToSql;
+use rusqlite::Row;
 
 use burnchains::Address;
-use chainstate::stacks::*;
-use chainstate::stacks::db::*;
 use chainstate::stacks::db::blocks::*;
+use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
+use chainstate::stacks::*;
 use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use util::db::*;
 use util::db::Error as db_error;
-use vm::database::*;
+use util::db::*;
 use vm::database::clarity_store::*;
+use vm::database::*;
 use vm::types::*;
 
 use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
@@ -744,10 +744,10 @@ impl StacksChainState {
 mod test {
     use burnchains::*;
     use chainstate::burn::*;
-    use chainstate::stacks::*;
     use chainstate::stacks::db::test::*;
-    use chainstate::stacks::Error;
     use chainstate::stacks::index::*;
+    use chainstate::stacks::Error;
+    use chainstate::stacks::*;
     use util::hash::*;
     use vm::costs::ExecutionCost;
 

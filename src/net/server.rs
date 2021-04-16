@@ -751,12 +751,12 @@ mod test {
     use net::*;
     use std::cell::RefCell;
 
-    use burnchains::Burnchain;
     use crate::types::chainstate::BurnchainHeaderHash;
+    use burnchains::Burnchain;
     use burnchains::BurnchainView;
 
-    use burnchains::*;
     use crate::types::chainstate::BlockHeaderHash;
+    use burnchains::*;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;
@@ -781,12 +781,12 @@ mod test {
     use util::pipe::*;
     use util::sleep_ms;
 
+    use chainstate::burn::ConsensusHash;
+    use types::chainstate::StacksBlockHeader;
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
     use vm::types::*;
-    use types::chainstate::StacksBlockHeader;
-    use chainstate::burn::ConsensusHash;
 
     fn test_http_server<F, C>(
         test_name: &str,

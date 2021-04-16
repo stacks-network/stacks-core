@@ -19,19 +19,18 @@
 
 use address::AddressHashMode;
 use burnchains::{
-    Burnchain, BurnchainBlockHeader, BurnchainStateTransition,
-    Error as BurnchainError,
+    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
-use chainstate::burn::BlockSnapshot;
 use chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
 use chainstate::burn::operations::{
-    BlockstackOperationType,
-    Error as OpError, leader_block_commit::{MissedBlockCommit, RewardSetInfo},
+    leader_block_commit::{MissedBlockCommit, RewardSetInfo},
+    BlockstackOperationType, Error as OpError,
 };
+use chainstate::burn::BlockSnapshot;
 use chainstate::coordinator::RewardCycleInfo;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::{
-    Error as MARFError, marf::MARF, MarfTrieId, MARFValue, storage::TrieFileStorage,
+    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
 };
 use core::INITIAL_MINING_BONUS_WINDOW;
 use util::db::Error as DBError;
@@ -365,13 +364,13 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use burnchains::*;
     use burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
-    use chainstate::burn::*;
-    use chainstate::burn::db::sortdb::{SortitionDB, tests::test_append_snapshot};
+    use burnchains::*;
+    use chainstate::burn::db::sortdb::{tests::test_append_snapshot, SortitionDB};
     use chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
+    use chainstate::burn::*;
     use chainstate::stacks::StacksPublicKey;
     use core::MICROSTACKS_PER_STACKS;
     use util::{hash::hex_bytes, vrf::VRFPublicKey};

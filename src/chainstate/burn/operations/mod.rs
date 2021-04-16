@@ -21,22 +21,22 @@ use std::fmt;
 use std::fs;
 use std::io;
 
-use burnchains::{Address, PublicKey};
-use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::VRFSeed;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
 use burnchains::Error as BurnchainError;
 use burnchains::Txid;
-use crate::types::chainstate::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
+use burnchains::{Address, PublicKey};
+use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
 use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::Opcodes;
 use chainstate::burn::operations::leader_block_commit::{
-    BURN_BLOCK_MINED_AT_MODULUS, MissedBlockCommit,
+    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
-use crate::types::chainstate::VRFSeed;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::StacksAddress;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use util::db::DBConn;
 use util::db::DBTx;
 use util::db::Error as db_error;

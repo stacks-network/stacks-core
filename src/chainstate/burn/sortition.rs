@@ -23,14 +23,14 @@ use burnchains::Burnchain;
 use burnchains::BurnchainBlock;
 use burnchains::BurnchainBlockHeader;
 use burnchains::PublicKey;
-use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash, Txid};
-use chainstate::burn::BlockSnapshot;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::stacks::{db::StacksChainState};
+use chainstate::burn::BlockSnapshot;
+use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash, Txid};
+use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::MarfTrieId;
 use core::*;
 use util::db::Error as db_error;
@@ -40,8 +40,8 @@ use util::uint::BitArray;
 use util::uint::Uint256;
 use util::uint::Uint512;
 
-use crate::types::chainstate::{StacksBlockId, TrieHash};
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::chainstate::{StacksBlockId, TrieHash};
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
@@ -408,8 +408,8 @@ impl BlockSnapshot {
 #[cfg(test)]
 mod test {
     use address::*;
-    use burnchains::*;
     use burnchains::test::*;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
     use chainstate::stacks::*;

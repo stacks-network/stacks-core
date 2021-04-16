@@ -5,7 +5,7 @@ use std::str::FromStr;
 use curve25519_dalek::digest::Digest;
 use sha2::Sha512Trunc256;
 
-use util::hash::{Hash160, HASH160_ENCODED_SIZE, Sha512Trunc256Sum};
+use util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFProof;
 

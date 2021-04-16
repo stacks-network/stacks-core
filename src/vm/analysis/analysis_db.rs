@@ -22,8 +22,8 @@ use vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
 use vm::representations::ClarityName;
-use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use vm::types::signatures::FunctionSignature;
+use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,

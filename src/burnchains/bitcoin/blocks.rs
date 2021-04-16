@@ -16,23 +16,21 @@
 
 use std::ops::Deref;
 
-use burnchains::{
-    BurnchainBlock, BurnchainTransaction, MAGIC_BYTES_LENGTH, MagicBytes, Txid,
-};
-use burnchains::bitcoin::{BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput};
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::BitcoinInputType;
-use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::bits;
-use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::BitcoinInputType;
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::PeerMessage;
-use burnchains::Error as burnchain_error;
+use burnchains::bitcoin::{BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput};
 use burnchains::indexer::{
-    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnHeaderIPC,
+    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
 };
+use burnchains::Error as burnchain_error;
+use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH};
 use deps;
 use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
@@ -470,13 +468,13 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-    use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
+    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::{
         BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
     };
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
     use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::encodable::VarInt;

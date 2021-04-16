@@ -16,16 +16,19 @@
 
 use address::b58 as base58;
 use address::c32::c32_address;
-use burnchains::Address;
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::Error as btc_error;
+use burnchains::Address;
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
 use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
 use util::hash::Hash160;
 use util::log;
 
-use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
@@ -275,7 +278,7 @@ impl std::fmt::Display for BitcoinAddress {
 #[cfg(test)]
 mod tests {
     use burnchains::bitcoin::BitcoinNetworkType;
-    use util::hash::{Hash160, hex_bytes};
+    use util::hash::{hex_bytes, Hash160};
     use util::log;
 
     use super::{BitcoinAddress, BitcoinAddressType};

@@ -1,11 +1,44 @@
-use std::{collections::HashSet, env};
-use std::{thread, thread::JoinHandle, time};
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
-use std::sync::{Arc, atomic::AtomicBool};
-use std::sync::mpsc::{Receiver, sync_channel, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::{atomic::AtomicBool, Arc};
+use std::{collections::HashSet, env};
+use std::{thread, thread::JoinHandle, time};
 
+use stacks::chainstate::burn::operations::{
+    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+};
+use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::db::{
+    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
+};
+use stacks::chainstate::stacks::events::{
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+};
+use stacks::chainstate::stacks::{
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TransactionAnchorMode, TransactionPayload, TransactionVersion,
+};
+use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
+use stacks::core::mempool::MemPoolDB;
+use stacks::net::atlas::AttachmentInstance;
+use stacks::net::{
+    atlas::{AtlasConfig, AtlasDB},
+    db::PeerDB,
+    p2p::PeerNetwork,
+    rpc::RPCHandlerArgs,
+    Error as NetError, PeerAddress,
+};
+use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::{StacksBlockHeader, TrieHash};
+use stacks::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::strings::UrlString;
+use stacks::util::vrf::VRFPublicKey;
 use stacks::{
     burnchains::{Burnchain, Txid},
     chainstate::stacks::db::{
@@ -13,40 +46,6 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
-use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
-use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::burn::operations::{
-    BlockstackOperationType,
-    leader_block_commit::{BURN_BLOCK_MINED_AT_MODULUS, RewardSetInfo}, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
-use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock,
-    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
-    TransactionVersion,
-};
-use stacks::chainstate::stacks::db::{
-    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
-};
-use stacks::chainstate::stacks::events::{
-    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
-};
-use stacks::core::mempool::MemPoolDB;
-use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB},
-    db::PeerDB,
-    Error as NetError,
-    p2p::PeerNetwork,
-    PeerAddress, rpc::RPCHandlerArgs,
-};
-use stacks::net::atlas::AttachmentInstance;
-use stacks::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
-use stacks::types::chainstate::{StacksBlockHeader, TrieHash};
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
-use stacks::util::vrf::VRFPublicKey;
 
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 

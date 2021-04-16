@@ -42,6 +42,7 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 
+use crate::types::chainstate::TrieHash;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::marf::MARF;
@@ -49,7 +50,6 @@ use chainstate::stacks::index::storage::TrieStorageTransaction;
 use chainstate::stacks::index::Error as MARFError;
 use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
-use crate::types::chainstate::TrieHash;
 
 use rand::thread_rng;
 use rand::Rng;

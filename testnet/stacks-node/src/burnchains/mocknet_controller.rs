@@ -1,24 +1,23 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use stacks::burnchains::{
-    Burnchain, BurnchainBlock, BurnchainBlockHeader,
-    BurnchainStateTransitionOps, Txid,
-};
 use stacks::burnchains::bitcoin::BitcoinBlock;
-use stacks::chainstate::burn::BlockSnapshot;
+use stacks::burnchains::{
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainStateTransitionOps, Txid,
+};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp,
+    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks::types::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use super::super::Config;
 use super::super::operations::BurnchainOpSigner;
+use super::super::Config;
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {

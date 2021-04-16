@@ -15,19 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::index::storage::TrieFileStorage;
 use crate::types::chainstate::StacksBlockId;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::MarfTrieId;
+use clarity_vm::clarity::ClarityInstance;
 use util::hash::hex_bytes;
 use vm::ast;
 use vm::ast::errors::ParseErrors;
-use clarity_vm::clarity::ClarityInstance;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
-use vm::database::{
-    ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
+use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;

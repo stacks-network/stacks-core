@@ -5,13 +5,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
-use stacks::types::VRFSeed;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
     StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
+use stacks::types::VRFSeed;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
 

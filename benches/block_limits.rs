@@ -2,29 +2,26 @@ extern crate blockstack_lib;
 extern crate rand;
 extern crate serde_json;
 
-use std::{env, time::Instant};
 use std::fs;
 use std::process;
+use std::{env, time::Instant};
 
 use rand::Rng;
 
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
+use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
+use blockstack_lib::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use blockstack_lib::util::boot::boot_code_id;
 use blockstack_lib::{
-    chainstate::{
-        self,
-        stacks::{index::MarfTrieId},
-    },
+    chainstate::{self, stacks::index::MarfTrieId},
+    vm::clarity::ClarityInstance,
+    vm::costs::ExecutionCost,
     vm::{
         database::{HeadersDB, NULL_BURN_STATE_DB},
         types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
         Value,
     },
-    vm::clarity::ClarityInstance,
-    vm::costs::ExecutionCost,
 };
-use blockstack_lib::clarity_vm::database::marf::MarfedKV;
-use blockstack_lib::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
-use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
-use blockstack_lib::util::boot::boot_code_id;
 
 struct TestHeadersDB;
 

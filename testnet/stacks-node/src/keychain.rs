@@ -7,7 +7,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::hash::{Hash160, Sha256Sum};
-use stacks::util::vrf::{VRF, VRFPrivateKey, VRFProof, VRFPublicKey};
+use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use super::operations::BurnchainOpSigner;
 

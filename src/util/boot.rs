@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 
 use types::chainstate::StacksAddress;
-use vm::ContractName;
 use vm::types::QualifiedContractIdentifier;
+use vm::ContractName;
 
 pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
     let addr = boot_code_addr(mainnet);

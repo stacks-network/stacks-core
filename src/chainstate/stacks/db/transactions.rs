@@ -18,21 +18,21 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
-use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
+use chainstate::stacks::*;
 use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
-    Error as clarity_error
+    Error as clarity_error,
 };
 use net::Error as net_error;
-use util::db::{DBConn, query_count, query_rows};
 use util::db::Error as db_error;
+use util::db::{query_count, query_rows, DBConn};
 use util::hash::to_hex;
 use util::strings::{StacksString, VecDisplay};
 pub use vm::analysis::errors::CheckErrors;
@@ -43,9 +43,9 @@ use vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use vm::contracts::Contract;
 use vm::costs::cost_functions;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::runtime_cost;
 use vm::costs::CostTracker;
 use vm::costs::ExecutionCost;
-use vm::costs::runtime_cost;
 use vm::database::ClarityDatabase;
 use vm::errors::Error as InterpreterError;
 use vm::representations::ClarityName;
@@ -1160,12 +1160,12 @@ pub mod test {
     use rand::Rng;
 
     use burnchains::Address;
-    use chainstate::*;
-    use chainstate::stacks::*;
     use chainstate::stacks::db::test::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::index::*;
     use chainstate::stacks::index::storage::*;
+    use chainstate::stacks::index::*;
+    use chainstate::stacks::Error;
+    use chainstate::stacks::*;
+    use chainstate::*;
     use util::hash::*;
     use vm::contracts::Contract;
     use vm::database::NULL_BURN_STATE_DB;

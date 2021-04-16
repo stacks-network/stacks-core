@@ -18,22 +18,22 @@ use address::AddressHashMode;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use util::hash;
 use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use vm::{Environment, eval, LocalContext};
 use vm::callables::{CallableType, NativeHandle};
-use vm::costs::{
-    constants as cost_constants, cost_functions, CostTracker, MemoryConsumer, runtime_cost,
-};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::{
+    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
+};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{Atom, List};
+use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
-    BUFF_32, BUFF_33, BUFF_65, BuffData, CharType, PrincipalData, ResponseData, SequenceData,
-    TypeSignature, Value,
+    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
+    BUFF_33, BUFF_65,
 };
+use vm::{eval, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
 

@@ -19,13 +19,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
 use address::AddressHashMode;
-use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::PublicKey;
 use burnchains::Txid;
+use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
 use chainstate::burn::operations::{
-    BlockstackOperationType, leader_block_commit::MissedBlockCommit, LeaderBlockCommitOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use chainstate::stacks::StacksPublicKey;
@@ -377,33 +377,33 @@ impl BurnSamplePoint {
 mod tests {
     use std::marker::PhantomData;
 
+    use crate::types::chainstate::StacksAddress;
     use address::AddressHashMode;
-    use burnchains::Address;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::Address;
     use burnchains::Burnchain;
     use burnchains::BurnchainSigner;
     use burnchains::PublicKey;
     use burnchains::Txid;
-    use chainstate::burn::ConsensusHash;
     use chainstate::burn::operations::{
-        BlockstackOperationType,
-        leader_block_commit::{BURN_BLOCK_MINED_AT_MODULUS, MissedBlockCommit}, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        leader_block_commit::{MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS},
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use crate::types::chainstate::StacksAddress;
+    use chainstate::burn::ConsensusHash;
     use chainstate::stacks::StacksPublicKey;
     use core::MINING_COMMITMENT_WINDOW;
-    use util::hash::Hash160;
     use util::hash::hex_bytes;
+    use util::hash::Hash160;
     use util::log;
     use util::uint::BitArray;
     use util::uint::Uint256;
     use util::uint::Uint512;
     use util::vrf::*;
 
-    use crate::types::chainstate::{SortitionId, VRFSeed};
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use crate::types::chainstate::{SortitionId, VRFSeed};
 
     use super::BurnSamplePoint;
 

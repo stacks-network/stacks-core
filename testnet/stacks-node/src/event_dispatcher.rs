@@ -1,13 +1,13 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering}, Mutex,
-    },
-};
 use std::collections::hash_map::Entry;
 use std::thread::sleep;
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -16,20 +16,20 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::{
-    db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
-};
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, StacksTransactionEvent, StacksTransactionReceipt, STXEventType,
+    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
     TransactionOrigin,
 };
 use stacks::chainstate::stacks::StacksBlock;
+use stacks::chainstate::stacks::{
+    db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
+};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::StacksMessageCodec;
-use stacks::types::BurnchainHeaderHash;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks::types::BurnchainHeaderHash;
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};

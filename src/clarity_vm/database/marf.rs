@@ -2,13 +2,15 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use chainstate::stacks::index::{Error, MarfTrieId, MARFValue};
-use chainstate::stacks::index::marf::{MARF, MarfConnection, MarfTransaction};
 use crate::types::chainstate::StacksBlockId;
+use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
+use chainstate::stacks::index::{Error, MARFValue, MarfTrieId};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
 use vm::analysis::AnalysisDatabase;
-use vm::database::{BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection};
+use vm::database::{
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+};
 use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::QualifiedContractIdentifier;
 
@@ -73,7 +75,10 @@ impl MarfedKV {
         Ok(MarfedKV { marf, chain_tip })
     }
 
-    pub fn open_unconfirmed(path_str: &str, miner_tip: Option<&StacksBlockId>) -> InterpreterResult<MarfedKV> {
+    pub fn open_unconfirmed(
+        path_str: &str,
+        miner_tip: Option<&StacksBlockId>,
+    ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
@@ -230,7 +235,6 @@ impl MarfedKV {
     pub fn sql_conn(&self) -> &Connection {
         self.marf.sqlite_conn()
     }
-
 
     pub fn index_conn<'a, C>(&'a self, context: C) -> IndexDBConn<'a, C, StacksBlockId> {
         IndexDBConn {

@@ -24,31 +24,29 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use rand::prelude::*;
-use rand::Rng;
 use rand::thread_rng;
+use rand::Rng;
 
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
 use chainstate::burn::ConsensusHash;
-use chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
-use crate::types::chainstate::StacksBlockHeader;
-use crate::types::chainstate::StacksBlockId;
-use core::mempool::*;
 use core::mempool::MemPoolDB;
-use net::*;
+use core::mempool::*;
 use net::chat::*;
 use net::connection::*;
 use net::db::*;
-use net::Error as net_error;
 use net::http::*;
 use net::p2p::*;
 use net::poll::*;
 use net::rpc::*;
+use net::Error as net_error;
+use net::*;
 use util::get_epoch_time_secs;
 use util::hash::Sha512Trunc256Sum;
 use vm::costs::ExecutionCost;
@@ -1573,28 +1571,28 @@ mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
-    use chainstate::stacks::*;
-    use chainstate::stacks::*;
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
     use chainstate::stacks::test::*;
-    use net::*;
+    use chainstate::stacks::*;
+    use chainstate::stacks::*;
     use net::asn::*;
     use net::chat::*;
     use net::codec::*;
-    use net::download::*;
     use net::download::test::run_get_blocks_and_microblocks;
+    use net::download::*;
     use net::http::*;
     use net::inv::*;
     use net::test::*;
+    use net::*;
     use util::sleep_ms;
     use util::test::*;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
     use super::*;
-    use types::chainstate::BlockHeaderHash;
     use clarity_vm::clarity::ClarityConnection;
+    use types::chainstate::BlockHeaderHash;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {

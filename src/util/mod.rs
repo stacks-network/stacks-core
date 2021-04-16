@@ -20,6 +20,7 @@ pub mod log;
 pub mod macros;
 #[macro_use]
 pub mod db;
+pub mod boot;
 pub mod hash;
 pub mod pair;
 pub mod pipe;
@@ -28,7 +29,6 @@ pub mod secp256k1;
 pub mod strings;
 pub mod uint;
 pub mod vrf;
-pub mod boot;
 
 use std::error;
 use std::fmt;

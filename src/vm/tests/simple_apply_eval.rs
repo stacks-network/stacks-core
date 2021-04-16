@@ -16,26 +16,26 @@
 
 use std::collections::HashMap;
 
-use address::AddressHashMode;
 use address::c32;
+use address::AddressHashMode;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use util::hash::{hex_bytes, to_hex};
-use vm::{eval, execute as vm_execute};
-use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use vm::ast::parse;
 use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
+use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::types::signatures::BufferLength;
+use vm::{eval, execute as vm_execute};
+use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::StacksAddress;
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

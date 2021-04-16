@@ -27,35 +27,35 @@ use std::io::Write;
 use std::net::SocketAddr;
 
 use rand;
-use rand::Rng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use rand::Rng;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
-use chainstate::burn::BlockSnapshot;
 use chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
+use chainstate::burn::BlockSnapshot;
 use chainstate::stacks::db::StacksChainState;
-use net::*;
 use net::asn::ASEntry4;
 use net::chat::ConversationP2P;
 use net::codec::*;
 use net::connection::ConnectionOptions;
 use net::connection::ConnectionP2P;
 use net::connection::ReplyHandleP2P;
-use net::db::*;
 use net::db::PeerDB;
+use net::db::*;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::p2p::PeerNetwork;
 use net::Error as net_error;
 use net::GetBlocksInv;
 use net::Neighbor;
 use net::NeighborKey;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::p2p::PeerNetwork;
 use net::PeerAddress;
 use net::StacksMessage;
 use net::StacksP2P;
+use net::*;
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_ms;
@@ -2561,8 +2561,8 @@ mod test {
 
     use burnchains::PoxConstants;
     use chainstate::stacks::*;
-    use net::*;
     use net::test::*;
+    use net::*;
     use util::test::*;
 
     use super::*;

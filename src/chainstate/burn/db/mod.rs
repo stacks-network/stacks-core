@@ -22,14 +22,14 @@ use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 use serde_json::Error as serde_error;
 
+use crate::types::chainstate::TrieHash;
 use burnchains::{Address, Txid};
 use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
-use crate::types::chainstate::TrieHash;
 use chainstate::stacks::StacksPublicKey;
 use util::db;
 use util::db::Error as db_error;
 use util::db::FromColumn;
-use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum};
+use util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
 

@@ -17,63 +17,54 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::{convert::TryFrom, fmt};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::io;
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::io::prelude::*;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::{convert::TryFrom, fmt};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
-use burnchains::*;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
-use chainstate::burn::ConsensusHash;
+use burnchains::*;
 use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::stacks::*;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::db::blocks::CheckError;
 use chainstate::stacks::db::{
     blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
 };
-use chainstate::stacks::db::blocks::CheckError;
 use chainstate::stacks::Error as chain_error;
+use chainstate::stacks::*;
 use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use monitoring;
-use net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
-};
-use net::{BlocksData, GetIsTraitImplementedResponse};
-use net::{RPCNeighbor, RPCNeighborsInfo};
-use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use net::ClientError;
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
 use net::db::PeerDB;
-use net::Error as net_error;
 use net::http::*;
-use net::HTTP_REQUEST_ID_RESERVED;
+use net::p2p::PeerMap;
+use net::p2p::PeerNetwork;
+use net::relay::Relayer;
+use net::ClientError;
+use net::Error as net_error;
 use net::HttpRequestMetadata;
 use net::HttpRequestType;
 use net::HttpResponseMetadata;
 use net::HttpResponseType;
-use net::MAX_NEIGHBORS_DATA_LEN;
 use net::MicroblocksData;
 use net::NeighborAddress;
 use net::NeighborsData;
-use net::p2p::PeerMap;
-use net::p2p::PeerNetwork;
 use net::PeerAddress;
 use net::PeerHost;
 use net::ProtocolFamily;
-use net::relay::Relayer;
 use net::StacksHttp;
 use net::StacksHttpMessage;
 use net::StacksMessageCodec;
@@ -81,28 +72,42 @@ use net::StacksMessageType;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
 use net::UrlString;
+use net::HTTP_REQUEST_ID_RESERVED;
+use net::MAX_NEIGHBORS_DATA_LEN;
+use net::{
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
+    GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+};
+use net::{BlocksData, GetIsTraitImplementedResponse};
+use net::{RPCNeighbor, RPCNeighborsInfo};
+use net::{RPCPeerInfoData, RPCPoxInfoData};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex};
 use util::hash::Hash160;
+use util::hash::{hex_bytes, to_hex};
+use vm::database::clarity_store::make_contract_hash_key;
+use vm::types::TraitIdentifier;
 use vm::{
-    ClarityName,
-    ContractName,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
-    errors::InterpreterError, SymbolicExpression, types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData}, Value,
+    errors::InterpreterError,
+    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
+    ClarityName, ContractName, SymbolicExpression, Value,
 };
-use vm::database::clarity_store::make_contract_hash_key;
-use vm::types::TraitIdentifier;
 
-use crate::{chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util, util::hash::Sha256Sum, version_string};
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
 use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{
+    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
+use crate::{
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
+    util::hash::Sha256Sum, version_string,
+};
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -1259,16 +1264,11 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
-                    let contract_commit_key =
-                        make_contract_hash_key(&contract_identifier);
+                    let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
-                    let marf_proof = if with_proof {
-                        Some(proof)
-                    } else {
-                        None
-                    };
+                    let marf_proof = if with_proof { Some(proof) } else { None };
                     let publish_height = contract_commit.block_height;
                     Some(ContractSrcResponse {
                         source,
@@ -2830,29 +2830,29 @@ mod test {
     use std::iter::FromIterator;
 
     use address::*;
-    use burnchains::*;
     use burnchains::Burnchain;
     use burnchains::BurnchainView;
+    use burnchains::*;
     use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::*;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
-    use net::*;
+    use chainstate::stacks::Error as chain_error;
+    use chainstate::stacks::*;
     use net::codec::*;
     use net::http::*;
     use net::test::*;
+    use net::*;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::pipe::*;
     use vm::types::*;
 
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     use super::*;
 

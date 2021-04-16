@@ -15,26 +15,26 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
+use crate::types::chainstate::StacksBlockId;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::StacksChainState;
-use crate::types::chainstate::StacksBlockId;
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
-use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use net::connection::ConnectionOptions;
 use net::dns::*;
-use net::Error as net_error;
-use net::NeighborKey;
 use net::p2p::PeerNetwork;
 use net::server::HttpPeer;
-use util::{get_epoch_time_ms, get_epoch_time_secs};
+use net::Error as net_error;
+use net::NeighborKey;
+use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
+use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use util::hash::{Hash160, MerkleHashFunc};
 use util::strings;
+use util::{get_epoch_time_ms, get_epoch_time_secs};
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
 

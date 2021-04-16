@@ -16,6 +16,8 @@
 
 use std::io::{Read, Write};
 
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
 use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -23,15 +25,13 @@ use burnchains::BurnchainBlockHeader;
 use burnchains::BurnchainTransaction;
 use burnchains::PublicKey;
 use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::Opcodes;
+use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::burn::operations::Error as op_error;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::StacksAddress;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use net::codec::write_next;
@@ -41,7 +41,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 use util::hash::DoubleSha256;
 use util::log;
-use util::vrf::{VRF, VRFPrivateKey, VRFPublicKey};
+use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -254,16 +254,16 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
-    use burnchains::*;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
+    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::deserialize;
     use util::get_epoch_time_secs;
