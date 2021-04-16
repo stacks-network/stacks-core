@@ -11,7 +11,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::types::{BurnchainHeaderHash, PoxId};
+use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 

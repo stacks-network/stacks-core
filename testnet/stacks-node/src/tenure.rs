@@ -11,7 +11,7 @@ use stacks::chainstate::stacks::{
     StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::types::VRFSeed;
+use stacks::types::chainstate::VRFSeed;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
 

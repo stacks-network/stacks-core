@@ -11,10 +11,9 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
-use stacks::types::chainstate::{StacksAddress, StacksBlockHeader};
-use stacks::types::VRFSeed;
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
-use stacks::vm::clarity::ClarityConnection;
+use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},

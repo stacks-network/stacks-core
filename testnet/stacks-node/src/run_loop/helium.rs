@@ -5,7 +5,7 @@ use crate::{
 };
 use stacks::chainstate::stacks::db::ClarityTx;
 use stacks::net::atlas::AttachmentInstance;
-use stacks::types::BurnchainHeaderHash;
+use stacks::types::chainstate::BurnchainHeaderHash;
 use std::collections::HashSet;
 use std::sync::mpsc::{sync_channel, Receiver};
 

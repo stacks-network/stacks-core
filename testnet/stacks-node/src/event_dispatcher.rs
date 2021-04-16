@@ -28,8 +28,7 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::StacksMessageCodec;
-use stacks::types::chainstate::{StacksAddress, StacksBlockId};
-use stacks::types::BurnchainHeaderHash;
+use stacks::types::chainstate::{StacksAddress, StacksBlockId, BurnchainHeaderHash};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};

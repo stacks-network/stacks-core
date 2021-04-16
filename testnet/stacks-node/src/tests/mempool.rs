@@ -11,8 +11,7 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::{Error as NetError, StacksMessageCodec};
-use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, StacksMicroblockHeader};
-use stacks::types::BlockHeaderHash;
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, StacksMicroblockHeader, BlockHeaderHash};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,

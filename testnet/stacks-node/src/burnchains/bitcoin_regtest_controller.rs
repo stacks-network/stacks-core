@@ -49,7 +49,6 @@ use stacks::deps::bitcoin::network::encodable::ConsensusEncodable;
 use stacks::deps::bitcoin::network::serialize::RawEncoder;
 use stacks::deps::bitcoin::util::hash::Sha256dHash;
 use stacks::net::StacksMessageCodec;
-use stacks::types::BurnchainHeaderHash;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
@@ -58,6 +57,7 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before

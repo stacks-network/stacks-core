@@ -14,10 +14,8 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
-use stacks::types;
 use stacks::vm::types::{PrincipalData, Value};
 use stx_genesis::GenesisData;
 
