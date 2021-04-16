@@ -65,6 +65,9 @@ impl AttachmentsDownloader {
         }
     }
 
+    /// Identify whether or not any AttachmentBatches in the priority queue are ready for
+    /// (re-)consideration by the downloader, based on whether or not its re-try deadline
+    /// has passed.
     pub fn has_ready_batches(&self) -> bool {
         for batch in self.priority_queue.iter() {
             if batch.retry_deadline < get_epoch_time_secs() {
@@ -74,6 +77,10 @@ impl AttachmentsDownloader {
         return false;
     }
 
+    /// Returns the next attachments batch that is ready for processing -- i.e. after its deadline
+    /// has passed.
+    /// Because AttachmentBatches are ordered first by their retry deadlines, it follows that if
+    /// there are any ready AttachmentBatches, they'll be at the head of the queue.
     pub fn pop_next_ready_batch(&mut self) -> Option<AttachmentsBatch> {
         let next_is_ready = if let Some(ref next) = self.priority_queue.peek() {
             next.retry_deadline < get_epoch_time_secs()
@@ -132,9 +139,14 @@ impl AttachmentsDownloader {
                     return Ok((vec![], vec![]));
                 }
 
-                let attachments_batch = self
-                    .pop_next_ready_batch()
-                    .expect("Unable to pop attachments bactch from queue");
+                let attachments_batch = match self.pop_next_ready_batch() {
+                    Some(ready_batch) => ready_batch,
+                    None => {
+                        // unreachable
+                        return Ok((vec![], vec![]));
+                    }
+                };
+
                 let ctx = AttachmentsBatchStateContext::new(
                     attachments_batch,
                     peers,
@@ -1096,8 +1108,9 @@ impl AttachmentsBatch {
         self.retry_count += 1;
         let delay = cmp::min(
             MAX_RETRY_DELAY,
-            2u64.saturating_pow(self.retry_count as u32)
-                + (thread_rng().gen::<u64>() % 2u64.saturating_pow((self.retry_count - 1) as u32)),
+            2u64.saturating_pow(self.retry_count as u32).saturating_add(
+                thread_rng().gen::<u64>() % 2u64.saturating_pow((self.retry_count - 1) as u32),
+            ),
         );
 
         debug!("Atlas: Re-attempt download in {} seconds", delay);

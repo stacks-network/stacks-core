@@ -36,7 +36,7 @@ use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
-pub const MAX_RETRY_DELAY: u64 = 600;
+pub const MAX_RETRY_DELAY: u64 = 600; // seconds
 
 lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
