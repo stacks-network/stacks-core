@@ -352,7 +352,7 @@ impl PeerNetwork {
             debug!("{:?}: disable inbound neighbor walks", &local_peer);
         }
 
-        PeerNetwork {
+        let mut network = PeerNetwork {
             local_peer: local_peer,
             peer_version: peer_version,
             chain_view: chain_view,
@@ -428,7 +428,10 @@ impl PeerNetwork {
             pending_messages: HashMap::new(),
 
             fault_last_disconnect: 0,
-        }
+        };
+
+        network.init_attachments_downloader(vec![]);
+        network
     }
 
     /// start serving.
@@ -4434,7 +4437,7 @@ impl PeerNetwork {
         }) {
             Ok(_) => {}
             Err(e) => {
-                warn!("Atlas: updating attachment inventory failed {}", e);
+                warn!("Atlas: updating attachment inventory failed: {}", e);
             }
         }
 
