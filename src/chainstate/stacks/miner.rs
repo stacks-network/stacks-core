@@ -65,6 +65,10 @@ struct MicroblockMinerRuntime {
     considered: Option<HashSet<Txid>>,
     num_mined: u64,
     tip: StacksBlockId,
+
+    // fault injection, inherited from unconfirmed
+    disable_bytes_check: bool,
+    disable_cost_check: bool,
 }
 
 #[derive(PartialEq)]
@@ -87,6 +91,9 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             considered: Some(considered),
             num_mined: 0,
             tip: unconfirmed.confirmed_chain_tip.clone(),
+
+            disable_bytes_check: unconfirmed.disable_bytes_check,
+            disable_cost_check: unconfirmed.disable_cost_check,
         }
     }
 }
@@ -386,6 +393,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
+        }
+
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
@@ -465,6 +482,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
             },
         );
 
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
+        }
+
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
@@ -498,8 +525,9 @@ impl<'a> Drop for StacksMicroblockBuilder<'a> {
         debug!(
             "Drop StacksMicroblockBuilder";
             "chain tip" => %&self.runtime.tip,
-            "txs considered" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
-            "txs mined" => self.runtime.num_mined,
+            "txs mined off tip" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
+            "txs added" => self.runtime.num_mined,
+            "bytes so far" => self.runtime.bytes_so_far,
             "cost so far" => &format!("{:?}", &self.get_cost_so_far())
         );
         self.clarity_tx
@@ -1363,8 +1391,8 @@ impl StacksBlockBuilder {
         );
 
         debug!(
-            "Build anchored block off of {}/{} height {}",
-            &tip_consensus_hash, &tip_block_hash, tip_height
+            "Build anchored block off of {}/{} height {} budget {:?}",
+            &tip_consensus_hash, &tip_block_hash, tip_height, execution_budget
         );
 
         let (mut header_reader_chainstate, _) = chainstate_handle.reopen()?; // used for reading block headers during an epoch
