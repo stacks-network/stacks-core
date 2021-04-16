@@ -8,12 +8,12 @@ use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
+use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
-use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},

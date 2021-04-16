@@ -31,7 +31,9 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::{StacksBlockHeader, StacksAddress, TrieHash, BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, TrieHash, VRFSeed,
+};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;

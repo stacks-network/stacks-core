@@ -24,7 +24,9 @@ use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData,
 };
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;

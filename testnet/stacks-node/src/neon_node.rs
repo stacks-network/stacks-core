@@ -45,7 +45,9 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
-use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
+};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
