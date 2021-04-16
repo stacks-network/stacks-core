@@ -43,7 +43,7 @@ pub mod tests;
 
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
-use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
+pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
 use vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,

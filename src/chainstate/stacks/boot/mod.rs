@@ -14,46 +14,40 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::Error;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::StacksBlockHeader;
-use vm::database::ClarityDatabase;
-
-use address::AddressHashMode;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::{Address, PoxConstants};
-
-use chainstate::burn::db::sortdb::SortitionDB;
-use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
-
-use vm::costs::{
-    cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
-};
-use vm::representations::ClarityName;
-use vm::types::{
-    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
-};
-
-use chainstate::stacks::index::marf::MarfConnection;
-use crate::types::chainstate::StacksBlockId;
-
-use burnchains::Burnchain;
-
-use vm::contexts::ContractContext;
-use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use vm::representations::ContractName;
-
-use clarity_vm::clarity::ClarityConnection;
-
-use util::hash::Hash160;
-
 use std::boxed::Box;
 use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use address::AddressHashMode;
+use burnchains::{Address, PoxConstants};
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::Burnchain;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::Error;
+use chainstate::stacks::index::marf::MarfConnection;
+use clarity_vm::clarity::ClarityConnection;
+use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use util::hash::Hash160;
+use vm::contexts::ContractContext;
+use vm::costs::{
+    ClarityCostFunctionReference, cost_functions::ClarityCostFunction, CostStateSummary,
+};
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
+use vm::representations::ClarityName;
+use vm::representations::ContractName;
+use vm::types::{
+    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
+};
+
+use crate::types;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
+use crate::util::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
@@ -101,23 +95,6 @@ fn make_testnet_cost_voting() -> String {
             "(define-constant REQUIRED_VETOES u25)",
             1,
         )
-}
-
-#[cfg(test)]
-pub fn boot_code_test_addr() -> StacksAddress {
-    boot_code_addr(false)
-}
-
-pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
-    StacksAddress::burn_address(mainnet)
-}
-
-pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
-    let addr = boot_code_addr(mainnet);
-    QualifiedContractIdentifier::new(
-        addr.into(),
-        ContractName::try_from(name.to_string()).unwrap(),
-    )
 }
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
@@ -180,7 +157,7 @@ impl StacksChainState {
                 &stacks_block_id,
                 dbconn,
                 &iconn,
-                &boot_code_id(boot_contract_name, self.mainnet),
+                &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
             )
             .map_err(Error::ClarityError)
@@ -222,7 +199,7 @@ impl StacksChainState {
     ) -> Result<u128, Error> {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
-        let contract_identifier = boot_code_id("pox", mainnet);
+        let contract_identifier = boot::boot_code_id("pox", mainnet);
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
@@ -454,35 +431,33 @@ mod contract_tests;
 
 #[cfg(test)]
 pub mod test {
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::Error as chainstate_error;
-    use chainstate::stacks::*;
-
-    use burnchains::Address;
-    use burnchains::PublicKey;
-
-    use super::*;
-
-    use net::test::*;
-
-    use util::*;
-
-    use core::*;
-    use vm::contracts::Contract;
-    use vm::types::*;
-
     use std::collections::{HashMap, HashSet};
     use std::convert::From;
     use std::fs;
 
+    use burnchains::Address;
+    use burnchains::PublicKey;
+    use chainstate::burn::*;
+    use chainstate::burn::db::*;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::BlockstackOperationType;
+    use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::db::test::*;
+    use chainstate::stacks::Error as chainstate_error;
+    use chainstate::stacks::miner::*;
+    use chainstate::stacks::miner::test::*;
+    use core::*;
+    use net::test::*;
+    use util::*;
     use util::hash::to_hex;
+    use vm::contracts::Contract;
+    use vm::types::*;
+
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use crate::util::boot::{boot_code_id, boot_code_test_addr};
+
+    use super::*;
 
     #[test]
     fn make_reward_set_units() {

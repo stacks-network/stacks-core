@@ -14,64 +14,48 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-
+use std::io;
+use std::io::{Read, Write};
+use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 
-use util::db::Error as db_error;
-use util::db::{query_count, query_rows, DBConn};
-
-use util::strings::{StacksString, VecDisplay};
-
-use util::hash::to_hex;
-
 use chainstate::burn::db::sortdb::*;
-
+use chainstate::stacks::*;
+use chainstate::stacks::db::*;
+use chainstate::stacks::Error;
+use clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
+    Error as clarity_error
+};
 use net::Error as net_error;
-
+use util::db::{DBConn, query_count, query_rows};
+use util::db::Error as db_error;
+use util::hash::to_hex;
+use util::strings::{StacksString, VecDisplay};
+pub use vm::analysis::errors::CheckErrors;
+use vm::analysis::run_analysis;
+use vm::analysis::types::ContractAnalysis;
+use vm::ast::build_ast;
+use vm::contexts::{AssetMap, AssetMapEntry, Environment};
+use vm::contracts::Contract;
+use vm::costs::cost_functions;
+use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::CostTracker;
+use vm::costs::ExecutionCost;
+use vm::costs::runtime_cost;
+use vm::database::ClarityDatabase;
+use vm::errors::Error as InterpreterError;
+use vm::representations::ClarityName;
+use vm::representations::ContractName;
 use vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use vm::contexts::{AssetMap, AssetMapEntry, Environment};
-
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-
-use vm::costs::cost_functions;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::runtime_cost;
-use vm::costs::CostTracker;
-use vm::costs::ExecutionCost;
-
-use vm::errors::Error as InterpreterError;
-
-pub use vm::analysis::errors::CheckErrors;
-use vm::analysis::types::ContractAnalysis;
-
-use vm::database::ClarityDatabase;
-
-use vm::contracts::Contract;
-
-use vm::representations::ClarityName;
-use vm::representations::ContractName;
-
-use clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
-    Error as clarity_error
-};
-
+use crate::types::chainstate::StacksMicroblockHeader;
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {
@@ -1173,24 +1157,23 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use burnchains::Address;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::storage::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::*;
-    use chainstate::*;
+    use rand::Rng;
 
+    use burnchains::Address;
+    use chainstate::*;
+    use chainstate::stacks::*;
+    use chainstate::stacks::db::test::*;
+    use chainstate::stacks::Error;
+    use chainstate::stacks::index::*;
+    use chainstate::stacks::index::storage::*;
+    use util::hash::*;
     use vm::contracts::Contract;
     use vm::database::NULL_BURN_STATE_DB;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
     use vm::types::*;
 
-    use util::hash::*;
-
-    use rand::Rng;
+    use super::*;
 
     #[test]
     fn process_token_transfer_stx_transaction() {

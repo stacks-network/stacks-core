@@ -21,7 +21,8 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{TypeSignature, Value};
-use vm::{eval, Environment, LocalContext};
+use vm::{eval};
+use vm::contexts::{Environment, LocalContext};
 
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {

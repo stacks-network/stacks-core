@@ -21,7 +21,6 @@ use vm::analysis::{
 };
 use vm::ast::parse;
 use vm::costs::LimitedCostTracker;
-use crate::clarity_vm::database::MemoryBackingStore;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::QualifiedContractIdentifier;

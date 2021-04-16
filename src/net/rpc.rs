@@ -91,7 +91,7 @@ use vm::{
     ContractName,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        ClarityDatabase, ClaritySerializable, clarity_store::ContractCommitment, STXBalance,
+        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::InterpreterError, SymbolicExpression, types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData}, Value,
@@ -99,10 +99,7 @@ use vm::{
 use vm::database::clarity_store::make_contract_hash_key;
 use vm::types::TraitIdentifier;
 
-use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
-    version_string,
-};
+use crate::{chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util, util::hash::Sha256Sum, version_string};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
 use crate::types::chainstate::BlockHeaderHash;
@@ -243,7 +240,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -376,7 +373,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -2853,6 +2850,7 @@ mod test {
     use util::pipe::*;
     use vm::types::*;
 
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
 

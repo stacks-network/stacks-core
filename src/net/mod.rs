@@ -1930,7 +1930,8 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::types::chainstate::TrieHash;
+    use crate::types::chainstate::{StacksMicroblockHeader, TrieHash};
+    use crate::util::boot::boot_code_test_addr;
 
     use super::*;
 

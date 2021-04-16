@@ -32,13 +32,7 @@ use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use blockstack_lib::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksBlock, StacksMicroblock,
-    StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion,
-};
+use blockstack_lib::chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload, TransactionSmartContract, TransactionSpendingCondition, TransactionVersion};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::types::chainstate::StacksAddress;

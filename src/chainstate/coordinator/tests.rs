@@ -51,6 +51,7 @@ use vm::{
     Value,
 };
 
+use crate::{chainstate, types, util};
 use crate::types::chainstate::{StacksBlockId, TrieHash};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed};
 
@@ -255,7 +256,7 @@ pub fn setup_states(
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
-            let contract = boot::boot_code_id("pox", false);
+            let contract = util::boot::boot_code_id("pox", false);
             let sender = PrincipalData::from(contract.clone());
 
             clarity_tx.connection().as_transaction(|conn| {

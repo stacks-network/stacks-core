@@ -8,7 +8,6 @@ use chainstate::stacks::*;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
-use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::proofs::TrieMerkleProof;
@@ -37,7 +36,9 @@ use vm::types::{
 };
 use vm::types::Value::Response;
 
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
+use crate::util::boot::boot_code_id;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

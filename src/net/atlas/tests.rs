@@ -21,7 +21,7 @@ use std::time;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::boot::boot_code_id;
+use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 use crate::types::chainstate::StacksBlockId;
 use net::{

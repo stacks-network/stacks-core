@@ -35,6 +35,7 @@ use chainstate::burn::BlockSnapshot;
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::operations::*;
 use chainstate::stacks::*;
+use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use chainstate::stacks::db::*;
 use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::db::transactions::TransactionNonceMismatch;
@@ -69,7 +70,8 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::{types, util};
+use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4087,7 +4089,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {

@@ -45,8 +45,9 @@ use vm::{eval, is_reserved};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
+
 use crate::types::chainstate::StacksBlockId;
-use chainstate::stacks::StacksMicroblockHeader;
+use crate::types::chainstate::StacksMicroblockHeader;
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;

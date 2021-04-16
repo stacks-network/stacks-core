@@ -36,7 +36,7 @@ use vm::representations::{ClarityName, ContractName};
 use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use vm::types::serialization::SerializationError as clarity_serialization_error;
 
-use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 
 impl StacksMessageCodec for Value {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -1017,6 +1017,7 @@ mod test {
     use std::error::Error;
 
     use chainstate::stacks::*;
+    use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
     use chainstate::stacks::StacksPublicKey as PubKey;
     use chainstate::stacks::test::codec_all_transactions;
     use net::*;

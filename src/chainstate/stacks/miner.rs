@@ -46,7 +46,7 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, TrieHash};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash};
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -1557,6 +1557,7 @@ pub mod test {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::stacks::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
     use core::BLOCK_LIMIT_MAINNET;
@@ -1565,8 +1566,8 @@ pub mod test {
     use util::vrf::VRFProof;
     use vm::types::*;
 
-    use crate::chainstate::stacks::boot::boot_code_addr;
     use crate::types::chainstate::SortitionId;
+    use crate::util::boot::boot_code_addr;
 
     use super::*;
 

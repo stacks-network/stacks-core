@@ -41,7 +41,7 @@ use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, TrieHash};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash};
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 use crate::types::chainstate::BurnchainHeaderHash;
 

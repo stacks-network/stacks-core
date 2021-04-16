@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use address::AddressHashMode;
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use util::hash;
 use vm::{Environment, eval, LocalContext};
 use vm::callables::{CallableType, NativeHandle};

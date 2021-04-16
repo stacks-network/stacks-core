@@ -32,7 +32,6 @@ use chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use chainstate::stacks::{
-    boot::boot_code_id,
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
@@ -54,6 +53,7 @@ use vm::{
     Value,
 };
 
+use crate::util::boot::boot_code_id;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader, StacksBlockId};
 
 pub use self::comm::CoordinatorCommunication;

@@ -28,6 +28,7 @@ pub mod secp256k1;
 pub mod strings;
 pub mod uint;
 pub mod vrf;
+pub mod boot;
 
 use std::error;
 use std::fmt;

@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use crate::types::chainstate::StacksBlockId;
 use util::hash::hex_bytes;
-use vm::clarity::ClarityInstance;
+use clarity_vm::clarity::ClarityInstance;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contexts::Environment;
 use vm::contracts::Contract;

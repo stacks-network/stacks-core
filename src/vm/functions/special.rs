@@ -28,11 +28,10 @@ use vm::types::{
     Value,
 };
 
-use chainstate::stacks::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::db::MINER_REWARD_MATURITY;
 use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
-use chainstate::stacks::StacksMicroblockHeader;
+use crate::types::chainstate::StacksMicroblockHeader;
+use crate::util::boot::boot_code_id;
 
 use util::hash::Hash160;
 

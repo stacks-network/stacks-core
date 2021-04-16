@@ -6,6 +6,7 @@ use curve25519_dalek::digest::Digest;
 use sha2::Sha512Trunc256;
 
 use util::hash::{Hash160, HASH160_ENCODED_SIZE, Sha512Trunc256Sum};
+use util::secp256k1::MessageSignature;
 use util::vrf::VRFProof;
 
 #[derive(Serialize, Deserialize)]
@@ -164,3 +165,13 @@ impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
 impl_byte_array_from_column!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+/// Header structure for a microblock
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StacksMicroblockHeader {
+    pub version: u8,
+    pub sequence: u16,
+    pub prev_block: BlockHeaderHash,
+    pub tx_merkle_root: Sha512Trunc256Sum,
+    pub signature: MessageSignature,
+}

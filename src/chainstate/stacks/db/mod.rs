@@ -36,6 +36,7 @@ use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::db::sortdb::BlockHeaderCache;
 use chainstate::stacks::*;
+use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use chainstate::stacks::boot::*;
 use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
@@ -74,7 +75,8 @@ use vm::representations::ContractName;
 use vm::types::TupleData;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, TrieHash};
+use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash};
+use crate::util::boot::{boot_code_addr, boot_code_id};
 
 pub mod accounts;
 pub mod blocks;
@@ -1928,6 +1930,8 @@ pub mod test {
     use chainstate::stacks::db::*;
     use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
+
+    use crate::util::boot::boot_code_test_addr;
 
     use super::*;
 

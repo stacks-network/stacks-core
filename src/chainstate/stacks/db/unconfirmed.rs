@@ -37,7 +37,7 @@ use vm::database::NULL_BURN_STATE_DB;
 use vm::database::NULL_HEADER_DB;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -505,6 +505,7 @@ mod test {
     use chainstate::burn::db::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::index::*;

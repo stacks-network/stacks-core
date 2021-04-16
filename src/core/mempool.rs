@@ -1144,15 +1144,16 @@ mod tests {
     use burnchains::Address;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, CoinbasePayload, db::blocks::MemPoolRejection,
+        CoinbasePayload, db::blocks::MemPoolRejection,
         db::StacksChainState, Error as ChainstateError, index::MarfTrieId, SinglesigHashMode,
-        SinglesigSpendingCondition, StacksMicroblockHeader,
+        SinglesigSpendingCondition,
         StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
         TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
         TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
         TransactionSmartContract, TransactionSpendingCondition,
         TransactionVersion,
     };
+    use chainstate::stacks::{C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
     use chainstate::stacks::db::test::chainstate_path;
     use chainstate::stacks::db::test::instantiate_chainstate;
     use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
@@ -1180,7 +1181,7 @@ mod tests {
         util::vrf::VRFProof,
         vm::costs::ExecutionCost,
     };
-    use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed};
+    use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore, TrieHash, VRFSeed};
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
     use super::MemPoolDB;

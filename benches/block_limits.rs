@@ -24,9 +24,7 @@ use blockstack_lib::{
 use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use blockstack_lib::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
-use chainstate::{
-    stacks::{boot::boot_code_id},
-};
+use blockstack_lib::util::boot::boot_code_id;
 
 struct TestHeadersDB;
 

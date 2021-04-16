@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use address::AddressHashMode;
 use address::c32;
-use chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksPrivateKey};
+use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use util::hash::{hex_bytes, to_hex};
 use vm::{eval, execute as vm_execute};
@@ -33,6 +33,7 @@ use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::types::signatures::BufferLength;
 
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::StacksAddress;
 

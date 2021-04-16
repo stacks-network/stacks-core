@@ -55,7 +55,7 @@ use vm::errors::Error as clarity_interpreter_error;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TRIEHASH_ENCODED_SIZE};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash};
 
 pub mod address;
@@ -818,16 +818,6 @@ pub struct StacksBlock {
     pub txs: Vec<StacksTransaction>,
 }
 
-/// Header structure for a microblock
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksMicroblockHeader {
-    pub version: u8,
-    pub sequence: u16,
-    pub prev_block: BlockHeaderHash,
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
-}
-
 /// A microblock that contains non-blockchain-anchored data,
 /// but is tied to an on-chain block
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1203,12 +1193,12 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
         )
-        .unwrap();
+            .unwrap();
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
                 &privk,
             ))
-            .unwrap(),
+                .unwrap(),
         );
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,

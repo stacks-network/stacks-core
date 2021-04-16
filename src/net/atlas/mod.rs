@@ -23,7 +23,7 @@ use regex::Regex;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::stacks::boot::boot_code_id;
+use crate::util::boot::boot_code_id;
 use crate::types::chainstate::StacksBlockId;
 use net::StacksMessageCodec;
 use util::hash::{Hash160, MerkleHashFunc, to_hex};

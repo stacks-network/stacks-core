@@ -35,7 +35,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::chainstate::stacks::boot::boot_code_id;
+use crate::util::boot::boot_code_id;
 use stacks::core;
 use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;

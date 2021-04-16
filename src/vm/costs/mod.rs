@@ -22,7 +22,7 @@ use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
-use chainstate::stacks::boot::boot_code_id;
+use crate::util::boot::boot_code_id;
 use vm::{ast, ClarityName, eval_all, SymbolicExpression, Value};
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
