@@ -1881,10 +1881,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         })
         .collect();
 
-    let flat_txs: Vec<_> = txs.iter().fold(vec![], |mut acc, a| {
-        acc.append(&mut a.clone());
-        acc
-    });
+    let flat_txs: Vec<_> = txs.iter().flat_map(|a| a.clone()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
