@@ -89,7 +89,7 @@ pub const INV_SYNC_INTERVAL: u64 = 0;
 #[cfg(not(test))]
 pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
 #[cfg(test)]
-pub const FULL_INV_SYNC_INTERVAL: u64 = 120;
+pub const FULL_INV_SYNC_INTERVAL: u64 = 60;
 
 #[cfg(not(test))]
 pub const INV_REWARD_CYCLES: u64 = 3;
@@ -507,6 +507,11 @@ impl PeerBlocksInv {
     /// What's the block height represented here?
     pub fn get_block_height(&self) -> u64 {
         self.first_block_height + self.num_sortitions
+    }
+
+    /// What's the number of PoX reward cycles we know about?
+    pub fn get_pox_height(&self) -> u64 {
+        self.num_reward_cycles
     }
 }
 
@@ -1742,12 +1747,11 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, full_rescan: bool) -> u64 {
-        let highest_known_reward_cycle = self.pox_id.num_inventory_reward_cycles() as u64;
+    fn get_block_scan_start(&self, highest_remote_reward_cycle: u64, full_rescan: bool) -> u64 {
         if full_rescan {
             0
         } else {
-            highest_known_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
         }
     }
 
@@ -1766,7 +1770,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start = self.get_block_scan_start(full_rescan);
+                let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start);
                 stats.reset_block_scan(scan_start);
                 return Ok(());
@@ -1822,7 +1826,8 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start = self.get_block_scan_start(ibd || full_rescan);
+                let scan_start =
+                    self.get_block_scan_start(stats.inv.get_pox_height(), ibd || full_rescan);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={}, full={})",
                     &self.local_peer, nk, scan_start, ibd, full_rescan
@@ -1914,7 +1919,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(full_rescan);
+            let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2260,9 +2265,10 @@ impl PeerNetwork {
                 // hint to downloader as to where to begin scanning
                 inv_state.block_sortition_start = network
                     .burnchain
-                    .reward_cycle_to_block_height(
-                        network.get_block_scan_start(inv_state.hint_do_full_rescan),
-                    )
+                    .reward_cycle_to_block_height(network.get_block_scan_start(
+                        network.pox_id.num_inventory_reward_cycles() as u64,
+                        inv_state.hint_do_full_rescan,
+                    ))
                     .saturating_sub(sortdb.first_block_height);
 
                 let was_full = inv_state.hint_do_full_rescan;
