@@ -639,6 +639,10 @@ impl<'a> ClarityBlockConnection<'a> {
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.datastore.get_root_hash()
     }
+
+    pub fn destruct(self) -> WritableMarfStore<'a> {
+        self.datastore
+    }
 }
 
 impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
