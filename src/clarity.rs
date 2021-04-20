@@ -833,15 +833,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             });
 
             if mainnet {
-                (0, Some(json!({
-                    "message": "Database created.",
-                    "network": "mainnet"
-                })))
+                (
+                    0,
+                    Some(json!({
+                        "message": "Database created.",
+                        "network": "mainnet"
+                    })),
+                )
             } else {
-                (0, Some(json!({
-                    "message": "Database created.",
-                    "network": "testnet"
-                })))
+                (
+                    0,
+                    Some(json!({
+                        "message": "Database created.",
+                        "network": "testnet"
+                    })),
+                )
             }
         }
         "generate_address" => {
@@ -851,9 +857,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let addr =
                 friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
 
-            (0, Some(json!({
-                "address": format!("{}", addr)
-            })))
+            (0, Some(json!({ "address": format!("{}", addr) })))
         }
         "check" => {
             if args.len() < 2 {
@@ -926,14 +930,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
 
                     let vm_filename = &argv[2];
-                    let header_db = friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
+                    let header_db =
+                        friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
                     let marf_kv = friendly_expect(
                         MarfedKV::open(vm_filename, None),
                         "Failed to open VM database.",
                     );
 
                     let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
-                        let result = run_analysis(&contract_id, &mut ast, &header_db, &mut marf, false);
+                        let result =
+                            run_analysis(&contract_id, &mut ast, &header_db, &mut marf, false);
                         (marf, result)
                     });
                     result
@@ -942,7 +948,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let mut analysis_marf = MemoryBackingStore::new();
 
                     install_boot_code(&header_db, &mut analysis_marf);
-                    run_analysis(&contract_id, &mut ast, &header_db, &mut analysis_marf, false)
+                    run_analysis(
+                        &contract_id,
+                        &mut ast,
+                        &header_db,
+                        &mut analysis_marf,
+                        false,
+                    )
                 }
             };
 
@@ -966,10 +978,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "message": "Checks passed."
             });
             if costs {
-                result["costs"] = serde_json::to_value(&contract_analysis.take_contract_cost_tracker().get_total()).unwrap();
+                result["costs"] = serde_json::to_value(
+                    &contract_analysis.take_contract_cost_tracker().get_total(),
+                )
+                .unwrap();
             }
             if output_analysis {
-                result["analysis"] = serde_json::to_value(&build_contract_interface(&contract_analysis)).unwrap();
+                result["analysis"] =
+                    serde_json::to_value(&build_contract_interface(&contract_analysis)).unwrap();
             }
             (0, Some(result))
         }
@@ -1062,27 +1078,30 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 Ok(_) => {
                     let result = vm_env.get_exec_environment(None).eval_raw(&content);
                     match result {
-                        Ok(x) => {
-                            (0, Some(json!({
+                        Ok(x) => (
+                            0,
+                            Some(json!({
                                 "output": serde_json::to_value(&x).unwrap()
-                            })))
-                        }
-                        Err(error) => {
-                            (1, Some(json!({
+                            })),
+                        ),
+                        Err(error) => (
+                            1,
+                            Some(json!({
                                 "error": {
                                     "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                                 }
-                            })))
-                        }
+                            })),
+                        ),
                     }
                 }
-                Err((error, _)) => {
-                    (1, Some(json!({
+                Err((error, _)) => (
+                    1,
+                    Some(json!({
                         "error": {
                             "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })))
-                }
+                    })),
+                ),
             }
         }
         "eval" => {
@@ -1111,18 +1130,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             });
 
             match result {
-                Ok(x) => {
-                    (0, Some(json!({
+                Ok(x) => (
+                    0,
+                    Some(json!({
                         "output": serde_json::to_value(&x).unwrap()
-                    })))
-                }
-                Err(error) => {
-                    (1, Some(json!({
+                    })),
+                ),
+                Err(error) => (
+                    1,
+                    Some(json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })))
-                }
+                    })),
+                ),
             }
         }
         "eval_at_chaintip" => {
@@ -1151,18 +1172,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             });
 
             match result {
-                Ok(x) => {
-                    (0, Some(json!({
+                Ok(x) => (
+                    0,
+                    Some(json!({
                         "output": serde_json::to_value(&x).unwrap()
-                    })))
-                }
-                Err(error) => {
-                    (1, Some(json!({
+                    })),
+                ),
+                Err(error) => (
+                    1,
+                    Some(json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })))
-                }
+                    })),
+                ),
             }
         }
         "eval_at_block" => {
@@ -1211,18 +1234,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             });
 
             match result {
-                Ok(x) => {
-                    (0, Some(json!({
+                Ok(x) => (
+                    0,
+                    Some(json!({
                         "output": serde_json::to_value(&x).unwrap()
-                    })))
-                }
-                Err(error) => {
-                    (1, Some(json!({
+                    })),
+                ),
+                Err(error) => (
+                    1,
+                    Some(json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })))
-                }
+                    })),
+                ),
             }
         }
         "launch" => {
@@ -1317,9 +1342,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         result["assets"] = asset_map.to_json();
                     }
                     if output_analysis {
-                        result["analysis"] = serde_json::to_value(&build_contract_interface(&contract_analysis)).unwrap();
+                        result["analysis"] =
+                            serde_json::to_value(&build_contract_interface(&contract_analysis))
+                                .unwrap();
                     }
-                    let events_json : Vec<_> = events
+                    let events_json: Vec<_> = events
                         .into_iter()
                         .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true))
                         .collect();
@@ -1338,13 +1365,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
                     (1, Some(result))
                 }
-                Ok((_, (Err(error), ..))) => {
-                    (1, Some(json!({
+                Ok((_, (Err(error), ..))) => (
+                    1,
+                    Some(json!({
                         "error": {
                             "initialization": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })))
-                }
+                    })),
+                ),
             }
         }
         "execute" => {
@@ -1446,7 +1474,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             if assets {
                                 result["assets"] = asset_map.to_json();
                             }
-                            let events_json : Vec<_> = events
+                            let events_json: Vec<_> = events
                                 .into_iter()
                                 .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true))
                                 .collect();
@@ -1546,10 +1574,10 @@ mod test {
     fn test_init_mainnet() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
         let invoked = invoke_command("test", &["initialize".to_string(), db_name.clone()]);
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
         assert_eq!(result["network"], "mainnet");
 
@@ -1568,10 +1596,10 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
         assert_eq!(result["network"], "testnet");
 
@@ -1610,7 +1638,7 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
 
@@ -1643,7 +1671,7 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
 
@@ -1661,13 +1689,13 @@ mod test {
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
-        
+
         eprintln!("check names with analysis");
         let invoked = invoke_command(
             "test",
@@ -1678,14 +1706,14 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
         assert!(result["analysis"] != json!(null));
-        
+
         eprintln!("check names with cost");
         let invoked = invoke_command(
             "test",
@@ -1696,7 +1724,7 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
 
@@ -1716,10 +1744,10 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
         assert!(result["costs"] != json!(null));
@@ -1737,10 +1765,10 @@ mod test {
                 "(+ u900 u100)".to_string(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
         assert!(result["events"].as_array().unwrap().len() == 0);
@@ -1759,16 +1787,19 @@ mod test {
 
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
-        assert_eq!(result["output"], json!({
-            "Response": {
-                "committed": true,
-                "data": {
-                    "UInt": 100
+        assert_eq!(
+            result["output"],
+            json!({
+                "Response": {
+                    "committed": true,
+                    "data": {
+                        "UInt": 100
+                    }
                 }
-            }
-        }));
+            })
+        );
 
         eprintln!("eval_at_chaintip tokens");
         let invoked = invoke_command(
@@ -1780,19 +1811,22 @@ mod test {
                 db_name.clone(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
-        assert_eq!(result["output"], json!({
-            "Response": {
-                "committed": true,
-                "data": {
-                    "UInt": 100
+        assert_eq!(
+            result["output"],
+            json!({
+                "Response": {
+                    "committed": true,
+                    "data": {
+                        "UInt": 100
+                    }
                 }
-            }
-        }));
+            })
+        );
     }
 
     #[test]
@@ -1810,10 +1844,10 @@ mod test {
                 "sample-contracts/tokens-ft.clar".to_string(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
 
@@ -1828,51 +1862,63 @@ mod test {
                 "--assets".to_string(),
             ],
         );
-        
+
         let exit = invoked.0;
         let result = invoked.1.unwrap();
-        
+
         eprintln!("{}", serde_json::to_string(&result).unwrap());
-        
+
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
-        assert!(result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"] == "10300");
+        assert!(
+            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
+                ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
+                == "10300"
+        );
         assert!(result["events"].as_array().unwrap().len() == 3);
-        assert!(result["events"].as_array().unwrap()[0] == json!({
-            "committed": true,
-            "event_index": 0,
-            "ft_mint_event": {
-                "amount": "10300",
-                "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
-                "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
-            },
-            "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "type": "ft_mint_event"
-        }));
-        assert!(result["events"].as_array().unwrap()[1] == json!({
-            "committed": true,
-            "event_index": 0,
-            "ft_transfer_event": {
-                "amount": "10000",
-                "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
-                "recipient": "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR",
-                "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
-            },
-            "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "type": "ft_transfer_event"
-        }));
-        assert!(result["events"].as_array().unwrap()[2] == json!({
-            "committed": true,
-            "event_index": 0,
-            "ft_transfer_event": {
-                "amount": "300",
-                "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
-                "recipient": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G",
-                "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
-            },
-            "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "type": "ft_transfer_event"
-        }));
-
+        assert!(
+            result["events"].as_array().unwrap()[0]
+                == json!({
+                    "committed": true,
+                    "event_index": 0,
+                    "ft_mint_event": {
+                        "amount": "10300",
+                        "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
+                        "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
+                    },
+                    "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "type": "ft_mint_event"
+                })
+        );
+        assert!(
+            result["events"].as_array().unwrap()[1]
+                == json!({
+                    "committed": true,
+                    "event_index": 0,
+                    "ft_transfer_event": {
+                        "amount": "10000",
+                        "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
+                        "recipient": "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR",
+                        "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
+                    },
+                    "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "type": "ft_transfer_event"
+                })
+        );
+        assert!(
+            result["events"].as_array().unwrap()[2]
+                == json!({
+                    "committed": true,
+                    "event_index": 0,
+                    "ft_transfer_event": {
+                        "amount": "300",
+                        "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens",
+                        "recipient": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G",
+                        "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
+                    },
+                    "txid": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "type": "ft_transfer_event"
+                })
+        );
     }
 }

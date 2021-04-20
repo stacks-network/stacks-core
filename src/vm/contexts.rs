@@ -93,44 +93,74 @@ pub struct AssetMap {
 
 impl AssetMap {
     pub fn to_json(&self) -> serde_json::Value {
-        let stx : serde_json::map::Map<_, _> = self.stx_map
+        let stx: serde_json::map::Map<_, _> = self
+            .stx_map
             .iter()
-            .map(|(principal, amount)| (format!("{}", principal), serde_json::value::Value::String(format!("{}", amount))))
-            .collect();
-
-        let burns : serde_json::map::Map<_, _> = self.burn_map
-            .iter()
-            .map(|(principal, amount)| (format!("{}", principal), serde_json::value::Value::String(format!("{}", amount))))
-            .collect();
-
-        let tokens : serde_json::map::Map<_, _> = self.token_map
-            .iter()
-            .map(|(principal, token_map)| {
-                let token_json : serde_json::map::Map<_, _> = token_map
-                    .iter()
-                    .map(|(asset_id, amount)| (format!("{}", asset_id), serde_json::value::Value::String(format!("{}", amount))))
-                    .collect();
-
-                (format!("{}", principal), serde_json::value::Value::Object(token_json))
+            .map(|(principal, amount)| {
+                (
+                    format!("{}", principal),
+                    serde_json::value::Value::String(format!("{}", amount)),
+                )
             })
             .collect();
 
-        let assets : serde_json::map::Map<_, _> = self.asset_map
+        let burns: serde_json::map::Map<_, _> = self
+            .burn_map
+            .iter()
+            .map(|(principal, amount)| {
+                (
+                    format!("{}", principal),
+                    serde_json::value::Value::String(format!("{}", amount)),
+                )
+            })
+            .collect();
+
+        let tokens: serde_json::map::Map<_, _> = self
+            .token_map
+            .iter()
+            .map(|(principal, token_map)| {
+                let token_json: serde_json::map::Map<_, _> = token_map
+                    .iter()
+                    .map(|(asset_id, amount)| {
+                        (
+                            format!("{}", asset_id),
+                            serde_json::value::Value::String(format!("{}", amount)),
+                        )
+                    })
+                    .collect();
+
+                (
+                    format!("{}", principal),
+                    serde_json::value::Value::Object(token_json),
+                )
+            })
+            .collect();
+
+        let assets: serde_json::map::Map<_, _> = self
+            .asset_map
             .iter()
             .map(|(principal, nft_map)| {
-                let nft_json : serde_json::map::Map<_, _> = nft_map
+                let nft_json: serde_json::map::Map<_, _> = nft_map
                     .iter()
                     .map(|(asset_id, nft_values)| {
                         let nft_array = nft_values
                             .iter()
-                            .map(|nft_value| serde_json::value::Value::String(format!("{}", nft_value)))
+                            .map(|nft_value| {
+                                serde_json::value::Value::String(format!("{}", nft_value))
+                            })
                             .collect();
 
-                        (format!("{}", asset_id), serde_json::value::Value::Array(nft_array))
+                        (
+                            format!("{}", asset_id),
+                            serde_json::value::Value::Array(nft_array),
+                        )
                     })
                     .collect();
 
-                (format!("{}", principal), serde_json::value::Value::Object(nft_json))
+                (
+                    format!("{}", principal),
+                    serde_json::value::Value::Object(nft_json),
+                )
             })
             .collect();
 
@@ -142,7 +172,6 @@ impl AssetMap {
         })
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct EventBatch {
