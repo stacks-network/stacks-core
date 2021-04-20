@@ -425,6 +425,7 @@ fn try_mine_microblock(
             if microblock_miner.parent_consensus_hash == *ch
                 && microblock_miner.parent_block_hash == *bhh
             {
+                // this check is redundant (checked that microblock frequency is not exceeded in p2p thread)
                 if microblock_miner.last_mined + (microblock_miner.frequency as u128)
                     < get_epoch_time_ms()
                 {
@@ -757,8 +758,8 @@ fn spawn_miner_relayer(
     coord_comms: CoordinatorChannels,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
-    // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
-    //   no other codepaths should be writing once this is spawned.
+    // Note: the chainstate coordinator is *the* block processor, it is responsible for writes to
+    // the chainstate -- eventually, no other codepaths should be writing to it.
     //
     // the relayer _should not_ be modifying the sortdb,
     //   however, it needs a mut reference to create read TXs.
@@ -1000,6 +1001,7 @@ fn spawn_miner_relayer(
                 RelayerDirective::RunMicroblockTenure => {
                     if last_microblock_tenure_time + (config.node.microblock_frequency as u128) > get_epoch_time_ms() {
                         // only mine when necessary -- the deadline to begin hasn't passed yet
+                        // this check is redundant (checked that microblock frequency is not exceeded in p2p thread)
                         continue;
                     }
                     last_microblock_tenure_time = get_epoch_time_ms();
