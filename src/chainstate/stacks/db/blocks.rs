@@ -4540,7 +4540,9 @@ impl StacksChainState {
                 return Err(Error::InvalidStacksBlock(msg));
             }
 
-            debug!("Reached state root {}", root_hash);
+            debug!("Reached state root {}", root_hash;
+                   "microblock cost" => %microblock_cost,
+                   "block cost" => %block_cost);
 
             // good to go!
             clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());

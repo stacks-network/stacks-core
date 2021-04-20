@@ -1043,9 +1043,14 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Stop as soon as the fee_rate is 1.50 higher, stop RBF
-        if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
-            warn!("RBF'd block commits reached 1.5x satoshi per byte fee rate, not resubmitting");
+        // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
+        if ongoing_op.fees.fee_rate
+            > (self.config.burnchain.satoshis_per_byte * self.config.burnchain.max_rbf / 100)
+        {
+            warn!(
+                "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",
+                self.config.burnchain.max_rbf
+            );
             self.ongoing_block_commit = Some(ongoing_op);
             return None;
         }
