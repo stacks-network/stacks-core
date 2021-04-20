@@ -43,6 +43,14 @@ struct EventObserver {
     should_keep_running: Arc<AtomicBool>,
 }
 
+struct ReceiptPayloadInfo<'a> {
+    txid: String,
+    success: &'a str,
+    raw_result: String,
+    raw_tx: String,
+    contract_interface_json: serde_json::Value,
+}
+
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
@@ -166,9 +174,7 @@ impl EventObserver {
     }
 
     /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
-    fn generate_payload_info_for_receipt(
-        receipt: &StacksTransactionReceipt,
-    ) -> (String, &str, String, String, serde_json::Value) {
+    fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
         let tx = &receipt.transaction;
 
         let success = match (receipt.post_condition_aborted, &receipt.result) {
@@ -202,7 +208,13 @@ impl EventObserver {
                 None => json!(null),
             }
         };
-        (txid, success, raw_result, raw_tx, contract_interface_json)
+        ReceiptPayloadInfo {
+            txid,
+            success,
+            raw_result,
+            raw_tx,
+            contract_interface_json,
+        }
     }
 
     /// Returns json payload to send for new block event
@@ -210,16 +222,15 @@ impl EventObserver {
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
     ) -> serde_json::Value {
-        let (txid, success, raw_result, raw_tx, contract_interface_json) =
-            EventObserver::generate_payload_info_for_receipt(receipt);
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
 
         json!({
-            "txid": format!("0x{}", &txid),
+            "txid": format!("0x{}", &receipt_payload_info.txid),
             "tx_index": tx_index,
-            "status": success,
-            "raw_result": format!("0x{}", &raw_result),
-            "raw_tx": format!("0x{}", &raw_tx),
-            "contract_abi": contract_interface_json,
+            "status": receipt_payload_info.success,
+            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
+            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
+            "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
         })
     }
@@ -230,16 +241,15 @@ impl EventObserver {
         tx_index: u32,
         sequence: u16,
     ) -> serde_json::Value {
-        let (txid, success, raw_result, raw_tx, contract_interface_json) =
-            EventObserver::generate_payload_info_for_receipt(receipt);
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
 
         json!({
-            "txid": format!("0x{}", &txid),
+            "txid": format!("0x{}", &receipt_payload_info.txid),
             "tx_index": tx_index,
-            "status": success,
-            "raw_result": format!("0x{}", &raw_result),
-            "raw_tx": format!("0x{}", &raw_tx),
-            "contract_abi": contract_interface_json,
+            "status": receipt_payload_info.success,
+            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
+            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
+            "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
             "sequence": sequence,
         })
@@ -272,7 +282,7 @@ impl EventObserver {
     fn send_new_microblocks(
         &self,
         parent_index_block_hash: StacksBlockId,
-        filtered_events: Vec<(usize, &(bool, Txid, StacksTransactionEvent))>,
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         serialized_txs: &Vec<serde_json::Value>,
     ) {
         // Serialize events to JSON
@@ -302,7 +312,7 @@ impl EventObserver {
 
     fn send(
         &self,
-        filtered_events: Vec<(usize, &(bool, Txid, StacksTransactionEvent))>,
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
         boot_receipts: &Vec<StacksTransactionReceipt>,
@@ -473,19 +483,19 @@ impl EventDispatcher {
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
     ///     that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
-    fn create_dispatch_matrix_and_event_vector(
+    fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &'a Vec<StacksTransactionReceipt>,
     ) -> (
         Vec<HashSet<usize>>,
-        Vec<(bool, Txid, StacksTransactionEvent)>,
+        Vec<(bool, Txid, &'a StacksTransactionEvent)>,
     ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
             .map(|_| HashSet::new())
             .collect();
-        let mut events: Vec<(bool, Txid, StacksTransactionEvent)> = vec![];
+        let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
         for receipt in receipts {
@@ -554,7 +564,7 @@ impl EventDispatcher {
                         );
                     }
                 }
-                events.push((!receipt.post_condition_aborted, tx_hash, event.clone()));
+                events.push((!receipt.post_condition_aborted, tx_hash, event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -657,16 +667,16 @@ impl EventDispatcher {
         if interested_observers.len() < 1 {
             return;
         }
-        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(
-            &processed_unconfirmed_state
-                .receipts
-                .iter()
-                .flat_map(|(_, r)| r.clone())
-                .collect(),
-        );
+        let flattened_receipts = processed_unconfirmed_state
+            .receipts
+            .iter()
+            .flat_map(|(_, r)| r.clone())
+            .collect();
+        let (dispatch_matrix, events) =
+            self.create_dispatch_matrix_and_event_vector(&flattened_receipts);
 
         // Serialize receipts
-        let mut tx_index = 0;
+        let mut tx_index;
         let mut serialized_txs = Vec::new();
 
         for (curr_sequence_number, receipts) in processed_unconfirmed_state.receipts.iter() {

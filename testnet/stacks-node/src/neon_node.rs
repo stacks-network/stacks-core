@@ -814,15 +814,12 @@ fn spawn_miner_relayer(
 
                     let num_unconfirmed_microblock_tx_receipts = net_receipts.processed_unconfirmed_state.receipts.len();
                     if num_unconfirmed_microblock_tx_receipts > 0 {
-                        let (canonical_consensus_hash, canonical_block_hash) =
-                            SortitionDB::get_canonical_stacks_chain_tip_hash(
-                                sortdb.conn()).expect(
-                                "FATAL: failed to query sortition DB for canonical stacks chain tip");
-                        let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                            &canonical_consensus_hash,
-                            &canonical_block_hash,
-                        );
-                        event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.processed_unconfirmed_state);
+                        if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
+                            let canonical_tip = unconfirmed_state.confirmed_chain_tip.clone();
+                            event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.processed_unconfirmed_state);
+                        } else {
+                            warn!("Relayer: oops, unconfirmed state is uninitialized but there are microblock events");
+                        }
                     }
 
                     // Dispatch retrieved attachments, if any.

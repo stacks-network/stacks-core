@@ -203,7 +203,7 @@ impl UnconfirmedState {
                     &mblock_hash, mblock.header.sequence
                 );
 
-                let (stx_fees, stx_burns, mut receipts) =
+                let (stx_fees, stx_burns, receipts) =
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &vec![mblock.clone()],
