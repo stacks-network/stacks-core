@@ -74,7 +74,7 @@ fn test_at_block_mutations() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {
@@ -148,7 +148,7 @@ fn test_at_block_good() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {

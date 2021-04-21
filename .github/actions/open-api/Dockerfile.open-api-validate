@@ -4,7 +4,7 @@ WORKDIR /src
 
 COPY . .
 
-RUN npx redoc-cli bundle -o /build/open-api-docs.html ./docs/rpc/openapi.yaml
+RUN npx redoc-cli@0.10.3 bundle -o /build/open-api-docs.html ./docs/rpc/openapi.yaml
 
 FROM scratch AS export-stage
 COPY --from=build /build/open-api-docs.html /

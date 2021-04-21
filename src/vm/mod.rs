@@ -247,9 +247,7 @@ fn eval_all(
     let context = LocalContext::new();
     let mut total_memory_use = 0;
 
-    let publisher = Value::Principal(PrincipalData::Standard(
-        contract_context.contract_identifier.issuer.clone(),
-    ));
+    let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
 
     finally_drop_memory!(global_context, total_memory_use; {
         for exp in expressions {

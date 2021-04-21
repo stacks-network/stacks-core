@@ -26,6 +26,10 @@ use std::time::Instant;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
@@ -81,6 +85,8 @@ use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
+
+use monitoring::update_burnchain_height;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -962,6 +968,7 @@ impl Burnchain {
             comms.clone(),
             target_block_height_opt,
             max_blocks_opt,
+            None,
         )?;
         Ok(chain_tip.block_height)
     }
@@ -1185,6 +1192,7 @@ impl Burnchain {
         coord_comm: CoordinatorChannels,
         target_block_height_opt: Option<u64>,
         max_blocks_opt: Option<u64>,
+        should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Result<BurnchainBlockHeader, burnchain_error>
     where
         I: BurnchainIndexer + 'static,
@@ -1289,6 +1297,15 @@ impl Burnchain {
                 .spawn(move || {
                     while let Ok(Some(ipc_header)) = downloader_recv.recv() {
                         debug!("Try recv next header");
+
+                        match should_keep_running {
+                            Some(ref should_keep_running)
+                                if !should_keep_running.load(Ordering::SeqCst) =>
+                            {
+                                return Err(burnchain_error::CoordinatorClosed);
+                            }
+                            _ => {}
+                        };
 
                         let download_start = get_epoch_time_ms();
                         let ipc_block = downloader.download(&ipc_header)?;
@@ -1435,7 +1452,7 @@ impl Burnchain {
         if let Err(e) = downloader_result {
             return Err(e);
         }
-
+        update_burnchain_height(block_header.block_height as i64);
         Ok(block_header)
     }
 }

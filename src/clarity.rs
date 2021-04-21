@@ -1005,7 +1005,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         LimitedCostTracker::new_free(),
                     );
                     vm_env.execute_transaction(
-                        Value::Principal(sender),
+                        sender,
                         None,
                         contract_identifier,
                         &tx_name,

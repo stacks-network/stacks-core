@@ -47,7 +47,7 @@ pub fn lookup_reserved_variable(
                     .sender
                     .clone()
                     .ok_or(RuntimeErrorType::NoSenderInContext)?;
-                Ok(Some(sender))
+                Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
                 let caller = env

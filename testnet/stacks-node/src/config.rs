@@ -21,9 +21,11 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
+const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
+const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -397,6 +399,7 @@ lazy_static! {
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
+        inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
@@ -569,6 +572,9 @@ impl Config {
                     satoshis_per_byte: burnchain
                         .satoshis_per_byte
                         .unwrap_or(default_burnchain_config.satoshis_per_byte),
+                    max_rbf: burnchain
+                        .max_rbf
+                        .unwrap_or(default_burnchain_config.max_rbf),
                     leader_key_tx_estimated_size: burnchain
                         .leader_key_tx_estimated_size
                         .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
@@ -781,12 +787,26 @@ impl Config {
                     download_interval: opts.download_interval.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()
                     }),
-                    inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| {
-                        HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()
+                    inv_sync_interval: opts
+                        .inv_sync_interval
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
+                    full_inv_sync_interval: opts.full_inv_sync_interval.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.full_inv_sync_interval
+                    }),
+                    inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
+                        if burnchain.mode == "mainnet" {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
+                        } else {
+                            // testnet reward cycles are a bit smaller (and blocks can go by
+                            // faster), so make our inventory
+                            // reward cycle depth a bit longer to compensate
+                            INV_REWARD_CYCLES_TESTNET
+                        }
                     }),
                     public_ip_address: ip_addr,
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
+                    disable_block_download: opts.disable_block_download.unwrap_or(false),
                     force_disconnect_interval: opts.force_disconnect_interval,
                     max_http_clients: opts.max_http_clients.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
@@ -794,6 +814,7 @@ impl Config {
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
                     handshake_timeout: opts.connect_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
+                    antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
                 }
             }
@@ -967,6 +988,7 @@ pub struct BurnchainConfig {
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
     pub satoshis_per_byte: u64,
+    pub max_rbf: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
@@ -993,6 +1015,7 @@ impl BurnchainConfig {
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
+            max_rbf: DEFAULT_MAX_RBF_RATE,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
@@ -1048,6 +1071,7 @@ pub struct BurnchainConfigFile {
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
+    pub max_rbf: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1224,10 +1248,14 @@ pub struct ConnectionOptionsFile {
     pub maximum_call_argument_size: Option<u32>,
     pub download_interval: Option<u64>,
     pub inv_sync_interval: Option<u64>,
+    pub full_inv_sync_interval: Option<u64>,
+    pub inv_reward_cycles: Option<u64>,
     pub public_ip_address: Option<String>,
     pub disable_inbound_walks: Option<bool>,
     pub disable_inbound_handshakes: Option<bool>,
+    pub disable_block_download: Option<bool>,
     pub force_disconnect_interval: Option<u64>,
+    pub antientropy_public: Option<bool>,
 }
 
 #[derive(Clone, Default, Deserialize)]

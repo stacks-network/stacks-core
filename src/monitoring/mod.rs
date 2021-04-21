@@ -1,17 +1,3 @@
-use std::{fs, path::PathBuf};
-
-use rusqlite::{OpenFlags, OptionalExtension};
-
-use crate::{
-    burnchains::Txid,
-    core::MemPoolDB,
-    util::{
-        db::{tx_busy_handler, DBConn},
-        get_epoch_time_secs,
-    },
-};
-use util::db::Error as DatabaseError;
-
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -28,6 +14,21 @@ use util::db::Error as DatabaseError;
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::{fs, path::PathBuf};
+
+use rusqlite::{OpenFlags, OptionalExtension};
+
+use crate::{
+    burnchains::Txid,
+    core::MemPoolDB,
+    net::{Error as net_error, HttpRequestType},
+    util::{
+        db::{tx_busy_handler, DBConn},
+        get_epoch_time_secs,
+    },
+};
+use util::db::Error as DatabaseError;
+
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
@@ -36,39 +37,25 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
-pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
+pub fn instrument_http_request_handler<F, R>(
+    req: HttpRequestType,
+    handler: F,
+) -> Result<R, net_error>
+where
+    F: FnOnce(HttpRequestType) -> Result<R, net_error>,
+{
     #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-}
+    increment_rpc_calls_counter();
 
-pub fn increment_p2p_msg_authenticated_handshake_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();
-}
+    let timer = prometheus::new_rpc_call_timer(req.get_path());
 
-pub fn increment_p2p_msg_get_neighbors_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER.inc();
-}
+    let res = handler(req);
 
-pub fn increment_p2p_msg_get_blocks_inv_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER.inc();
-}
+    timer.stop_and_record();
 
-pub fn increment_p2p_msg_nack_sent_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_NACK_SENT_COUNTER.inc();
-}
-
-pub fn increment_p2p_msg_ping_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_PING_RECEIVED_COUNTER.inc();
-}
-
-pub fn increment_p2p_msg_nat_punch_request_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();
+    res
 }
 
 pub fn increment_stx_blocks_received_counter() {
@@ -230,4 +217,70 @@ pub fn log_transaction_processed(
 pub fn update_active_miners_count_gauge(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_stacks_tip_height(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STACKS_TIP_HEIGHT_GAUGE.set(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_burnchain_height(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::BURNCHAIN_HEIGHT_GAUGE.set(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_inbound_neighbors(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::INBOUND_NEIGHBORS_GAUGE.set(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_outbound_neighbors(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_NEIGHBORS_GAUGE.set(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_inbound_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_outbound_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_inbound_rpc_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
+}
+
+#[allow(unused_variables)]
+pub fn update_outbound_rpc_bandwidth(value: i64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
+}
+
+#[allow(unused_variables)]
+pub fn increment_msg_counter(name: String) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::MSG_COUNTER_VEC
+        .with_label_values(&[&name])
+        .inc();
+}
+
+pub fn increment_stx_mempool_gc() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_MEMPOOL_GC.inc();
+}
+
+pub fn increment_contract_calls_processed() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::CONTRACT_CALLS_PROCESSED_COUNT.inc();
 }

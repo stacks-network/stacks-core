@@ -1150,9 +1150,26 @@ pub struct PostTransactionRequestBody {
     pub attachment: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetAttachmentResponse {
     pub attachment: Attachment,
+}
+
+impl Serialize for GetAttachmentResponse {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let hex_encoded = to_hex(&self.attachment.content[..]);
+        s.serialize_str(hex_encoded.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GetAttachmentResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GetAttachmentResponse, D::Error> {
+        let payload = String::deserialize(d)?;
+        let hex_encoded = payload.parse::<String>().map_err(de_Error::custom)?;
+        let bytes = hex_bytes(&hex_encoded).map_err(de_Error::custom)?;
+        let attachment = Attachment::new(bytes);
+        Ok(GetAttachmentResponse { attachment })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1292,7 +1309,7 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
-    GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
     GetIsTraitImplemented(
         HttpRequestMetadata,
         StacksAddress,
@@ -1732,8 +1749,7 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
-    pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
-    pub attachments: Vec<AttachmentInstance>,
+    pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1756,7 +1772,6 @@ impl NetworkResult {
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
-            uploaded_attachments: vec![],
             attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,

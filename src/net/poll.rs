@@ -269,7 +269,7 @@ impl NetworkState {
         );
 
         if let Err(e) = sock.shutdown(Shutdown::Both) {
-            warn!("Failed to shut down socket {}: {:?}", event_id, &e);
+            debug!("Failed to shut down socket {}: {:?}", event_id, &e);
         }
 
         Ok(())
@@ -395,6 +395,7 @@ impl NetworkState {
                                     break;
                                 }
                                 _ => {
+                                    error!("Network error: {}", e);
                                     return Err(net_error::AcceptError);
                                 }
                             },

@@ -224,7 +224,6 @@ impl TransferStxOp {
             warn!("Invalid TransferStxOp, sender is recipient");
             return Err(op_error::TransferStxSelfSend);
         }
-
         Ok(())
     }
 }

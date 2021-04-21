@@ -57,6 +57,10 @@ pub struct UnconfirmedState {
     readonly: bool,
     dirty: bool,
     num_mblocks_added: u64,
+
+    // fault injection for testing
+    pub disable_cost_check: bool,
+    pub disable_bytes_check: bool,
 }
 
 impl UnconfirmedState {
@@ -68,13 +72,15 @@ impl UnconfirmedState {
         let clarity_instance =
             ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+            .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: ExecutionCost::zero(),
+            cost_so_far: cost_so_far.clone(),
             bytes_so_far: 0,
 
             last_mblock: None,
@@ -83,6 +89,9 @@ impl UnconfirmedState {
             readonly: false,
             dirty: false,
             num_mblocks_added: 0,
+
+            disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
+            disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
         })
     }
 
@@ -96,13 +105,15 @@ impl UnconfirmedState {
         let clarity_instance =
             ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+            .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: tip,
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: ExecutionCost::zero(),
+            cost_so_far: cost_so_far,
             bytes_so_far: 0,
 
             last_mblock: None,
@@ -111,6 +122,9 @@ impl UnconfirmedState {
             readonly: true,
             dirty: false,
             num_mblocks_added: 0,
+
+            disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
+            disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
         })
     }
 
@@ -149,6 +163,7 @@ impl UnconfirmedState {
         let mut num_new_mblocks = 0;
 
         if mblocks.len() > 0 {
+            let cur_cost = self.cost_so_far.clone();
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
                 chainstate.db(),
@@ -156,6 +171,8 @@ impl UnconfirmedState {
                 burn_dbconn,
                 &self.confirmed_chain_tip,
             );
+
+            clarity_tx.reset_cost(cur_cost);
 
             for mblock in mblocks.into_iter() {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq)
@@ -200,7 +217,7 @@ impl UnconfirmedState {
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
-                new_bytes = {
+                new_bytes += {
                     let mut total = 0;
                     for tx in mblock.txs.iter() {
                         let mut bytes = vec![];
@@ -229,6 +246,16 @@ impl UnconfirmedState {
         self.cost_so_far = new_cost;
         self.bytes_so_far += new_bytes;
         self.num_mblocks_added += num_new_mblocks;
+
+        // apply injected faults
+        if self.disable_cost_check {
+            warn!("Fault injection: disabling microblock miner's cost tracking");
+            self.cost_so_far = ExecutionCost::zero();
+        }
+        if self.disable_bytes_check {
+            warn!("Fault injection: disabling microblock miner's size tracking");
+            self.bytes_so_far = 0;
+        }
 
         Ok((total_fees, total_burns, all_receipts))
     }
@@ -303,6 +330,14 @@ impl UnconfirmedState {
         txid: &Txid,
     ) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
         self.mined_txs.get(txid).map(|x| x.clone())
+    }
+
+    pub fn num_microblocks(&self) -> u64 {
+        if self.last_mblock.is_some() {
+            (self.last_mblock_seq as u64) + 1
+        } else {
+            0
+        }
     }
 }
 

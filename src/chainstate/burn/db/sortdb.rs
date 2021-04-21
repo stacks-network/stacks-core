@@ -1970,6 +1970,10 @@ impl PoxId {
         }
         (ret, count)
     }
+
+    pub fn num_inventory_reward_cycles(&self) -> usize {
+        self.0.len().saturating_sub(1)
+    }
 }
 
 impl FromStr for PoxId {

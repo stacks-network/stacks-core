@@ -179,6 +179,9 @@ fn main() {
             })
             .unwrap();
 
+        println!("Verified: {:#?}", tx.verify());
+        println!("Address: {}", tx.auth.origin().address_mainnet());
+
         println!("{:#?}", &tx);
         process::exit(0);
     }

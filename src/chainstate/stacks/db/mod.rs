@@ -564,6 +564,12 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                           PRIMARY KEY(block_hash)
     );"#,
     r#"
+    -- Invalidated staging microblocks data
+    CREATE TABLE invalidated_microblocks_data(block_hash TEXT NOT NULL,
+                                              block_data BLOB NOT NULL,
+                                              PRIMARY KEY(block_hash)
+    );"#,
+    r#"
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
@@ -744,7 +750,7 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let marf = StacksChainState::open_index(index_path)?;
             // sanity check
             let db_config = query_row::<DBConfig, _>(
                 marf.sqlite_conn(),
@@ -789,27 +795,22 @@ impl StacksChainState {
     }
 
     /// Idempotent `mkdir -p`
-    fn mkdirs(path: &PathBuf) -> Result<String, Error> {
+    fn mkdirs(path: &PathBuf) -> Result<(), Error> {
         match fs::metadata(path) {
             Ok(md) => {
                 if !md.is_dir() {
                     error!("Not a directory: {:?}", path);
                     return Err(Error::DBError(db_error::ExistsError));
                 }
+                Ok(())
             }
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(Error::DBError(db_error::IOError(e)));
                 }
-                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
+                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))
             }
         }
-
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-        Ok(path_str)
     }
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
@@ -1217,7 +1218,7 @@ impl StacksChainState {
                             .map_err(|e| e.into())
                     })
                 })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+                .expect("FATAL: `ustx-liquid-supply` overflowed");
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }

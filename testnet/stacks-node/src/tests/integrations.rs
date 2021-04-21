@@ -131,6 +131,7 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (define-public (fn-1 (x uint)) (ok u1))
        ";
 
+use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 use std::sync::Mutex;
 
 lazy_static! {
@@ -1585,6 +1586,50 @@ fn mempool_errors() {
                 assert_eq!(
                     data.get("expected").unwrap().as_str().unwrap(),
                     format!("0x{:032x}", 656)
+                );
+                assert_eq!(
+                    data.get("actual").unwrap().as_str().unwrap(),
+                    format!("0x{:032x}", 0)
+                );
+
+                let tx_xfer_invalid = make_sponsored_stacks_transfer_on_testnet(
+                    &spender_sk,
+                    &contract_sk,
+                    1 + MAXIMUM_MEMPOOL_TX_CHAINING,
+                    1,
+                    350,
+                    &send_to,
+                    1000,
+                );
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+                let res = client
+                    .post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer_invalid.clone())
+                    .send()
+                    .unwrap()
+                    .json::<serde_json::Value>()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(
+                    res.get("txid").unwrap().as_str().unwrap(),
+                    tx_xfer_invalid_tx.txid().to_string()
+                );
+                assert_eq!(
+                    res.get("error").unwrap().as_str().unwrap(),
+                    "transaction rejected"
+                );
+                assert_eq!(
+                    res.get("reason").unwrap().as_str().unwrap(),
+                    "NotEnoughFunds"
+                );
+                let data = res.get("reason_data").unwrap();
+                assert_eq!(
+                    data.get("expected").unwrap().as_str().unwrap(),
+                    format!("0x{:032x}", 350)
                 );
                 assert_eq!(
                     data.get("actual").unwrap().as_str().unwrap(),

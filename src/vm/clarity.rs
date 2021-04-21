@@ -478,7 +478,7 @@ pub trait ClarityConnection {
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track);
             let result = vm_env
-                .execute_in_env(sender.into(), None, to_do)
+                .execute_in_env(sender, None, to_do)
                 .map(|(result, _, _)| result);
             let (db, _) = vm_env
                 .destruct()
@@ -888,7 +888,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             |vm_env| {
                 vm_env
                     .execute_transaction(
-                        Value::Principal(sender.clone()),
+                        sender.clone(),
                         sponsor.clone(),
                         contract.clone(),
                         public_function,

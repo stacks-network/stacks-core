@@ -56,6 +56,7 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use rusqlite::Error as SqliteError;
 
 use chainstate::stacks::TransactionPayload;
+use monitoring::increment_stx_mempool_gc;
 use vm::types::PrincipalData;
 
 use crate::monitoring;
@@ -583,7 +584,6 @@ impl MemPoolDB {
                 &tip_block_hash,
                 next_timestamp,
             )?;
-
             debug!(
                 "Have {} transactions at {}/{} height={} at or after {}",
                 available_txs.len(),
@@ -937,6 +937,7 @@ impl MemPoolDB {
         let sql = "DELETE FROM mempool WHERE height < ?1";
 
         tx.execute(sql, args)?;
+        increment_stx_mempool_gc();
         Ok(())
     }
 

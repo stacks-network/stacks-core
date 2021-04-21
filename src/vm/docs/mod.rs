@@ -502,8 +502,9 @@ has to be a literal function name.",
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
 (fold - (list 3 7 11) 2) ;; Returns 5 
-(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
-(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\"",
+(define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
+(fold concat-string \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat-string (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\"",
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -998,9 +999,9 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
 
 (define-private (add-or-pass-err (x (response int (string-ascii 10))) (to-add int))
   (match x
-   value (+ to-add value)
+   value (ok (+ to-add value))
    err-value (err err-value)))
-(add-or-pass-err (ok 5) 20) ;; Returns 25
+(add-or-pass-err (ok 5) 20) ;; Returns (ok 25)
 (add-or-pass-err (err \"ERROR\") 20) ;; Returns (err \"ERROR\")
 ",
 };
@@ -1342,6 +1343,10 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 ",
     example: "
 (impl-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+(define-public (get-balance (account principal))
+  (ok u0))
+(define-public (transfer? (from principal) (to principal) (amount uint))
+  (ok u0))
 "
 };
 
@@ -1747,6 +1752,8 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::vm::analysis::type_check;
+
     use super::make_all_api_reference;
     use super::make_json_api_reference;
     use burnchains::BurnchainHeaderHash;
@@ -1847,8 +1854,21 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+
+        {
+            let mut analysis_db = store.as_analysis_db();
+            let whole_contract = segments.join("\n");
+            eprintln!("{}", whole_contract);
+            let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
+                .unwrap()
+                .expressions;
+
+            type_check(&contract_id, &mut parsed, &mut analysis_db, false)
+                .expect("Failed to type check");
+        }
+
+        let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
 
@@ -1897,9 +1917,36 @@ mod test {
         // and give the doc environment's contract some STX
         {
             let mut store = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
+            let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let trait_def_id = QualifiedContractIdentifier::parse(
+                "SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a",
+            )
+            .unwrap();
+
+            {
+                let mut analysis_db = store.as_analysis_db();
+                let whole_contract =
+                    std::fs::read_to_string("sample-contracts/tokens.clar").unwrap();
+                let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
+                    .unwrap()
+                    .expressions;
+
+                type_check(&contract_id, &mut parsed, &mut analysis_db, true)
+                    .expect("Failed to type check sample-contracts/tokens");
+            }
+
+            {
+                let mut analysis_db = store.as_analysis_db();
+                let mut parsed =
+                    ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
+                        .unwrap()
+                        .expressions;
+
+                type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
+                    .expect("Failed to type check sample-contracts/tokens");
+            }
 
             let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
-            let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
             let docs_principal_id = PrincipalData::Contract(docs_test_id);
             let mut env = OwnedEnvironment::new(conn);
@@ -1922,12 +1969,16 @@ mod test {
                 },
             )
             .unwrap();
+
             env.initialize_contract(
                 contract_id,
                 &std::fs::read_to_string("sample-contracts/tokens.clar").unwrap(),
                 None,
             )
             .unwrap();
+
+            env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
+                .unwrap();
             store.test_commit();
         }
 

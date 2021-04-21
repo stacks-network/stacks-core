@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -16,13 +15,18 @@ use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
-use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::events::{
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+};
+use stacks::chainstate::stacks::index::TrieHash;
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
+use stacks::net::atlas::AttachmentInstance;
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB},
     db::PeerDB,
@@ -30,6 +34,11 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
+use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::strings::UrlString;
+use stacks::util::vrf::VRFPublicKey;
 use stacks::{
     burnchains::{Burnchain, BurnchainHeaderHash, Txid},
     chainstate::stacks::db::{
@@ -37,13 +46,8 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
-
-use stacks::chainstate::stacks::index::TrieHash;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
-use stacks::util::vrf::VRFPublicKey;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::{atomic::AtomicBool, Arc};
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -83,6 +87,7 @@ pub struct Node {
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
     nonce: u64,
+    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
 }
 
 pub fn get_account_lockups(
@@ -155,6 +160,7 @@ fn spawn_peer(
     exit_at_block_height: Option<u64>,
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
+    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
@@ -192,7 +198,15 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let mut attachments = HashSet::new();
+
+            let mut expected_attachments = match attachments_rx.try_recv() {
+                Ok(expected_attachments) => expected_attachments,
+                _ => {
+                    debug!("Atlas: attachment channel is empty");
+                    HashSet::new()
+                }
+            };
+
             let net_result = this
                 .run(
                     &sortdb,
@@ -203,32 +217,42 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
-                    &mut attachments,
+                    &mut expected_attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {
                 event_dispatcher.process_new_mempool_txs(net_result.transactions())
+            }
+            // Dispatch retrieved attachments, if any.
+            if net_result.has_attachments() {
+                event_dispatcher.process_new_attachments(&net_result.attachments);
             }
         }
     });
     Ok(server_thread)
 }
 
+// Check if the small test genesis chainstate data should be used.
+// First check env var, then config file, then use default.
+pub fn use_test_genesis_chainstate(config: &Config) -> bool {
+    if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
+        true
+    } else if let Some(use_test_genesis_chainstate) = config.node.use_test_genesis_chainstate {
+        use_test_genesis_chainstate
+    } else {
+        USE_TEST_GENESIS_CHAINSTATE
+    }
+}
+
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
+    pub fn new(
+        config: Config,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+    ) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
-            // When running in mocknet mode allow the small test genesis chainstate data to be enabled.
-            // First check env var, then config file, then use default.
-            if env::var("BLOCKSTACK_USE_TEST_GENESIS_CHAINSTATE") == Ok("1".to_string()) {
-                true
-            } else if let Some(use_test_genesis_chainstate) =
-                config.node.use_test_genesis_chainstate
-            {
-                use_test_genesis_chainstate
-            } else {
-                USE_TEST_GENESIS_CHAINSTATE
-            }
+            use_test_genesis_chainstate(&config)
         } else {
             USE_TEST_GENESIS_CHAINSTATE
         };
@@ -287,7 +311,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -303,6 +327,7 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
+            attachments_tx,
         }
     }
 
@@ -317,7 +342,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
         }
 
         let chainstate_path = config.get_chainstate_path_str();
@@ -332,6 +357,7 @@ impl Node {
             Err(_e) => panic!(),
         };
 
+        let (attachments_tx, attachments_rx) = sync_channel(1);
         let mut node = Node {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -343,9 +369,10 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
+            attachments_tx,
         };
 
-        node.spawn_peer_server();
+        node.spawn_peer_server(attachments_rx);
 
         loop {
             let sortdb =
@@ -368,7 +395,7 @@ impl Node {
         node
     }
 
-    pub fn spawn_peer_server(&mut self) {
+    pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
@@ -479,6 +506,7 @@ impl Node {
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
+            attachments_rx,
         )
         .unwrap();
 
@@ -730,7 +758,7 @@ impl Node {
 
             parent_consensus_hash
         };
-
+        let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
@@ -743,6 +771,25 @@ impl Node {
                     if blocks.len() == 0 {
                         break;
                     } else {
+                        for block in blocks.iter() {
+                            match block {
+                                (Some(epoch_receipt), _) => {
+                                    let attachments_instances =
+                                        self.get_attachment_instances(epoch_receipt, &atlas_config);
+                                    if !attachments_instances.is_empty() {
+                                        match self.attachments_tx.send(attachments_instances) {
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                error!("Error dispatching attachments {}", e);
+                                                panic!();
+                                            }
+                                        };
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
                         processed_blocks.append(blocks);
                     }
                 }
@@ -793,6 +840,40 @@ impl Node {
         }
 
         chain_tip
+    }
+
+    pub fn get_attachment_instances(
+        &self,
+        epoch_receipt: &StacksEpochReceipt,
+        atlas_config: &AtlasConfig,
+    ) -> HashSet<AttachmentInstance> {
+        let mut attachments_instances = HashSet::new();
+        for receipt in epoch_receipt.tx_receipts.iter() {
+            if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
+                if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload {
+                    let contract_id = contract_call.to_clarity_contract_id();
+                    if atlas_config.contracts.contains(&contract_id) {
+                        for event in receipt.events.iter() {
+                            if let StacksTransactionEvent::SmartContractEvent(ref event_data) =
+                                event
+                            {
+                                let res = AttachmentInstance::try_new_from_value(
+                                    &event_data.value,
+                                    &contract_id,
+                                    epoch_receipt.header.index_block_hash(),
+                                    epoch_receipt.header.block_height,
+                                    receipt.transaction.txid(),
+                                );
+                                if let Some(attachment_instance) = res {
+                                    attachments_instances.insert(attachment_instance);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        attachments_instances
     }
 
     /// Returns the Stacks address of the node

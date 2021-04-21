@@ -336,12 +336,12 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self) -> () {
+    pub fn restart_scan(&mut self, sortition_start: u64) -> () {
         // prepare to restart a full-chain scan for block downloads
-        self.block_sortition_height = 0;
-        self.microblock_sortition_height = 0;
-        self.next_block_sortition_height = 0;
-        self.next_microblock_sortition_height = 0;
+        self.block_sortition_height = sortition_start;
+        self.microblock_sortition_height = sortition_start;
+        self.next_block_sortition_height = sortition_start;
+        self.next_microblock_sortition_height = sortition_start;
         self.empty_block_download_passes = 0;
         self.empty_microblock_download_passes = 0;
     }
@@ -655,9 +655,11 @@ impl BlockDownloader {
                                 info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
 
                                 // the fact that we asked this peer means that it's block inv indicated
-                                // it was present, so the absence is the mark of a broken peer
-                                self.broken_peers.push(event_id);
-                                self.broken_neighbors.push(block_key.neighbor.clone());
+                                // it was present, so the absence is the mark of a broken peer.
+                                // HOWEVER, there has been some bugs recently about nodes reporting
+                                // invalid microblock streams as present, even though they are
+                                // truly absent.  Don't punish these peers with a ban; just don't
+                                // talk to them for a while.
                             }
                             _ => {
                                 // wrong message response
@@ -937,7 +939,10 @@ impl BlockDownloader {
             self.next_microblock_sortition_height = target_height;
         }
 
-        debug!("Awaken downloader to restart scanning");
+        debug!(
+            "Awaken downloader to restart scanning at sortition height {}",
+            target_height
+        );
     }
 
     // are we doing the initial block download?
@@ -1306,7 +1311,11 @@ impl PeerNetwork {
                     )? {
                         Some(hdr) => hdr,
                         None => {
-                            test_debug!("No such block: {:?}", &index_block_hash);
+                            test_debug!(
+                                "{:?}: No such parent block: {:?}",
+                                &self.local_peer,
+                                &index_block_hash
+                            );
                             continue;
                         }
                     };
@@ -1321,7 +1330,7 @@ impl PeerNetwork {
                         }
                         Err(chainstate_error::DBError(db_error::NotFoundError)) => {
                             // we don't know about this parent block yet
-                            debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &self.local_peer, &consensus_hash, &block_hash);
+                            test_debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &self.local_peer, &consensus_hash, &block_hash);
                             continue;
                         }
                         Err(e) => {
@@ -1359,13 +1368,14 @@ impl PeerNetwork {
                     neighbors.clear();
                     neighbors.append(&mut microblock_stream_neighbors);
 
-                    test_debug!(
-                        "{:?}: Get microblocks produced by {}/{}, confirmed by {}/{}",
+                    debug!(
+                        "{:?}: Get microblocks produced by {}/{}, confirmed by {}/{}, from up to {} neighbors",
                         &self.local_peer,
                         &parent_consensus_hash,
                         &parent_header.block_hash(),
                         &consensus_hash,
-                        &block_hash
+                        &block_hash,
+                        neighbors.len()
                     );
 
                     parent_block_header_opt = Some(parent_header);
@@ -1410,8 +1420,8 @@ impl PeerNetwork {
                     continue;
                 }
 
-                let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
-                    if get_epoch_time_secs() < *deadline {
+                let prev_blocked = match downloader.blocked_urls.get(&data_url) {
+                    Some(deadline) if get_epoch_time_secs() < *deadline => {
                         debug!(
                             "{:?}: Will not request {} {}/{} from {:?} (of {:?}) until after {}",
                             &self.local_peer,
@@ -1427,11 +1437,8 @@ impl PeerNetwork {
                             deadline
                         );
                         true
-                    } else {
-                        false
                     }
-                } else {
-                    false
+                    _ => false,
                 };
 
                 if prev_blocked {
@@ -1535,6 +1542,8 @@ impl PeerNetwork {
                 }
             };
 
+        let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
+
         if need_blocks {
             PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
                 test_debug!("{:?}: needs blocks", &network.local_peer);
@@ -1598,9 +1607,15 @@ impl PeerNetwork {
                         }
                     }
 
-                    if max_mblock_height == 0 && next_microblocks_to_try.len() == 0 {
-                        // have no microblocks to try in the first place
-                        max_mblock_height = max_height;
+                    if next_microblocks_to_try.len() == 0 {
+                        // have no microblocks to try in the first place, so just advance to the
+                        // next batch
+                        debug!(
+                            "No microblocks to try; advance max_mblock_height to {}",
+                            mblock_height
+                        );
+                        max_mblock_height = mblock_height;
+                        mblock_height += scan_batch_size;
                     }
 
                     test_debug!("{:?}: at {},{}: {} blocks to get, {} microblock streams to get (up to {},{})", 
@@ -1619,8 +1634,8 @@ impl PeerNetwork {
                     test_debug!("{:?}: End microblock requests", &network.local_peer);
 
                     debug!(
-                        "{:?}: create block, microblock requests up to heights ({},{})",
-                        &network.local_peer, &max_height, &max_mblock_height
+                        "{:?}: create block, microblock requests from heights ({},{}) up to heights ({},{}) (so far: {} blocks, {} microblocks queued)",
+                        &network.local_peer, height, mblock_height, max_height, max_mblock_height, downloader.blocks_to_try.len(), downloader.microblocks_to_try.len()
                     );
 
                     let now = get_epoch_time_secs();
@@ -1707,6 +1722,7 @@ impl PeerNetwork {
                             "BUG: hashmap both contains and does not contain sortition height",
                         );
                         if requests.len() == 0 {
+                            debug!("No microblock requests for {}", mblock_height);
                             mblock_height += 1;
                             continue;
                         }
@@ -1747,12 +1763,14 @@ impl PeerNetwork {
                     }
 
                     debug!(
-                        "{:?}: block download scan now at ({},{}) (was ({},{}))",
+                        "{:?}: block download scan now at ({},{}) (was ({},{})), trying {} blocks and {} microblocks",
                         &network.local_peer,
                         height,
                         mblock_height,
                         block_sortition_height,
-                        microblock_sortition_height
+                        microblock_sortition_height,
+                        downloader.blocks_to_try.len(),
+                        downloader.microblocks_to_try.len(),
                     );
 
                     if max_height <= next_block_sortition_height
@@ -1779,14 +1797,23 @@ impl PeerNetwork {
                     }
                 }
 
-                if downloader.blocks_to_try.len() == 0 && downloader.microblocks_to_try.len() == 0 {
+                if downloader.blocks_to_try.len() == 0 {
                     // nothing in this range, so advance sortition range to try for next time
                     next_block_sortition_height = next_block_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
+                    debug!(
+                        "{:?}: Pessimistically increase block sortition height to ({})",
+                        &network.local_peer, next_block_sortition_height
+                    );
+                }
+                if downloader.microblocks_to_try.len() == 0 {
+                    // nothing in this range, so advance sortition range to try for next time
                     next_microblock_sortition_height = next_microblock_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
-
-                    debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
+                    debug!(
+                        "{:?}: Pessimistically increase microblock sortition height to ({})",
+                        &network.local_peer, next_microblock_sortition_height
+                    );
                 }
 
                 downloader.next_block_sortition_height = next_block_sortition_height;
@@ -2055,6 +2082,12 @@ impl PeerNetwork {
 
         let now = get_epoch_time_secs();
 
+        let inv_sortition_start = self
+            .inv_state
+            .as_ref()
+            .map(|inv_state| inv_state.block_sortition_start)
+            .unwrap_or(0);
+
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             // extract blocks and microblocks downloaded
             for (request_key, block) in downloader.blocks.drain() {
@@ -2182,11 +2215,12 @@ impl PeerNetwork {
                     > network.chain_view.burn_block_height
                 {
                     debug!(
-                        "{:?}: Downloader for blocks has reached the chain tip",
-                        &network.local_peer
+                        "{:?}: Downloader for blocks has reached the chain tip; wrapping around to {}",
+                        &network.local_peer,
+                        inv_sortition_start
                     );
-                    downloader.block_sortition_height = 0;
-                    downloader.next_block_sortition_height = 0;
+                    downloader.block_sortition_height = inv_sortition_start;
+                    downloader.next_block_sortition_height = inv_sortition_start;
 
                     if downloader.num_blocks_downloaded == 0 {
                         downloader.empty_block_download_passes += 1;
@@ -2200,11 +2234,12 @@ impl PeerNetwork {
                     > network.chain_view.burn_block_height
                 {
                     debug!(
-                        "{:?}: Downloader for microblocks has reached the chain tip",
-                        &network.local_peer
+                        "{:?}: Downloader for microblocks has reached the chain tip; wrapping around to {}",
+                        &network.local_peer,
+                        inv_sortition_start
                     );
-                    downloader.microblock_sortition_height = 0;
-                    downloader.next_microblock_sortition_height = 0;
+                    downloader.microblock_sortition_height = inv_sortition_start;
+                    downloader.next_microblock_sortition_height = inv_sortition_start;
 
                     if downloader.num_microblocks_downloaded == 0 {
                         downloader.empty_microblock_download_passes += 1;
@@ -2283,8 +2318,8 @@ impl PeerNetwork {
     }
 
     /// Initialize the attachment downloader
-    pub fn init_attachments_downloader(&mut self) -> () {
-        self.attachments_downloader = Some(AttachmentsDownloader::new());
+    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) -> () {
+        self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
@@ -2323,7 +2358,12 @@ impl PeerNetwork {
             self.init_block_downloader();
         }
 
-        let last_inv_update_at = self.inv_state.as_ref().unwrap().last_change_at;
+        let mut last_inv_update_at = 0;
+        let mut inv_start_sortition = 0;
+        if let Some(ref inv_state) = self.inv_state {
+            last_inv_update_at = inv_state.last_change_at;
+            inv_start_sortition = inv_state.block_sortition_start;
+        }
 
         match self.block_downloader {
             Some(ref mut downloader) => {
@@ -2347,7 +2387,7 @@ impl PeerNetwork {
                             "{:?}: Noticed an inventory change; re-starting a download scan",
                             &self.local_peer
                         );
-                        downloader.restart_scan();
+                        downloader.restart_scan(inv_start_sortition);
 
                         downloader.last_inv_update_at = last_inv_update_at;
                     }
