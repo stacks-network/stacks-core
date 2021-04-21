@@ -581,7 +581,7 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]",
+            "Usage: {} {} [--costs] [contract-identifier] (program.clar) [vm-state.db]",
             invoked_by, args[0]
         );
         panic_test!();
@@ -1051,12 +1051,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_raw" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
-            let mainnet = if let Ok(Some(_)) = consume_arg(&mut argv, &["--testnet"], false) {
-                false
-            } else {
-                true
-            };
             let content: String = {
                 let mut buffer = String::new();
                 friendly_expect(
@@ -1068,7 +1062,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new_free(mainnet, marf.as_clarity_db());
+            let mut vm_env = OwnedEnvironment::new_free(true, marf.as_clarity_db());
 
             let contract_id = QualifiedContractIdentifier::transient();
 
@@ -1105,8 +1099,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval" => {
-            let evalInput = get_eval_input(invoked_by, args);
-            let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+
+            let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
+                true
+            } else {
+                false
+            };
+
+            let evalInput = get_eval_input(invoked_by, &argv);
+            let vm_filename = if argv.len() == 3 { &argv[2] } else { &argv[3] };
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
@@ -1114,41 +1116,68 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let (_, _, result) = in_block(header_db, marf_kv, |header_db, mut marf| {
+
+            let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let cost_track = LimitedCostTracker::new(
                         mainnet,
-                        db,
-                        LimitedCostTracker::new_free(),
-                    );
-                    vm_env
+                        if mainnet {
+                            BLOCK_LIMIT_MAINNET.clone()
+                        } else {
+                            HELIUM_BLOCK_LIMIT.clone()
+                        },
+                        &mut db,
+                    )
+                    .unwrap();
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
+                    let result = vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content);
+                    let cost = vm_env.get_cost_total();
+                    (result, cost)
                 };
                 (header_db, marf, result)
             });
 
-            match result {
-                Ok(x) => (
-                    0,
-                    Some(json!({
-                        "output": serde_json::to_value(&x).unwrap()
-                    })),
-                ),
-                Err(error) => (
-                    1,
-                    Some(json!({
+            match result_and_cost {
+                (Ok(result), cost) => {
+                    let mut result_json = json!({
+                        "output": serde_json::to_value(&result).unwrap()
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (0, Some(result_json))
+                }
+                (Err(error), cost) => {
+                    let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })),
-                ),
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (1, Some(result_json))
+                }
             }
         }
         "eval_at_chaintip" => {
-            let evalInput = get_eval_input(invoked_by, args);
-            let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+
+            let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
+                true
+            } else {
+                false
+            };
+
+            let evalInput = get_eval_input(invoked_by, &argv);
+            let vm_filename = if argv.len() == 3 { &argv[2] } else { &argv[3] };
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
@@ -1156,49 +1185,75 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+            let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
+                let result_and_cost = {
+                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let cost_track = LimitedCostTracker::new(
                         mainnet,
-                        db,
-                        LimitedCostTracker::new_free(),
-                    );
-                    vm_env
+                        if mainnet {
+                            BLOCK_LIMIT_MAINNET.clone()
+                        } else {
+                            HELIUM_BLOCK_LIMIT.clone()
+                        },
+                        &mut db,
+                    )
+                    .unwrap();
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
+                    let result = vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content);
+                    let cost = vm_env.get_cost_total();
+                    (result, cost)
                 };
-                (marf, result)
+                (marf, result_and_cost)
             });
 
-            match result {
-                Ok(x) => (
-                    0,
-                    Some(json!({
-                        "output": serde_json::to_value(&x).unwrap()
-                    })),
-                ),
-                Err(error) => (
-                    1,
-                    Some(json!({
+            match result_and_cost {
+                (Ok(result), cost) => {
+                    let mut result_json = json!({
+                        "output": serde_json::to_value(&result).unwrap()
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (0, Some(result_json))
+                }
+                (Err(error), cost) => {
+                    let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })),
-                ),
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (1, Some(result_json))
+                }
             }
         }
         "eval_at_block" => {
-            if args.len() != 4 {
+            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+
+            let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
+                true
+            } else {
+                false
+            };
+
+            if argv.len() != 4 {
                 eprintln!(
-                    "Usage: {} {} [index-block-hash] [contract-identifier] [vm/clarity dir]",
-                    invoked_by, &args[0]
+                    "Usage: {} {} [--costs] [index-block-hash] [contract-identifier] [vm/clarity dir]",
+                    invoked_by, &argv[0]
                 );
                 panic_test!();
             }
-            let chain_tip = &args[1];
+            let chain_tip = &argv[1];
             let contract_identifier = friendly_expect(
-                QualifiedContractIdentifier::parse(&args[2]),
+                QualifiedContractIdentifier::parse(&argv[2]),
                 "Failed to parse contract identifier.",
             );
             let content: String = {
@@ -1210,7 +1265,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 buffer
             };
 
-            let vm_filename = &args[3];
+            let vm_filename = &argv[3];
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
@@ -1218,36 +1273,54 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let result = at_block(chain_tip, marf_kv, |mut marf| {
-                let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+            let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
+                let result_and_cost = {
+                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let cost_track = LimitedCostTracker::new(
                         mainnet,
-                        db,
-                        LimitedCostTracker::new_free(),
-                    );
-                    vm_env
+                        if mainnet {
+                            BLOCK_LIMIT_MAINNET.clone()
+                        } else {
+                            HELIUM_BLOCK_LIMIT.clone()
+                        },
+                        &mut db,
+                    )
+                    .unwrap();
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
+                    let result = vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&contract_identifier, &content)
+                        .eval_read_only(&contract_identifier, &content);
+                    let cost = vm_env.get_cost_total();
+                    (result, cost)
                 };
-                (marf, result)
+                (marf, result_and_cost)
             });
 
-            match result {
-                Ok(x) => (
-                    0,
-                    Some(json!({
-                        "output": serde_json::to_value(&x).unwrap()
-                    })),
-                ),
-                Err(error) => (
-                    1,
-                    Some(json!({
+            match result_and_cost {
+                (Ok(result), cost) => {
+                    let mut result_json = json!({
+                        "output": serde_json::to_value(&result).unwrap()
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (0, Some(result_json))
+                }
+                (Err(error), cost) => {
+                    let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
-                    })),
-                ),
+                    });
+
+                    if costs {
+                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
+                    }
+
+                    (1, Some(result_json))
+                }
             }
         }
         "launch" => {
@@ -1801,6 +1874,35 @@ mod test {
             })
         );
 
+        eprintln!("eval tokens with cost");
+        let invoked = invoke_command(
+            "test",
+            &[
+                "eval".to_string(),
+                "--costs".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "sample-contracts/tokens-mint.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
+
+        let exit = invoked.0;
+        let result = invoked.1.unwrap();
+
+        assert_eq!(exit, 0);
+        assert_eq!(
+            result["output"],
+            json!({
+                "Response": {
+                    "committed": true,
+                    "data": {
+                        "UInt": 100
+                    }
+                }
+            })
+        );
+        assert!(result["costs"] != json!(null));
+
         eprintln!("eval_at_chaintip tokens");
         let invoked = invoke_command(
             "test",
@@ -1827,6 +1929,35 @@ mod test {
                 }
             })
         );
+
+        eprintln!("eval_at_chaintip tokens with cost");
+        let invoked = invoke_command(
+            "test",
+            &[
+                "eval_at_chaintip".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "sample-contracts/tokens-mint.clar".to_string(),
+                db_name.clone(),
+                "--costs".to_string(),
+            ],
+        );
+
+        let exit = invoked.0;
+        let result = invoked.1.unwrap();
+
+        assert_eq!(exit, 0);
+        assert_eq!(
+            result["output"],
+            json!({
+                "Response": {
+                    "committed": true,
+                    "data": {
+                        "UInt": 100
+                    }
+                }
+            })
+        );
+        assert!(result["costs"] != json!(null));
     }
 
     #[test]
