@@ -893,9 +893,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         }
         "make_lcov" => {
+            if args.len() != 3 {
+                eprintln!(
+                    "Usage: {} {} [clarity coverage folder] [lcov output file]",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
+
             let mut register_files = vec![];
             let mut coverage_files = vec![];
             let coverage_folder = &args[1];
+            let lcov_output_file = &args[2];
             for folder_entry in
                 fs::read_dir(coverage_folder).expect("Failed to read the coverage folder")
             {
@@ -910,7 +919,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     }
                 }
             }
-            CoverageReporter::produce_lcov("/tmp/coverage.lcov", &register_files, &coverage_files)
+            CoverageReporter::produce_lcov(lcov_output_file, &register_files, &coverage_files)
                 .expect("Failed to produce an lcov output");
         }
         "launch" => {
