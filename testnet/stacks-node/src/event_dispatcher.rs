@@ -111,8 +111,8 @@ impl EventObserver {
                     break;
                 } else {
                     error!(
-                        "Event dispatcher: POST {} failed with error {:?}",
-                        self.endpoint, response
+                        "Event dispatcher: POST {}/{} failed with error {:?}",
+                        self.endpoint, &url, response
                     );
                 }
             }
