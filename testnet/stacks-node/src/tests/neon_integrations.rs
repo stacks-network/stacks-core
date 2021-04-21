@@ -1163,7 +1163,6 @@ fn microblock_integration_test() {
         amount: 100300,
     });
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 5_000;
 
@@ -1538,7 +1537,6 @@ fn size_check_integration_test() {
         });
     }
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5000;
     conf.node.microblock_frequency = 15000;
 
@@ -1704,7 +1702,6 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         });
     }
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5000;
     conf.node.microblock_frequency = 15000;
 
@@ -1892,7 +1889,6 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         });
     }
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
     conf.node.max_microblocks = 65536;
@@ -2086,7 +2082,6 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         });
     }
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 15000;
     conf.node.microblock_frequency = 1000;
     conf.node.max_microblocks = 65536;
@@ -2347,7 +2342,6 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         });
     }
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
     conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
@@ -2513,7 +2507,6 @@ fn block_replay_integration_test() {
         amount: 100300,
     });
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 5_000;
 
@@ -2963,7 +2956,6 @@ fn near_full_block_integration_test() {
         amount: 10000000,
     });
 
-    conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 1000;
 

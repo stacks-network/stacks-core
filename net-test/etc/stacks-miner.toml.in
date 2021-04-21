@@ -8,7 +8,6 @@ miner = true
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
 p2p_address = "@@STACKS_PUBLIC_IP@@:@@STACKS_MINER_P2P_PORT@@"
 pox_sync_sample_secs = 10
-mine_microblocks = @@STACKS_MINER_MINE_MICROBLOCKS@@
 microblock_frequency = @@STACKS_MINER_MICROBLOCK_FREQUENCY@@
 max_microblocks = @@STACKS_MINER_MAX_MICROBLOCKS@@
 wait_time_for_microblocks = @@STACKS_MINER_WAIT_FOR_MICROBLOCKS@@

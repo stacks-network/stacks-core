@@ -449,9 +449,6 @@ impl Config {
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
                     mock_mining: node.mock_mining.unwrap_or(default_node_config.mock_mining),
-                    mine_microblocks: node
-                        .mine_microblocks
-                        .unwrap_or(default_node_config.mine_microblocks),
                     microblock_frequency: node
                         .microblock_frequency
                         .unwrap_or(default_node_config.microblock_frequency),
@@ -1088,7 +1085,6 @@ pub struct NodeConfig {
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub mock_mining: bool,
-    pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
@@ -1129,7 +1125,6 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mock_mining: false,
-            mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
@@ -1281,7 +1276,6 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mock_mining: Option<bool>,
-    pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,

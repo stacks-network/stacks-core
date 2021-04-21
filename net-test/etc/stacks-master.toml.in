@@ -5,7 +5,6 @@ seed = "bbd40688849e9d0f3bc3132a576835df11bb84b307a5a0588d8fecc4d6ba32d201"
 miner = @@STACKS_MASTER_IS_MINER@@
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
 pox_sync_sample_secs = 10
-mine_microblocks = @@STACKS_MASTER_MINE_MICROBLOCKS@@
 microblock_frequency = @@STACKS_MASTER_MICROBLOCK_FREQUENCY@@
 max_microblocks = @@STACKS_MASTER_MAX_MICROBLOCKS@@
 wait_time_for_microblocks = @@STACKS_MASTER_WAIT_FOR_MICROBLOCKS@@
