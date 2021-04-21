@@ -355,7 +355,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
 
     let (result, _, _) = owned_env
         .execute_transaction(
-            Value::Principal(PrincipalData::Standard(p1_address)),
+            PrincipalData::Standard(p1_address),
             None,
             contract_identifier,
             "destroy",

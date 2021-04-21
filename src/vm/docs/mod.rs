@@ -1977,7 +1977,7 @@ mod test {
             )
             .unwrap();
 
-            env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
+            env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
                 .unwrap();
             store.test_commit();
         }

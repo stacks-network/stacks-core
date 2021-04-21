@@ -543,7 +543,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(contract_identifier.issuer.clone().into(), sponsor.clone() |exec_env| {
+        self.execute_in_env(contract_identifier.issuer.clone().into(), sponsor.clone(), |exec_env| {
             exec_env.initialize_contract(contract_identifier, contract_content)
         })
     }
@@ -585,7 +585,7 @@ impl<'a> OwnedEnvironment<'a> {
         memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(from.clone(), None, |exec_env| {
-            exec_env.stx_transfer(from, to, amount)
+            exec_env.stx_transfer(from, to, amount, memo)
         })
     }
 

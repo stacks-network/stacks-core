@@ -562,7 +562,7 @@ fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
          (define-read-only (as-contract-cc-get-sponsor)
            (as-contract (contract-call? .contract-a get-sponsor)))";
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").expect_principal();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
     let sponsor = if let Value::Principal(p) = p2 {
         Some(p)

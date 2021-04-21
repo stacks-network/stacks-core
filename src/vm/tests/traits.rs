@@ -126,7 +126,7 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(owned_env: &mut OwnedEnvironme
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal), None);
+        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
