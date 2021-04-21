@@ -79,7 +79,7 @@ impl<'a> Tenure {
         let (mut chain_state, _) = StacksChainState::open_with_block_limit(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
-            &self.config.get_chainstate_path(),
+            &self.config.get_chainstate_path_str(),
             self.config.block_limit.clone(),
         )
         .unwrap();
@@ -94,6 +94,7 @@ impl<'a> Tenure {
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
             self.config.block_limit.clone(),
+            None,
         )
         .unwrap();
 
@@ -115,7 +116,7 @@ impl<'a> Tenure {
         let (chain_state, _) = StacksChainState::open_with_block_limit(
             false,
             CHAIN_ID_TESTNET,
-            &self.config.get_chainstate_path(),
+            &self.config.get_chainstate_path_str(),
             self.config.block_limit.clone(),
         )
         .unwrap();

@@ -99,6 +99,8 @@ use net::inv::*;
 use net::relay::*;
 use net::rpc::RPCHandlerArgs;
 
+use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
 pub enum NetworkRequest {
@@ -215,6 +217,7 @@ pub struct PeerNetwork {
     pub local_peer: LocalPeer,
     pub peer_version: u32,
     pub chain_view: BurnchainView,
+    pub last_burnchain_tip: BurnchainHeaderHash,
 
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
@@ -263,10 +266,12 @@ pub struct PeerNetwork {
     pub inv_state: Option<InvState>,
 
     // cached view of PoX database
+    // (maintained by the inv state machine)
     pub tip_sort_id: SortitionId,
     pub pox_id: PoxId,
 
     // cached block header hashes, for handling inventory requests
+    // (maintained by the downloader state machine)
     pub header_cache: BlockHeaderCache,
 
     // peer block download state
@@ -308,7 +313,8 @@ pub struct PeerNetwork {
     // when did we send it?
     antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
     antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
-    pub antientropy_last_burnchain_tip: BurnchainHeaderHash,
+    antientropy_start_reward_cycle: u64,
+    pub antientropy_last_push_ts: u64,
 
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
@@ -346,10 +352,11 @@ impl PeerNetwork {
             debug!("{:?}: disable inbound neighbor walks", &local_peer);
         }
 
-        PeerNetwork {
+        let mut network = PeerNetwork {
             local_peer: local_peer,
             peer_version: peer_version,
             chain_view: chain_view,
+            last_burnchain_tip: BurnchainHeaderHash([0u8; 32]),
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -415,12 +422,16 @@ impl PeerNetwork {
 
             antientropy_blocks: HashMap::new(),
             antientropy_microblocks: HashMap::new(),
-            antientropy_last_burnchain_tip: BurnchainHeaderHash([0u8; 32]),
+            antientropy_last_push_ts: 0,
+            antientropy_start_reward_cycle: 0,
 
             pending_messages: HashMap::new(),
 
             fault_last_disconnect: 0,
-        }
+        };
+
+        network.init_attachments_downloader(vec![]);
+        network
     }
 
     /// start serving.
@@ -1562,7 +1573,7 @@ impl PeerNetwork {
                     event_id
                 }
                 None => {
-                    test_debug!("{:?}: network not connected", &self.local_peer);
+                    debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
             };
@@ -2348,7 +2359,11 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<(bool, bool), net_error> {
+    fn do_network_inv_sync(
+        &mut self,
+        sortdb: &SortitionDB,
+        ibd: bool,
+    ) -> Result<(bool, bool), net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok((true, false));
@@ -2361,7 +2376,8 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, broken_neighbors, dead_neighbors) = self.sync_inventories(sortdb)?;
+        let (done, throttled, broken_neighbors, dead_neighbors) =
+            self.sync_inventories(sortdb, ibd)?;
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
@@ -2384,8 +2400,8 @@ impl PeerNetwork {
         dns_client: &mut DNSClient,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
-        if cfg!(test) && self.connection_opts.disable_block_download {
-            test_debug!("{:?}: block download is disabled", &self.local_peer);
+        if self.connection_opts.disable_block_download {
+            debug!("{:?}: block download is disabled", &self.local_peer);
             return Ok(true);
         }
 
@@ -2450,6 +2466,11 @@ impl PeerNetwork {
         }
 
         if done && at_chain_tip {
+            debug!(
+                "{:?}: Completed downloader pass {}",
+                &self.local_peer,
+                self.num_downloader_passes + 1
+            );
             self.num_downloader_passes += 1;
         }
 
@@ -2476,7 +2497,7 @@ impl PeerNetwork {
                 Ok(sn) => sn,
                 Err(e) => {
                     debug!(
-                        "{:?}: Failed to query ancestor block height {}: {:?}",
+                        "{:?}: AntiEntropy: Failed to query ancestor block height {}: {:?}",
                         &self.local_peer, height, &e
                     );
                     return Ok(None);
@@ -2495,7 +2516,7 @@ impl PeerNetwork {
                 Some(block) => block,
                 None => {
                     debug!(
-                        "{:?}: No such block {}",
+                        "{:?}: AntiEntropy: No such block {}",
                         &self.local_peer, &index_block_hash
                     );
                     return Ok(None);
@@ -2503,7 +2524,7 @@ impl PeerNetwork {
             };
 
             debug!(
-                "{:?}: Peer {:?} is missing Stacks block {} from height {}, which we have",
+                "{:?}: AntiEntropy: Peer {:?} is missing Stacks block {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
             return Ok(Some((ancestor_sn.consensus_hash, block)));
@@ -2522,7 +2543,7 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
-    ) -> Result<Option<(StacksBlockId, Vec<StacksMicroblock>)>, net_error> {
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)>, net_error> {
         let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
         if !local_blocks_inv.has_ith_microblock_stream((height - start_block_height) as u16) {
             return Ok(None);
@@ -2534,7 +2555,7 @@ impl PeerNetwork {
                 Ok(sn) => sn,
                 Err(e) => {
                     debug!(
-                        "{:?}: Failed to query ancestor block height {}: {:?}",
+                        "{:?}: AntiEntropy: Failed to query ancestor block height {}: {:?}",
                         &self.local_peer, height, &e
                     );
                     return Ok(None);
@@ -2551,7 +2572,7 @@ impl PeerNetwork {
                 Ok(Some(x)) => x,
                 Ok(None) => {
                     debug!(
-                        "{:?}: No block stored for {}/{}",
+                        "{:?}: AntiEntropy: No block stored for {}/{}",
                         &self.local_peer,
                         &ancestor_sn.consensus_hash,
                         &ancestor_sn.winning_stacks_block_hash,
@@ -2560,7 +2581,7 @@ impl PeerNetwork {
                 }
                 Err(e) => {
                     debug!(
-                        "{:?}: Failed to query header info of {}/{}: {:?}",
+                        "{:?}: AntiEntropy: Failed to query header info of {}/{}: {:?}",
                         &self.local_peer,
                         &ancestor_sn.consensus_hash,
                         &ancestor_sn.winning_stacks_block_hash,
@@ -2579,7 +2600,7 @@ impl PeerNetwork {
                 Ok(Some(mblocks)) => mblocks,
                 Ok(None) => {
                     debug!(
-                        "{:?}: No processed microblocks in-between {}/{} and {}/{}",
+                        "{:?}: AntiEntropy: No processed microblocks in-between {}/{} and {}/{}",
                         &self.local_peer,
                         &block_info.parent_consensus_hash,
                         &block_info.parent_anchored_block_hash,
@@ -2589,7 +2610,7 @@ impl PeerNetwork {
                     return Ok(None);
                 }
                 Err(e) => {
-                    debug!("{:?}: Failed to load processed microblocks in-between {}/{} and {}/{}: {:?}",
+                    debug!("{:?}: AntiEntropy: Failed to load processed microblocks in-between {}/{} and {}/{}: {:?}",
                            &self.local_peer,
                            &block_info.parent_consensus_hash,
                            &block_info.parent_anchored_block_hash,
@@ -2606,35 +2627,43 @@ impl PeerNetwork {
                 &block_info.parent_anchored_block_hash,
             );
             debug!(
-                "{:?}: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
+                "{:?}: AntiEntropy: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Ok(Some((index_block_hash, microblocks)));
+            return Ok(Some((
+                block_info.parent_consensus_hash,
+                block_info.parent_anchored_block_hash,
+                microblocks,
+            )));
         } else {
             return Ok(None);
         }
     }
 
-    /// Push any blocks and microblock streams that we're holding onto out to our neighbors, if we have no public inbound
-    /// connections.
+    /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
+    /// Push all but the last arrived Stacks block (the block-push and blocks-available protocols
+    /// should handle this, and we don't want the network to DDoS itself to death).
     fn try_push_local_data(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
     ) -> Result<(), net_error> {
-        // only run anti-entropy once our burnchain view changes
-        if self.chain_view.burn_block_hash == self.antientropy_last_burnchain_tip {
+        if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
+            >= get_epoch_time_secs()
+        {
             return Ok(());
         }
-        self.antientropy_last_burnchain_tip = self.chain_view.burn_block_hash;
+
+        self.antientropy_last_push_ts = get_epoch_time_secs();
 
         let num_public_inbound = self.count_public_inbound();
         debug!(
-            "{:?}: Number of public inbound neighbors: {}",
-            &self.local_peer, num_public_inbound
+            "{:?}: AntiEntropy: Number of public inbound neighbors: {}, public={}",
+            &self.local_peer, num_public_inbound, self.connection_opts.antientropy_public
         );
 
-        if num_public_inbound > 0 {
+        if num_public_inbound > 0 && !self.connection_opts.antientropy_public {
+            // we're likely not NAT'ed, and we're not supposed to push blocks to the public.
             return Ok(());
         }
 
@@ -2643,7 +2672,7 @@ impl PeerNetwork {
         {
             // overwhelmed
             debug!(
-                "{:?}: too many relay handles ({}), skipping anti-entropy",
+                "{:?}: AntiEntropy: too many relay handles ({}), skipping anti-entropy",
                 &self.local_peer,
                 self.relay_handles.len()
             );
@@ -2658,27 +2687,44 @@ impl PeerNetwork {
         let mut total_blocks_to_broadcast = 0;
         let mut total_microblocks_to_broadcast = 0;
         let mut lowest_reward_cycle_with_missing_block = HashMap::new();
-        let mut neighbor_keys = vec![];
-        for (nk, _) in self.events.iter() {
-            neighbor_keys.push(nk.clone());
+        let neighbor_keys: Vec<NeighborKey> = self
+            .inv_state
+            .as_ref()
+            .map(|inv_state| inv_state.block_stats.keys().map(|nk| nk.clone()).collect())
+            .unwrap_or(vec![]);
+
+        if self.antientropy_start_reward_cycle >= self.pox_id.num_inventory_reward_cycles() as u64 {
+            debug!("AntiEntropy: wrap around back to reward cycle 0");
+            self.antientropy_start_reward_cycle = 0;
         }
 
-        debug!(
-            "{:?}: Run anti-entropy protocol for {} neighbors",
-            &self.local_peer,
-            &neighbor_keys.len()
+        let reward_cycle_start = self.antientropy_start_reward_cycle;
+        let reward_cycle_finish = cmp::min(
+            self.antientropy_start_reward_cycle + self.connection_opts.inv_reward_cycles,
+            self.pox_id.num_inventory_reward_cycles() as u64,
         );
+
+        self.antientropy_start_reward_cycle = reward_cycle_finish;
+
         if neighbor_keys.len() == 0 {
             return Ok(());
         }
 
-        for reward_cycle in (0..(self.pox_id.len() as u64)).rev() {
+        debug!(
+            "{:?}: AntiEntropy: run protocol for {} neighbors, over reward cycles {}-{}",
+            &self.local_peer,
+            &neighbor_keys.len(),
+            reward_cycle_start,
+            reward_cycle_finish
+        );
+
+        for reward_cycle in reward_cycle_start..reward_cycle_finish {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
                 Err(e) => {
                     debug!(
-                        "{:?}: Failed to load local blocks inventory for reward cycle {}: {:?}",
+                        "{:?}: AntiEntropy: Failed to load local blocks inventory for reward cycle {}: {:?}",
                         &self.local_peer, reward_cycle, &e
                     );
                     continue;
@@ -2686,7 +2732,7 @@ impl PeerNetwork {
             };
 
             debug!(
-                "{:?}: Local blocks inventory for reward cycle {} is {:?}",
+                "{:?}: AntiEntropy: Local blocks inventory for reward cycle {} is {:?}",
                 &self.local_peer, reward_cycle, &local_blocks_inv
             );
 
@@ -2694,6 +2740,7 @@ impl PeerNetwork {
             let mut microblocks_to_broadcast = HashMap::new();
 
             let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+            let highest_snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
             for nk in neighbor_keys.iter() {
                 if total_blocks_to_broadcast >= self.connection_opts.max_block_push
                     && total_microblocks_to_broadcast >= self.connection_opts.max_microblock_push
@@ -2730,21 +2777,28 @@ impl PeerNetwork {
                                         &block.block_hash(),
                                     );
 
+                                    if consensus_hash == highest_snapshot.consensus_hash {
+                                        // This block was just sortition'ed
+                                        debug!("{:?}: AntiEntropy: do not push anchored block {} just yet -- give it a chance to propagate through other means", &network.local_peer, &index_block_hash);
+                                        continue;
+                                    }
+
                                     // have we recently tried to push this out yet?
                                     if let Some(ref mut push_set) =
                                         network.antientropy_blocks.get_mut(nk)
                                     {
                                         if let Some(ts) = push_set.get(&index_block_hash) {
                                             if *ts
-                                                < get_epoch_time_secs()
+                                                > get_epoch_time_secs()
                                                     + network.connection_opts.antientropy_retry
                                             {
                                                 // tried pushing this block recently
+                                                debug!("{:?}: AntiEntropy: already recently pushed anchored block {} (will push again after {})", &network.local_peer, &index_block_hash, get_epoch_time_secs() + network.connection_opts.antientropy_retry);
                                                 continue;
                                             }
                                         } else {
                                             push_set
-                                                .insert(index_block_hash, get_epoch_time_secs());
+                                                .insert(index_block_hash, get_epoch_time_secs() + network.connection_opts.antientropy_retry);
                                         }
                                     } else {
                                         let mut pushed = HashMap::new();
@@ -2766,7 +2820,7 @@ impl PeerNetwork {
                             if total_microblocks_to_broadcast
                                 < network.connection_opts.max_microblock_push
                             {
-                                if let Some((index_block_hash, microblocks)) = network
+                                if let Some((parent_consensus_hash, parent_block_hash, microblocks)) = network
                                     .find_next_push_microblocks(
                                         nk,
                                         reward_cycle,
@@ -2777,22 +2831,34 @@ impl PeerNetwork {
                                         block_stats,
                                     )?
                                 {
+                                    let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                                        &parent_consensus_hash,
+                                        &parent_block_hash
+                                    );
+
+                                    if parent_consensus_hash == highest_snapshot.consensus_hash {
+                                        // This parent block was just sortition'ed
+                                        debug!("{:?}: AntiEntropy: do not push microblocks built on {} just yet -- give them a chance to propagate through other means", &network.local_peer, &index_block_hash);
+                                        continue;
+                                    }
+
                                     // have we recently tried to push this out yet?
                                     if let Some(ref mut push_set) =
                                         network.antientropy_microblocks.get_mut(nk)
                                     {
                                         if let Some(ts) = push_set.get(&index_block_hash) {
                                             if *ts
-                                                < get_epoch_time_secs()
+                                                > get_epoch_time_secs()
                                                     + network.connection_opts.antientropy_retry
                                             {
                                                 // tried pushing this microblock stream recently
+                                                debug!("{:?}: AntiEntropy: already recently pushed microblocks off of {} (will push again after {})", &network.local_peer, &index_block_hash, get_epoch_time_secs() + network.connection_opts.antientropy_retry);
                                                 continue;
                                             }
                                         } else {
                                             push_set.insert(
                                                 index_block_hash.clone(),
-                                                get_epoch_time_secs(),
+                                                get_epoch_time_secs() + network.connection_opts.antientropy_retry,
                                             );
                                         }
                                     } else {
@@ -2817,11 +2883,12 @@ impl PeerNetwork {
                 ) {
                     Ok(x) => x,
                     Err(net_error::PeerNotConnected) => {
+                        debug!("{:?}: AntiEntropy: not connected: {:?}", &self.local_peer, &nk);
                         continue;
                     }
                     Err(e) => {
                         debug!(
-                            "{:?}: Failed to push blocks to {:?}: {:?}",
+                            "{:?}: AntiEntropy: Failed to push blocks to {:?}: {:?}",
                             &self.local_peer, &nk, &e
                         );
                         return Err(e);
@@ -2832,13 +2899,28 @@ impl PeerNetwork {
                 microblocks_to_broadcast.insert(nk.clone(), microblocks);
             }
 
+            debug!(
+                "{:?}: AntiEntropy: push {} blocks and {} microblocks",
+                &self.local_peer, total_blocks_to_broadcast, total_microblocks_to_broadcast
+            );
+
             for (nk, blocks) in blocks_to_broadcast.into_iter() {
                 let num_blocks = blocks.len();
                 if num_blocks == 0 {
                     continue;
                 }
 
+                for block in blocks.iter() {
+                    let ibh =
+                        StacksBlockHeader::make_index_block_hash(&block.0, &block.1.block_hash());
+                    debug!(
+                        "{:?}: AntiEntropy: push anchored block {} to {}",
+                        &self.local_peer, &ibh, &nk
+                    );
+                }
+
                 let blocks_data = BlocksData { blocks: blocks };
+
                 self.broadcast_message(
                     vec![nk.clone()],
                     vec![],
@@ -2856,6 +2938,15 @@ impl PeerNetwork {
                         index_anchor_block: anchor_block_id.clone(),
                         microblocks: microblocks,
                     };
+
+                    debug!(
+                        "{:?}: AntiEntropy: push microblock stream (len={}) on {} to {}",
+                        &self.local_peer,
+                        microblocks_data.microblocks.len(),
+                        &microblocks_data.index_anchor_block,
+                        &nk
+                    );
+
                     self.broadcast_message(
                         vec![nk.clone()],
                         vec![],
@@ -2872,7 +2963,7 @@ impl PeerNetwork {
         // inventory statuses.
         for (nk, reward_cycle) in lowest_reward_cycle_with_missing_block.into_iter() {
             debug!(
-                "{:?}: Invalidate inventory for {:?} at and after reward cycle {}",
+                "{:?}: AntiEntropy: Invalidate inventory for {:?} at and after reward cycle {}",
                 &self.local_peer, &nk, reward_cycle
             );
             PeerNetwork::with_inv_state(self, |network, inv_state| {
@@ -2895,6 +2986,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         network_result: &mut NetworkResult,
     ) -> Result<bool, net_error> {
         // do some Actual Work(tm)
@@ -2928,7 +3020,7 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb)?;
+                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd)?;
                     if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
@@ -2975,7 +3067,7 @@ impl PeerNetwork {
                                         }
 
                                         if stats.inv.num_reward_cycles
-                                            >= (self.pox_id.len() - 1) as u64
+                                            >= self.pox_id.num_inventory_reward_cycles() as u64
                                         {
                                             debug!(
                                                 "{:?}: Fully-sync'ed PoX inventory from {}",
@@ -2997,6 +3089,33 @@ impl PeerNetwork {
                                 "{:?}: Finished full inventory state-machine pass ({})",
                                 &self.local_peer, self.num_inv_sync_passes
                             );
+
+                            // hint to the downloader to start scanning at the sortition
+                            // height we just synchronized
+                            let start_download_sortition =
+                                if let Some(ref inv_state) = self.inv_state {
+                                    debug!(
+                                    "{:?}: Begin downloader synchronization at sortition height {}",
+                                    &self.local_peer, inv_state.block_sortition_start
+                                );
+                                    inv_state.block_sortition_start
+                                } else {
+                                    // really unreachable, but why tempt fate?
+                                    warn!(
+                                        "{:?}: Inventory state machine not yet initialized",
+                                        &self.local_peer
+                                    );
+                                    0
+                                };
+
+                            if let Some(ref mut downloader) = self.block_downloader {
+                                downloader.hint_block_sortition_height_available(
+                                    start_download_sortition,
+                                );
+                                downloader.hint_microblock_sortition_height_available(
+                                    start_download_sortition,
+                                );
+                            }
                         }
                     }
                 }
@@ -3025,16 +3144,22 @@ impl PeerNetwork {
                     }
                 }
                 PeerNetworkWorkState::AntiEntropy => {
-                    match self.try_push_local_data(sortdb, chainstate) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            debug!(
-                                "{:?}: Failed to push local data: {:?}",
-                                &self.local_peer, &e
-                            );
-                        }
-                    };
-
+                    if ibd {
+                        debug!(
+                            "{:?}: Skip AntiEntropy while in initial block download",
+                            &self.local_peer
+                        );
+                    } else {
+                        match self.try_push_local_data(sortdb, chainstate) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                debug!(
+                                    "{:?}: Failed to push local data: {:?}",
+                                    &self.local_peer, &e
+                                );
+                            }
+                        };
+                    }
                     self.work_state = PeerNetworkWorkState::Prune;
                 }
                 PeerNetworkWorkState::Prune => {
@@ -3071,17 +3196,24 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
     ) -> Result<(), net_error> {
         if self.attachments_downloader.is_none() {
-            self.init_attachments_downloader();
+            self.atlasdb.evict_expired_uninstantiated_attachments()?;
+            self.atlasdb
+                .evict_expired_unresolved_attachment_instances()?;
+            let initial_batch = self.atlasdb.find_unresolved_attachment_instances()?;
+
+            self.init_attachments_downloader(initial_batch);
         }
 
         match dns_client_opt {
             Some(ref mut dns_client) => {
-                PeerNetwork::with_attachments_downloader(
+                let mut dead_events = PeerNetwork::with_attachments_downloader(
                     self,
                     |network, attachments_downloader| {
+                        let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, chainstate, network) {
-                            Ok(ref mut attachments) => {
+                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
+                                dead_events.append(events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(
@@ -3090,9 +3222,23 @@ impl PeerNetwork {
                                 );
                             }
                         }
-                        Ok(())
+                        Ok(dead_events)
                     },
                 )?;
+
+                let _ = PeerNetwork::with_network_state(
+                    self,
+                    |ref mut network, ref mut network_state| {
+                        for event_id in dead_events.drain(..) {
+                            debug!(
+                                "Atlas: Deregistering faulty connection (event_id: {})",
+                                event_id
+                            );
+                            network.http.deregister_http(network_state, event_id);
+                        }
+                        Ok(())
+                    },
+                );
             }
             None => {
                 // skip this step -- no DNS client available
@@ -3557,13 +3703,15 @@ impl PeerNetwork {
         let mut to_buffer = false;
 
         for (consensus_hash, block) in new_blocks.blocks.iter() {
-            let sn =
-                match SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash) {
-                    Ok(Some(sn)) => sn,
-                    Ok(None) => {
-                        if buffer {
-                            debug!(
-                                "{:?}: Will buffer BlocksData({}/{}) ({})",
+            let sn = match SortitionDB::get_block_snapshot_consensus(
+                &sortdb.conn(),
+                &consensus_hash,
+            ) {
+                Ok(Some(sn)) => sn,
+                Ok(None) => {
+                    if buffer {
+                        debug!(
+                                "{:?}: Will buffer unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
                                 &self.local_peer,
                                 &consensus_hash,
                                 &block.block_hash(),
@@ -3572,18 +3720,29 @@ impl PeerNetwork {
                                     &block.block_hash()
                                 )
                             );
-                            to_buffer = true;
-                        }
-                        continue;
+                        to_buffer = true;
+                    } else {
+                        debug!(
+                                "{:?}: Will drop unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
+                                &self.local_peer,
+                                &consensus_hash,
+                                &block.block_hash(),
+                                StacksBlockHeader::make_index_block_hash(
+                                    &consensus_hash,
+                                    &block.block_hash()
+                                )
+                            );
                     }
-                    Err(e) => {
-                        info!(
-                            "{:?}: Failed to query block snapshot for {}: {:?}",
-                            &self.local_peer, consensus_hash, &e
-                        );
-                        continue;
-                    }
-                };
+                    continue;
+                }
+                Err(e) => {
+                    info!(
+                        "{:?}: Failed to query block snapshot for {}: {:?}",
+                        &self.local_peer, consensus_hash, &e
+                    );
+                    continue;
+                }
+            };
 
             if !sn.pox_valid {
                 info!(
@@ -3674,13 +3833,13 @@ impl PeerNetwork {
             Ok(None) => {
                 if buffer {
                     debug!(
-                        "{:?}: Will buffer MicroblocksData({})",
+                        "{:?}: Will buffer unsolicited MicroblocksData({})",
                         &self.local_peer, &new_microblocks.index_anchor_block
                     );
                     true
                 } else {
                     debug!(
-                        "{:?}: Will not buffer MicroblocksData({})",
+                        "{:?}: Will not buffer unsolicited MicroblocksData({})",
                         &self.local_peer, &new_microblocks.index_anchor_block
                     );
                     false
@@ -3766,10 +3925,22 @@ impl PeerNetwork {
             let neighbor_key = match self.peers.get(&event_id) {
                 Some(convo) => convo.to_neighbor_key(),
                 None => {
-                    test_debug!("No such neighbor event={}, dropping message", event_id);
+                    debug!(
+                        "{:?}: No longer such neighbor event={}, dropping {} unsolicited messages",
+                        &self.local_peer,
+                        event_id,
+                        messages.len()
+                    );
                     continue;
                 }
             };
+
+            if messages.len() == 0 {
+                continue;
+            }
+
+            debug!("{:?}: Process {} unsolicited messages from {:?}", &self.local_peer, messages.len(), &neighbor_key; "buffer" => %buffer);
+
             for message in messages.into_iter() {
                 if !buffer {
                     debug!(
@@ -3982,8 +4153,9 @@ impl PeerNetwork {
             self.chain_view = new_chain_view;
         }
 
-        if sn.burn_header_hash != self.antientropy_last_burnchain_tip {
+        if sn.burn_header_hash != self.last_burnchain_tip {
             // try processing previously-buffered messages (best-effort)
+            self.last_burnchain_tip = sn.burn_header_hash;
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             ret = self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
         }
@@ -4002,6 +4174,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         mut poll_state: NetworkPollState,
     ) -> Result<(), net_error> {
         if self.network.is_none() {
@@ -4025,7 +4198,7 @@ impl PeerNetwork {
         // set up sockets that have finished connecting
         self.process_connecting_sockets(&mut poll_state);
 
-        // find out who is inbound and unathenticed
+        // find out who is inbound and unauthenticated
         let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
@@ -4053,6 +4226,7 @@ impl PeerNetwork {
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
+            ibd,
             network_result,
         )?;
         if do_prune {
@@ -4068,13 +4242,17 @@ impl PeerNetwork {
                 self.deregister_peer(dead);
             }
             self.prune_connections();
+            let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+            let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
+            update_outbound_neighbors(outbound_neighbors as i64);
+            update_inbound_neighbors(inbound_neighbors as i64);
         }
 
-        // In parallel, do a neighbor walk
+        // In parallel, do a neighbor walk, but only if we're not doing the initial block download
         self.do_network_neighbor_walk()?;
 
         // download attachments
-        // self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
+        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4142,6 +4320,7 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
@@ -4149,7 +4328,8 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx) {
+        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
+        {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4165,6 +4345,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         network_result: &mut NetworkResult,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
@@ -4181,6 +4362,7 @@ impl PeerNetwork {
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
+                    event_observer,
                 ) {
                     if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
                         new_tx_data.push((relayers, tx));
@@ -4211,6 +4393,7 @@ impl PeerNetwork {
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
+        ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
         attachment_requests: &mut HashSet<AttachmentInstance>,
@@ -4234,23 +4417,29 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut network_result =
-            NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
+        let mut network_result = NetworkResult::new(
+            self.num_state_machine_passes,
+            self.num_inv_sync_passes,
+            self.num_downloader_passes,
+        );
 
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        // match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-        //     let mut known_attachments = attachments_downloader
-        //         .enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
-        //     network_result.attachments.append(&mut known_attachments);
-        //     Ok(())
-        // }) {
-        //     Ok(_) => {}
-        //     Err(e) => {
-        //         warn!("Atlas: updating attachment inventory failed {}", e);
-        //     }
-        // }
+        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader.enqueue_new_attachments(
+                attachment_requests,
+                &mut network.atlasdb,
+                false,
+            )?;
+            network_result.attachments.append(&mut known_attachments);
+            Ok(())
+        }) {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Atlas: updating attachment inventory failed: {}", e);
+            }
+        }
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
@@ -4275,6 +4464,7 @@ impl PeerNetwork {
             chainstate,
             dns_client_opt,
             download_backpressure,
+            ibd,
             p2p_poll_state,
         )?;
 

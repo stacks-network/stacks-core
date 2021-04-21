@@ -1177,6 +1177,9 @@ impl<'a> SortitionHandleTx<'a> {
                         .into_iter()
                         .map(|ix| {
                             let recipient = reward_set[ix as usize].clone();
+                            info!("PoX recipient chosen";
+                                   "recipient" => recipient.clone().to_b58(),
+                                   "block_height" => block_height);
                             (recipient, u16::try_from(ix).unwrap())
                         })
                         .collect(),
@@ -1203,9 +1206,11 @@ impl<'a> SortitionHandleTx<'a> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
+                        info!("PoX recipient chosen";
+                               "recipient" => recipient.clone().to_b58(),
+                               "block_height" => block_height);
                         recipients.push((recipient, ix));
                     }
-                    test_debug!("PoX reward recipients: {:?}", &recipients);
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,
@@ -1453,6 +1458,15 @@ impl<'a> SortitionHandleConn<'a> {
             self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor())?,
         );
         Ok(anchor_block_hash)
+    }
+
+    fn get_reward_set_size(&self) -> Result<u16, db_error> {
+        self.get_tip_indexed(&db_keys::pox_reward_set_size())
+            .map(|x| {
+                db_keys::reward_set_size_from_string(
+                    &x.expect("CORRUPTION: no current reward set size written"),
+                )
+            })
     }
 
     pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
@@ -1955,6 +1969,10 @@ impl PoxId {
             count += 1;
         }
         (ret, count)
+    }
+
+    pub fn num_inventory_reward_cycles(&self) -> usize {
+        self.0.len().saturating_sub(1)
     }
 }
 
@@ -2525,7 +2543,14 @@ impl SortitionDB {
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    ) -> Result<
+        (
+            BlockSnapshot,
+            BurnchainStateTransition,
+            Option<RewardSetInfo>,
+        ),
+        BurnchainError,
+    > {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2586,7 +2611,7 @@ impl SortitionDB {
 
         // commit everything!
         sortition_db_handle.commit()?;
-        Ok(new_snapshot)
+        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
     }
 
     #[cfg(test)]
@@ -2936,6 +2961,24 @@ impl SortitionDB {
             }
             Some(snapshot) => Ok(snapshot),
         }
+    }
+
+    pub fn is_pox_active(
+        &self,
+        burnchain: &Burnchain,
+        block: &BlockSnapshot,
+    ) -> Result<bool, db_error> {
+        let reward_start_height = burnchain.reward_cycle_to_block_height(
+            burnchain
+                .block_height_to_reward_cycle(block.block_height)
+                .ok_or_else(|| db_error::NotFoundError)?,
+        );
+        let sort_id_of_start =
+            get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+
+        let handle = self.index_handle(&sort_id_of_start);
+        Ok(handle.get_reward_set_size()? > 0)
     }
 
     /// Find out how any burn tokens were destroyed in a given block on a given fork.

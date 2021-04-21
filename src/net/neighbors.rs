@@ -1743,12 +1743,20 @@ impl PeerNetwork {
         let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
 
         debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
+        walk.connecting.remove(nk);
 
-        let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
+        let msg = match self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data)) {
+            Ok(msg) => msg,
+            Err(e) => {
+                info!("{:?}: Failed to sign for peer {:?}", &self.local_peer, &nk);
+                walk.result.add_dead(nk.clone());
+                return Err(e);
+            }
+        };
+
         let req_res = self.send_message(nk, msg, self.connection_opts.timeout);
 
         // we tried this neighbor
-        walk.connecting.remove(nk);
         match req_res {
             Ok(handle) => Ok(handle),
             Err(e) => {
@@ -4581,6 +4589,9 @@ mod test {
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
 
             // peer 2 thinks peer 1 has the same network ID that it does
+            println!("1 ~~~ {}", peer_1_config.network_id);
+            println!("2 ~~~ {}", peer_2_config.network_id);
+
             peer_1_config.network_id = peer_1_config.network_id + 1;
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
             peer_1_config.network_id = peer_1_config.network_id - 1;
@@ -4588,8 +4599,12 @@ mod test {
             // different network IDs
             peer_2_config.network_id = peer_1_config.network_id + 1;
 
+            println!("3 ~~~ {}", peer_1_config.network_id);
+            println!("4 ~~~ {}", peer_2_config.network_id);
+
             let mut peer_1 = TestPeer::new(peer_1_config);
             let mut peer_2 = TestPeer::new(peer_2_config);
+            println!("5 ~~~");
 
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;

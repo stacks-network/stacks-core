@@ -1,0 +1,11 @@
+{
+  "error": "transaction rejected",
+  "reason": "BadNonce",
+  "reason_data": {
+    "actual": 4,
+    "expected": 0,
+    "is_origin": true,
+    "principal": "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
+  },
+  "txid": "caf6fd60ae05b0c2d19ef14ab6a7670b1095d117fa7c80224c74e76214d0a791"
+}

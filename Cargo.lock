@@ -485,6 +485,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlc"
+version = "3.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b57a92e9749e10f25a171adcebfafe72991d45e7ec2dcb853e8f83d9dafaeb08"
+dependencies = [
+ "nix",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1249,6 +1259,18 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "nix"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83450fe6a6142ddd95fb064b746083fc4ef1705fe81f64a64e1d4b39f54a1055"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 0.1.10",
+ "libc",
 ]
 
 [[package]]
@@ -2210,6 +2232,7 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "blockstack-core",
+ "ctrlc",
  "http-types",
  "lazy_static",
  "libc",
@@ -2217,6 +2240,7 @@ dependencies = [
  "rand 0.7.2",
  "reqwest",
  "ring",
+ "rusqlite",
  "serde",
  "serde_derive",
  "serde_json",

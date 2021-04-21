@@ -16,9 +16,7 @@ fi
 chainstate_dir="$1"
 hostport="$2"
 first_burn_height="$3"
-chain_id="00000080"                       # change this for mainnet
-chain_mode="testnet"                      # change this for mainnet
-chain_name="chain-$chain_id-$chain_mode"  # change this for mainnet
+chain_mode="krypton"                      # change this for mainnet
 
 if [ -z "$first_burn_height" ]; then
    first_burn_height=1902512
@@ -28,9 +26,9 @@ if [ -z "$chainstate_dir" ] || [ -z "$hostport" ]; then
    exit_error "Usage: $0 CHAINSTATE_DIR HOST:PORT [START_BURN_HEIGHT]\n"
 fi
 
-blocks_db="$chainstate_dir/chainstate/$chain_name/vm/index"
-sortition_db="$chainstate_dir/burnchain/db/bitcoin/$chain_mode/sortition.db/marf"
-blocks_path="$chainstate_dir/chainstate/$chain_name/blocks"
+blocks_db="$chainstate_dir/$chain_mode/chainstate/vm/index.sqlite"
+sortition_db="$chainstate_dir/$chain_mode/burnchain/sortition/marf.sqlite"
+blocks_path="$chainstate_dir/$chain_mode/chainstate/blocks"
 
 set -uo pipefail
 

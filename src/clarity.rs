@@ -20,6 +20,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
+use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
@@ -449,6 +450,44 @@ struct InitialAllocation {
     amount: u64,
 }
 
+fn consume_arg(
+    args: &mut Vec<String>,
+    argnames: &[&str],
+    has_optarg: bool,
+) -> Result<Option<String>, String> {
+    if let Some(ref switch) = args
+        .iter()
+        .find(|ref arg| argnames.iter().find(|ref argname| argname == arg).is_some())
+    {
+        let idx = args
+            .iter()
+            .position(|ref arg| arg == switch)
+            .expect("BUG: did not find the thing that was just found");
+        let argval = if has_optarg {
+            // following argument is the argument value
+            if idx + 1 < args.len() {
+                Some(args[idx + 1].clone())
+            } else {
+                // invalid usage -- expected argument
+                return Err("Expected argument".to_string());
+            }
+        } else {
+            // only care about presence of this option
+            Some("".to_string())
+        };
+
+        args.remove(idx);
+        if has_optarg {
+            // also clear the argument
+            args.remove(idx);
+        }
+        Ok(argval)
+    } else {
+        // not found
+        Ok(None)
+    }
+}
+
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
@@ -535,15 +574,36 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] (vm-state.db)",
+                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] (vm-state.db)",
                     invoked_by, args[0]
                 );
                 panic_test!();
             }
 
-            let contract_id = QualifiedContractIdentifier::transient();
+            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
+                optarg
+                    .map(|optarg_str| {
+                        friendly_expect(
+                            QualifiedContractIdentifier::parse(&optarg_str),
+                            &format!("Error parsing contract identifier '{}", &optarg_str),
+                        )
+                    })
+                    .unwrap_or(QualifiedContractIdentifier::transient())
+            } else {
+                eprintln!("Expected argument for --contract-id");
+                panic_test!();
+            };
 
-            let content: String = if &args[1] == "-" {
+            let output_analysis =
+                if let Ok(optarg) = consume_arg(&mut argv, &["--output_analysis"], false) {
+                    optarg.is_some()
+                } else {
+                    eprintln!("BUG: failed to parse arguments for --output_analysis");
+                    panic_test!();
+                };
+
+            let content: String = if &argv[1] == "-" {
                 let mut buffer = String::new();
                 friendly_expect(
                     io::stdin().read_to_string(&mut buffer),
@@ -552,21 +612,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             } else {
                 friendly_expect(
-                    fs::read_to_string(&args[1]),
-                    &format!("Error reading file: {}", args[1]),
+                    fs::read_to_string(&argv[1]),
+                    &format!("Error reading file: {}", argv[1]),
                 )
             };
 
             let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
 
             let contract_analysis = {
-                if args.len() >= 3 {
+                if argv.len() >= 3 {
                     // use a persisted marf
                     let marf_kv = friendly_expect(
-                        MarfedKV::open(&args[2], None),
+                        MarfedKV::open(&argv[2], None),
                         "Failed to open VM database.",
                     );
-                    let result = at_chaintip(&args[2], marf_kv, |mut marf| {
+                    let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
                         let result = {
                             let mut db = marf.as_analysis_db();
                             run_analysis(&contract_id, &mut ast, &mut db, false)
@@ -585,16 +645,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             });
 
-            match args.last() {
-                Some(s) if s == "--output_analysis" => {
-                    println!(
-                        "{}",
-                        build_contract_interface(&contract_analysis).serialize()
-                    );
-                }
-                _ => {
-                    println!("Checks passed.");
-                }
+            if output_analysis {
+                println!(
+                    "{}",
+                    build_contract_interface(&contract_analysis).serialize()
+                );
+            } else {
+                println!("Checks passed.");
             }
         }
         "repl" => {
@@ -947,12 +1004,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         db,
                         LimitedCostTracker::new_free(),
                     );
-                    vm_env.execute_transaction(
-                        Value::Principal(sender),
-                        contract_identifier,
-                        &tx_name,
-                        &arguments,
-                    )
+                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
                 };
                 (marf, result)
             });
@@ -1070,6 +1122,18 @@ mod test {
                 "check".to_string(),
                 "sample-contracts/names.clar".to_string(),
                 db_name.clone(),
+            ],
+        );
+
+        eprintln!("check names with different contract ID");
+        invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                "sample-contracts/names.clar".to_string(),
+                db_name.clone(),
+                "--contract_id".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
             ],
         );
 

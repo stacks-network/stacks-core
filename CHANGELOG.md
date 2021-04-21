@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.0.11.0.0]
+
+The chainstate directory has been restructured in this release. It is not
+compatible with prior chainstate directories.
+
+## Added
+
+- `/drop_mempool_tx` endpoint to notify event observers when a mempool
+  transaction has been removed the mempool.
+- `"reward_slot_holders"` field to the `new_burn_block` event
+- CTRL-C handler for safe shutdown of `stacks-node`
+- Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
+- New prometheus metrics for mempool transaction processing times and
+  outstanding mempool transactions
+- New RPC endpoint with path `/v2/traits/contractAddr/contractName/traitContractName
+  /traitContractAddr/traitName` to determine whether a given trait is implemented 
+  within the specified contract (either explicitly or implicitly).
+- Re-activate the Atlas network for propagating and storing transaction
+  attachments. This re-enables off-chain BNS name storage.
+- Re-activate microblock mining.
+
+## Changed
+
+- Improved chainstate directory layout
+- Improved node boot up time
+- Better handling of flash blocks
+- The `/v2/pox` RPC endpoint was updated to include more useful
+  information about the current and next PoX cycles. For details, see
+  `docs/rpc-endpoints.md`
+  
+## Fixed 
+
+- Fixed faulty logic in the mempool that was still treating the transaction fee
+  as a fee rate, which prevented replace-by-fee from working as expected.
+
 ## [2.0.10.0.1]
 
 This is a low-priority hotfix release to address a bug in the deserialization logic. The
@@ -57,6 +92,7 @@ valid block data if its descendant microblock stream is invalid for some reason.
 ## Fixed
 
 - Do not delete a valid parent Stacks block.
+
 
 ## [2.0.6] - 2021-02-15
 

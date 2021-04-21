@@ -318,7 +318,6 @@ impl StackStxOp {
                 self.num_cycles, POX_MAX_NUM_CYCLES
             );
         }
-
         Ok(())
     }
 }

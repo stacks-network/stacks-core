@@ -100,7 +100,6 @@ stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 default = ["developer-mode"]
 developer-mode = []
 monitoring_prom = ["prometheus"]
-tx_log = []
 slog_json = ["slog-json"]
 
 

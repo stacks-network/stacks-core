@@ -313,6 +313,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(StacksAddress, u64)>,
         _burns: u64,
+        _slot_holders: Vec<StacksAddress>,
     ) {
     }
 
@@ -325,7 +326,7 @@ pub fn make_coordinator<'a>(
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
     let (tx, _) = sync_channel(100000);
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
-    ChainsCoordinator::test_new(&burnchain, path, OnChainRewardSetProvider(), tx)
+    ChainsCoordinator::test_new(&burnchain, 0x80000000, path, OnChainRewardSetProvider(), tx)
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
@@ -351,6 +352,7 @@ fn make_reward_set_coordinator<'a>(
     let (tx, _) = sync_channel(100000);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
+        0x80000000,
         path,
         StubbedRewardSetProvider(addrs),
         tx,
@@ -379,13 +381,13 @@ pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> Burncha
     BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap()
 }
 
-pub fn get_chainstate_path(path: &str) -> String {
+pub fn get_chainstate_path_str(path: &str) -> String {
     format!("{}/chainstate/", path)
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
     let (chainstate, _) =
-        StacksChainState::open(false, 0x80000000, &get_chainstate_path(path)).unwrap();
+        StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path)).unwrap();
     chainstate
 }
 

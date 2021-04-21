@@ -593,9 +593,9 @@ impl PeerAddress {
     pub fn is_in_private_range(&self) -> bool {
         if self.is_ipv4() {
             // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
-            self.0[13] == 10
-                || (self.0[13] == 172 && self.0[14] >= 16 && self.0[14] <= 31)
-                || (self.0[13] == 192 && self.0[14] == 168)
+            self.0[12] == 10
+                || (self.0[12] == 172 && self.0[13] >= 16 && self.0[13] <= 31)
+                || (self.0[12] == 192 && self.0[13] == 168)
         } else {
             self.0[0] >= 0xfc
         }
@@ -1022,18 +1022,47 @@ pub struct RPCPeerInfoData {
     pub exit_at_block_height: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxCurrentCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub stacked_ustx: u64,
+    pub is_pox_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxNextCycleInfo {
+    pub id: u64,
+    pub min_threshold_ustx: u64,
+    pub min_increment_ustx: u64,
+    pub stacked_ustx: u64,
+    pub prepare_phase_start_block_height: u64,
+    pub blocks_until_prepare_phase: i64,
+    pub reward_phase_start_block_height: u64,
+    pub blocks_until_reward_phase: u64,
+    pub ustx_until_pox_rejection: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
+    pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub prepare_phase_block_length: u64,
+    pub reward_phase_block_length: u64,
+    pub reward_slots: u64,
+    pub rejection_fraction: u64,
+    pub total_liquid_supply_ustx: u64,
+    pub current_cycle: RPCPoxCurrentCycleInfo,
+    pub next_cycle: RPCPoxNextCycleInfo,
+
+    // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
     pub prepare_cycle_length: u64,
-    pub rejection_fraction: u64,
     pub reward_cycle_id: u64,
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
-    pub total_liquid_supply_ustx: u64,
     pub next_reward_cycle_in: u64,
 }
 
@@ -1068,6 +1097,11 @@ pub struct ContractSrcResponse {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marf_proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetIsTraitImplementedResponse {
+    pub is_implemented: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1116,9 +1150,26 @@ pub struct PostTransactionRequestBody {
     pub attachment: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetAttachmentResponse {
     pub attachment: Attachment,
+}
+
+impl Serialize for GetAttachmentResponse {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let hex_encoded = to_hex(&self.attachment.content[..]);
+        s.serialize_str(hex_encoded.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GetAttachmentResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GetAttachmentResponse, D::Error> {
+        let payload = String::deserialize(d)?;
+        let hex_encoded = payload.parse::<String>().map_err(de_Error::custom)?;
+        let bytes = hex_bytes(&hex_encoded).map_err(de_Error::custom)?;
+        let attachment = Attachment::new(bytes);
+        Ok(GetAttachmentResponse { attachment })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1258,7 +1309,14 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
-    GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
+    GetIsTraitImplemented(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        TraitIdentifier,
+        Option<StacksBlockId>,
+    ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1349,6 +1407,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
@@ -1479,6 +1538,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 pub use self::http::StacksHttp;
+use vm::types::TraitIdentifier;
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::max_value();
@@ -1689,14 +1749,18 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
-    pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
-    pub attachments: Vec<AttachmentInstance>,
+    pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
+    pub num_download_passes: u64,
 }
 
 impl NetworkResult {
-    pub fn new(num_state_machine_passes: u64, num_inv_sync_passes: u64) -> NetworkResult {
+    pub fn new(
+        num_state_machine_passes: u64,
+        num_inv_sync_passes: u64,
+        num_download_passes: u64,
+    ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
@@ -1708,10 +1772,10 @@ impl NetworkResult {
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
-            uploaded_attachments: vec![],
             attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
+            num_download_passes: num_download_passes,
         }
     }
 
@@ -2301,8 +2365,8 @@ pub mod test {
             )
             .unwrap();
 
-            let chainstate_path = get_chainstate_path(&test_path);
-            let peerdb_path = format!("{}/peers.db", &test_path);
+            let chainstate_path = get_chainstate_path_str(&test_path);
+            let peerdb_path = format!("{}/peers.sqlite", &test_path);
 
             let mut peerdb = PeerDB::connect(
                 &peerdb_path,
@@ -2334,7 +2398,7 @@ pub mod test {
                 tx.commit().unwrap();
             }
 
-            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb =
                 AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
 
@@ -2412,8 +2476,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
+            let mut coord = ChainsCoordinator::test_new(
+                &burnchain,
+                config.network_id,
+                &test_path,
+                OnChainRewardSetProvider(),
+                tx,
+            );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2540,6 +2609,7 @@ pub mod test {
                 &mut mempool,
                 None,
                 false,
+                false,
                 10,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2562,6 +2632,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
+                false,
                 false,
                 10,
                 &RPCHandlerArgs::default(),

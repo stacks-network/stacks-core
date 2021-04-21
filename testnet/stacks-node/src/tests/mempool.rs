@@ -91,7 +91,7 @@ fn mempool_setup_chainstate() {
         CHAINSTATE_PATH
             .lock()
             .unwrap()
-            .replace(conf.get_chainstate_path());
+            .replace(conf.get_chainstate_path_str());
     }
 
     let num_rounds = 4;

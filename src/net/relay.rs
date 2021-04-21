@@ -60,6 +60,8 @@ use rand::Rng;
 
 use vm::costs::ExecutionCost;
 
+use crate::chainstate::coordinator::BlockEventDispatcher;
+
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
@@ -928,39 +930,15 @@ impl Relayer {
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
-        let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-        let mut store_downloaded_blocks = true;
-
         {
             let sort_ic = sortdb.index_conn();
-            let cur_pox_id = {
-                let sortdb_reader = SortitionHandleConn::open_reader(&sort_ic, &tip_sort_id)?;
-                sortdb_reader.get_pox_id()?
-            };
 
-            if let Some(ref old_pox_id) = network_result.download_pox_id {
-                // optimistic concurrency control -- don't store downloaded blocks and microblocks if they correspond to a
-                // now-invalidated reward cycle.
-                let num_reward_cycles = cmp::min(old_pox_id.len(), cur_pox_id.len());
-                for i in 0..num_reward_cycles {
-                    if old_pox_id.has_ith_anchor_block(i) != cur_pox_id.has_ith_anchor_block(i) {
-                        // TODO: we can be more fine-grained here, but for now, just discard the
-                        // blocks pessimistically.  The downloader will eventually re-download them
-                        // if they could have been stored in the first place.
-                        debug!("PoX bit for reward cycle {} has changed since blocks were downloaded; discarding...", i);
-                        store_downloaded_blocks = false;
-                    }
-                }
-            }
-
-            if store_downloaded_blocks {
-                // process blocks we downloaded
-                let new_dled_blocks =
-                    Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
-                for new_dled_block in new_dled_blocks.into_iter() {
-                    debug!("Received downloaded block for {}", &new_dled_block);
-                    new_blocks.insert(new_dled_block);
-                }
+            // process blocks we downloaded
+            let new_dled_blocks =
+                Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
+            for new_dled_block in new_dled_blocks.into_iter() {
+                debug!("Received downloaded block for {}", &new_dled_block);
+                new_blocks.insert(new_dled_block);
             }
 
             // process blocks pushed to us
@@ -981,14 +959,14 @@ impl Relayer {
             }
         }
 
-        if store_downloaded_blocks {
-            let mut new_dled_mblocks =
-                Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
-            for new_dled_mblock in new_dled_mblocks.drain() {
-                new_confirmed_microblocks.insert(new_dled_mblock);
-            }
+        // process microblocks we downloaded
+        let mut new_dled_mblocks =
+            Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
+        for new_dled_mblock in new_dled_mblocks.drain() {
+            new_confirmed_microblocks.insert(new_dled_mblock);
         }
 
+        // process microblocks pushed to us
         let (new_microblocks, mut new_bad_neighbors) =
             Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
@@ -1042,6 +1020,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
         let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
             Some(tip) => tip.height,
@@ -1054,8 +1033,13 @@ impl Relayer {
             }
         };
 
-        if let Err(e) = PeerNetwork::store_transactions(mempool, chainstate, sortdb, network_result)
-        {
+        if let Err(e) = PeerNetwork::store_transactions(
+            mempool,
+            chainstate,
+            sortdb,
+            network_result,
+            event_observer,
+        ) {
             warn!("Failed to store transactions: {:?}", &e);
         }
 
@@ -1083,7 +1067,7 @@ impl Relayer {
                 "Remove all transactions beneath block height {}",
                 min_height
             );
-            MemPoolDB::garbage_collect(&mut mempool_tx, min_height)?;
+            MemPoolDB::garbage_collect(&mut mempool_tx, min_height, event_observer)?;
             mempool_tx.commit()?;
         }
 
@@ -1197,6 +1181,7 @@ impl Relayer {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         coord_comms: Option<&CoordinatorChannels>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
         match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
@@ -1268,7 +1253,13 @@ impl Relayer {
             &_local_peer,
             network_result.pushed_transactions.len()
         );
-        let new_txs = Relayer::process_transactions(network_result, sortdb, chainstate, mempool)?;
+        let new_txs = Relayer::process_transactions(
+            network_result,
+            sortdb,
+            chainstate,
+            mempool,
+            event_observer,
+        )?;
 
         if new_txs.len() > 0 {
             debug!(
@@ -3448,8 +3439,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let done_flag = *done.borrow();
@@ -3680,7 +3670,6 @@ mod test {
                     // available via its inventory.  It only uses its anti-entropy protocol to
                     // discover that peer 1 doesn't have them, and sends them to peer 1 that way.
                     peer_configs[0].connection_opts.disable_block_advertisement = true;
-                    peer_configs[0].connection_opts.disable_inv_chat = true;
                     peer_configs[0].connection_opts.disable_block_download = true;
 
                     peer_configs[1].connection_opts.disable_block_download = true;
@@ -3691,8 +3680,15 @@ mod test {
                     peer_configs[0].connection_opts.disable_natpunch = true;
                     peer_configs[1].connection_opts.disable_natpunch = true;
 
-                    // peer 0 ignores peer 1's handshakes
-                    peer_configs[0].connection_opts.disable_inbound_handshakes = true;
+                    // permit anti-entropy protocol even if nat'ed
+                    peer_configs[0].connection_opts.antientropy_public = true;
+                    peer_configs[1].connection_opts.antientropy_public = true;
+                    peer_configs[0].connection_opts.antientropy_retry = 1;
+                    peer_configs[1].connection_opts.antientropy_retry = 1;
+
+                    // full rescan by default
+                    peer_configs[0].connection_opts.full_inv_sync_interval = 1;
+                    peer_configs[1].connection_opts.full_inv_sync_interval = 1;
 
                     // make peer 0 go slowly
                     peer_configs[0].connection_opts.max_block_push = 2;
@@ -3755,13 +3751,26 @@ mod test {
                             Some(microblocks),
                         ));
                     }
+
+                    // cap with an empty sortition, so the antientropy protocol picks up all stacks
+                    // blocks
+                    let (_, burn_header_hash, consensus_hash) =
+                        peers[0].next_burnchain_block(vec![]);
+                    for i in 1..peers.len() {
+                        peers[i].next_burnchain_block_raw(vec![]);
+                    }
+                    let sn = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    block_data.push((sn.consensus_hash.clone(), None, None));
+
                     block_data
                 },
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let tip_opt = peers[1]
@@ -3883,8 +3892,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let mut i = idx.borrow_mut();

@@ -594,9 +594,7 @@ fn special_as_contract(
     // nest an environment.
     env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    let contract_principal = Value::Principal(PrincipalData::Contract(
-        env.contract_context.contract_identifier.clone(),
-    ));
+    let contract_principal = env.contract_context.contract_identifier.clone().into();
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     let result = eval(&args[0], &mut nested_env, context);

@@ -1,0 +1,10 @@
+FROM node:lts-alpine as build
+
+WORKDIR /src
+
+COPY . .
+
+RUN npx redoc-cli@0.10.3 bundle -o /build/open-api-docs.html ./docs/rpc/openapi.yaml
+
+FROM scratch AS export-stage
+COPY --from=build /build/open-api-docs.html /

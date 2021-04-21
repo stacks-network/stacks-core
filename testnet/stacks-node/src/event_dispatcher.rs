@@ -1,13 +1,16 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::StacksBlock;
-use stacks::net::atlas::AttachmentInstance;
+use stacks::net::atlas::{Attachment, AttachmentInstance};
 use std::collections::hash_map::Entry;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use async_h1::client;
@@ -24,6 +27,7 @@ use stacks::chainstate::stacks::events::{
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
 };
+use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -35,6 +39,7 @@ use super::node::ChainTip;
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
+    should_keep_running: Arc<AtomicBool>,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -42,6 +47,7 @@ const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
+pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
@@ -71,6 +77,11 @@ impl EventObserver {
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
         loop {
+            if !self.should_keep_running.load(Ordering::SeqCst) {
+                info!("Terminating event observer");
+                return;
+            }
+
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
             req.append_header("Content-Type", "application/json")
@@ -100,8 +111,8 @@ impl EventObserver {
                     break;
                 } else {
                     error!(
-                        "Event dispatcher: POST {} failed with error {:?}",
-                        self.endpoint, response
+                        "Event dispatcher: POST {}/{} failed with error {:?}",
+                        self.endpoint, &url, response
                     );
                 }
             }
@@ -125,6 +136,7 @@ impl EventObserver {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        slot_holders: Vec<StacksAddress>,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -136,10 +148,16 @@ impl EventObserver {
             })
             .collect();
 
+        let reward_slot_holders = slot_holders
+            .into_iter()
+            .map(|stx_addr| json!(stx_addr.to_b58()))
+            .collect();
+
         json!({
             "burn_block_hash": format!("0x{}", burn_block),
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
+            "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
             "burn_amount": burns
         })
     }
@@ -192,8 +210,19 @@ impl EventObserver {
         })
     }
 
-    fn make_new_attachment_payload(attachment: &AttachmentInstance) -> serde_json::Value {
-        json!(attachment)
+    fn make_new_attachment_payload(
+        attachment: &(AttachmentInstance, Attachment),
+    ) -> serde_json::Value {
+        json!({
+            "attachment_index": attachment.0.attachment_index,
+            "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
+            "block_height": attachment.0.block_height,
+            "content_hash": format!("0x{}", attachment.0.content_hash),
+            "contract_id": format!("{}", attachment.0.contract_id),
+            "metadata": format!("0x{}", attachment.0.metadata),
+            "tx_id": format!("0x{}", attachment.0.tx_id),
+            "content": format!("0x{}", bytes_to_hex(&attachment.1.content)),
+        })
     }
 
     fn send_new_attachments(&self, payload: &serde_json::Value) {
@@ -202,6 +231,10 @@ impl EventObserver {
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+    }
+
+    fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MEMPOOL_TX_DROP);
     }
 
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
@@ -268,6 +301,14 @@ pub struct EventDispatcher {
     boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
+impl MemPoolEventDispatcher for EventDispatcher {
+    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
+        if !txids.is_empty() {
+            self.process_dropped_mempool_txs(txids, reason)
+        }
+    }
+}
+
 impl BlockEventDispatcher for EventDispatcher {
     fn announce_block(
         &self,
@@ -299,8 +340,15 @@ impl BlockEventDispatcher for EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        recipient_info: Vec<StacksAddress>,
     ) {
-        self.process_burn_block(burn_block, burn_block_height, rewards, burns)
+        self.process_burn_block(
+            burn_block,
+            burn_block_height,
+            rewards,
+            burns,
+            recipient_info,
+        )
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -328,6 +376,7 @@ impl EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
+        recipient_info: Vec<StacksAddress>,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -348,6 +397,7 @@ impl EventDispatcher {
             burn_block_height,
             rewards,
             burns,
+            recipient_info,
         );
 
         for (_, observer) in interested_observers.iter() {
@@ -522,7 +572,37 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_attachments(&self, attachments: &Vec<AttachmentInstance>) {
+    pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.mempool_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let dropped_txids: Vec<_> = txs
+            .into_iter()
+            .map(|tx| serde_json::Value::String(format!("0x{}", &tx)))
+            .collect();
+
+        let payload = json!({
+            "dropped_txids": serde_json::Value::Array(dropped_txids),
+            "reason": reason.to_string(),
+        });
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_dropped_mempool_txs(&payload);
+        }
+    }
+
+    pub fn process_new_attachments(&self, attachments: &Vec<(AttachmentInstance, Attachment)>) {
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
         if interested_observers.len() < 1 {
             return;
@@ -556,11 +636,16 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
+    pub fn register_observer(
+        &mut self,
+        conf: &EventObserverConfig,
+        should_keep_running: Arc<AtomicBool>,
+    ) {
         // let event_observer = EventObserver::new(&conf.address, conf.port);
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
+            should_keep_running,
         };
 
         let observer_index = self.registered_observers.len() as u16;

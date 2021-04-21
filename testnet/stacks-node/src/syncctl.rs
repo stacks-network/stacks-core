@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::sleep_ms;
@@ -8,9 +8,15 @@ use stacks::util::sleep_ms;
 use crate::burnchains::BurnchainTip;
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+
+// amount of time to wait for an inv or download sync to complete.
+// These _really should_ complete before the PoX sync watchdog permits processing the next reward
+// cycle, so this number is intentionally high (like, there's something really wrong with your
+// network if your node is actualy waiting a day in-between reward cycles).
+const SYNC_WAIT_SECS: u64 = 24 * 3600;
 
 #[derive(Clone)]
 pub struct PoxSyncWatchdogComms {
@@ -18,13 +24,25 @@ pub struct PoxSyncWatchdogComms {
     p2p_state_passes: Arc<AtomicU64>,
     /// how many times have we done an inv sync?
     inv_sync_passes: Arc<AtomicU64>,
+    /// how many times have we done a download pass?
+    download_passes: Arc<AtomicU64>,
+    /// What's the burnchain tip we last saw?
+    burnchain_tip_height: Arc<AtomicU64>,
+    /// What's our last IBD status?
+    last_ibd: Arc<AtomicBool>,
+    /// Should keep running?
+    should_keep_running: Arc<AtomicBool>,
 }
 
 impl PoxSyncWatchdogComms {
-    pub fn new() -> PoxSyncWatchdogComms {
+    pub fn new(should_keep_running: Arc<AtomicBool>) -> PoxSyncWatchdogComms {
         PoxSyncWatchdogComms {
             p2p_state_passes: Arc::new(AtomicU64::new(0)),
             inv_sync_passes: Arc::new(AtomicU64::new(0)),
+            download_passes: Arc::new(AtomicU64::new(0)),
+            burnchain_tip_height: Arc::new(AtomicU64::new(0)),
+            last_ibd: Arc::new(AtomicBool::new(true)),
+            should_keep_running,
         }
     }
 
@@ -36,36 +54,58 @@ impl PoxSyncWatchdogComms {
         self.inv_sync_passes.load(Ordering::SeqCst)
     }
 
-    /// Wait for at least one p2p state-machine passes
-    pub fn wait_for_p2p_state_pass(&self, timeout: u64) -> bool {
-        let current = self.get_p2p_state_passes();
+    pub fn get_download_passes(&self) -> u64 {
+        self.download_passes.load(Ordering::SeqCst)
+    }
 
-        let now = get_epoch_time_secs();
-        while current >= self.get_p2p_state_passes() {
-            if now + timeout < get_epoch_time_secs() {
-                debug!("PoX watchdog comms: timed out waiting for one p2p state-machine pass");
-                return false;
-            }
-            sleep_ms(1000);
-            std::sync::atomic::spin_loop_hint();
-        }
-        return true;
+    pub fn get_ibd(&self) -> bool {
+        self.last_ibd.load(Ordering::SeqCst)
     }
 
     /// Wait for at least one inv-sync state-machine passes
-    pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> bool {
+    pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> Result<bool, burnchain_error> {
         let current = self.get_inv_sync_passes();
 
         let now = get_epoch_time_secs();
         while current >= self.get_inv_sync_passes() {
             if now + timeout < get_epoch_time_secs() {
-                debug!("PoX watchdog comms: timed out waiting for one inv sync pass");
-                return false;
+                debug!("PoX watchdog comms: timed out waiting for one inv-sync pass");
+                return Ok(false);
             }
-            sleep_ms(1000);
+            self.interruptable_sleep(1)?;
             std::sync::atomic::spin_loop_hint();
         }
-        return true;
+        return Ok(true);
+    }
+
+    fn interruptable_sleep(&self, secs: u64) -> Result<(), burnchain_error> {
+        let deadline = secs + get_epoch_time_secs();
+        while get_epoch_time_secs() < deadline {
+            sleep_ms(1000);
+            if !self.should_keep_running() {
+                return Err(burnchain_error::CoordinatorClosed);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn wait_for_download_pass(&self, timeout: u64) -> Result<bool, burnchain_error> {
+        let current = self.get_download_passes();
+
+        let now = get_epoch_time_secs();
+        while current >= self.get_download_passes() {
+            if now + timeout < get_epoch_time_secs() {
+                debug!("PoX watchdog comms: timed out waiting for one download pass");
+                return Ok(false);
+            }
+            self.interruptable_sleep(1)?;
+            std::sync::atomic::spin_loop_hint();
+        }
+        return Ok(true);
+    }
+
+    pub fn should_keep_running(&self) -> bool {
+        self.should_keep_running.load(Ordering::SeqCst)
     }
 
     pub fn notify_p2p_state_pass(&mut self) {
@@ -74,6 +114,14 @@ impl PoxSyncWatchdogComms {
 
     pub fn notify_inv_sync_pass(&mut self) {
         self.inv_sync_passes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn notify_download_pass(&mut self) {
+        self.download_passes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn set_ibd(&mut self, value: bool) {
+        self.last_ibd.store(value, Ordering::SeqCst);
     }
 }
 
@@ -113,8 +161,6 @@ pub struct PoxSyncWatchdog {
     chainstate: StacksChainState,
     /// handle to relayer thread that informs the watchdog when the P2P state-machine does stuff
     relayer_comms: PoxSyncWatchdogComms,
-    /// what was the last burnchain height?
-    last_burnchain_height: u64,
     /// should this sync watchdog always download? used in integration tests.
     unconditionally_download: bool,
 }
@@ -130,6 +176,7 @@ impl PoxSyncWatchdog {
         download_timeout: u64,
         max_samples: u64,
         unconditionally_download: bool,
+        should_keep_running: Arc<AtomicBool>,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -156,8 +203,7 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            relayer_comms: PoxSyncWatchdogComms::new(),
-            last_burnchain_height: 0,
+            relayer_comms: PoxSyncWatchdogComms::new(should_keep_running),
         })
     }
 
@@ -199,11 +245,23 @@ impl PoxSyncWatchdog {
     /// from the burnchain height that we should be eagerly downloading snapshots?
     pub fn infer_initial_burnchain_block_download(
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip,
+        last_processed_height: u64,
         burnchain_height: u64,
     ) -> bool {
-        burnchain_tip.block_snapshot.block_height + (burnchain.stable_confirmations as u64)
-            < burnchain_height
+        let ibd =
+            last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+        if ibd {
+            debug!(
+                "PoX watchdog: {} + {} < {}, so iniitial block download",
+                last_processed_height, burnchain.stable_confirmations, burnchain_height
+            );
+        } else {
+            debug!(
+                "PoX watchdog: {} + {} >= {}, so steady-state",
+                last_processed_height, burnchain.stable_confirmations, burnchain_height
+            );
+        }
+        ibd
     }
 
     /// Calculate the first derivative of a list of points
@@ -371,9 +429,22 @@ impl PoxSyncWatchdog {
     pub fn pox_sync_wait(
         &mut self,
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip,
-        burnchain_height: u64,
-    ) -> bool {
+        burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
+        burnchain_height_opt: Option<u64>, // this is the absolute burnchain block height, if known
+        num_sortitions_in_last_cycle: u64,
+    ) -> Result<bool, burnchain_error> {
+        let burnchain_height = match burnchain_height_opt {
+            Some(bh) => bh,
+            None => {
+                // not known yet, so assume IBD
+                debug!("Pox watchdog: burnchain height not known yet, so assume IBD");
+                self.relayer_comms.set_ibd(true);
+
+                sleep_ms(self.steady_state_burnchain_sync_interval);
+                return Ok(true);
+            }
+        };
+
         if self.watch_start_ts == 0 {
             self.watch_start_ts = get_epoch_time_secs();
         }
@@ -382,34 +453,50 @@ impl PoxSyncWatchdog {
                 get_epoch_time_secs() + self.steady_state_burnchain_sync_interval;
         }
 
+        let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
+            burnchain,
+            burnchain_tip.block_snapshot.block_height,
+            burnchain_height,
+        );
+
         // unconditionally download the first reward cycle
         if burnchain_tip.block_snapshot.block_height
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
-            sleep_ms(10_000);
-            return PoxSyncWatchdog::infer_initial_burnchain_block_download(
-                burnchain,
-                burnchain_tip,
-                burnchain_height,
-            );
+            self.relayer_comms.set_ibd(ibbd);
+
+            self.relayer_comms
+                .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;
+
+            return Ok(ibbd);
         }
 
         if self.unconditionally_download {
-            return PoxSyncWatchdog::infer_initial_burnchain_block_download(
-                burnchain,
-                burnchain_tip,
-                burnchain_height,
+            debug!(
+                "PoX watchdog set to unconditionally download (ibd={})",
+                ibbd
             );
+            self.relayer_comms.set_ibd(ibbd);
+            return Ok(ibbd);
         }
 
         let mut waited = false;
-        if self.last_burnchain_height < burnchain_height {
-            // burnchain has advanced since the last call
-            self.last_burnchain_height = burnchain_height;
-            debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
-            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait an hour at most
-            waited = true;
+        if ibbd {
+            // we are far behind the burnchain tip (i.e. not in the last reward cycle),
+            // so make sure the downloader knows about blocks it doesn't have yet so we can go and
+            // fetch its blocks before proceeding.
+            if num_sortitions_in_last_cycle > 0 {
+                debug!("PoX watchdog: Wait for at least one inventory state-machine pass...");
+                self.relayer_comms.wait_for_inv_sync_pass(SYNC_WAIT_SECS)?;
+                waited = true;
+            } else {
+                debug!("PoX watchdog: In initial block download, and no sortitions to consider in this reward cycle -- sync immediately");
+                self.relayer_comms.set_ibd(ibbd);
+                return Ok(ibbd);
+            }
+        } else {
+            debug!("PoX watchdog: not in initial burn block download, so not waiting for an inventory state-machine pass");
         }
 
         if burnchain_tip.block_snapshot.block_height
@@ -422,13 +509,15 @@ impl PoxSyncWatchdog {
                     "PoX watchdog in last reward cycle -- sync after {} seconds",
                     self.steady_state_burnchain_sync_interval
                 );
-                sleep_ms(1000 * self.steady_state_burnchain_sync_interval);
+                self.relayer_comms.set_ibd(ibbd);
+
+                self.relayer_comms
+                    .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;
+            } else {
+                debug!("PoX watchdog in last reward cycle -- sync immediately");
+                self.relayer_comms.set_ibd(ibbd);
             }
-            return PoxSyncWatchdog::infer_initial_burnchain_block_download(
-                burnchain,
-                burnchain_tip,
-                burnchain_height,
-            );
+            return Ok(ibbd);
         }
 
         // have we reached steady-state behavior?  i.e. have we stopped processing both burnchain
@@ -437,9 +526,12 @@ impl PoxSyncWatchdog {
         debug!("PoX watchdog: Wait until chainstate reaches steady-state block-processing...");
 
         let ibbd = loop {
+            if !self.relayer_comms.should_keep_running() {
+                break false;
+            }
             let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
                 burnchain,
-                burnchain_tip,
+                burnchain_tip.block_snapshot.block_height,
                 burnchain_height,
             );
 
@@ -572,12 +664,19 @@ impl PoxSyncWatchdog {
                 }
             };
 
-            debug!("PoX watchdog: Wait for at least one inventory state-machine pass before resetting...");
-            self.relayer_comms.wait_for_inv_sync_pass(3600); // wait at most an hour, but should be far, far less
+            if ibbd || !steady_state {
+                debug!("PoX watchdog: Wait for at least one downloader state-machine pass before resetting...");
+                self.relayer_comms.wait_for_download_pass(SYNC_WAIT_SECS)?;
+            } else {
+                debug!("PoX watchdog: in steady-state, so not waiting for download pass");
+            }
 
             self.reset(burnchain, burnchain_tip.block_snapshot.block_height);
             break ibbd;
         };
-        ibbd || !steady_state
+
+        let ret = ibbd || !steady_state;
+        self.relayer_comms.set_ibd(ret);
+        Ok(ret)
     }
 }

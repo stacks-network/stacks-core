@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Get Proof of Transfer (PoX) information",
+  "title": "CoreNodePoxResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_id",
+    "first_burnchain_block_height",
+    "pox_activation_threshold_ustx",
+    "prepare_phase_block_length",
+    "reward_phase_block_length",
+    "reward_slots",
+    "rejection_fraction",
+    "total_liquid_supply_ustx",
+    "current_cycle",
+    "next_cycle",
+    "reward_cycle_length",
+    "min_amount_ustx",
+    "reward_cycle_id",
+    "prepare_cycle_length",
+    "rejection_votes_left_required"
+  ],
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "description": "The contract identifier for the PoX contract"
+    },
+    "first_burnchain_block_height": {
+      "type": "integer",
+      "description": "The first burn block evaluated in this Stacks chain"
+    },
+    "pox_activation_threshold_ustx": {
+      "type": "integer",
+      "description": "The threshold of stacking participation that must be reached for PoX to activate in any cycle"
+    },
+    "rejection_fraction": {
+      "type": "integer",
+      "description": "The fraction of liquid STX that must vote to reject PoX in order to prevent the next reward cycle from activating."
+    },
+    "reward_phase_block_length": {
+      "type": "integer",
+      "description": "The length in burn blocks of the reward phase"
+    },
+    "prepare_phase_block_length": {
+      "type": "integer",
+      "description": "The length in burn blocks of the prepare phase"
+    },
+    "reward_slots": {
+      "type": "integer",
+      "description": "The number of reward slots in a reward cycle"
+    },
+    "total_liquid_supply_ustx": {
+      "type": "integer",
+      "description": "The current total amount of liquid microstacks."
+    },
+    "reward_cycle_length": {
+      "type": "integer",
+      "description": "The length in burn blocks of a whole PoX cycle (reward phase and prepare phase)"
+    },
+    "current_cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "min_threshold_ustx",
+        "stacked_ustx",
+        "is_pox_active"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "The reward cycle number"
+        },
+        "min_threshold_ustx": {
+          "type": "integer",
+          "description": "The threshold amount for obtaining a slot in this reward cycle."
+        },
+        "stacked_ustx": {
+          "type": "integer",
+          "description": "The total amount of stacked microstacks in this reward cycle."
+        },
+        "is_pox_active": {
+          "type": "boolean",
+          "description": "Whether or not PoX is active during this reward cycle."
+        },
+      }
+    },
+    "next_cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "min_threshold_ustx",
+        "stacked_ustx",
+        "min_increment_ustx",
+        "prepare_phase_start_block_height",
+        "blocks_until_prepare_phase",
+        "reward_phase_start_block_height",
+        "blocks_until_reward_phase",
+        "ustx_until_pox_rejection"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "The reward cycle number"
+        },
+        "min_threshold_ustx": {
+          "type": "integer",
+          "description": "The threshold amount for obtaining a slot in this reward cycle."
+        },
+        "stacked_ustx": {
+          "type": "integer",
+          "description": "The total amount of stacked microstacks in this reward cycle."
+        },
+        "min_increment_ustx": {
+          "type": "integer",
+          "description": "The minimum amount that can be used to submit a `stack-stx` call."
+        },
+        "prepare_phase_start_block_height": {
+          "type": "integer",
+          "description": "The burn block height when the prepare phase for this cycle begins. Any eligible stacks must be stacked before this block."
+        },
+        "blocks_until_prepare_phase": {
+          "type": "integer",
+          "description": "The number of burn blocks until the prepare phase for this cycle starts. If the prepare phase for this cycle already started, this value will be negative."
+        },
+        "reward_phase_start_block_height": {
+          "type": "integer",
+          "description": "The burn block height when the reward phase for this cycle begins. Any eligible stacks must be stacked before this block."
+        },
+        "blocks_until_reward_phase": {
+          "type": "integer",
+          "description": "The number of burn blocks until this reward phase starts."
+        },
+        "ustx_until_pox_rejection": {
+          "type": "integer",
+          "description": "The remaining amount of liquid STX that must vote to reject the next reward cycle to prevent the next reward cycle from activating."
+        }
+      }
+    },
+    "reward_cycle_id": {
+      "type": "integer",
+      "deprecated": true,
+      "description": "The active reward cycle number"
+    },
+    "min_amount_ustx": {
+      "type": "integer",
+      "deprecated": true,
+    },
+    "prepare_cycle_length": {
+      "type": "integer",
+      "deprecated": true,
+    },
+    "rejection_votes_left_required": {
+      "type": "integer",
+      "deprecated": true,
+    }
+  }
+}

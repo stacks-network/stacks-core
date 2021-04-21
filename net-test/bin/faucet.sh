@@ -10,14 +10,15 @@ BITCOIN_CONF="$2"
 STACKS_WORKING_DIR="$3"
 
 REPORT_MODE="http"
+CHAIN_MODE="krypton"
 
 # applicable if run with 'serve'
 STACKS_WORKING_DIR="$3"
-STACKS_BLOCKS_ROOT="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/blocks/"
-STACKS_STAGING_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index"
-STACKS_HEADERS_DB="$STACKS_WORKING_DIR/chainstate/chain-00000080-testnet/vm/index"
-STACKS_SORTITION_DB="$STACKS_WORKING_DIR/burnchain/db/bitcoin/regtest/sortition.db/marf"
-STACKS_MEMPOOL_DB="$STACKS_WORKING_DIR/chainstate/mempool.db"
+STACKS_BLOCKS_ROOT="$STACKS_WORKING_DIR/$CHAIN_MODE/chainstate/blocks/"
+STACKS_STAGING_DB="$STACKS_WORKING_DIR/$CHAIN_MODE/chainstate/vm/index.sqlite"
+STACKS_HEADERS_DB="$STACKS_WORKING_DIR/$CHAIN_MODE/chainstate/vm/index.sqlite"
+STACKS_SORTITION_DB="$STACKS_WORKING_DIR/$CHAIN_MODE/burnchain/sortition/marf.sqlite"
+STACKS_MEMPOOL_DB="$STACKS_WORKING_DIR/$CHAIN_MODE/chainstate/mempool.sqlite"
 
 exit_error() {
    printf "$1" >&2

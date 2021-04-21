@@ -72,7 +72,7 @@ fn test_at_block_mutations() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {
@@ -144,7 +144,7 @@ fn test_at_block_good() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {
@@ -351,7 +351,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
 
     let (result, _, _) = owned_env
         .execute_transaction(
-            Value::Principal(PrincipalData::Standard(p1_address)),
+            p1_address.into(),
             contract_identifier,
             "destroy",
             &symbols_from_values(vec![Value::UInt(10)]),

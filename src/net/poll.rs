@@ -48,8 +48,6 @@ use std::net::Shutdown;
 use rand;
 use rand::RngCore;
 
-pub const NUM_NEIGHBORS: u32 = 32;
-
 const SERVER: Token = mio::Token(0);
 
 pub struct NetworkPollState {
@@ -232,14 +230,15 @@ impl NetworkState {
             })?;
 
         self.event_map.insert(event_id, server_event_id);
-        test_debug!(
-            "Register socket {:?} as event {} ({}) on server {}.  Events total (max {}): {}",
-            sock,
+
+        debug!(
+            "Socket registered: {}, hint {}, {:?} on server {} (Events total: {}, max: {})",
             event_id,
             hint_event_id,
+            sock,
             server_event_id,
-            self.event_capacity,
-            self.event_map.len()
+            self.event_map.len(),
+            self.event_capacity
         );
         Ok(event_id)
     }
@@ -255,15 +254,11 @@ impl NetworkState {
             "BUG: no such socket {}",
             event_id
         );
-        self.poll.deregister(sock).map_err(|e| {
-            error!("Failed to deregister socket {}: {:?}", event_id, &e);
-            net_error::RegisterError
-        })?;
-
         self.event_map.remove(&event_id);
 
-        sock.shutdown(Shutdown::Both)
-            .map_err(|_e| net_error::SocketError)?;
+        if let Err(e) = self.poll.deregister(sock) {
+            warn!("Failed to deregister socket {}: {:?}", event_id, &e);
+        };
 
         debug!(
             "Socket deregistered: {}, {:?} (Events total: {}, max: {})",
@@ -272,14 +267,15 @@ impl NetworkState {
             self.event_map.len(),
             self.event_capacity
         );
+
+        if let Err(e) = sock.shutdown(Shutdown::Both) {
+            debug!("Failed to shut down socket {}: {:?}", event_id, &e);
+        }
+
         Ok(())
     }
 
-    fn make_next_event_id(
-        &self,
-        cur_count: usize,
-        in_use: &HashSet<usize>,
-    ) -> Result<usize, net_error> {
+    fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Option<usize> {
         let mut ret = cur_count;
 
         let mut in_use_count = 0;
@@ -295,7 +291,7 @@ impl NetworkState {
                     event_map_count += 1;
                 }
             } else {
-                return Ok(ret);
+                return Some(ret);
             }
         }
 
@@ -303,12 +299,14 @@ impl NetworkState {
             "Too many peers (events: {}, in_use: {}, max: {})",
             event_map_count, in_use_count, self.event_capacity
         );
-        return Err(net_error::TooManyPeers);
+        None
     }
 
     /// next event ID
     pub fn next_event_id(&mut self) -> Result<usize, net_error> {
-        let ret = self.make_next_event_id(self.count, &HashSet::new())?;
+        let ret = self
+            .make_next_event_id(self.count, &HashSet::new())
+            .ok_or(net_error::TooManyPeers)?;
         self.count = (ret + 1) % (self.event_capacity + self.servers.len());
         Ok(ret)
     }
@@ -384,20 +382,20 @@ impl NetworkState {
                 // server token?
                 if token == server.server_event {
                     // new inbound connection(s)
-                    is_server_event = true;
                     let poll_state = poll_states.get_mut(&usize::from(token)).expect(&format!(
                         "BUG: FATAL: no poll state registered for server {}",
                         usize::from(token)
                     ));
 
                     loop {
-                        let (client_sock, _client_addr) = match server.server_socket.accept() {
+                        let (client_sock, client_addr) = match server.server_socket.accept() {
                             Ok((client_sock, client_addr)) => (client_sock, client_addr),
                             Err(e) => match e.kind() {
                                 ErrorKind::WouldBlock => {
                                     break;
                                 }
                                 _ => {
+                                    error!("Network error: {}", e);
                                     return Err(net_error::AcceptError);
                                 }
                             },
@@ -406,10 +404,10 @@ impl NetworkState {
                         // this does the same thing as next_event_id(), but we can't borrow self
                         // mutably here (so we'll just do the increment-mod directly).
                         let next_event_id = match self.make_next_event_id(self.count, &new_events) {
-                            Ok(eid) => eid,
-                            Err(_e) => {
+                            Some(eid) => eid,
+                            None => {
                                 // no poll slots available. Close the socket and carry on.
-                                info!("Too many peers, closing {:?} (events: {}, in-flight: {}, capacity: {})", &client_sock, self.event_map.len(), new_events.len(), self.event_capacity);
+                                info!("Too many peers on {:?}, closing {:?} (events: {}, in-flight: {}, capacity: {})", &server.server_socket, &client_sock, self.event_map.len(), new_events.len(), self.event_capacity);
                                 let _ = client_sock.shutdown(Shutdown::Both);
                                 continue;
                             }
@@ -420,16 +418,20 @@ impl NetworkState {
 
                         new_events.insert(next_event_id);
 
-                        test_debug!(
-                            "New socket accepted from {:?} (event {}) on server {:?}: {:?}",
-                            &_client_addr,
+                        debug!(
+                            "New socket event: {}, {:?} addr={:?} (Events total: {}, max: {}) on server {:?}",
                             next_event_id,
-                            &server.server_socket,
-                            &client_sock
+                            &client_sock,
+                            &client_addr,
+                            self.event_map.len(),
+                            self.event_capacity,
+                            &server.server_socket
                         );
+
                         poll_state.new.insert(next_event_id, client_sock);
                     }
 
+                    is_server_event = true;
                     break;
                 }
             }
@@ -601,7 +603,7 @@ mod test {
         assert_eq!(ns.event_map.len(), 20);
 
         for _ in 0..20 {
-            ns.make_next_event_id(count, &in_use).unwrap_err();
+            assert!(ns.make_next_event_id(count, &in_use).is_none());
         }
 
         for eid in events_in.iter() {
@@ -619,7 +621,7 @@ mod test {
         assert_eq!(ns.event_map.len(), 0);
 
         for _ in 0..20 {
-            ns.make_next_event_id(count, &in_use).unwrap_err();
+            assert!(ns.make_next_event_id(count, &in_use).is_none());
         }
     }
 }

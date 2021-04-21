@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request that core node information",
+  "title": "CoreNodeInfoResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "peer_version",
+    "pox_consensus",
+    "burn_block_height",
+    "stable_pox_consensus",
+    "stable_burn_block_height",
+    "server_version",
+    "network_id",
+    "parent_network_id",
+    "stacks_tip_height",
+    "stacks_tip",
+    "stacks_tip_consensus_hash",
+    "unanchored_tip",
+    "exit_at_block_height"
+  ],
+  "properties": {
+    "peer_version": {
+      "type": "integer",
+      "description": "identifies the version number for the networking communication, this should not change while a node is running, and will only change if there's an upgrade"
+    },
+    "pox_consensus": {
+      "type": "string",
+      "description": "is a hash used to identify the burnchain view for a node. it incorporates bitcoin chain information and PoX information. nodes that disagree on this value will appear to each other as forks. this value will change after every block"
+    },
+    "burn_block_height": {
+      "type": "integer",
+      "description": "latest bitcoin chain height"
+    },
+    "stable_pox_consensus": {
+      "type": "string",
+      "description": "same as burn_consensus, but evaluated at stable_burn_block_height"
+    },
+    "stable_burn_block_height": {
+      "type": "integer",
+      "description": "leftover from stacks 1.0, basically always burn_block_height - 1"
+    },
+    "server_version": {
+      "type": "string",
+      "description": "is a version descriptor"
+    },
+    "network_id": {
+      "type": "integer",
+      "description": "is similar to peer_version and will be used to differentiate between different testnets. this value will be different between mainnet and testnet. once launched, this value will not change"
+    },
+    "parent_network_id": {
+      "type": "integer",
+      "description": "same as network_id, but for bitcoin"
+    },
+    "stacks_tip_height": {
+      "type": "integer",
+      "description": "the latest Stacks chain height. Stacks forks can occur independent of the Bitcoin chain, that height doesn't increase 1-to-1 with the Bitcoin height"
+    },
+    "stacks_tip": {
+      "type": "string",
+      "description": "the best known block hash for the Stack chain (not including any pending microblocks)"
+    },
+    "stacks_tip_consensus_hash": {
+      "type": "string",
+      "description": "the burn chain (i.e., bitcoin) consensus hash at the time that stacks_tip was mined"
+    },
+    "unanchored_tip": {
+      "type": "string",
+      "description": "the latest microblock hash if any microblocks were processed. if no microblock has been processed for the current block, a 000.., hex array is returned"
+    },
+    "exit_at_block_height": {
+      "type": "integer",
+      "description": "the block height at which the testnet network will be reset. not applicable for mainnet"
+    }
+  }
+}

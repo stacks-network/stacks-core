@@ -194,8 +194,8 @@ fn setup_chain_state(scaling: u32) -> MarfedKV {
     };
 
     fs::copy(
-        &format!("{}/marf", pre_initialized_path),
-        &format!("{}/marf", out_path),
+        &format!("{}/marf.sqlite", pre_initialized_path),
+        &format!("{}/marf.sqlite", out_path),
     )
     .unwrap();
     return MarfedKV::open(out_path, None).unwrap();

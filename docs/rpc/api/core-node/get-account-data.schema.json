@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request for account data",
+  "title": "AccountDataResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["balance", "locked", "unlock_height", "nonce", "balance_proof", "nonce_proof"],
+  "properties": {
+    "balance": {
+      "type": "string"
+    },
+    "locked": {
+      "type": "string"
+    },
+    "unlock_height": {
+      "type": "integer"
+    },
+    "nonce": {
+      "type": "integer"
+    },
+    "balance_proof": {
+      "type": "string"
+    },
+    "nonce_proof": {
+      "type": "string"
+    }
+  }
+}

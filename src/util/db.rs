@@ -325,7 +325,7 @@ where
 /// boilerplate code for querying a column out of a sequence of rows
 pub fn query_row_columns<T, P>(
     conn: &Connection,
-    sql_query: &String,
+    sql_query: &str,
     sql_args: P,
     column_name: &str,
 ) -> Result<Vec<T>, Error>
@@ -407,11 +407,11 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
         }
     }
 
-    path.push("marf");
+    path.push("marf.sqlite");
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
     path.pop();
-    path.push("data.db");
+    path.push("data.sqlite");
     let data_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
     Ok((data_path, marf_path))

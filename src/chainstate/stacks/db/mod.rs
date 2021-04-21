@@ -93,7 +93,13 @@ use vm::types::TupleData;
 
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddress;
+use monitoring;
+
+lazy_static! {
+    pub static ref TRANSACTION_LOG: bool =
+        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
 
 pub struct StacksChainState {
     pub mainnet: bool,
@@ -371,14 +377,21 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub blocks_path: String,
     pub tx: StacksDBTx<'a>,
+    pub root_path: String,
 }
 
 impl<'a> ChainstateTx<'a> {
-    pub fn new(tx: StacksDBTx<'a>, blocks_path: String, config: DBConfig) -> ChainstateTx<'a> {
+    pub fn new(
+        tx: StacksDBTx<'a>,
+        blocks_path: String,
+        root_path: String,
+        config: DBConfig,
+    ) -> ChainstateTx<'a> {
         ChainstateTx {
             config,
             blocks_path,
             tx,
+            root_path,
         }
     }
 
@@ -394,31 +407,30 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    #[cfg(feature = "tx_log")]
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        let insert =
-            "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-        for tx_event in events.iter() {
-            let txid = tx_event.transaction.txid();
-            let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
-            let result = tx_event.result.to_string();
-            let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
-            if let Err(e) = self.tx.tx().execute(insert, params) {
-                warn!("Failed to log TX: {}", e);
+        if *TRANSACTION_LOG {
+            let insert =
+                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
+            for tx_event in events.iter() {
+                let txid = tx_event.transaction.txid();
+                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let result = tx_event.result.to_string();
+                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                if let Err(e) = self.tx.tx().execute(insert, params) {
+                    warn!("Failed to log TX: {}", e);
+                }
             }
         }
-    }
-
-    #[cfg(not(feature = "tx_log"))]
-    pub fn log_transactions_processed(
-        &self,
-        _block_id: &StacksBlockId,
-        _events: &[StacksTransactionReceipt],
-    ) {
+        for tx_event in events.iter() {
+            let txid = tx_event.transaction.txid();
+            if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
+                warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
+            }
+        }
     }
 }
 
@@ -493,20 +505,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
-    #[cfg(feature = "tx_log")]
-    r#"
-    CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY,
-        txid TEXT NOT NULL,
-        index_block_hash TEXT NOT NULL,
-        tx_hex TEXT NOT NULL,
-        result TEXT NOT NULL,
-        UNIQUE (txid,index_block_hash)
-    );"#,
-    #[cfg(feature = "tx_log")]
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    #[cfg(feature = "tx_log")]
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -566,6 +564,12 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                           PRIMARY KEY(block_hash)
     );"#,
     r#"
+    -- Invalidated staging microblocks data
+    CREATE TABLE invalidated_microblocks_data(block_hash TEXT NOT NULL,
+                                              block_data BLOB NOT NULL,
+                                              PRIMARY KEY(block_hash)
+    );"#,
+    r#"
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
@@ -600,6 +604,17 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
     );"#,
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );"#,
+    "CREATE INDEX txid_tx_index ON transactions(txid);",
+    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -780,27 +795,22 @@ impl StacksChainState {
     }
 
     /// Idempotent `mkdir -p`
-    fn mkdirs(path: &PathBuf) -> Result<String, Error> {
+    fn mkdirs(path: &PathBuf) -> Result<(), Error> {
         match fs::metadata(path) {
             Ok(md) => {
                 if !md.is_dir() {
                     error!("Not a directory: {:?}", path);
                     return Err(Error::DBError(db_error::ExistsError));
                 }
+                Ok(())
             }
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(Error::DBError(db_error::IOError(e)));
                 }
-                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
+                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))
             }
         }
-
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-        Ok(path_str)
     }
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
@@ -1208,7 +1218,7 @@ impl StacksChainState {
                             .map_err(|e| e.into())
                     })
                 })
-                .expect("FATAL: `ust-liquid-supply` overflowed");
+                .expect("FATAL: `ustx-liquid-supply` overflowed");
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
@@ -1311,15 +1321,8 @@ impl StacksChainState {
         boot_data: Option<&mut ChainStateBootData>,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        let mut path = PathBuf::from(path_str);
+        let path = PathBuf::from(path_str);
 
-        let chain_id_str = if mainnet {
-            format!("chain-{}-mainnet", &to_hex(&chain_id.to_le_bytes()))
-        } else {
-            format!("chain-{}-testnet", &to_hex(&chain_id.to_le_bytes()))
-        };
-
-        path.push(chain_id_str);
         StacksChainState::mkdirs(&path)?;
 
         let mut blocks_path = path.clone();
@@ -1343,7 +1346,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        state_path.push("marf");
+        state_path.push("marf.sqlite");
         let clarity_state_index_marf = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -1352,7 +1355,7 @@ impl StacksChainState {
         state_path.pop();
         state_path.pop();
 
-        state_path.push("index");
+        state_path.push("index.sqlite");
         let header_index_root = state_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -1441,7 +1444,8 @@ impl StacksChainState {
         let clarity_instance = &mut self.clarity_state;
         let inner_tx = StacksDBTx::new(&mut self.state_index, ());
 
-        let chainstate_tx = ChainstateTx::new(inner_tx, blocks_path, config);
+        let chainstate_tx =
+            ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
         Ok((chainstate_tx, clarity_instance))
     }

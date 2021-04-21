@@ -119,6 +119,20 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
+pub const FAULT_DISABLE_MICROBLOCKS_COST_CHECK: &str = "MICROBLOCKS_DISABLE_COST_CHECK";
+pub const FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK: &str = "MICROBLOCKS_DISABLE_BYTES_CHECK";
+
+pub fn check_fault_injection(fault_name: &str) -> bool {
+    use std::env;
+
+    // only activates if we're testing
+    if env::var("BITCOIND_TEST") != Ok("1".to_string()) {
+        return false;
+    }
+
+    env::var(fault_name) == Ok("1".to_string())
+}
+
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(
     working_dir: &String,

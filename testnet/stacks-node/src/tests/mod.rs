@@ -4,7 +4,6 @@ mod integrations;
 mod mempool;
 mod neon_integrations;
 
-use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
 use stacks::chainstate::stacks::{
@@ -17,10 +16,12 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
 use stacks::util::strings::StacksString;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
+use stacks::{address::AddressHashMode, util::hash::to_hex};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::Config;
@@ -64,6 +65,28 @@ lazy_static! {
     );
 }
 
+pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: &StacksPrivateKey,
+    sender_nonce: u64,
+    payer_nonce: u64,
+    tx_fee: u64,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
+    serialize_sign_tx_anchor_mode_version(
+        payload,
+        sender,
+        Some(payer),
+        sender_nonce,
+        Some(payer_nonce),
+        tx_fee,
+        anchor_mode,
+        version,
+    )
+}
+
 pub fn serialize_sign_standard_single_sig_tx(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
@@ -104,12 +127,48 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
     anchor_mode: TransactionAnchorMode,
     version: TransactionVersion,
 ) -> Vec<u8> {
-    let mut spending_condition =
+    serialize_sign_tx_anchor_mode_version(
+        payload,
+        sender,
+        None,
+        nonce,
+        None,
+        tx_fee,
+        anchor_mode,
+        version,
+    )
+}
+
+pub fn serialize_sign_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: Option<&StacksPrivateKey>,
+    sender_nonce: u64,
+    payer_nonce: Option<u64>,
+    tx_fee: u64,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
+    let mut sender_spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
-    spending_condition.set_nonce(nonce);
-    spending_condition.set_tx_fee(tx_fee);
-    let auth = TransactionAuth::Standard(spending_condition);
+    sender_spending_condition.set_nonce(sender_nonce);
+
+    let auth = match (payer, payer_nonce) {
+        (Some(payer), Some(payer_nonce)) => {
+            let mut payer_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+                StacksPublicKey::from_private(payer),
+            )
+            .expect("Failed to create p2pkh spending condition from public key.");
+            payer_spending_condition.set_nonce(payer_nonce);
+            payer_spending_condition.set_tx_fee(tx_fee);
+            TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
+        }
+        _ => {
+            sender_spending_condition.set_tx_fee(tx_fee);
+            TransactionAuth::Standard(sender_spending_condition)
+        }
+    };
     let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
     unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -117,6 +176,9 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
+    if let (Some(payer), Some(_)) = (payer, payer_nonce) {
+        tx_signer.sign_sponsor(payer).unwrap();
+    }
 
     let mut buf = vec![];
     tx_signer
@@ -167,18 +229,22 @@ pub fn new_test_conf() -> Config {
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
 
     let mut conf = Config::default();
+    conf.node.working_dir = format!(
+        "/tmp/stacks-node-tests/{}-{}",
+        get_epoch_time_secs(),
+        to_hex(&buf)
+    );
     conf.node.seed =
         hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
     conf.add_initial_balance(
         "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(),
         10000,
     );
-
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
 
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
@@ -211,6 +277,29 @@ pub fn make_stacks_transfer(
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+}
+
+pub fn make_sponsored_stacks_transfer_on_testnet(
+    sender: &StacksPrivateKey,
+    payer: &StacksPrivateKey,
+    sender_nonce: u64,
+    payer_nonce: u64,
+    tx_fee: u64,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> Vec<u8> {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    serialize_sign_sponsored_sig_tx_anchor_mode_version(
+        payload.into(),
+        sender,
+        payer,
+        sender_nonce,
+        payer_nonce,
+        tx_fee,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Testnet,
+    )
 }
 
 pub fn make_stacks_transfer_mblock_only(

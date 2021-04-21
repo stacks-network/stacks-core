@@ -140,7 +140,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
 
 fn execute_transaction(
     env: &mut OwnedEnvironment,
-    issuer: Value,
+    issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
@@ -174,6 +174,10 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
         _ => panic!(),
     };
 
@@ -225,7 +229,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     eprintln!("{}", &contract_self);
     execute_transaction(
         &mut owned_env,
-        p2,
+        p2_principal,
         &self_contract_id,
         "execute",
         &symbols_from_values(vec![target_contract]),
@@ -270,6 +274,10 @@ fn test_cost_contract_short_circuits() {
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
         _ => panic!(),
     };
 
@@ -339,7 +347,7 @@ fn test_cost_contract_short_circuits() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(5)]),
@@ -360,7 +368,7 @@ fn test_cost_contract_short_circuits() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(10)]),
@@ -411,7 +419,7 @@ fn test_cost_contract_short_circuits() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(5)]),
@@ -432,7 +440,7 @@ fn test_cost_contract_short_circuits() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(10)]),
@@ -474,6 +482,10 @@ fn test_cost_voting_integration() {
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
         _ => panic!(),
     };
 
@@ -693,7 +705,7 @@ fn test_cost_voting_integration() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),
@@ -790,7 +802,7 @@ fn test_cost_voting_integration() {
 
         execute_transaction(
             &mut owned_env,
-            p2.clone(),
+            p2_principal.clone(),
             &caller,
             "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),

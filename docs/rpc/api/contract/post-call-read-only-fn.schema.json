@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to get contract source",
+  "title": "ReadOnlyFunctionSuccessResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["okay"],
+  "properties": {
+    "okay": {
+      "type": "boolean"
+    },
+    "result": {
+      "type": "string"
+    },
+    "cause": {
+      "type": "string"
+    }
+  }
+}
