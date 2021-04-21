@@ -1321,7 +1321,10 @@ impl ConversationHttp {
                             is_implemented: true,
                         })
                     } else {
-                        let trait_definition = analysis.get_defined_trait(&trait_id.name)?;
+                        let trait_defining_contract =
+                            db.load_contract_analysis(&trait_id.contract_identifier)?;
+                        let trait_definition =
+                            trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
                             .check_trait_compliance(trait_id, trait_definition)
                             .is_ok();
