@@ -669,7 +669,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     data: &'a mut TrieStorageTransientData<T>,
 
     // used in testing in order to short-circuit block-height lookups
-    //   when the trie struct is tested outside of clarity_store usage
+    //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
     pub test_genesis_block: &'a mut Option<T>,
 }
@@ -714,7 +714,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     data: TrieStorageTransientData<T>,
 
     // used in testing in order to short-circuit block-height lookups
-    //   when the trie struct is tested outside of clarity_store usage
+    //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
     pub test_genesis_block: Option<T>,
 }
@@ -831,7 +831,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of clarity_store usage
+            //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
             test_genesis_block: None,
         };
@@ -897,7 +897,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of clarity_store usage
+            //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
             test_genesis_block: self.test_genesis_block.clone(),
         };
@@ -945,7 +945,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             },
 
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of clarity_store usage
+            //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
             test_genesis_block: self.test_genesis_block.clone(),
         };

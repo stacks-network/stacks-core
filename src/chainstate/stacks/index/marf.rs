@@ -1073,7 +1073,7 @@ impl<T: MarfTrieId> MARF<T> {
         #[cfg(test)]
         {
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of clarity_store usage
+            //   when the trie struct is tested outside of marf.rs usage
             if storage.test_genesis_block.as_ref() == Some(current_block_hash) {
                 return Ok(Some(0));
             }
@@ -1104,7 +1104,7 @@ impl<T: MarfTrieId> MARF<T> {
         #[cfg(test)]
         {
             // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of clarity_store usage
+            //   when the trie struct is tested outside of marf.rs usage
             if height == 0 {
                 match storage.test_genesis_block {
                     Some(ref s) => return Ok(Some(s.clone())),
