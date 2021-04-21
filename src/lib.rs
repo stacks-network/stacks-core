@@ -71,6 +71,7 @@ pub mod util;
 pub mod net;
 
 #[macro_use]
+/// The Clarity virtual machine
 pub mod vm;
 
 #[macro_use]
@@ -81,6 +82,8 @@ extern crate stx_genesis;
 
 pub mod address;
 pub mod burnchains;
+
+/// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
 pub mod core;
 pub mod deps;
