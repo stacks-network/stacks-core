@@ -16,8 +16,8 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};

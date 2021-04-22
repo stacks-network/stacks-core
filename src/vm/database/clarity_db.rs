@@ -47,6 +47,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
     StacksBlockId, VRFSeed,
 };
+use crate::types::chainstate::TrieMerkleProof;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -290,7 +291,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_value(key, expected)
     }
 
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, String)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)>
     where
         T: ClarityDeserializable<T>,
     {

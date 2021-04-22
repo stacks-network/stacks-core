@@ -14,24 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::{fs, io};
+use std::collections::HashMap;
 
 use rusqlite::{
-    types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
+    Connection, NO_PARAMS, OpenFlags, OptionalExtension, Row, Transaction, types::ToSql,
 };
 use serde_json;
 
-use burnchains::Txid;
 use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
+use burnchains::Txid;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{
-    query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    Error as DBError, FromColumn, FromRow,
+    Error as DBError, FromColumn, FromRow, query_row, query_rows, sql_pragma,
+    tx_begin_immediate, tx_busy_handler, u64_to_sql,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::{BurnchainHeaderHash, ClarityMarfTrieId};
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -380,11 +380,11 @@ impl BurnchainDB {
 mod tests {
     use std::convert::TryInto;
 
+    use burnchains::bitcoin::*;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::*;
-    use burnchains::bitcoin::*;
-    use burnchains::PoxConstants;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use burnchains::PoxConstants;
     use chainstate::burn::*;
     use chainstate::stacks::*;
     use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;

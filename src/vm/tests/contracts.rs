@@ -17,7 +17,6 @@
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
 use clarity_vm::clarity::ClarityInstance;
 use util::hash::hex_bytes;
 use vm::ast;
@@ -34,6 +33,7 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use types::chainstate::ClarityMarfTrieId;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;

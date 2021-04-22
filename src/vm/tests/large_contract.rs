@@ -16,8 +16,8 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
 use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use util::hash::hex_bytes;
 use vm::ast;

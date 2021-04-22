@@ -37,6 +37,8 @@ use crate::types::chainstate::{
     BlockHeaderHash, StacksBlockHeader, StacksBlockId, TrieHash, VRFSeed,
 };
 
+use crate::types::chainstate::TrieMerkleProof;
+
 pub struct NullBackingStore {}
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
@@ -47,7 +49,7 @@ pub trait ClarityBackingStore {
     fn put_all(&mut self, items: Vec<(String, String)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, String)>;
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)>;
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -200,7 +202,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Option<(String, String)> {
+    fn get_with_proof(&mut self, _key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         panic!("NullBackingStore can't retrieve data")
     }
 

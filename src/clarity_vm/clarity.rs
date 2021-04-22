@@ -1002,6 +1002,8 @@ mod tests {
 
     use crate::clarity_vm::database::marf::MarfedKV;
 
+    use types::chainstate::ClarityMarfTrieId;
+
     use super::*;
 
     #[test]

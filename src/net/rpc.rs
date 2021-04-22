@@ -1077,7 +1077,7 @@ impl ConversationHttp {
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
                     let (balance, balance_proof) = clarity_db
                         .get_with_proof::<STXBalance>(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b)))
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                         .unwrap_or_else(|| (STXBalance::zero(), "".into()));
                     let balance_proof = if with_proof {
                         Some(balance_proof)
@@ -1087,7 +1087,7 @@ impl ConversationHttp {
                     let key = ClarityDatabase::make_key_for_account_nonce(&account);
                     let (nonce, nonce_proof) = clarity_db
                         .get_with_proof(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b)))
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                         .unwrap_or_else(|| (0, "".into()));
                     let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
@@ -1146,7 +1146,7 @@ impl ConversationHttp {
                     );
                     let (value, marf_proof) = clarity_db
                         .get_with_proof::<Value>(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b)))
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                         .unwrap_or_else(|| {
                             test_debug!("No value for '{}' in {}", &key, tip);
                             (Value::none(), "".into())
@@ -1268,7 +1268,7 @@ impl ConversationHttp {
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
-                    let marf_proof = if with_proof { Some(proof) } else { None };
+                    let marf_proof = if with_proof { Some(proof.to_hex()) } else { None };
                     let publish_height = contract_commit.block_height;
                     Some(ContractSrcResponse {
                         source,

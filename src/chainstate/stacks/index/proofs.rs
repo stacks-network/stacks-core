@@ -28,41 +28,24 @@ use std::path::{Path, PathBuf};
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
+use chainstate::stacks::index::{BlockMap, MarfTrieId, slice_partialeq};
 use chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
 };
+use chainstate::stacks::index::Error;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
-    TrieLeaf, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType,
+    clear_backptr, ConsensusSerializable, CursorError, is_backptr, set_backptr, TrieCursor,
+    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType,
     TriePath, TriePtr,
 };
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::trie::Trie;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{slice_partialeq, BlockMap, MARFValue, MarfTrieId};
 use net::{codec::read_next, StacksMessageCodec};
 use util::{hash::to_hex, log};
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProofTriePtr<T: MarfTrieId> {
-    pub id: u8,
-    pub chr: u8,
-    pub back_block: T,
-}
-
-/// Merkle Proof Trie Pointers have a different structure
-///   than the runtime representation --- the proof includes
-///   the block header hash for back pointers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProofTrieNode<T: MarfTrieId> {
-    pub id: u8,
-    pub path: Vec<u8>,
-    pub ptrs: Vec<ProofTriePtr<T>>,
-}
+use crate::types::chainstate::{BlockHeaderHash, ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof, TrieMerkleProofType};
+use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(
@@ -126,85 +109,9 @@ impl<T: MarfTrieId> ProofTrieNode<T> {
     }
 }
 
-#[derive(Clone)]
-pub enum TrieMerkleProofType<T: MarfTrieId> {
-    Node4((u8, ProofTrieNode<T>, [TrieHash; 3])),
-    Node16((u8, ProofTrieNode<T>, [TrieHash; 15])),
-    Node48((u8, ProofTrieNode<T>, [TrieHash; 47])),
-    Node256((u8, ProofTrieNode<T>, [TrieHash; 255])),
-    Leaf((u8, TrieLeaf)),
-    Shunt((i64, Vec<TrieHash>)),
-}
-
 define_u8_enum!( TrieMerkleProofTypeIndicator {
     Node4 = 0, Node16 = 1, Node48 = 2, Node256 = 3, Leaf = 4, Shunt = 5
 });
-
-pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
-    let mut strs = vec![];
-    if hashes.len() < 48 {
-        for i in 0..hashes.len() {
-            strs.push(format!("{:?}", hashes[i]));
-        }
-        strs.join(",")
-    } else {
-        for i in 0..hashes.len() / 4 {
-            strs.push(format!(
-                "{:?},{:?},{:?},{:?}",
-                hashes[4 * i],
-                hashes[4 * i + 1],
-                hashes[4 * i + 2],
-                hashes[4 * i + 3]
-            ));
-        }
-        format!("\n{}", strs.join("\n"))
-    }
-}
-
-impl<T: MarfTrieId> fmt::Debug for TrieMerkleProofType<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => write!(
-                f,
-                "TrieMerkleProofType::Node4(0x{:02x}, node={:?}, hashes={})",
-                chr,
-                node,
-                hashes_fmt(hashes)
-            ),
-            TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => write!(
-                f,
-                "TrieMerkleProofType::Node16(0x{:02x}, node={:?}, hashes={})",
-                chr,
-                node,
-                hashes_fmt(hashes)
-            ),
-            TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => write!(
-                f,
-                "TrieMerkleProofType::Node48(0x{:02x}, node={:?}, hashes={})",
-                chr,
-                node,
-                hashes_fmt(hashes)
-            ),
-            TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => write!(
-                f,
-                "TrieMerkleProofType::Node256(0x{:02x}, node={:?}, hashes={})",
-                chr,
-                node,
-                hashes_fmt(hashes)
-            ),
-            TrieMerkleProofType::Leaf((ref chr, ref node)) => write!(
-                f,
-                "TrieMerkleProofType::Leaf(0x{:02x}, node={:?})",
-                chr, node
-            ),
-            TrieMerkleProofType::Shunt((ref idx, ref hashes)) => write!(
-                f,
-                "TrieMerkleProofType::Shunt(idx={}, hashes={:?})",
-                idx, hashes
-            ),
-        }
-    }
-}
 
 impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
     fn eq(&self, other: &TrieMerkleProofType<T>) -> bool {
@@ -237,9 +144,6 @@ impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
         }
     }
 }
-
-#[derive(Debug)]
-pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
 
 impl<T: MarfTrieId> Deref for TrieMerkleProof<T> {
     type Target = Vec<TrieMerkleProofType<T>>;
@@ -1588,9 +1492,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
 #[cfg(test)]
 mod test {
+    use chainstate::stacks::index::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::test::*;
-    use chainstate::stacks::index::*;
 
     use super::*;
 

@@ -1,6 +1,5 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::types::chainstate::StacksBlockId;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
@@ -9,13 +8,15 @@ use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB, SqliteConnection,
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
+use crate::types::chainstate::{ClarityMarfTrieId, StacksBlockId};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
+use crate::types::chainstate::TrieMerkleProof;
 
 pub mod marf;
 
@@ -152,8 +153,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, String)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, "".into()))
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, TrieMerkleProof(vec![])))
     }
 
     fn get_side_store(&mut self) -> &Connection {

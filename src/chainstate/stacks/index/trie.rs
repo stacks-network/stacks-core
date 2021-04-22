@@ -23,20 +23,20 @@ use std::marker::PhantomData;
 
 use sha2::Digest;
 
+use chainstate::stacks::index::{MarfTrieId, TrieHasher};
 use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, get_nodetype_hash_bytes};
+use chainstate::stacks::index::Error;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieLeaf, TrieNode,
+    clear_backptr, CursorError, is_backptr, set_backptr, TrieCursor, TrieNode,
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{MarfTrieId, TrieHasher};
 use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieLeaf};
 use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
@@ -904,6 +904,8 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
+
+    use types::chainstate::ClarityMarfTrieId;
 
     use super::*;
 

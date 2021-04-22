@@ -26,8 +26,10 @@ use rusqlite::{Connection, Transaction};
 use sha2::Digest;
 
 use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieLeaf, TrieNode,
+    clear_backptr, CursorError, is_backptr, set_backptr, TrieCursor, TrieNode,
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
     TRIEPTR_SIZE,
 };
@@ -35,13 +37,11 @@ use chainstate::stacks::index::storage::{
     TrieFileStorage, TrieStorageConnection, TrieStorageTransaction,
 };
 use chainstate::stacks::index::trie::Trie;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{proofs::TrieMerkleProof, MARFValue, MarfTrieId};
 use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
 
-use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{BlockHeaderHash, MARFValue, TrieHash, TRIEHASH_ENCODED_SIZE, TrieLeaf, TrieMerkleProof, ClarityMarfTrieId};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -1462,7 +1462,6 @@ mod test {
     use std::fs;
     use std::io::Cursor;
 
-    use crate::types::chainstate::StacksBlockId;
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
@@ -1472,6 +1471,8 @@ mod test {
     use chainstate::stacks::index::trie::*;
     use util::get_epoch_time_ms;
     use util::hash::to_hex;
+
+    use crate::types::chainstate::StacksBlockId;
 
     use super::*;
 

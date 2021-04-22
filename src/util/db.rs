@@ -48,7 +48,7 @@ use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::storage::TrieStorageTransaction;
 use chainstate::stacks::index::Error as MARFError;
-use chainstate::stacks::index::MARFValue;
+use crate::types::chainstate::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
 
 use rand::thread_rng;

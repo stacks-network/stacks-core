@@ -34,26 +34,26 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 use rusqlite::{
     blob::Blob,
-    types::{FromSql, ToSql},
-    Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS,
+    Connection,
+    Error as SqliteError, NO_PARAMS, OptionalExtension, Transaction, types::{FromSql, ToSql},
 };
 
+use chainstate::stacks::index::{BlockMap, MarfTrieId, trie_sql};
 use chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes,
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, write_nodetype_bytes,
 };
+use chainstate::stacks::index::Error;
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieLeaf, TrieNode, TrieNode16, TrieNode256, TrieNode4,
+    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use util::db::sql_pragma;
 use util::db::tx_begin_immediate;
 use util::log;
 
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieLeaf};
 use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 static SQL_MARF_DATA_TABLE: &str = "

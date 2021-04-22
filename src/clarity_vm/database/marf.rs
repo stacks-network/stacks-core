@@ -2,9 +2,8 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use crate::types::chainstate::StacksBlockId;
-use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
-use chainstate::stacks::index::{Error, MARFValue, MarfTrieId};
+use chainstate::stacks::index::{Error, MarfTrieId};
+use chainstate::stacks::index::marf::{MARF, MarfConnection, MarfTransaction};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
 use vm::analysis::AnalysisDatabase;
@@ -14,7 +13,9 @@ use vm::database::{
 use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::QualifiedContractIdentifier;
 
+use crate::types::chainstate::{ClarityMarfTrieId, MARFValue, StacksBlockId};
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, TrieHash};
+use crate::types::chainstate::TrieMerkleProof;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -362,7 +363,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, String)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -377,7 +378,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ));
-                (data, proof.to_hex())
+                (data, proof)
             })
     }
 
@@ -546,7 +547,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             })
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, String)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -561,7 +562,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ));
-                (data, proof.to_hex())
+                (data, proof)
             })
     }
 

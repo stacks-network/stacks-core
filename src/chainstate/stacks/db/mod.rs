@@ -22,35 +22,35 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
-use rusqlite::types::ToSql;
 use rusqlite::Connection;
+use rusqlite::NO_PARAMS;
 use rusqlite::OpenFlags;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
+use rusqlite::types::ToSql;
 
-use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::{Address, Burnchain, BurnchainParameters};
-use chainstate::burn::db::sortdb::BlockHeaderCache;
+use burnchains::bitcoin::address::BitcoinAddress;
+use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::boot::*;
-use chainstate::stacks::db::accounts::*;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::events::*;
-use chainstate::stacks::index::marf::{
-    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
-};
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::{MARFValue, MarfTrieId};
-use chainstate::stacks::Error;
+use chainstate::burn::db::sortdb::BlockHeaderCache;
 use chainstate::stacks::*;
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use chainstate::stacks::boot::*;
+use chainstate::stacks::db::accounts::*;
+use chainstate::stacks::db::blocks::*;
+use chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use chainstate::stacks::Error;
+use chainstate::stacks::events::*;
+use chainstate::stacks::index::marf::{
+    BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, MarfConnection,
+};
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
@@ -59,11 +59,11 @@ use core::*;
 use monitoring;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
-use util::db::Error as db_error;
 use util::db::{
-    db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, DBConn, DBTx, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_count, query_row, tx_begin_immediate, tx_busy_handler,
 };
+use util::db::Error as db_error;
 use util::hash::to_hex;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
@@ -71,16 +71,14 @@ use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, SqliteConnection, STXBalance,
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash,
-};
+use crate::types::chainstate::{ClarityMarfTrieId, MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash};
 use crate::util::boot::{boot_code_addr, boot_code_id};
 
 pub mod accounts;
@@ -1931,8 +1929,8 @@ impl StacksChainState {
 pub mod test {
     use std::fs;
 
-    use chainstate::stacks::db::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
     use stx_genesis::GenesisData;
     use vm::database::NULL_BURN_STATE_DB;
 
