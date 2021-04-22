@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::vec::Drain;
+use vm::ast::cost::SymbolicCostExpression;
 use vm::ast::errors::ParseResult;
 use vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
 use vm::types::signatures::FunctionSignature;
@@ -34,6 +35,7 @@ pub struct ContractAST {
     pub top_level_expression_sorting: Option<Vec<usize>>,
     pub referenced_traits: HashMap<ClarityName, TraitDefinition>,
     pub implemented_traits: HashSet<TraitIdentifier>,
+    pub cost_expressions: HashMap<ClarityName, SymbolicCostExpression>,
 }
 
 impl ContractAST {
@@ -48,6 +50,7 @@ impl ContractAST {
             top_level_expression_sorting: Some(Vec::new()),
             referenced_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
+            cost_expressions: HashMap::new(),
         }
     }
 

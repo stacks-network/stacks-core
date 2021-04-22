@@ -19,10 +19,12 @@ pub mod expression_identifier;
 pub mod parser;
 pub mod traits_resolver;
 
+pub mod cost;
 pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
+
 use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use vm::errors::{Error, RuntimeErrorType};
 
