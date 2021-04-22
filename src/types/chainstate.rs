@@ -5,7 +5,7 @@ use std::str::FromStr;
 use curve25519_dalek::digest::Digest;
 use sha2::Sha512Trunc256;
 
-use util::hash::{Hash160, HASH160_ENCODED_SIZE, Sha512Trunc256Sum, to_hex};
+use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFProof;
 
@@ -180,11 +180,7 @@ pub struct StacksMicroblockHeader {
 pub struct TrieMerkleProof<T: ClarityMarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
 
 pub trait ClarityMarfTrieId:
-PartialEq
-    + Clone
-    + std::fmt::Display
-    + std::fmt::Debug
-    + std::convert::From<[u8; 32]>
+    PartialEq + Clone + std::fmt::Display + std::fmt::Debug + std::convert::From<[u8; 32]>
 {
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];
@@ -326,4 +322,3 @@ impl fmt::Debug for TrieLeaf {
         )
     }
 }
-

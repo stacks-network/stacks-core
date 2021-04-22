@@ -23,19 +23,21 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
-use chainstate::stacks::index::{BlockMap, MarfTrieId};
-use chainstate::stacks::index::Error;
 use chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
     TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use chainstate::stacks::index::node::{TrieNode, TRIEPATH_MAX_LEN};
 use chainstate::stacks::index::storage::{fseek, ftell, TrieFileStorage, TrieStorageConnection};
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::{BlockMap, MarfTrieId};
 use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TrieHash, TRIEHASH_ENCODED_SIZE, TrieLeaf};
+use crate::types::chainstate::{
+    TrieHash, TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
 /// be over 255 bytes).

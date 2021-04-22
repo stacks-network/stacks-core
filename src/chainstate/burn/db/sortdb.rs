@@ -14,59 +14,59 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{cmp, fmt, fs, str::FromStr};
 use std::collections::HashMap;
 use std::convert::{From, TryFrom, TryInto};
 use std::io::{ErrorKind, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::{cmp, fmt, fs, str::FromStr};
 
 use rand;
 use rand::RngCore;
-use rusqlite::{Connection, NO_PARAMS, OpenFlags, OptionalExtension};
+use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
-use rusqlite::types::ToSql;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512Trunc256};
 
 use address::AddressHashMode;
+use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::{Address, PublicKey, Txid};
 use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
-use burnchains::bitcoin::BitcoinNetworkType;
-use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::burn::Opcodes;
 use chainstate::burn::operations::{
-    BlockstackOperationType,
-    leader_block_commit::{MissedBlockCommit, OUTPUTS_PER_COMMIT, RewardSetInfo}, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+    leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::ChainstateDB;
+use chainstate::burn::Opcodes;
+use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use chainstate::stacks::*;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::index::{Error as MARFError, MarfTrieId};
-use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::marf::MarfConnection;
+use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::{Error as MARFError, MarfTrieId};
 use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::*;
+use chainstate::ChainstateDB;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-use net::{Error as NetError, Error};
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::db::{
-    db_mkdirs, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx, query_count,
-    query_row, query_row_columns, query_row_panic, query_rows, sql_pragma, u64_to_sql,
-};
-use util::db::Error as db_error;
+use net::{Error as NetError, Error};
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
+use util::db::Error as db_error;
+use util::db::{
+    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
+    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+};
 use util::get_epoch_time_secs;
-use util::hash::{Hash160, hex_bytes, Sha512Trunc256Sum, to_hex};
+use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use util::log;
 use util::secp256k1::MessageSignature;
 use util::strings::StacksString;
@@ -74,7 +74,9 @@ use util::vrf::*;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, MARFValue, PoxId, SortitionId, VRFSeed};
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, MARFValue, PoxId, SortitionId, VRFSeed,
+};
 use crate::types::chainstate::{StacksAddress, TrieHash};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -3920,24 +3922,24 @@ pub mod tests {
     use std::thread;
 
     use address::AddressHashMode;
-    use burnchains::*;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::burn::ConsensusHash;
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::*;
     use chainstate::burn::operations::{
-        BlockstackOperationType, leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS,
+        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
+    use chainstate::burn::ConsensusHash;
     use chainstate::stacks::StacksPublicKey;
     use core::*;
     use util::db::Error as db_error;
     use util::get_epoch_time_secs;
-    use util::hash::{Hash160, hex_bytes};
+    use util::hash::{hex_bytes, Hash160};
     use util::vrf::*;
 
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
     use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
 
     use super::*;
 

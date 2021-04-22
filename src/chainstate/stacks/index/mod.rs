@@ -28,10 +28,13 @@ use util::db::Error as db_error;
 use util::hash::to_hex;
 use util::log;
 
-use crate::types::chainstate::{BurnchainHeaderHash, ClarityMarfTrieId, MARF_VALUE_ENCODED_SIZE, MARFValue, TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{
+    BurnchainHeaderHash, ClarityMarfTrieId, MARFValue, TrieHash, MARF_VALUE_ENCODED_SIZE,
+    TRIEHASH_ENCODED_SIZE,
+};
 
 pub mod bits;
 pub mod marf;
@@ -42,12 +45,13 @@ pub mod trie;
 pub mod trie_sql;
 
 pub trait MarfTrieId:
-ClarityMarfTrieId
+    ClarityMarfTrieId
     + rusqlite::types::ToSql
     + rusqlite::types::FromSql
     + ::net::StacksMessageCodec
     + std::convert::From<MARFValue>
-{}
+{
+}
 
 pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
 

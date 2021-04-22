@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::ClarityMarfTrieId;
+use crate::types::chainstate::StacksBlockId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;

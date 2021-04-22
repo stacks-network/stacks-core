@@ -8,15 +8,15 @@ use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB,
-    NULL_HEADER_DB, SqliteConnection,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
-use crate::types::chainstate::{ClarityMarfTrieId, StacksBlockId};
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::chainstate::TrieMerkleProof;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use crate::types::chainstate::{ClarityMarfTrieId, StacksBlockId};
+use crate::types::chainstate::{StacksAddress, VRFSeed};
 
 pub mod marf;
 

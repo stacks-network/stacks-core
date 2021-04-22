@@ -75,8 +75,8 @@ mod tests {
     use crate::types::chainstate::StacksBlockId;
     use clarity_vm::clarity::ClarityInstance;
     use clarity_vm::database::marf::MarfedKV;
-    use types::chainstate::ClarityMarfTrieId;
     use std::collections::HashMap;
+    use types::chainstate::ClarityMarfTrieId;
     use vm::costs::*;
     use vm::database::*;
     use vm::representations::depth_traverse;

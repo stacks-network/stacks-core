@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
+use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use chainstate::stacks::index::{Error, MarfTrieId};
-use chainstate::stacks::index::marf::{MARF, MarfConnection, MarfTransaction};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
 use vm::analysis::AnalysisDatabase;
@@ -13,9 +13,9 @@ use vm::database::{
 use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{ClarityMarfTrieId, MARFValue, StacksBlockId};
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, TrieHash};
 use crate::types::chainstate::TrieMerkleProof;
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, TrieHash};
+use crate::types::chainstate::{ClarityMarfTrieId, MARFValue, StacksBlockId};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.

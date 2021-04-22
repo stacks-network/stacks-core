@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{cmp, error};
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -27,31 +26,32 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::os;
 use std::path::{Path, PathBuf};
+use std::{cmp, error};
 
 use regex::Regex;
 use rusqlite::{
-    Connection,
-    Error as SqliteError, ErrorCode as SqliteErrorCode, NO_PARAMS, OpenFlags, OptionalExtension,
-    Transaction, types::{FromSql, ToSql},
+    types::{FromSql, ToSql},
+    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
+    Transaction, NO_PARAMS,
 };
 
-use chainstate::stacks::index::{BlockMap, MarfTrieId, trie_sql};
 use chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
-use chainstate::stacks::index::Error;
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
-use util::db::Error as db_error;
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
+use util::db::Error as db_error;
 use util::log;
 
-use crate::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, ClarityMarfTrieId, TrieLeaf};
 use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{ClarityMarfTrieId, TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE};
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0)).map_err(Error::IOError)
@@ -1687,9 +1687,9 @@ pub mod test {
     use std::collections::VecDeque;
     use std::fs;
 
-    use chainstate::stacks::index::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
+    use chainstate::stacks::index::*;
 
     use super::*;
 

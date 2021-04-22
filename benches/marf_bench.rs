@@ -8,8 +8,8 @@ use std::fs;
 use rand::prelude::*;
 
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
-use blockstack_lib::types::BlockHeaderHash;
 use blockstack_lib::types::chainstate::MARFValue;
+use blockstack_lib::types::BlockHeaderHash;
 use criterion::Criterion;
 
 fn benchmark_marf_usage(

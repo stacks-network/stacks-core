@@ -1268,7 +1268,11 @@ impl ConversationHttp {
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
-                    let marf_proof = if with_proof { Some(proof.to_hex()) } else { None };
+                    let marf_proof = if with_proof {
+                        Some(proof.to_hex())
+                    } else {
+                        None
+                    };
                     let publish_height = contract_commit.block_height;
                     Some(ContractSrcResponse {
                         source,

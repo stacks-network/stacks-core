@@ -2,13 +2,13 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use crate::types::chainstate::TrieMerkleProof;
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use crate::types::chainstate::TrieMerkleProof;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::*;
 use core::{
@@ -37,8 +37,7 @@ use vm::types::{
 };
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
-    ClarityMarfTrieId
+    BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use crate::util::boot::boot_code_id;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
