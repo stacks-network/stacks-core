@@ -32,6 +32,7 @@ use net::Error as net_error;
 use net::NeighborKey;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
+use net::atlas::MAX_RETRY_DELAY;
 use util::hash::{Hash160, MerkleHashFunc};
 use util::strings;
 use util::{get_epoch_time_ms, get_epoch_time_secs};
