@@ -45,7 +45,7 @@ use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
 use vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::ast::build_ast;
-use vm::contexts::OwnedEnvironment;
+use vm::contexts::{AssetMap, OwnedEnvironment};
 use vm::costs::ExecutionCost;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
@@ -372,6 +372,32 @@ where
     let (marf_return, result) = f(marf_tx);
     marf_return.rollback_block();
     result
+}
+
+fn with_env_costs<F, R>(
+    mainnet: bool,
+    header_db: &CLIHeadersDB,
+    marf: &mut WritableMarfStore,
+    f: F,
+) -> (R, ExecutionCost)
+where
+    F: FnOnce(&mut OwnedEnvironment) -> R,
+{
+    let mut db = marf.as_clarity_db(header_db, &NULL_BURN_STATE_DB);
+    let cost_track = LimitedCostTracker::new(
+        mainnet,
+        if mainnet {
+            BLOCK_LIMIT_MAINNET.clone()
+        } else {
+            HELIUM_BLOCK_LIMIT.clone()
+        },
+        &mut db,
+    )
+    .unwrap();
+    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
+    let result = f(&mut vm_env);
+    let cost = vm_env.get_cost_total();
+    (result, cost)
 }
 
 struct CLIHeadersDB {
@@ -718,7 +744,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     };
 
     let params = vec![
-        SymbolicExpression::atom_value(Value::UInt(0)),
+        SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
         SymbolicExpression::atom_value(Value::UInt(pox_params.prepare_length as u128)),
         SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
         SymbolicExpression::atom_value(Value::UInt(pox_params.pox_rejection_fraction as u128)),
@@ -734,6 +760,18 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
             params.as_slice(),
         )
         .unwrap();
+}
+
+pub fn add_costs(result: &mut serde_json::Value, costs: bool, runtime: ExecutionCost) {
+    if costs {
+        result["costs"] = serde_json::to_value(runtime).unwrap();
+    }
+}
+
+pub fn add_assets(result: &mut serde_json::Value, assets: bool, asset_map: AssetMap) {
+    if assets {
+        result["assets"] = asset_map.to_json();
+    }
 }
 
 /// Returns (process-exit-code, Option<json-output>)
@@ -967,9 +1005,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             "analysis": serde_json::to_value(&e.diagnostic).unwrap(),
                         }
                     });
-                    if costs {
-                        result["costs"] = serde_json::to_value(&cost_tracker.get_total()).unwrap();
-                    }
+                    add_costs(&mut result, costs, cost_tracker.get_total());
                     return (1, Some(result));
                 }
             };
@@ -977,12 +1013,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mut result = json!({
                 "message": "Checks passed."
             });
-            if costs {
-                result["costs"] = serde_json::to_value(
-                    &contract_analysis.take_contract_cost_tracker().get_total(),
-                )
-                .unwrap();
-            }
+
+            add_costs(
+                &mut result,
+                costs,
+                contract_analysis.take_contract_cost_tracker().get_total(),
+            );
+
             if output_analysis {
                 result["analysis"] =
                     serde_json::to_value(&build_contract_interface(&contract_analysis)).unwrap();
@@ -1118,26 +1155,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mainnet = header_db.is_mainnet();
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result = {
-                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let cost_track = LimitedCostTracker::new(
-                        mainnet,
-                        if mainnet {
-                            BLOCK_LIMIT_MAINNET.clone()
-                        } else {
-                            HELIUM_BLOCK_LIMIT.clone()
-                        },
-                        &mut db,
-                    )
-                    .unwrap();
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
-                    let result = vm_env
+                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                    vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content);
-                    let cost = vm_env.get_cost_total();
-                    (result, cost)
-                };
-                (header_db, marf, result)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                });
+                (header_db, marf, result_and_cost)
             });
 
             match result_and_cost {
@@ -1146,9 +1169,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         "output": serde_json::to_value(&result).unwrap()
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
                 }
@@ -1159,9 +1180,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         }
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (1, Some(result_json))
                 }
@@ -1186,25 +1205,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result_and_cost = {
-                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let cost_track = LimitedCostTracker::new(
-                        mainnet,
-                        if mainnet {
-                            BLOCK_LIMIT_MAINNET.clone()
-                        } else {
-                            HELIUM_BLOCK_LIMIT.clone()
-                        },
-                        &mut db,
-                    )
-                    .unwrap();
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
-                    let result = vm_env
+                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                    vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content);
-                    let cost = vm_env.get_cost_total();
-                    (result, cost)
-                };
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                });
                 (marf, result_and_cost)
             });
 
@@ -1214,9 +1219,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         "output": serde_json::to_value(&result).unwrap()
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
                 }
@@ -1227,9 +1230,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         }
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (1, Some(result_json))
                 }
@@ -1274,25 +1275,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-                let result_and_cost = {
-                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let cost_track = LimitedCostTracker::new(
-                        mainnet,
-                        if mainnet {
-                            BLOCK_LIMIT_MAINNET.clone()
-                        } else {
-                            HELIUM_BLOCK_LIMIT.clone()
-                        },
-                        &mut db,
-                    )
-                    .unwrap();
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
-                    let result = vm_env
+                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                    vm_env
                         .get_exec_environment(None)
-                        .eval_read_only(&contract_identifier, &content);
-                    let cost = vm_env.get_cost_total();
-                    (result, cost)
-                };
+                        .eval_read_only(&contract_identifier, &content)
+                });
                 (marf, result_and_cost)
             });
 
@@ -1302,9 +1289,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         "output": serde_json::to_value(&result).unwrap()
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
                 }
@@ -1315,9 +1300,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         }
                     });
 
-                    if costs {
-                        result_json["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
+                    add_costs(&mut result_json, costs, cost);
 
                     (1, Some(result_json))
                 }
@@ -1372,48 +1355,32 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
 
-            let (_, _, result) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let analysis_result =
-                    run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
-                match analysis_result {
-                    Err(e) => (header_db, marf, Err(e)),
-                    Ok(analysis) => {
-                        let result = {
-                            let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                            let cost_track = LimitedCostTracker::new(
-                                mainnet,
-                                if mainnet {
-                                    BLOCK_LIMIT_MAINNET.clone()
-                                } else {
-                                    HELIUM_BLOCK_LIMIT.clone()
-                                },
-                                &mut db,
-                            )
-                            .unwrap();
-                            let mut vm_env =
-                                OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
-                            let result =
-                                vm_env.initialize_contract(contract_identifier, &contract_content);
-                            let cost = vm_env.get_cost_total();
-                            (result, cost)
-                        };
-                        (header_db, marf, Ok((analysis, result)))
+            let (_, _, analysis_result_and_cost) =
+                in_block(header_db, marf_kv, |header_db, mut marf| {
+                    let analysis_result =
+                        run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
+                    match analysis_result {
+                        Err(e) => (header_db, marf, Err(e)),
+                        Ok(analysis) => {
+                            let result_and_cost =
+                                with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                                    vm_env
+                                        .initialize_contract(contract_identifier, &contract_content)
+                                });
+                            (header_db, marf, Ok((analysis, result_and_cost)))
+                        }
                     }
-                }
-            });
+                });
 
-            match result {
+            match analysis_result_and_cost {
                 Ok((contract_analysis, (Ok((_x, asset_map, events)), cost))) => {
                     let mut result = json!({
                         "message": "Contract initialized!"
                     });
 
-                    if costs {
-                        result["costs"] = serde_json::to_value(&cost).unwrap();
-                    }
-                    if assets {
-                        result["assets"] = asset_map.to_json();
-                    }
+                    add_costs(&mut result, costs, cost);
+                    add_assets(&mut result, assets, asset_map);
+
                     if output_analysis {
                         result["analysis"] =
                             serde_json::to_value(&build_contract_interface(&contract_analysis))
@@ -1433,9 +1400,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             "initialization": serde_json::to_value(&format!("{}", error)).unwrap()
                         }
                     });
-                    if costs {
-                        result["costs"] = serde_json::to_value(&cost_tracker.get_total()).unwrap()
-                    }
+
+                    add_costs(&mut result, costs, cost_tracker.get_total());
+
                     (1, Some(result))
                 }
                 Ok((_, (Err(error), ..))) => (
@@ -1507,33 +1474,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 })
                 .collect();
 
-            let (_, _, result) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let x = {
-                    let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let cost_track = LimitedCostTracker::new(
-                        mainnet,
-                        if mainnet {
-                            BLOCK_LIMIT_MAINNET.clone()
-                        } else {
-                            HELIUM_BLOCK_LIMIT.clone()
-                        },
-                        &mut db,
-                    )
-                    .unwrap();
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
-                    let result = vm_env.execute_transaction(
-                        sender,
-                        contract_identifier,
-                        &tx_name,
-                        &arguments,
-                    );
-                    let cost = vm_env.get_cost_total();
-                    (result, cost)
-                };
-                (header_db, marf, (x.0, x.1))
+            let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
+                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
+                });
+                (header_db, marf, result_and_cost)
             });
 
-            match result {
+            match result_and_cost {
                 (Ok((x, asset_map, events)), cost) => {
                     if let Value::Response(data) = x {
                         if data.committed {
@@ -1541,12 +1489,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                 "message": "Transaction executed and committed.",
                                 "output": serde_json::to_value(&data.data).unwrap(),
                             });
-                            if costs {
-                                result["costs"] = serde_json::to_value(&cost).unwrap();
-                            }
-                            if assets {
-                                result["assets"] = asset_map.to_json();
-                            }
+
+                            add_costs(&mut result, costs, cost);
+                            add_assets(&mut result, assets, asset_map);
+
                             let events_json: Vec<_> = events
                                 .into_iter()
                                 .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true))
@@ -1559,9 +1505,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                 "message": "Aborted.",
                                 "output": serde_json::to_value(&data.data).unwrap(),
                             });
-                            if costs {
-                                result["costs"] = serde_json::to_value(&cost).unwrap();
-                            }
+
+                            add_costs(&mut result, costs, cost);
+
                             (0, Some(result))
                         }
                     } else {
@@ -1804,6 +1750,7 @@ mod test {
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
         assert!(result["costs"] != json!(null));
+        assert!(result["assets"] == json!(null));
 
         eprintln!("launch names with costs and assets");
         let invoked = invoke_command(
