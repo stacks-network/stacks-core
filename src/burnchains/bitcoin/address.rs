@@ -14,20 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::Address;
-
-use burnchains::bitcoin::Error as btc_error;
-
-use util::hash::Hash160;
-use util::log;
-
 use address::b58 as base58;
 use address::c32::c32_address;
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::Error as btc_error;
+use burnchains::Address;
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
+use util::hash::Hash160;
+use util::log;
 
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -281,10 +277,11 @@ impl std::fmt::Display for BitcoinAddress {
 
 #[cfg(test)]
 mod tests {
-    use super::{BitcoinAddress, BitcoinAddressType};
     use burnchains::bitcoin::BitcoinNetworkType;
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+
+    use super::{BitcoinAddress, BitcoinAddressType};
 
     struct AddressFixture {
         addr: String,

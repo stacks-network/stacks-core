@@ -18,30 +18,24 @@ use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
-use chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-
+use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::PublicKey;
 use burnchains::Txid;
 use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
-
-use address::AddressHashMode;
+use chainstate::burn::operations::{
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, UserBurnSupportOp,
+};
 use chainstate::stacks::StacksPublicKey;
-
+use core::MINING_COMMITMENT_WINDOW;
 use util::hash::Hash160;
+use util::log;
 use util::uint::BitArray;
 use util::uint::Uint256;
 use util::uint::Uint512;
-
-use util::log;
-
 use util::vrf::VRFPublicKey;
-
-use core::MINING_COMMITMENT_WINDOW;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
@@ -382,41 +376,37 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
-    use super::BurnSamplePoint;
-
-    use core::MINING_COMMITMENT_WINDOW;
     use std::marker::PhantomData;
 
+    use crate::types::chainstate::StacksAddress;
+    use address::AddressHashMode;
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::Address;
     use burnchains::Burnchain;
     use burnchains::BurnchainSigner;
     use burnchains::PublicKey;
-
-    use chainstate::burn::db::sortdb::SortitionId;
+    use burnchains::Txid;
     use chainstate::burn::operations::{
         leader_block_commit::{MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS},
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-
-    use burnchains::{BurnchainHeaderHash, Txid};
-    use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+    use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::StacksPublicKey;
+    use core::MINING_COMMITMENT_WINDOW;
     use util::hash::hex_bytes;
-    use util::vrf::*;
-
     use util::hash::Hash160;
+    use util::log;
     use util::uint::BitArray;
     use util::uint::Uint256;
     use util::uint::Uint512;
+    use util::vrf::*;
 
-    use util::log;
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use crate::types::chainstate::{SortitionId, VRFSeed};
 
-    use address::AddressHashMode;
-    use chainstate::stacks::StacksAddress;
-    use chainstate::stacks::StacksPublicKey;
+    use super::BurnSamplePoint;
 
     struct BurnDistFixture {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,

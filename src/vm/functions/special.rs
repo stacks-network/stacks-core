@@ -28,12 +28,10 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use chainstate::stacks::boot::boot_code_id;
+use crate::types::chainstate::StacksMicroblockHeader;
+use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::db::MINER_REWARD_MATURITY;
 use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
-use chainstate::stacks::StacksMicroblockHeader;
-use vm::clarity::ClarityTransactionConnection;
 
 use util::hash::Hash160;
 

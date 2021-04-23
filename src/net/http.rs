@@ -18,6 +18,7 @@
 */
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
@@ -26,20 +27,25 @@ use std::mem;
 use std::net::SocketAddr;
 use std::str;
 use std::str::FromStr;
+use std::time::SystemTime;
 
+use percent_encoding::percent_decode_str;
+use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use time;
+use url::{form_urlencoded, Url};
 
 use burnchains::{Address, Txid};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
+use deps::httparse;
 use net::atlas::Attachment;
 use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
+use net::Error::ClarityError;
 use net::HttpContentType;
 use net::HttpRequestMetadata;
 use net::HttpRequestPreamble;
@@ -64,14 +70,13 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use net::{MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
-
 use util::hash::hex_bytes;
 use util::hash::to_hex;
 use util::hash::Hash160;
 use util::log;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
-
+use vm::types::{StandardPrincipalData, TraitIdentifier};
 use vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
@@ -80,20 +85,7 @@ use vm::{
     ClarityName, ContractName, Value,
 };
 
-use std::convert::TryFrom;
-
-use regex::{Captures, Regex};
-
-use percent_encoding::percent_decode_str;
-use url::{form_urlencoded, Url};
-
-use deps::httparse;
-use std::time::SystemTime;
-use time;
-
-use chainstate::burn::ConsensusHash;
-use net::Error::ClarityError;
-use vm::types::{StandardPrincipalData, TraitIdentifier};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -4378,36 +4370,36 @@ impl ProtocolFamily for StacksHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::test::*;
-    use net::RPCNeighbor;
-    use net::RPCNeighborsInfo;
     use std::error::Error;
+
+    use rand;
+    use rand::RngCore;
 
     use burnchains::Txid;
     use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksBlock;
-    use chainstate::stacks::StacksBlockHeader;
     use chainstate::stacks::StacksMicroblock;
+    use chainstate::stacks::StacksPrivateKey;
     use chainstate::stacks::StacksTransaction;
     use chainstate::stacks::TokenTransferMemo;
     use chainstate::stacks::TransactionAuth;
     use chainstate::stacks::TransactionPayload;
     use chainstate::stacks::TransactionPostConditionMode;
     use chainstate::stacks::TransactionVersion;
-
-    use chainstate::stacks::StacksPrivateKey;
-
+    use net::codec::test::check_codec_and_corruption;
+    use net::test::*;
+    use net::RPCNeighbor;
+    use net::RPCNeighborsInfo;
     use util::hash::to_hex;
     use util::hash::Hash160;
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use rand;
-    use rand::RngCore;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::StacksBlockHeader;
+
+    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {

@@ -1,26 +1,27 @@
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
-use crate::run_loop::RegisteredKey;
-use std::collections::HashMap;
-
 use std::cmp;
+use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, BurnchainParameters, Txid};
-use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
+use stacks::burnchains::BurnchainSigner;
+use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
@@ -29,11 +30,12 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{miner::StacksMicroblockBuilder, StacksBlockBuilder};
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
-    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
     db::{LocalPeer, PeerDB},
@@ -43,6 +45,9 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
+};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
@@ -50,21 +55,14 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::sleep_ms;
 use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
-
 use stacks::vm::costs::ExecutionCost;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-
 use crate::ChainTip;
-use stacks::burnchains::BurnchainSigner;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 
-use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
-
-use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
+use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 

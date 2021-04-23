@@ -1,9 +1,11 @@
-use crate::{
-    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode,
-};
+use std::cmp;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
+use std::thread;
+
 use ctrlc as termination;
+
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -12,7 +14,6 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{OptionalData, PrincipalData, Value};
@@ -23,12 +24,16 @@ use std::sync::Arc;
 use std::thread;
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
-
 use crate::monitoring::start_serving_monitoring_metrics;
-
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::PoxSyncWatchdog;
+use crate::{
+    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
+    util, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    NeonGenesisNode,
+};
+
+use super::RunLoopCallbacks;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -215,7 +220,7 @@ impl RunLoop {
         let pox_rejection_fraction = burnchain_config.pox_constants.pox_rejection_fraction as u128;
 
         let boot_block = Box::new(move |clarity_tx: &mut ClarityTx| {
-            let contract = boot::boot_code_id("pox", mainnet);
+            let contract = util::boot::boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(first_block_height),

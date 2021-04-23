@@ -20,26 +20,24 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use core::*;
-
 use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-
+use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use core::*;
 use net::Error as net_error;
 use util::db::Error as db_error;
-
-use vm::clarity::{ClarityInstance, Error as clarity_error};
-use vm::database::marf::MarfedKV;
+use vm::costs::ExecutionCost;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
 use vm::database::NULL_BURN_STATE_DB;
 use vm::database::NULL_HEADER_DB;
 
-use vm::costs::ExecutionCost;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -501,28 +499,24 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::fs;
 
     use burnchains::PublicKey;
-
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
+    use chainstate::stacks::db::test::*;
+    use chainstate::stacks::db::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::*;
-
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
+    use chainstate::stacks::miner::test::make_coinbase;
     use chainstate::stacks::miner::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-
+    use core::mempool::*;
     use net::test::*;
 
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-
-    use chainstate::stacks::miner::test::make_coinbase;
-    use core::mempool::*;
+    use super::*;
 
     #[test]
     fn test_unconfirmed_refresh_one_microblock_stx_transfer() {

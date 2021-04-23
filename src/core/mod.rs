@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use burnchains::Burnchain;
 // This module contains the "main loop" that drives everything
 use burnchains::Error as burnchain_error;
-use burnchains::{Burnchain, BurnchainHeaderHash};
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
 use vm::costs::ExecutionCost;
 
-pub mod mempool;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 pub use self::mempool::MemPoolDB;
+
+pub mod mempool;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
