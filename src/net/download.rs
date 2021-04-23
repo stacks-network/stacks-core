@@ -17,6 +17,15 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::convert::TryFrom;
+use std::hash::{Hash, Hasher};
+use std::io::Read;
+use std::io::Write;
+use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvError;
@@ -25,78 +34,52 @@ use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::inv::InvState;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use std::hash::{Hash, Hasher};
-
-use net::codec::*;
-use net::dns::*;
-use net::rpc::*;
-use net::*;
-
-use net::atlas::AttachmentsDownloader;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::GetBlocksInv;
-use net::StacksMessage;
-use net::StacksP2P;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::server::HttpPeer;
-
-use net::db::*;
-
-use net::p2p::PeerNetwork;
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
-
-use chainstate::burn::db::sortdb::{
-    BlockHeaderCache, PoxId, SortitionDB, SortitionDBConn, SortitionId,
-};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::Error as chainstate_error;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-
-use std::net::IpAddr;
-use std::net::SocketAddr;
-
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use std::io::Read;
-use std::io::Write;
-
-use std::convert::TryFrom;
-
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::RngCore;
 
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
+use chainstate::burn::BlockSnapshot;
+use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::Error as chainstate_error;
 use core::EMPTY_MICROBLOCK_PARENT_HASH;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
+use net::asn::ASEntry4;
+use net::atlas::AttachmentsDownloader;
+use net::codec::*;
+use net::connection::ConnectionOptions;
+use net::connection::ReplyHandleHttp;
+use net::db::PeerDB;
+use net::db::*;
+use net::dns::*;
+use net::inv::InvState;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::p2p::PeerNetwork;
+use net::rpc::*;
+use net::server::HttpPeer;
+use net::Error as net_error;
+use net::GetBlocksInv;
+use net::Neighbor;
+use net::NeighborKey;
+use net::PeerAddress;
+use net::StacksMessage;
+use net::StacksP2P;
+use net::*;
+use util::db::DBConn;
+use util::db::Error as db_error;
+use util::get_epoch_time_ms;
+use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::log;
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
+
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -2486,7 +2469,11 @@ impl PeerNetwork {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
+    use std::collections::HashMap;
+    use std::convert::TryFrom;
+
+    use rand::Rng;
+
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
     use chainstate::stacks::miner::test::*;
@@ -2496,15 +2483,14 @@ pub mod test {
     use net::relay::*;
     use net::test::*;
     use net::*;
-    use rand::Rng;
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
     use util::hash::*;
     use util::sleep_ms;
     use util::strings::*;
     use util::test::*;
     use vm::costs::ExecutionCost;
     use vm::representations::*;
+
+    use super::*;
 
     fn get_peer_availability(
         peer: &mut TestPeer,

@@ -38,8 +38,8 @@ use util::secp256k1::Secp256k1PublicKey;
 
 use vm::types::QualifiedContractIdentifier;
 
+use crate::types::chainstate::StacksBlockId;
 use burnchains::Txid;
-use chainstate::stacks::StacksBlockId;
 use net::StacksMessageCodec;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};

@@ -20,6 +20,7 @@ pub mod log;
 pub mod macros;
 #[macro_use]
 pub mod db;
+pub mod boot;
 pub mod hash;
 pub mod pair;
 pub mod pipe;

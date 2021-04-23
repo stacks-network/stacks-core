@@ -17,13 +17,33 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::{convert::TryFrom, fmt};
 
+use rand::prelude::*;
+use rand::thread_rng;
+use rusqlite::{DatabaseName, NO_PARAMS};
+
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use burnchains::*;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::db::blocks::CheckError;
+use chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
+};
+use chainstate::stacks::Error as chain_error;
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
+use monitoring;
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
@@ -61,43 +81,17 @@ use net::{
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainView;
-
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use monitoring;
-
-use rusqlite::{DatabaseName, NO_PARAMS};
-
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
-
-use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
-    version_string,
-};
-
+use vm::database::clarity_store::make_contract_hash_key;
+use vm::types::TraitIdentifier;
 use vm::{
-    clarity::ClarityConnection,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
+        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::InterpreterError,
@@ -105,10 +99,15 @@ use vm::{
     ClarityName, ContractName, SymbolicExpression, Value,
 };
 
-use chainstate::stacks::db::blocks::CheckError;
-use rand::prelude::*;
-use rand::thread_rng;
-use vm::types::TraitIdentifier;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{
+    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
+use crate::{
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
+    util::hash::Sha256Sum, version_string,
+};
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -246,7 +245,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -379,7 +378,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -1265,8 +1264,7 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
-                    let contract_commit_key =
-                        MarfedKV::make_contract_hash_key(&contract_identifier);
+                    let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
@@ -2831,20 +2829,14 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
     use std::cell::RefCell;
+    use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use address::*;
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
-
     use burnchains::*;
-    use chainstate::burn::BlockHeaderHash;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
@@ -2853,16 +2845,20 @@ mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::*;
-
-    use address::*;
-
+    use net::codec::*;
+    use net::http::*;
+    use net::test::*;
+    use net::*;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::pipe::*;
-
-    use std::convert::TryInto;
-
     use vm::types::*;
+
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+
+    use super::*;
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)

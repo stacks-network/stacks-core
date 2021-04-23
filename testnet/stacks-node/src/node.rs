@@ -1,9 +1,8 @@
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
-
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
@@ -11,18 +10,16 @@ use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
-use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
-use stacks::chainstate::stacks::index::TrieHash;
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
-    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
@@ -34,20 +31,26 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
+};
+use stacks::types::proof::TrieHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::{
-    burnchains::{Burnchain, BurnchainHeaderHash, Txid},
+    burnchains::{Burnchain, Txid},
     chainstate::stacks::db::{
         ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
         ChainstateBNSNamespace,
     },
 };
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{atomic::AtomicBool, Arc};
+
+use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
+
+use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
