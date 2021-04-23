@@ -20,26 +20,24 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use core::*;
-
 use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-
+use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use core::*;
 use net::Error as net_error;
 use util::db::Error as db_error;
-
-use vm::clarity::{ClarityInstance, Error as clarity_error};
-use vm::database::marf::MarfedKV;
+use vm::costs::ExecutionCost;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
 use vm::database::NULL_BURN_STATE_DB;
 use vm::database::NULL_HEADER_DB;
 
-use vm::costs::ExecutionCost;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -57,6 +55,10 @@ pub struct UnconfirmedState {
     readonly: bool,
     dirty: bool,
     num_mblocks_added: u64,
+
+    // fault injection for testing
+    pub disable_cost_check: bool,
+    pub disable_bytes_check: bool,
 }
 
 impl UnconfirmedState {
@@ -85,6 +87,9 @@ impl UnconfirmedState {
             readonly: false,
             dirty: false,
             num_mblocks_added: 0,
+
+            disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
+            disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
         })
     }
 
@@ -115,6 +120,9 @@ impl UnconfirmedState {
             readonly: true,
             dirty: false,
             num_mblocks_added: 0,
+
+            disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
+            disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
         })
     }
 
@@ -207,7 +215,7 @@ impl UnconfirmedState {
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
-                new_bytes = {
+                new_bytes += {
                     let mut total = 0;
                     for tx in mblock.txs.iter() {
                         let mut bytes = vec![];
@@ -236,6 +244,16 @@ impl UnconfirmedState {
         self.cost_so_far = new_cost;
         self.bytes_so_far += new_bytes;
         self.num_mblocks_added += num_new_mblocks;
+
+        // apply injected faults
+        if self.disable_cost_check {
+            warn!("Fault injection: disabling microblock miner's cost tracking");
+            self.cost_so_far = ExecutionCost::zero();
+        }
+        if self.disable_bytes_check {
+            warn!("Fault injection: disabling microblock miner's size tracking");
+            self.bytes_so_far = 0;
+        }
 
         Ok((total_fees, total_burns, all_receipts))
     }
@@ -310,6 +328,14 @@ impl UnconfirmedState {
         txid: &Txid,
     ) -> Option<(StacksTransaction, BlockHeaderHash, u16)> {
         self.mined_txs.get(txid).map(|x| x.clone())
+    }
+
+    pub fn num_microblocks(&self) -> u64 {
+        if self.last_mblock.is_some() {
+            (self.last_mblock_seq as u64) + 1
+        } else {
+            0
+        }
     }
 }
 
@@ -473,28 +499,24 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::fs;
 
     use burnchains::PublicKey;
-
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
+    use chainstate::stacks::db::test::*;
+    use chainstate::stacks::db::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::*;
-
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
+    use chainstate::stacks::miner::test::make_coinbase;
     use chainstate::stacks::miner::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-
+    use core::mempool::*;
     use net::test::*;
 
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-
-    use chainstate::stacks::miner::test::make_coinbase;
-    use core::mempool::*;
+    use super::*;
 
     #[test]
     fn test_unconfirmed_refresh_one_microblock_stx_transfer() {

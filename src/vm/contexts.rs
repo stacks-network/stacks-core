@@ -42,12 +42,12 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::StacksBlockId;
-use chainstate::stacks::StacksMicroblockHeader;
+
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::StacksMicroblockHeader;
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rand::Rng;
 use std::convert::TryInto;
 use std::env;
 use std::fs;
@@ -24,22 +23,19 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
-use util::log;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use chainstate::stacks::StacksBlockId;
-
+use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
+use address::c32::c32_address;
+use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use util::db::FromColumn;
-
 use util::hash::Sha512Trunc256Sum;
 
 use vm::ContractName;
+use util::log;
 
 use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
@@ -49,31 +45,36 @@ use vm::contexts::{AssetMap, OwnedEnvironment};
 use vm::costs::ExecutionCost;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, MarfedKV, MemoryBackingStore, STXBalance,
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
-use address::c32::c32_address;
-
-use burnchains::BurnchainHeaderHash;
 use burnchains::PoxConstants;
 use burnchains::Txid;
-use chainstate::burn::VRFSeed;
-use chainstate::stacks::StacksAddress;
 
-use chainstate::stacks::boot::{boot_code_addr, boot_code_id};
+use util::boot::{boot_code_addr, boot_code_id};
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
+
 use core::BLOCK_LIMIT_MAINNET;
+
 use serde::Serialize;
 use serde_json::json;
 use util::strings::StacksString;
 
 use std::convert::TryFrom;
 
-use crate::vm::database::marf::WritableMarfStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::WritableMarfStore;
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::VRFSeed;
+use crate::types::proof::ClarityMarfTrieId;
 
 #[cfg(test)]
 macro_rules! panic_test {
