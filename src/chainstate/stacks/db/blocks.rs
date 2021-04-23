@@ -70,7 +70,7 @@ use vm::costs::LimitedCostTracker;
 use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    StandardPrincipalData, TupleData, TypeSignature, Value, BuffData
 };
 
 use crate::types::chainstate::{
