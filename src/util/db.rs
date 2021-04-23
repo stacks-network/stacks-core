@@ -43,7 +43,7 @@ use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 
 use crate::types::chainstate::MARFValue;
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::marf::MARF;

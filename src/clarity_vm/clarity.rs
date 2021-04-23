@@ -17,7 +17,6 @@
 use std::error;
 use std::fmt;
 
-use crate::types::chainstate::StacksMicroblockHeader;
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
@@ -44,8 +43,10 @@ use vm::types::{
 
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, TrieHash};
+use crate::types::chainstate::StacksMicroblockHeader;
+use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
 
 ///
@@ -1001,8 +1002,7 @@ mod tests {
     use vm::types::{StandardPrincipalData, Value};
 
     use crate::clarity_vm::database::marf::MarfedKV;
-
-    use types::chainstate::ClarityMarfTrieId;
+    use crate::types::proof::ClarityMarfTrieId;
 
     use super::*;
 

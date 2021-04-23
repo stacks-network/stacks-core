@@ -43,9 +43,8 @@ use util::vrf::*;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use crate::types::chainstate::{
-    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash,
-};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::proof::TrieHash;
 
 impl StacksMessageCodec for VRFProof {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {

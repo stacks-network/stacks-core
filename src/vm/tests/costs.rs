@@ -15,9 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::ClarityMarfTrieId;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::proof::ClarityMarfTrieId;
 use crate::util::boot::boot_code_id;
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;

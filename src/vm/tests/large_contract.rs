@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::ClarityMarfTrieId;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::proof::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use util::hash::hex_bytes;

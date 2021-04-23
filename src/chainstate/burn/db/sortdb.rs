@@ -74,10 +74,11 @@ use util::vrf::*;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
+use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, MARFValue, PoxId, SortitionId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
 };
-use crate::types::chainstate::{StacksAddress, TrieHash};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 

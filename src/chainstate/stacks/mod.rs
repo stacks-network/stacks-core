@@ -56,11 +56,10 @@ use vm::representations::{ClarityName, ContractName};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
 };
-use crate::types::chainstate::{
-    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TRIEHASH_ENCODED_SIZE,
-};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::proof::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod address;
 pub mod auth;

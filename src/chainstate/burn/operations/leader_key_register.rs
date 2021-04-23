@@ -17,7 +17,7 @@
 use std::io::{Read, Write};
 
 use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;

@@ -50,8 +50,9 @@ use util::db::tx_busy_handler;
 use util::db::Error as db_error;
 use util::log;
 
-use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::types::chainstate::{ClarityMarfTrieId, TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0)).map_err(Error::IOError)

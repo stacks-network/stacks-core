@@ -40,8 +40,9 @@ use util::uint::BitArray;
 use util::uint::Uint256;
 use util::uint::Uint512;
 
-use crate::types::chainstate::{BlockHeaderHash, ClarityMarfTrieId, PoxId, SortitionId, VRFSeed};
-use crate::types::chainstate::{StacksBlockId, TrieHash};
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one

@@ -31,10 +31,8 @@ use util::log;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, ClarityMarfTrieId, MARFValue, TrieHash, MARF_VALUE_ENCODED_SIZE,
-    TRIEHASH_ENCODED_SIZE,
-};
+use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
 pub mod marf;
@@ -379,7 +377,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use crate::types::chainstate::{TrieLeaf, TrieMerkleProof};
+    use crate::types::proof::{TrieLeaf, TrieMerkleProof};
 
     use super::*;
 

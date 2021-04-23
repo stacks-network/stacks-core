@@ -1929,7 +1929,8 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::types::chainstate::{StacksMicroblockHeader, TrieHash};
+    use crate::types::chainstate::StacksMicroblockHeader;
+    use crate::types::proof::TrieHash;
     use crate::util::boot::boot_code_test_addr;
 
     use super::*;

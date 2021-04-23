@@ -33,11 +33,9 @@ use vm::errors::{
 };
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{
-    BlockHeaderHash, StacksBlockHeader, StacksBlockId, TrieHash, VRFSeed,
-};
-
-use crate::types::chainstate::TrieMerkleProof;
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, StacksBlockId, VRFSeed};
+use crate::types::proof::TrieHash;
+use crate::types::proof::TrieMerkleProof;
 
 pub struct NullBackingStore {}
 

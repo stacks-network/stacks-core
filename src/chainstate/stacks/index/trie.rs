@@ -36,8 +36,9 @@ use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::types::chainstate::{TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -905,7 +906,7 @@ mod test {
     use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
 
-    use types::chainstate::ClarityMarfTrieId;
+    use crate::types::proof::ClarityMarfTrieId;
 
     use super::*;
 

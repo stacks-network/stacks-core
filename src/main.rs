@@ -45,10 +45,9 @@ use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::net::StacksMessageCodec;
-use blockstack_lib::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, PoxId,
-};
+use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
 use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
+use blockstack_lib::types::proof::ClarityMarfTrieId;
 use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;

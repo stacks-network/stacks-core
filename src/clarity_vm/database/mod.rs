@@ -13,10 +13,10 @@ use vm::database::{
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
-use crate::types::chainstate::TrieMerkleProof;
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{ClarityMarfTrieId, StacksBlockId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
+use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
 pub mod marf;
 

@@ -17,7 +17,7 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;

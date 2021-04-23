@@ -26,7 +26,7 @@ use vm::Value;
 use crate::types::chainstate::StacksBlockId;
 
 use super::{ClarityBackingStore, ClarityDeserializable};
-use crate::types::chainstate::TrieMerkleProof;
+use crate::types::proof::TrieMerkleProof;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;

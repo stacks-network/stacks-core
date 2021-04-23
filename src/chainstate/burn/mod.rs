@@ -40,8 +40,8 @@ use util::log;
 use util::uint::Uint256;
 use util::vrf::VRFProof;
 
-use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::proof::TrieHash;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;

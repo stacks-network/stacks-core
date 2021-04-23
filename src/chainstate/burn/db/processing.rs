@@ -35,7 +35,8 @@ use chainstate::stacks::index::{
 use core::INITIAL_MINING_BONUS_WINDOW;
 use util::db::Error as DBError;
 
-use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, PoxId, SortitionId, TrieHash};
+use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, PoxId, SortitionId};
+use crate::types::proof::TrieHash;
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.

@@ -13,9 +13,9 @@ use vm::database::{
 use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::TrieMerkleProof;
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, TrieHash};
-use crate::types::chainstate::{ClarityMarfTrieId, MARFValue, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+use crate::types::chainstate::{MARFValue, StacksBlockId};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieMerkleProof};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.

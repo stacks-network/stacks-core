@@ -73,10 +73,10 @@ pub fn build_ast<T: CostTracker>(
 mod tests {
     use super::*;
     use crate::types::chainstate::StacksBlockId;
+    use crate::types::proof::ClarityMarfTrieId;
     use clarity_vm::clarity::ClarityInstance;
     use clarity_vm::database::marf::MarfedKV;
     use std::collections::HashMap;
-    use types::chainstate::ClarityMarfTrieId;
     use vm::costs::*;
     use vm::database::*;
     use vm::representations::depth_traverse;

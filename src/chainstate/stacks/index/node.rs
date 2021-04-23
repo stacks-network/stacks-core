@@ -34,10 +34,9 @@ use net::{codec::read_next, StacksMessageCodec};
 use util::hash::to_hex;
 use util::log;
 
-use crate::types::chainstate::{
-    BlockHeaderHash, ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
-};
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BlockHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {

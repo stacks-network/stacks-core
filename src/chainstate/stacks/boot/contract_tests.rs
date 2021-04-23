@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use crate::types::chainstate::TrieMerkleProof;
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
@@ -10,7 +9,9 @@ use chainstate::stacks::boot::{
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use chainstate::stacks::*;
+use clarity_vm::database::marf::MarfedKV;
 use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -37,11 +38,10 @@ use vm::types::{
 };
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId, StacksAddress, StacksBlockId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
+use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::util::boot::boot_code_id;
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use clarity_vm::database::marf::MarfedKV;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

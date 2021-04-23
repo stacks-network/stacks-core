@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::{BlockHeaderHash, ClarityMarfTrieId, StacksBlockId};
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
 use util::hash::hex_bytes;
@@ -32,6 +31,8 @@ use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memo
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use crate::types::proof::ClarityMarfTrieId;
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();

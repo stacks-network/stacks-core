@@ -53,8 +53,9 @@ use util::db::sql_pragma;
 use util::db::tx_begin_immediate;
 use util::log;
 
-use crate::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::types::chainstate::{TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (

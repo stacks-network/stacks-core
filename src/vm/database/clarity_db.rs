@@ -43,11 +43,11 @@ use vm::types::{
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::TrieMerkleProof;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
     StacksBlockId, VRFSeed,
 };
+use crate::types::proof::TrieMerkleProof;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 

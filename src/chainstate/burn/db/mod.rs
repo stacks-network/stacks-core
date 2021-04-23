@@ -22,7 +22,7 @@ use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 use serde_json::Error as serde_error;
 
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use burnchains::{Address, Txid};
 use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use chainstate::stacks::StacksPublicKey;

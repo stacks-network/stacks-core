@@ -32,8 +32,9 @@ use stacks::net::{
     Error as NetError, PeerAddress,
 };
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
 };
+use stacks::types::proof::TrieHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;

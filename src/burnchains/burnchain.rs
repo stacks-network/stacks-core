@@ -28,7 +28,7 @@ use std::thread;
 use std::time::Instant;
 
 use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::address_type_to_version_byte;
@@ -1453,7 +1453,7 @@ pub mod tests {
     use sha2::Sha512;
 
     use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::TrieHash;
+    use crate::types::proof::TrieHash;
     use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;

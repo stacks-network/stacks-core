@@ -1752,8 +1752,9 @@ mod test {
 
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::chainstate::VRFSeed;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ClarityMarfTrieId};
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use crate::types::proof::ClarityMarfTrieId;
     use crate::vm::analysis::type_check;
 
     use super::make_all_api_reference;

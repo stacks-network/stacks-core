@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::{ClarityMarfTrieId, StacksBlockHeader, StacksBlockId};
 use chainstate::stacks::index::storage::TrieFileStorage;
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::hash::hex_bytes;
@@ -28,6 +27,8 @@ use vm::types::{PrincipalData, ResponseData, Value};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId};
+use crate::types::proof::ClarityMarfTrieId;
 
 mod assets;
 mod contracts;

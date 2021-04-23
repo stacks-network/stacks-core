@@ -31,7 +31,8 @@ use util::db::{
     Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::{BurnchainHeaderHash, ClarityMarfTrieId};
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::proof::ClarityMarfTrieId;
 
 pub struct BurnchainDB {
     conn: Connection,

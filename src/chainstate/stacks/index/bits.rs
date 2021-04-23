@@ -35,9 +35,8 @@ use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::{
-    TrieHash, TrieLeaf, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
 /// be over 255 bytes).

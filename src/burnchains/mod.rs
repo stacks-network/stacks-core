@@ -26,7 +26,7 @@ use rusqlite::Error as sqlite_error;
 
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
+use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;

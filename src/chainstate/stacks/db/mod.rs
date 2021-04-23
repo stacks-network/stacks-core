@@ -79,9 +79,9 @@ use vm::types::TupleData;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{
-    ClarityMarfTrieId, MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId,
-    StacksMicroblockHeader, TrieHash,
+    MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
+use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 use crate::util::boot::{boot_code_addr, boot_code_id};
 
 pub mod accounts;

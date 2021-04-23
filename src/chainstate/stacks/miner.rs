@@ -48,9 +48,8 @@ use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use crate::types::chainstate::{
-    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, TrieHash,
-};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::proof::TrieHash;
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {

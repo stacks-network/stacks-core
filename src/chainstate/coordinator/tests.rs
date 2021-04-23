@@ -38,6 +38,7 @@ use chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
 use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core;
 use core::*;
 use monitoring::increment_stx_blocks_processed_counter;
@@ -50,13 +51,12 @@ use vm::{
     Value,
 };
 
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use crate::types::chainstate::{StacksBlockId, TrieHash};
+use crate::types::proof::TrieHash;
 use crate::{types, util};
-
-use clarity_vm::clarity::ClarityConnection;
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));

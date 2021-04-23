@@ -40,9 +40,9 @@ use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
 
-use crate::types::chainstate::{
-    BlockHeaderHash, ClarityMarfTrieId, MARFValue, TrieHash, TrieLeaf, TrieMerkleProof,
-    TRIEHASH_ENCODED_SIZE,
+use crate::types::chainstate::{BlockHeaderHash, MARFValue};
+use crate::types::proof::{
+    ClarityMarfTrieId, TrieHash, TrieLeaf, TrieMerkleProof, TRIEHASH_ENCODED_SIZE,
 };
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";

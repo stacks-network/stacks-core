@@ -44,11 +44,12 @@ use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId};
 use net::{codec::read_next, StacksMessageCodec};
 use util::{hash::to_hex, log};
 
-use crate::types::chainstate::{
-    BlockHeaderHash, ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf,
-    TrieMerkleProof, TrieMerkleProofType,
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BlockHeaderHash, MARFValue};
+use crate::types::proof::{
+    ClarityMarfTrieId, ProofTrieNode, ProofTriePtr, TrieHash, TrieLeaf, TrieMerkleProof,
+    TrieMerkleProofType, TRIEHASH_ENCODED_SIZE,
 };
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(

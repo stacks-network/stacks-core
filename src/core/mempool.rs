@@ -1177,8 +1177,9 @@ mod tests {
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{
         StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-        TrieHash, VRFSeed,
+        VRFSeed,
     };
+    use crate::types::proof::TrieHash;
     use crate::{
         chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
     };
