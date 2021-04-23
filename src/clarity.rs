@@ -708,9 +708,8 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         let contract_content = *boot_code_contract;
 
         debug!(
-            "Instantiate boot code contract '{}.{}' ({} bytes)...",
+            "Instantiate boot code contract '{}' ({} bytes)...",
             &contract_identifier,
-            boot_code_name,
             boot_code_contract.len()
         );
 
