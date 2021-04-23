@@ -34,8 +34,8 @@ use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use util::db::FromColumn;
 use util::hash::Sha512Trunc256Sum;
 
-use vm::ContractName;
 use util::log;
+use vm::ContractName;
 
 use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
@@ -45,8 +45,8 @@ use vm::contexts::{AssetMap, OwnedEnvironment};
 use vm::costs::ExecutionCost;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -55,8 +55,8 @@ use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Valu
 use burnchains::PoxConstants;
 use burnchains::Txid;
 
-use util::boot::{boot_code_addr, boot_code_id};
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
+use util::boot::{boot_code_addr, boot_code_id};
 
 use core::BLOCK_LIMIT_MAINNET;
 
