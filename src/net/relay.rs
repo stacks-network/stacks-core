@@ -1055,7 +1055,7 @@ impl Relayer {
 
         // garbage-collect
         if chain_height > MEMPOOL_MAX_TRANSACTION_AGE {
-            let min_height = chain_height - MEMPOOL_MAX_TRANSACTION_AGE;
+            let min_height = chain_height.saturating_sub(MEMPOOL_MAX_TRANSACTION_AGE);
             let mut mempool_tx = mempool.tx_begin()?;
 
             debug!(

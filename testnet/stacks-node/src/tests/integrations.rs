@@ -1031,6 +1031,145 @@ fn contract_stx_transfer() {
     run_loop.start(num_rounds).unwrap();
 }
 
+#[test]
+fn mine_transactions_out_of_order() {
+    let mut conf = super::new_test_conf();
+
+    let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr = to_addr(&sk);
+    conf.burnchain.commit_anchor_block_within = 5000;
+    conf.add_initial_balance(addr.to_string(), 100000);
+
+    let num_rounds = 5;
+    let mut run_loop = RunLoop::new(conf);
+
+    run_loop
+        .callbacks
+        .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+            let mut chainstate_copy = tenure.open_chainstate();
+
+            let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+            let header_hash = chain_tip.block.block_hash();
+            let consensus_hash = chain_tip.metadata.consensus_hash;
+
+            let contract_identifier = QualifiedContractIdentifier::parse(&format!(
+                "{}.{}",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                "faucet"
+            ))
+            .unwrap();
+
+            if round == 1 {
+                // block-height = 2
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 1, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            } else if round == 2 {
+                // block-height > 2
+                let publish_tx = make_contract_publish(&sk, 2, 0, "faucet", FAUCET_CONTRACT);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+            } else if round == 3 {
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 3, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            } else if round == 4 {
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 0, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            }
+
+            return;
+        });
+
+    run_loop.callbacks.on_new_stacks_chain_state(
+        |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
+            let contract_identifier = QualifiedContractIdentifier::parse(&format!(
+                "{}.{}",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                "faucet"
+            ))
+            .unwrap();
+
+            match round {
+                1 => {
+                    assert_eq!(chain_tip.metadata.block_height, 2);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                2 => {
+                    assert_eq!(chain_tip.metadata.block_height, 3);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                3 => {
+                    assert_eq!(chain_tip.metadata.block_height, 4);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                4 => {
+                    assert_eq!(chain_tip.metadata.block_height, 5);
+                    assert_eq!(chain_tip.block.txs.len(), 5);
+
+                    // check that 1000 stx _was_ transfered to the contract principal
+                    let curr_tip = (
+                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.anchored_header.block_hash(),
+                    );
+                    assert_eq!(
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&curr_tip.0, &curr_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
+                                        .amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
+                        3000
+                    );
+                }
+                _ => {}
+            }
+        },
+    );
+
+    run_loop.start(num_rounds).unwrap();
+}
+
 /// Test mining a smart contract twice (in non-sequential blocks)
 ///   this can happen in the testnet leader if they get "behind"
 ///   the burnchain and a previously mined block doesn't get included
