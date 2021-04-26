@@ -1,25 +1,44 @@
-pub mod db;
-pub mod download;
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use self::db::AtlasDB;
-pub use self::download::AttachmentsDownloader;
-
-use chainstate::stacks::boot::boot_code_id;
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
-
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use net::StacksMessageCodec;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
-use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
-
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
+use regex::Regex;
+
+use crate::types::chainstate::StacksBlockId;
+use crate::util::boot::boot_code_id;
+use burnchains::Txid;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::ConsensusHash;
+use net::StacksMessageCodec;
+use util::hash::{to_hex, Hash160, MerkleHashFunc};
+use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+
+pub use self::db::AtlasDB;
+pub use self::download::AttachmentsDownloader;
+
+pub mod db;
+pub mod download;
+
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
+pub const MAX_RETRY_DELAY: u64 = 600; // seconds
 
 lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();

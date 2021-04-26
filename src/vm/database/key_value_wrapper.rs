@@ -14,16 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::{ClarityBackingStore, ClarityDeserializable, MarfedKV};
-use chainstate::{
-    burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof, stacks::StacksBlockId,
-};
 use std::collections::HashMap;
 use std::{clone::Clone, cmp::Eq, hash::Hash};
+
 use util::hash::Sha512Trunc256Sum;
+use vm::database::clarity_store::make_contract_hash_key;
 use vm::errors::InterpreterResult as Result;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::Value;
+
+use crate::types::chainstate::StacksBlockId;
+
+use super::{ClarityBackingStore, ClarityDeserializable};
+use crate::types::proof::TrieMerkleProof;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -385,7 +388,7 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         content_hash: Sha512Trunc256Sum,
     ) {
-        let key = MarfedKV::make_contract_hash_key(contract);
+        let key = make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
         self.put(&key, &value)
     }

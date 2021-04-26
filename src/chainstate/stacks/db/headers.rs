@@ -14,31 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::{types::ToSql, OptionalExtension, Row};
-
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
+use std::path::{Path, PathBuf};
+
+use rusqlite::{types::ToSql, OptionalExtension, Row};
 
 use chainstate::burn::ConsensusHash;
-
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-
-use std::path::{Path, PathBuf};
-use vm::costs::ExecutionCost;
-
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
 use util::db::Error as db_error;
 use util::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
     FromRow,
 };
+use vm::costs::ExecutionCost;
 
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
+use crate::types::chainstate::{
+    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
+};
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {

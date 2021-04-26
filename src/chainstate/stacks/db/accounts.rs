@@ -20,18 +20,18 @@ use rusqlite::types::ToSql;
 use rusqlite::Row;
 
 use burnchains::Address;
-
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-use vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use vm::database::marf::*;
+use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use util::db::Error as db_error;
+use util::db::*;
+use vm::database::clarity_store::*;
 use vm::database::*;
 use vm::types::*;
 
-use util::db::Error as db_error;
-use util::db::*;
+use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -742,7 +742,6 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use burnchains::*;
     use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
@@ -751,6 +750,10 @@ mod test {
     use chainstate::stacks::*;
     use util::hash::*;
     use vm::costs::ExecutionCost;
+
+    use crate::types::chainstate::BurnchainHeaderHash;
+
+    use super::*;
 
     fn make_dummy_miner_payment_schedule(
         addr: &StacksAddress,

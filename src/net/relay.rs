@@ -23,8 +23,21 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use core::mempool::MemPoolDB;
+use rand::prelude::*;
+use rand::thread_rng;
+use rand::Rng;
 
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use chainstate::burn::ConsensusHash;
+use chainstate::coordinator::comm::CoordinatorChannels;
+use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
+use chainstate::stacks::events::StacksTransactionReceipt;
+use core::mempool::MemPoolDB;
+use core::mempool::*;
 use net::chat::*;
 use net::connection::*;
 use net::db::*;
@@ -34,33 +47,13 @@ use net::poll::*;
 use net::rpc::*;
 use net::Error as net_error;
 use net::*;
-
-use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
-
-use core::mempool::*;
-
-use chainstate::burn::db::sortdb::{
-    PoxId, SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionId,
-};
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-
 use util::get_epoch_time_secs;
 use util::hash::Sha512Trunc256Sum;
-
-use rand::prelude::*;
-use rand::thread_rng;
-use rand::Rng;
-
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::types::chainstate::{PoxId, SortitionId};
+use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -1575,9 +1568,13 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
     use chainstate::stacks::*;
     use net::asn::*;
     use net::chat::*;
@@ -1588,19 +1585,14 @@ mod test {
     use net::inv::*;
     use net::test::*;
     use net::*;
-
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-
-    use vm::clarity::ClarityConnection;
+    use util::sleep_ms;
+    use util::test::*;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
-    use util::sleep_ms;
-    use util::test::*;
+    use super::*;
+    use clarity_vm::clarity::ClarityConnection;
+    use types::chainstate::BlockHeaderHash;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {

@@ -1740,24 +1740,25 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::vm::analysis::type_check;
-
-    use super::make_all_api_reference;
-    use super::make_json_api_reference;
-    use burnchains::BurnchainHeaderHash;
-    use chainstate::burn::db::sortdb::SortitionId;
-    use chainstate::burn::{BlockHeaderHash, VRFSeed};
-    use chainstate::stacks::{index::MarfTrieId, StacksAddress, StacksBlockId};
-
     use vm::{
         ast,
         contexts::OwnedEnvironment,
-        database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
+        database::{BurnStateDB, HeadersDB, STXBalance},
         eval_all, execute,
         types::PrincipalData,
         ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
         Value,
     };
+
+    use crate::clarity_vm::database::marf::MarfedKV;
+    use crate::types::chainstate::VRFSeed;
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use crate::types::proof::ClarityMarfTrieId;
+    use crate::vm::analysis::type_check;
+
+    use super::make_all_api_reference;
+    use super::make_json_api_reference;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
