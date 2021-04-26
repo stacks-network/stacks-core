@@ -14,8 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use address::AddressHashMode;
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use util::hash;
+use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use vm::callables::{CallableType, NativeHandle};
+use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
@@ -31,11 +35,7 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext};
 
-use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-
-use address::AddressHashMode;
-use chainstate::stacks::{StacksAddress, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use vm::costs::cost_functions::ClarityCostFunction;
+use crate::types::chainstate::StacksAddress;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {

@@ -1,25 +1,45 @@
-use super::download::{
-    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
-    BatchedRequestsResult, ReliabilityReport,
-};
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::convert::TryFrom;
+use std::thread;
+use std::time;
+
+use crate::types::chainstate::StacksBlockId;
+use crate::util::boot::boot_code_id;
 use burnchains::Txid;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use chainstate::stacks::boot::boot_code_id;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 use net::connection::ConnectionOptions;
 use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
-use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::thread;
-use std::time;
 use util::hash::Hash160;
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
+
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+
+use super::download::{
+    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
+    BatchedRequestsResult, ReliabilityReport,
+};
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {

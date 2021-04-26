@@ -14,48 +14,39 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::{Ord, Ordering};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
 
-use net::codec::{read_next, write_next};
-use net::Error as net_error;
-use net::StacksMessageCodec;
-
+use address::b58;
 use address::c32::c32_address;
+use address::c32::c32_address_decode;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
-
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::STACKS_ADDRESS_ENCODED_SIZE;
-
-use util::hash::Hash160;
-use util::hash::HASH160_ENCODED_SIZE;
-
-use burnchains::{Address, BurnchainSigner, PublicKey};
-
-use address::b58;
-use address::c32::c32_address_decode;
-
-use deps::bitcoin::blockdata::opcodes::All as BtcOp;
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-use deps::bitcoin::blockdata::transaction::TxOut;
-use std::cmp::{Ord, Ordering};
-
 use burnchains::bitcoin::address::{
     address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
     version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
 };
-
+use burnchains::{Address, BurnchainSigner, PublicKey};
+use chainstate::stacks::StacksPublicKey;
+use deps::bitcoin::blockdata::opcodes::All as BtcOp;
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use deps::bitcoin::blockdata::transaction::TxOut;
+use net::codec::{read_next, write_next};
+use net::Error as net_error;
+use net::StacksMessageCodec;
+use util::hash::Hash160;
+use util::hash::HASH160_ENCODED_SIZE;
 use vm::types::{PrincipalData, StandardPrincipalData};
 
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
+use crate::util::boot::boot_code_addr;
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-
-use chainstate::stacks::boot::boot_code_addr;
 
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -278,14 +269,14 @@ impl Address for StacksAddress {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use chainstate::stacks::*;
     use net::codec::test::check_codec_and_corruption;
     use net::codec::*;
     use net::*;
     use util::hash::*;
     use util::secp256k1::Secp256k1PublicKey as PubKey;
+
+    use super::*;
 
     #[test]
     fn tx_stacks_address_codec() {

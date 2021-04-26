@@ -21,6 +21,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
+const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
@@ -398,6 +399,7 @@ lazy_static! {
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
+        inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
@@ -570,6 +572,9 @@ impl Config {
                     satoshis_per_byte: burnchain
                         .satoshis_per_byte
                         .unwrap_or(default_burnchain_config.satoshis_per_byte),
+                    max_rbf: burnchain
+                        .max_rbf
+                        .unwrap_or(default_burnchain_config.max_rbf),
                     leader_key_tx_estimated_size: burnchain
                         .leader_key_tx_estimated_size
                         .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
@@ -983,6 +988,7 @@ pub struct BurnchainConfig {
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
     pub satoshis_per_byte: u64,
+    pub max_rbf: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
@@ -1009,6 +1015,7 @@ impl BurnchainConfig {
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
+            max_rbf: DEFAULT_MAX_RBF_RATE,
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
@@ -1064,6 +1071,7 @@ pub struct BurnchainConfigFile {
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
+    pub max_rbf: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

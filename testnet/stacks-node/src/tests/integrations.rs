@@ -1,16 +1,19 @@
 use std::collections::HashMap;
+use std::fmt::Write;
+use std::sync::Mutex;
+
+use reqwest;
 
 use stacks::burnchains::Address;
-use stacks::chainstate::burn::VRFSeed;
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, StacksAddress, StacksBlockHeader,
-    StacksPrivateKey, StacksTransaction,
+    db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
+use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
-use stacks::vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -20,17 +23,15 @@ use stacks::vm::{
     types::{QualifiedContractIdentifier, TupleData},
     Value,
 };
-use std::fmt::Write;
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
+use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
-
-use reqwest;
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
@@ -131,9 +132,6 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (define-public (fn-1 (x uint)) (ok u1))
        ";
 
-use crate::tests::make_sponsored_stacks_transfer_on_testnet;
-use std::sync::Mutex;
-
 lazy_static! {
     static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
 }
@@ -151,7 +149,7 @@ fn integration_test_get_info() {
 
     conf.burnchain.commit_anchor_block_within = 5000;
 
-    let num_rounds = 4;
+    let num_rounds = 5;
 
     let rpc_bind = conf.node.rpc_bind.clone();
     let mut run_loop = RunLoop::new(conf);
@@ -209,13 +207,14 @@ fn integration_test_get_info() {
                 // block-height > 3
                 let tx = make_contract_call(
                     &principal_sk,
-                    (round - 2).into(),
+                    (round - 3).into(),
                     0,
                     &to_addr(&contract_sk),
                     "get-info",
                     "update-info",
                     &[],
                 );
+                eprintln!("update-info submitted");
                 tenure
                     .mem_pool
                     .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
@@ -367,22 +366,22 @@ fn integration_test_get_info() {
                 let bhh = &chain_tip.metadata.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u1)"));
-                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u2)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u3)"));
+                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u4)"));
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u2)"));
-                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u3)"));
+                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u4)"));
 
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{}/v2/map_entry/{}/{}/{}",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -392,7 +391,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 assert!(res.get("proof").is_some());
 
                 assert_eq!(result_data, expected_data);
@@ -414,7 +413,7 @@ fn integration_test_get_info() {
                 let path = format!("{}/v2/map_entry/{}/{}/{}?proof=0",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -426,7 +425,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_none());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -435,7 +434,7 @@ fn integration_test_get_info() {
                 let path = format!("{}/v2/map_entry/{}/{}/{}?proof=1",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -447,7 +446,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_some());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -457,8 +456,8 @@ fn integration_test_get_info() {
                                    &http_origin, &sender_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100000);
-                assert_eq!(res.nonce, 3);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 99900);
+                assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
@@ -468,7 +467,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-                assert_eq!(res.nonce, 1);
+                assert_eq!(res.nonce, 2);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
@@ -477,7 +476,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -496,7 +495,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_none());
                 assert!(res.balance_proof.is_none());
@@ -505,7 +504,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -567,7 +566,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
-                    arguments: vec![Value::UInt(1).serialize()]
+                    arguments: vec![Value::UInt(3).serialize()]
                 };
 
                 let res = client.post(&path)
@@ -579,7 +578,7 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info u1)");
+                                                                       "(get-exotic-data-info u3)");
                 assert_eq!(result_data, expected_data);
 
                 // let's try a call with a url-encoded string.
@@ -589,7 +588,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
-                    arguments: vec![Value::UInt(1).serialize()]
+                    arguments: vec![Value::UInt(3).serialize()]
                 };
 
                 let res = client.post(&path)
@@ -602,7 +601,7 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info? u1)");
+                                                                       "(get-exotic-data-info? u3)");
                 assert_eq!(result_data, expected_data);
 
                 // let's have a runtime error!
@@ -710,14 +709,21 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
+                // No trait found
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-4");
+                eprintln!("Test: GET {}", path);
+                assert_eq!(client.get(&path).send().unwrap().status(), 404);
+
                 // implicit trait compliance
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-2");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
+
                 // invalid trait compliance
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-3");
+                let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
             },

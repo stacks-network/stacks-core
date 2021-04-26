@@ -14,49 +14,42 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
-};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs;
 use std::mem;
 
-use net::codec::{read_next, write_next};
-use net::Error as net_error;
-use net::StacksMessageCodec;
-use vm::clarity::ClarityConnection;
-
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-
-use net::StacksPublicKeyBuffer;
-
+use burnchains::PrivateKey;
+use burnchains::PublicKey;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
-
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-
-use burnchains::BurnchainHeaderHash;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-
-use util::vrf::*;
-
+use chainstate::stacks::db::{
+    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+};
+use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use core::*;
-
+use net::codec::{read_next, write_next};
+use net::Error as net_error;
+use net::StacksMessageCodec;
+use net::StacksPublicKeyBuffer;
 use util::get_epoch_time_ms;
-
+use util::hash::MerkleTree;
+use util::hash::Sha512Trunc256Sum;
+use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
+
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::proof::TrieHash;
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {
@@ -65,6 +58,10 @@ struct MicroblockMinerRuntime {
     considered: Option<HashSet<Txid>>,
     num_mined: u64,
     tip: StacksBlockId,
+
+    // fault injection, inherited from unconfirmed
+    disable_bytes_check: bool,
+    disable_cost_check: bool,
 }
 
 #[derive(PartialEq)]
@@ -87,6 +84,9 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             considered: Some(considered),
             num_mined: 0,
             tip: unconfirmed.confirmed_chain_tip.clone(),
+
+            disable_bytes_check: unconfirmed.disable_bytes_check,
+            disable_cost_check: unconfirmed.disable_cost_check,
         }
     }
 }
@@ -341,6 +341,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         return Ok(false);
     }
 
+    /// NOTE: this is only used in integration tests.
     pub fn mine_next_microblock_from_txs(
         &mut self,
         txs_and_lens: Vec<(StacksTransaction, u64)>,
@@ -384,6 +385,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     break;
                 }
             }
+        }
+
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
         }
 
         self.runtime.bytes_so_far = bytes_so_far;
@@ -465,6 +476,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
             },
         );
 
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
+        }
+
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
@@ -498,8 +519,9 @@ impl<'a> Drop for StacksMicroblockBuilder<'a> {
         debug!(
             "Drop StacksMicroblockBuilder";
             "chain tip" => %&self.runtime.tip,
-            "txs considered" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
-            "txs mined" => self.runtime.num_mined,
+            "txs mined off tip" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
+            "txs added" => self.runtime.num_mined,
+            "bytes so far" => self.runtime.bytes_so_far,
             "cost so far" => &format!("{:?}", &self.get_cost_so_far())
         );
         self.clarity_tx
@@ -1363,8 +1385,8 @@ impl StacksBlockBuilder {
         );
 
         debug!(
-            "Build anchored block off of {}/{} height {}",
-            &tip_consensus_hash, &tip_block_hash, tip_height
+            "Build anchored block off of {}/{} height {} budget {:?}",
+            &tip_consensus_hash, &tip_block_hash, tip_height, execution_budget
         );
 
         let (mut header_reader_chainstate, _) = chainstate_handle.reopen()?; // used for reading block headers during an epoch
@@ -1515,15 +1537,21 @@ impl StacksBlockBuilder {
 
 #[cfg(test)]
 pub mod test {
-    use crate::chainstate::stacks::boot::boot_code_addr;
-
-    use super::*;
-    use core::BLOCK_LIMIT_MAINNET;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+    use std::collections::VecDeque;
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
 
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+    use rand::Rng;
+
     use address::*;
+    use burnchains::test::*;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
@@ -1531,27 +1559,18 @@ pub mod test {
     use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-    use std::collections::VecDeque;
-
-    use burnchains::test::*;
-    use burnchains::*;
-
+    use core::BLOCK_LIMIT_MAINNET;
+    use net::test::*;
+    use util::sleep_ms;
     use util::vrf::VRFProof;
-
     use vm::types::*;
 
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
-    use rand::Rng;
+    use crate::types::chainstate::SortitionId;
+    use crate::util::boot::boot_code_addr;
 
-    use net::test::*;
-
-    use util::sleep_ms;
-
-    use std::cell::RefCell;
+    use super::*;
 
     pub const COINBASE: u128 = 500 * 1_000_000;
 

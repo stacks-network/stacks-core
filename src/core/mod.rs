@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use burnchains::Burnchain;
 // This module contains the "main loop" that drives everything
 use burnchains::Error as burnchain_error;
-use burnchains::{Burnchain, BurnchainHeaderHash};
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
 use vm::costs::ExecutionCost;
 
-pub mod mempool;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 pub use self::mempool::MemPoolDB;
+
+pub mod mempool;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
@@ -118,6 +120,20 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     read_count: 7_750,
     runtime: 5_000_000_000,
 };
+
+pub const FAULT_DISABLE_MICROBLOCKS_COST_CHECK: &str = "MICROBLOCKS_DISABLE_COST_CHECK";
+pub const FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK: &str = "MICROBLOCKS_DISABLE_BYTES_CHECK";
+
+pub fn check_fault_injection(fault_name: &str) -> bool {
+    use std::env;
+
+    // only activates if we're testing
+    if env::var("BITCOIND_TEST") != Ok("1".to_string()) {
+        return false;
+    }
+
+    env::var(fault_name) == Ok("1".to_string())
+}
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

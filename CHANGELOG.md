@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [2.0.11.0.0]
 
 The chainstate directory has been restructured in this release. It is not
 compatible with prior chainstate directories.
@@ -19,9 +19,12 @@ compatible with prior chainstate directories.
 - Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
 - New prometheus metrics for mempool transaction processing times and
   outstanding mempool transactions
-- New RPC endpoint with path `v2/traits/contractAddr/contractName/traitContractName
+- New RPC endpoint with path `/v2/traits/contractAddr/contractName/traitContractName
   /traitContractAddr/traitName` to determine whether a given trait is implemented 
   within the specified contract (either explicitly or implicitly).
+- Re-activate the Atlas network for propagating and storing transaction
+  attachments. This re-enables off-chain BNS name storage.
+- Re-activate microblock mining.
 
 ## Changed
 

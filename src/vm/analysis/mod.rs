@@ -39,8 +39,8 @@ use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
-    use vm::database::MemoryBackingStore;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut marf = MemoryBackingStore::new();

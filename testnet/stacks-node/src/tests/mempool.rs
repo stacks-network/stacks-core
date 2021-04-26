@@ -1,5 +1,19 @@
-use stacks::chainstate::burn::BlockHeaderHash;
+use std::convert::From;
+use std::convert::TryFrom;
+use std::sync::Mutex;
+
+use stacks::chainstate::stacks::{
+    db::blocks::MemPoolRejection, Error as ChainstateError, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAuth,
+    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+};
+use stacks::core::mempool::MemPoolDB;
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::{Error as NetError, StacksMessageCodec};
+use stacks::types::chainstate::{
+    BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
+};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
@@ -7,22 +21,8 @@ use stacks::vm::{
 };
 use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 
-use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, Error as ChainstateError, StacksAddress, StacksBlockHeader,
-    StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
-    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-};
-
-use stacks::core::mempool::MemPoolDB;
-use std::convert::From;
-use std::convert::TryFrom;
-use std::sync::Mutex;
-
 use crate::helium::RunLoop;
 use crate::Keychain;
-
-use stacks::core::CHAIN_ID_TESTNET;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
