@@ -52,8 +52,8 @@ use util::hash::Sha512Trunc256Sum;
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::types::chainstate::{PoxId, SortitionId};
+use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
