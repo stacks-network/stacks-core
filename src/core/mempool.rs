@@ -41,7 +41,6 @@ use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
 use net::StacksMessageCodec;
-use util::db::query_row;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
