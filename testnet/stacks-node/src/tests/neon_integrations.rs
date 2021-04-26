@@ -26,6 +26,7 @@ use stacks::net::{
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+    StacksMicroblockHeader,
 };
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
@@ -45,8 +46,7 @@ use stacks::{
 };
 use stacks::{
     chainstate::stacks::{
-        db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
-        StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+        db::StacksChainState, StacksBlock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
         TransactionPayload,
     },
     net::RPCPoxInfoData,
@@ -72,7 +72,6 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -2287,7 +2286,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     }
 
     let mut ctr = 0;
-    for i in 0..6 {
+    for _i in 0..6 {
         submit_tx(&http_origin, &flat_txs[ctr]);
         if !wait_for_microblocks(&microblocks_processed, 240) {
             break;
