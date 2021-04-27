@@ -503,7 +503,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-                assert_eq!(res.nonce, 3);
+                assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
