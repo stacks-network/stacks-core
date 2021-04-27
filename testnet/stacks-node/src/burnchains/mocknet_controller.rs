@@ -11,7 +11,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
@@ -97,7 +97,7 @@ impl BurnchainController for MocknetController {
             &vec![StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
-                end_height: i64::MAX as u64,
+                end_height: STACKS_EPOCH_MAX
             }],
             true,
         ) {
