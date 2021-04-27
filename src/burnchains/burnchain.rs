@@ -59,6 +59,7 @@ use chainstate::burn::operations::{
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::StacksPublicKey;
+use core::StacksEpoch;
 use core::MINING_COMMITMENT_WINDOW;
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
@@ -647,6 +648,7 @@ impl Burnchain {
             self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
+            &StacksEpoch::new(self.first_block_height, STACKS_2_0_LAST_BLOCK_TO_PROCESS),
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
