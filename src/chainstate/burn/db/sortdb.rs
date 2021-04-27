@@ -2133,7 +2133,13 @@ impl SortitionDB {
 
         let mut epoch_end_height = 0;
         for epoch in epochs.iter() {
-            assert!(epoch.start_height < epoch.end_height);
+            assert!(
+                epoch.start_height <= epoch.end_height,
+                "{} >= {} for {:?}",
+                epoch.start_height,
+                epoch.end_height,
+                &epoch.epoch_id
+            );
 
             if epoch_end_height == 0 {
                 // first ever epoch must be defined for all of the prior chain history
