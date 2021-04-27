@@ -543,9 +543,11 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(contract_identifier.issuer.clone().into(), sponsor.clone(), |exec_env| {
-            exec_env.initialize_contract(contract_identifier, contract_content)
-        })
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor.clone(),
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
+        )
     }
 
     pub fn initialize_contract_from_ast(
@@ -555,13 +557,17 @@ impl<'a> OwnedEnvironment<'a> {
         contract_string: &str,
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(contract_identifier.issuer.clone().into(), sponsor.clone(), |exec_env| {
-            exec_env.initialize_contract_from_ast(
-                contract_identifier,
-                contract_content,
-                contract_string,
-            )
-        })
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor.clone(),
+            |exec_env| {
+                exec_env.initialize_contract_from_ast(
+                    contract_identifier,
+                    contract_content,
+                    contract_string,
+                )
+            },
+        )
     }
 
     pub fn execute_transaction(
