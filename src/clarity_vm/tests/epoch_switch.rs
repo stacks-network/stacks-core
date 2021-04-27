@@ -34,7 +34,7 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
-use core::{StacksEpoch, StacksEpochId};
+use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 
 use rand::thread_rng;
 use rand::RngCore;
@@ -90,7 +90,7 @@ fn test_vm_epoch_switch() {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: 12,
-                end_height: i64::MAX as u64,
+                end_height: STACKS_EPOCH_MAX,
             },
         ],
         true,

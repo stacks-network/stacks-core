@@ -58,7 +58,7 @@ use chainstate::stacks::*;
 use chainstate::ChainstateDB;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-use core::{StacksEpoch, StacksEpochId};
+use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use net::{Error as NetError, Error};
 use util::db::tx_begin_immediate;
@@ -2126,7 +2126,7 @@ impl SortitionDB {
     /// any invalid StacksEpoch structuring should result in a runtime panic.
     fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
         // sanity check -- epochs must all be contiguous, each epoch must be unique,
-        // and the range of epochs should span the whole u64 space.
+        // and the range of epochs should span the whole non-negative i64 space.
         let mut epochs = epochs_ref.to_vec();
         let mut seen_epochs = HashSet::new();
         epochs.sort();
@@ -2135,7 +2135,7 @@ impl SortitionDB {
         for epoch in epochs.iter() {
             assert!(
                 epoch.start_height <= epoch.end_height,
-                "{} >= {} for {:?}",
+                "{} > {} for {:?}",
                 epoch.start_height,
                 epoch.end_height,
                 &epoch.epoch_id
@@ -2156,7 +2156,7 @@ impl SortitionDB {
             seen_epochs.insert(epoch.epoch_id);
         }
 
-        assert_eq!(epoch_end_height, i64::MAX as u64);
+        assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
         epochs
     }
 
@@ -6777,7 +6777,7 @@ pub mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 12,
-                    end_height: i64::MAX as u64,
+                    end_height: STACKS_EPOCH_MAX,
                 },
             ],
             true,
@@ -6831,7 +6831,7 @@ pub mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 12,
-                    end_height: i64::MAX as u64,
+                    end_height: STACKS_EPOCH_MAX,
                 },
             ],
             true,
@@ -6866,7 +6866,7 @@ pub mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 12,
-                    end_height: i64::MAX as u64,
+                    end_height: STACKS_EPOCH_MAX,
                 },
             ],
             true,
@@ -6901,7 +6901,7 @@ pub mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 12,
-                    end_height: i64::MAX as u64,
+                    end_height: STACKS_EPOCH_MAX,
                 },
             ],
             true,
@@ -6971,7 +6971,7 @@ pub mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 8,
-                    end_height: i64::MAX as u64,
+                    end_height: STACKS_EPOCH_MAX,
                 },
             ],
             true,

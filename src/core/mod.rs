@@ -72,6 +72,8 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
 
+pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
+
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
@@ -191,7 +193,7 @@ impl StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
-                end_height: i64::MAX as u64,
+                end_height: STACKS_EPOCH_MAX
             },
         ]
     }
@@ -211,7 +213,7 @@ impl StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: epoch_2_1_block_height,
-                end_height: i64::MAX as u64,
+                end_height: STACKS_EPOCH_MAX
             },
         ]
     }
@@ -239,12 +241,12 @@ pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch21,
-        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-        end_height: i64::MAX as u64,
+        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+        end_height: STACKS_EPOCH_MAX
     },
 ];
 
@@ -257,8 +259,26 @@ pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        end_height: i64::MAX as u64,
+        end_height: STACKS_EPOCH_MAX
     }, // TODO: add Epoch21 when its start height is decided
+];
+
+pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch10,
+        start_height: 0,
+        end_height: 0,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: 0,
+        end_height: 1000,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch21,
+        start_height: 1000,
+        end_height: STACKS_EPOCH_MAX,
+    },
 ];
 
 /// Synchronize burn transactions from the Bitcoin blockchain
