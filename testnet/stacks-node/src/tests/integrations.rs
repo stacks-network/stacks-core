@@ -20,7 +20,7 @@ use stacks::vm::{
         mem_type_check,
     },
     database::ClaritySerializable,
-    types::{QualifiedContractIdentifier, TupleData},
+    types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
 
@@ -32,6 +32,21 @@ use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
+
+const OTHER_CONTRACT: &'static str = "
+  (define-data-var x uint u0)
+  (define-public (f1)
+    (ok (var-get x)))
+  (define-public (f2 (val uint))
+    (ok (var-set x val)))
+";
+
+const CALL_READ_CONTRACT: &'static str = "
+  (define-public (public-no-write)
+    (ok (contract-call? .other f1)))
+  (define-public (public-write)
+    (ok (contract-call? .other f2 u5)))
+";
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
@@ -105,14 +120,14 @@ const GET_INFO_CONTRACT: &'static str = "
           (begin
             (unwrap-panic (inner-update-info (- block-height u2)))
             (inner-update-info (- block-height u1))))
-        
+
         (define-trait trait-1 (
             (foo-exec (int) (response int int))))
 
         (define-trait trait-2 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))))
-        
+
         (define-trait trait-3 (
             (fn-1 (uint) (response uint uint))
             (fn-2 (uint) (response uint uint))))
@@ -123,7 +138,7 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (impl-trait .get-info.trait-1)
         (define-private (test-height) burn-block-height)
         (define-public (foo-exec (a int)) (ok 1))
-    
+
         ;; implicit trait compliance for trait-2
         (define-public (get-1 (x uint)) (ok u1))
         (define-public (get-2 (x uint)) (ok u1))
@@ -172,9 +187,30 @@ fn integration_test_get_info() {
 
             if round == 1 {
                 // block-height = 2
+                eprintln!("Tenure in 1 started!");
                 let publish_tx =
                     make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
-                eprintln!("Tenure in 1 started!");
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+                let publish_tx = make_contract_publish(&contract_sk, 1, 0, "other", OTHER_CONTRACT);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+                let publish_tx =
+                    make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -188,7 +224,7 @@ fn integration_test_get_info() {
                 // block-height = 3
                 let publish_tx = make_contract_publish(
                     &contract_sk,
-                    1,
+                    3,
                     0,
                     "impl-trait-contract",
                     IMPL_TRAIT_CONTRACT,
@@ -255,8 +291,8 @@ fn integration_test_get_info() {
                 let blocks = StacksChainState::list_blocks(&chain_state.db()).unwrap();
                 assert!(chain_tip.metadata.block_height == 2);
 
-                // Block #1 should have 3 txs
-                assert!(chain_tip.block.txs.len() == 3);
+                // Block #1 should have 5 txs
+                assert!(chain_tip.block.txs.len() == 5);
 
                 let parent = chain_tip.block.header.parent_block;
                 let bhh = &chain_tip.metadata.index_block_hash();
@@ -467,7 +503,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-                assert_eq!(res.nonce, 2);
+                assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
@@ -581,6 +617,49 @@ fn integration_test_get_info() {
                                                                        "(get-exotic-data-info u3)");
                 assert_eq!(result_data, expected_data);
 
+                // how about a non read-only function call which does not modify anything
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-no-write");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                let expected_data = Value::Response(ResponseData {
+                    committed: true,
+                    data: Box::new(Value::Response(ResponseData {
+                        committed: true,
+                        data: Box::new(Value::UInt(0))
+                    }))
+                });
+                assert_eq!(result_data, expected_data);
+
+                // how about a non read-only function call which does modify something and should fail
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-write");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_some());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
+
                 // let's try a call with a url-encoded string.
                 let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
                                    "get-exotic-data-info%3F");
@@ -636,7 +715,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
 
-                eprintln!("{}", res["cause"].as_str().unwrap());
+                eprintln!("{:#?}", res["cause"].as_str().unwrap());
                 assert!(res.get("result").is_none());
                 assert!(!res["okay"].as_bool().unwrap());
                 assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
