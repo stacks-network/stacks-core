@@ -18,6 +18,8 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
+use core::StacksEpoch;
+
 pub mod marf;
 
 impl HeadersDB for DBConn {
@@ -97,6 +99,11 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             _ => return None,
         }
     }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.tx(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -117,6 +124,11 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
         }
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
     }
 }
 
