@@ -65,6 +65,7 @@ use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
+use core::STACKS_EPOCHS_MAINNET;
 use deps;
 use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
@@ -639,6 +640,7 @@ impl Burnchain {
 
         let first_block_header_hash = indexer.get_first_block_header_hash()?;
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
+        let epochs = indexer.get_stacks_epochs();
 
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -648,7 +650,7 @@ impl Burnchain {
             self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
-            &StacksEpoch::all(self.first_block_height, STACKS_2_0_LAST_BLOCK_TO_PROCESS),
+            &epochs,
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
