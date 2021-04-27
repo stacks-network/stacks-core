@@ -35,6 +35,7 @@ use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
 use super::node::ChainTip;
+use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -42,10 +43,20 @@ struct EventObserver {
     should_keep_running: Arc<AtomicBool>,
 }
 
+struct ReceiptPayloadInfo<'a> {
+    txid: String,
+    success: &'a str,
+    raw_result: String,
+    raw_tx: String,
+    contract_interface_json: serde_json::Value,
+}
+
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
+/// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
+pub const PATH_MICROBLOCK_SUBMIT: &str = "new_microblocks";
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
@@ -162,10 +173,8 @@ impl EventObserver {
         })
     }
 
-    fn make_new_block_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> serde_json::Value {
+    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
+    fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
         let tx = &receipt.transaction;
 
         let success = match (receipt.post_condition_aborted, &receipt.result) {
@@ -199,14 +208,50 @@ impl EventObserver {
                 None => json!(null),
             }
         };
+        ReceiptPayloadInfo {
+            txid,
+            success,
+            raw_result,
+            raw_tx,
+            contract_interface_json,
+        }
+    }
+
+    /// Returns json payload to send for new block event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> serde_json::Value {
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
+
         json!({
-            "txid": format!("0x{}", &txid),
+            "txid": format!("0x{}", &receipt_payload_info.txid),
             "tx_index": tx_index,
-            "status": success,
-            "raw_result": format!("0x{}", &raw_result),
-            "raw_tx": format!("0x{}", &raw_tx),
-            "contract_abi": contract_interface_json,
+            "status": receipt_payload_info.success,
+            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
+            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
+            "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
+        })
+    }
+
+    /// Returns json payload to send for new microblock event
+    fn make_new_microblock_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+        sequence: u16,
+    ) -> serde_json::Value {
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
+
+        json!({
+            "txid": format!("0x{}", &receipt_payload_info.txid),
+            "tx_index": tx_index,
+            "status": receipt_payload_info.success,
+            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
+            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
+            "contract_abi": receipt_payload_info.contract_interface_json,
+            "execution_cost": receipt.execution_cost,
+            "sequence": sequence,
         })
     }
 
@@ -231,6 +276,30 @@ impl EventObserver {
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+    }
+
+    /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
+    fn send_new_microblocks(
+        &self,
+        parent_index_block_hash: StacksBlockId,
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
+        serialized_txs: &Vec<serde_json::Value>,
+    ) {
+        // Serialize events to JSON
+        let serialized_events: Vec<serde_json::Value> = filtered_events
+            .iter()
+            .map(|(event_index, (committed, txid, event))| {
+                event.json_serialize(*event_index, txid, *committed)
+            })
+            .collect();
+
+        let payload = json!({
+            "parent_index_block_hash": format!("0x{}", parent_index_block_hash),
+            "events": serialized_events,
+            "transactions": serialized_txs,
+        });
+
+        self.send_payload(&payload, PATH_MICROBLOCK_SUBMIT);
     }
 
     fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
@@ -296,6 +365,7 @@ pub struct EventDispatcher {
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
     burn_block_observers_lookup: HashSet<u16>,
     mempool_observers_lookup: HashSet<u16>,
+    microblock_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
     boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
@@ -366,6 +436,7 @@ impl EventDispatcher {
             any_event_observers_lookup: HashSet::new(),
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
+            microblock_observers_lookup: HashSet::new(),
             boot_receipts: Arc::new(Mutex::new(None)),
         }
     }
@@ -405,13 +476,19 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_chain_tip(
+    /// Iterates through tx receipts, and then the events corresponding to each receipt to
+    /// generate a dispatch matrix & event vector.
+    ///
+    /// # Returns
+    /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
+    ///     that each respective event observer is subscribed to
+    /// - events: a vector of all events from all the tx receipts
+    fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
-        chain_tip: &ChainTip,
-        parent_index_hash: &StacksBlockId,
-        winner_txid: Txid,
-        mature_rewards: Vec<MinerReward>,
-        mature_rewards_info: Option<MinerRewardInfo>,
+        receipts: &'a Vec<StacksTransactionReceipt>,
+    ) -> (
+        Vec<HashSet<usize>>,
+        Vec<(bool, Txid, &'a StacksTransactionEvent)>,
     ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
@@ -421,21 +498,7 @@ impl EventDispatcher {
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
-        let boot_receipts = if chain_tip.metadata.block_height == 1 {
-            let mut boot_receipts_result = self
-                .boot_receipts
-                .lock()
-                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
-            if let Some(val) = boot_receipts_result.take() {
-                val
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-
-        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
+        for receipt in receipts {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
@@ -509,6 +572,39 @@ impl EventDispatcher {
             }
         }
 
+        (dispatch_matrix, events)
+    }
+
+    pub fn process_chain_tip(
+        &self,
+        chain_tip: &ChainTip,
+        parent_index_hash: &StacksBlockId,
+        winner_txid: Txid,
+        mature_rewards: Vec<MinerReward>,
+        mature_rewards_info: Option<MinerRewardInfo>,
+    ) {
+        let boot_receipts = if chain_tip.metadata.block_height == 1 {
+            let mut boot_receipts_result = self
+                .boot_receipts
+                .lock()
+                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
+            if let Some(val) = boot_receipts_result.take() {
+                val
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+        let receipts = chain_tip
+            .receipts
+            .iter()
+            .cloned()
+            .chain(boot_receipts.iter().cloned())
+            .collect();
+
+        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&receipts);
+
         if dispatch_matrix.len() > 0 {
             let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
                 mature_rewards
@@ -547,6 +643,67 @@ impl EventDispatcher {
                     &mature_rewards,
                 );
             }
+        }
+    }
+
+    /// Creates a list of observers that are interested in the new microblocks event,
+    /// creates a mapping from observers to the event ids that are relevant to each, and then
+    /// sends the event to each interested observer.
+    pub fn process_new_microblocks(
+        &self,
+        parent_index_block_hash: StacksBlockId,
+        processed_unconfirmed_state: ProcessedUnconfirmedState,
+    ) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.microblock_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+        let flattened_receipts = processed_unconfirmed_state
+            .receipts
+            .iter()
+            .flat_map(|(_, r)| r.clone())
+            .collect();
+        let (dispatch_matrix, events) =
+            self.create_dispatch_matrix_and_event_vector(&flattened_receipts);
+
+        // Serialize receipts
+        let mut tx_index;
+        let mut serialized_txs = Vec::new();
+
+        for (curr_sequence_number, receipts) in processed_unconfirmed_state.receipts.iter() {
+            tx_index = 0;
+            for receipt in receipts.iter() {
+                let payload = EventObserver::make_new_microblock_txs_payload(
+                    receipt,
+                    tx_index,
+                    *curr_sequence_number,
+                );
+                serialized_txs.push(payload);
+                tx_index += 1;
+            }
+        }
+
+        for (obs_id, observer) in interested_observers.iter() {
+            let filtered_events_ids = &dispatch_matrix[*obs_id];
+            let filtered_events: Vec<_> = filtered_events_ids
+                .iter()
+                .map(|event_id| (*event_id, &events[*event_id]))
+                .collect();
+
+            observer.send_new_microblocks(
+                parent_index_block_hash,
+                filtered_events,
+                &serialized_txs,
+            );
         }
     }
 
@@ -641,7 +798,6 @@ impl EventDispatcher {
         conf: &EventObserverConfig,
         should_keep_running: Arc<AtomicBool>,
     ) {
-        // let event_observer = EventObserver::new(&conf.address, conf.port);
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
@@ -672,6 +828,9 @@ impl EventDispatcher {
                 }
                 EventKeyType::MemPoolTransactions => {
                     self.mempool_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::Microblocks => {
+                    self.microblock_observers_lookup.insert(observer_index);
                 }
                 EventKeyType::STXEvent => {
                     self.stx_observers_lookup.insert(observer_index);

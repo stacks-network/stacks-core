@@ -1467,7 +1467,7 @@ impl PeerNetwork {
         };
 
         debug!(
-            "{:?}: Send GetPoxInv to {:?} for {} rewad cycles starting at {} ({})",
+            "{:?}: Send GetPoxInv to {:?} for {} reward cycles starting at {} ({})",
             &self.local_peer,
             nk,
             num_reward_cycles,
@@ -1999,7 +1999,7 @@ impl PeerNetwork {
             true,
         );
 
-        debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks, {} sortitions): {:?}", 
+        debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks, {} sortitions): {:?}",
                &self.local_peer, &nk, new_blocks, new_microblocks, stats.inv.num_blocks(), stats.inv.num_microblock_streams(), stats.inv.num_sortitions, &stats.inv);
 
         if new_blocks > 0 || new_microblocks > 0 {
