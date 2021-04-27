@@ -89,11 +89,13 @@ use util::hash::{hex_bytes, to_hex};
 use vm::database::clarity_store::make_contract_hash_key;
 use vm::types::TraitIdentifier;
 use vm::{
+    analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
+    errors::Error::Unchecked,
     errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
@@ -1200,22 +1202,28 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let mut cost_limit = options.read_only_call_limit.clone();
+        cost_limit.write_length = 0;
+        cost_limit.write_count = 0;
+
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(
-                            mainnet,
-                            options.read_only_call_limit.clone(),
-                            clarity_db,
-                        )
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
                 clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                    // we want to execute any function as long as no actual writes are made as
+                    // opposed to be limited to purely calling `define-read-only` functions,
+                    // so use `read_only = false`.  This broadens the number of functions that
+                    // can be called, and also circumvents limitations on `define-read-only`
+                    // functions that can not use `contrac-call?`, even when calling other
+                    // read-only functions
+                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
                 })
             });
 
@@ -1228,14 +1236,28 @@ impl ConversationHttp {
                     cause: None,
                 },
             ),
-            Ok(Some(Err(e))) => HttpResponseType::CallReadOnlyFunction(
-                response_metadata,
-                CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
-                },
-            ),
+            Ok(Some(Err(e))) => match e {
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    HttpResponseType::CallReadOnlyFunction(
+                        response_metadata,
+                        CallReadOnlyResponse {
+                            okay: false,
+                            result: None,
+                            cause: Some("NotReadOnly".to_string()),
+                        },
+                    )
+                }
+                _ => HttpResponseType::CallReadOnlyFunction(
+                    response_metadata,
+                    CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some(e.to_string()),
+                    },
+                ),
+            },
             Ok(None) | Err(_) => {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
             }
@@ -2867,7 +2889,7 @@ mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
-          (begin 
+          (begin
             (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin
