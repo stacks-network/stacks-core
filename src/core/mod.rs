@@ -196,7 +196,7 @@ impl StacksEpoch {
         ]
     }
 
-    pub fn new(first_burnchain_height: u64, epoch_2_1_block_height: u64) -> Vec<StacksEpoch> {
+    pub fn all(first_burnchain_height: u64, epoch_2_1_block_height: u64) -> Vec<StacksEpoch> {
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
