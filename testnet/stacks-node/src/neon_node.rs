@@ -826,6 +826,16 @@ fn spawn_miner_relayer(
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
 
+                    let num_unconfirmed_microblock_tx_receipts = net_receipts.processed_unconfirmed_state.receipts.len();
+                    if num_unconfirmed_microblock_tx_receipts > 0 {
+                        if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
+                            let canonical_tip = unconfirmed_state.confirmed_chain_tip.clone();
+                            event_dispatcher.process_new_microblocks(canonical_tip, net_receipts.processed_unconfirmed_state);
+                        } else {
+                            warn!("Relayer: oops, unconfirmed state is uninitialized but there are microblock events");
+                        }
+                    }
+
                     // Dispatch retrieved attachments, if any.
                     if net_result.has_attachments() {
                         event_dispatcher.process_new_attachments(&net_result.attachments);
@@ -1066,6 +1076,7 @@ enum LeaderKeyRegistrationState {
     Active(RegisteredKey),
 }
 
+/// This node is used for both neon testnet and for mainnet
 impl InitializedNeonNode {
     fn new(
         config: Config,
