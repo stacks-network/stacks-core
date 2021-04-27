@@ -1837,7 +1837,7 @@ mod test {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
-                end_height: STACKS_EPOCH_MAX
+                end_height: STACKS_EPOCH_MAX,
             })
         }
     }

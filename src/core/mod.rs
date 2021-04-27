@@ -193,7 +193,7 @@ impl StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX
+                end_height: STACKS_EPOCH_MAX,
             },
         ]
     }
@@ -213,7 +213,7 @@ impl StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: epoch_2_1_block_height,
-                end_height: STACKS_EPOCH_MAX
+                end_height: STACKS_EPOCH_MAX,
             },
         ]
     }
@@ -246,7 +246,7 @@ pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch21,
         start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        end_height: STACKS_EPOCH_MAX
+        end_height: STACKS_EPOCH_MAX,
     },
 ];
 
@@ -259,7 +259,7 @@ pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_EPOCH_MAX
+        end_height: STACKS_EPOCH_MAX,
     }, // TODO: add Epoch21 when its start height is decided
 ];
 

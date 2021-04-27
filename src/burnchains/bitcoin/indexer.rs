@@ -49,7 +49,7 @@ use deps::bitcoin::network::serialize::BitcoinHash;
 
 use util::log;
 
-use core::{STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_TESTNET, STACKS_EPOCHS_REGTEST, StacksEpoch};
+use core::{StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET};
 
 pub const USER_AGENT: &'static str = "Stacks/2.0";
 
@@ -80,7 +80,7 @@ pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEp
     match network_id {
         BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
         BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
-        BitcoinNetworkType::Regtest => STACKS_EPOCHS_REGTEST.to_vec()
+        BitcoinNetworkType::Regtest => STACKS_EPOCHS_REGTEST.to_vec(),
     }
 }
 
