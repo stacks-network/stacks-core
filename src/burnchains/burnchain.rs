@@ -648,7 +648,7 @@ impl Burnchain {
             self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
-            &StacksEpoch::new(self.first_block_height, STACKS_2_0_LAST_BLOCK_TO_PROCESS),
+            &StacksEpoch::all(self.first_block_height, STACKS_2_0_LAST_BLOCK_TO_PROCESS),
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
