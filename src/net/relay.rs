@@ -23,8 +23,21 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use core::mempool::MemPoolDB;
+use rand::prelude::*;
+use rand::thread_rng;
+use rand::Rng;
 
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::chainstate::StacksBlockId;
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use chainstate::burn::ConsensusHash;
+use chainstate::coordinator::comm::CoordinatorChannels;
+use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
+use chainstate::stacks::events::StacksTransactionReceipt;
+use core::mempool::MemPoolDB;
+use core::mempool::*;
 use net::chat::*;
 use net::connection::*;
 use net::db::*;
@@ -34,33 +47,14 @@ use net::poll::*;
 use net::rpc::*;
 use net::Error as net_error;
 use net::*;
-
-use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksBlockId;
-
-use core::mempool::*;
-
-use chainstate::burn::db::sortdb::{
-    PoxId, SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionId,
-};
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-
 use util::get_epoch_time_secs;
 use util::hash::Sha512Trunc256Sum;
-
-use rand::prelude::*;
-use rand::thread_rng;
-use rand::Rng;
-
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::types::chainstate::{PoxId, SortitionId};
+use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -92,6 +86,7 @@ pub struct RelayerStats {
 
 pub struct ProcessedNetReceipts {
     pub mempool_txs_added: Vec<StacksTransaction>,
+    pub processed_unconfirmed_state: ProcessedUnconfirmedState,
 }
 
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
@@ -757,7 +752,7 @@ impl Relayer {
         Ok((new_blocks, bad_neighbors))
     }
 
-    /// Prerocess all downloaded, confirmed microblock streams.
+    /// Preprocess all downloaded, confirmed microblock streams.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
     fn preprocess_downloaded_microblocks(
@@ -930,39 +925,15 @@ impl Relayer {
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
-        let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-        let mut store_downloaded_blocks = true;
-
         {
             let sort_ic = sortdb.index_conn();
-            let cur_pox_id = {
-                let sortdb_reader = SortitionHandleConn::open_reader(&sort_ic, &tip_sort_id)?;
-                sortdb_reader.get_pox_id()?
-            };
 
-            if let Some(ref old_pox_id) = network_result.download_pox_id {
-                // optimistic concurrency control -- don't store downloaded blocks and microblocks if they correspond to a
-                // now-invalidated reward cycle.
-                let num_reward_cycles = cmp::min(old_pox_id.len(), cur_pox_id.len());
-                for i in 0..num_reward_cycles {
-                    if old_pox_id.has_ith_anchor_block(i) != cur_pox_id.has_ith_anchor_block(i) {
-                        // TODO: we can be more fine-grained here, but for now, just discard the
-                        // blocks pessimistically.  The downloader will eventually re-download them
-                        // if they could have been stored in the first place.
-                        debug!("PoX bit for reward cycle {} has changed since blocks were downloaded; discarding...", i);
-                        store_downloaded_blocks = false;
-                    }
-                }
-            }
-
-            if store_downloaded_blocks {
-                // process blocks we downloaded
-                let new_dled_blocks =
-                    Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
-                for new_dled_block in new_dled_blocks.into_iter() {
-                    debug!("Received downloaded block for {}", &new_dled_block);
-                    new_blocks.insert(new_dled_block);
-                }
+            // process blocks we downloaded
+            let new_dled_blocks =
+                Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
+            for new_dled_block in new_dled_blocks.into_iter() {
+                debug!("Received downloaded block for {}", &new_dled_block);
+                new_blocks.insert(new_dled_block);
             }
 
             // process blocks pushed to us
@@ -983,23 +954,25 @@ impl Relayer {
             }
         }
 
-        if store_downloaded_blocks {
-            let mut new_dled_mblocks =
-                Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
-            for new_dled_mblock in new_dled_mblocks.drain() {
-                new_confirmed_microblocks.insert(new_dled_mblock);
-            }
+        // process microblocks we downloaded
+        let mut new_dled_mblocks =
+            Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
+        for new_dled_mblock in new_dled_mblocks.drain() {
+            new_confirmed_microblocks.insert(new_dled_mblock);
         }
 
+        // process microblocks pushed to us
         let (new_microblocks, mut new_bad_neighbors) =
             Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 {
+        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_confirmed_microblocks.len() > 0
+        {
             info!(
-                "Processing newly received Stacks blocks: {}, microblocks: {}",
+                "Processing newly received Stacks blocks: {}, microblocks: {}, confirmed microblocks: {}",
                 new_blocks.len(),
-                new_microblocks.len()
+                new_microblocks.len(),
+                new_confirmed_microblocks.len()
             );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
@@ -1082,7 +1055,7 @@ impl Relayer {
 
         // garbage-collect
         if chain_height > MEMPOOL_MAX_TRANSACTION_AGE {
-            let min_height = chain_height - MEMPOOL_MAX_TRANSACTION_AGE;
+            let min_height = chain_height.saturating_sub(MEMPOOL_MAX_TRANSACTION_AGE);
             let mut mempool_tx = mempool.tx_begin()?;
 
             debug!(
@@ -1134,7 +1107,7 @@ impl Relayer {
     pub fn setup_unconfirmed_state(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-    ) -> Result<(), Error> {
+    ) -> Result<ProcessedUnconfirmedState, Error> {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
@@ -1146,8 +1119,10 @@ impl Relayer {
             "Reload unconfirmed state off of {}/{}",
             &canonical_consensus_hash, &canonical_block_hash
         );
-        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
-        Ok(())
+        let processed_unconfirmed_state =
+            chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
+
+        Ok(processed_unconfirmed_state)
     }
 
     /// Set up unconfirmed chain state in a read-only fashion
@@ -1171,16 +1146,23 @@ impl Relayer {
         Ok(())
     }
 
-    pub fn refresh_unconfirmed(chainstate: &mut StacksChainState, sortdb: &mut SortitionDB) {
-        if let Err(e) = Relayer::setup_unconfirmed_state(chainstate, sortdb) {
-            if let net_error::ChainstateError(ref err_msg) = e {
-                if err_msg == "Stacks chainstate error: NoSuchBlockError" {
-                    trace!("Failed to instantiate unconfirmed state: {:?}", &e);
+    pub fn refresh_unconfirmed(
+        chainstate: &mut StacksChainState,
+        sortdb: &mut SortitionDB,
+    ) -> ProcessedUnconfirmedState {
+        match Relayer::setup_unconfirmed_state(chainstate, sortdb) {
+            Ok(processed_unconfirmed_state) => processed_unconfirmed_state,
+            Err(e) => {
+                if let net_error::ChainstateError(ref err_msg) = e {
+                    if err_msg == "Stacks chainstate error: NoSuchBlockError" {
+                        trace!("Failed to instantiate unconfirmed state: {:?}", &e);
+                    } else {
+                        warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+                    }
                 } else {
                     warn!("Failed to instantiate unconfirmed state: {:?}", &e);
                 }
-            } else {
-                warn!("Failed to instantiate unconfirmed state: {:?}", &e);
+                Default::default()
             }
         }
     }
@@ -1301,12 +1283,17 @@ impl Relayer {
             }
         }
 
-        let receipts = ProcessedNetReceipts { mempool_txs_added };
+        let mut processed_unconfirmed_state = Default::default();
 
         // finally, refresh the unconfirmed chainstate, if need be
         if network_result.has_microblocks() {
-            Relayer::refresh_unconfirmed(chainstate, sortdb);
+            processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
+
+        let receipts = ProcessedNetReceipts {
+            mempool_txs_added,
+            processed_unconfirmed_state,
+        };
 
         Ok(receipts)
     }
@@ -1597,9 +1584,13 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
     use chainstate::stacks::*;
     use net::asn::*;
     use net::chat::*;
@@ -1610,19 +1601,14 @@ mod test {
     use net::inv::*;
     use net::test::*;
     use net::*;
-
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-
-    use vm::clarity::ClarityConnection;
+    use util::sleep_ms;
+    use util::test::*;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
-    use util::sleep_ms;
-    use util::test::*;
+    use super::*;
+    use clarity_vm::clarity::ClarityConnection;
+    use types::chainstate::BlockHeaderHash;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {
@@ -3461,8 +3447,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let done_flag = *done.borrow();
@@ -3693,7 +3678,6 @@ mod test {
                     // available via its inventory.  It only uses its anti-entropy protocol to
                     // discover that peer 1 doesn't have them, and sends them to peer 1 that way.
                     peer_configs[0].connection_opts.disable_block_advertisement = true;
-                    peer_configs[0].connection_opts.disable_inv_chat = true;
                     peer_configs[0].connection_opts.disable_block_download = true;
 
                     peer_configs[1].connection_opts.disable_block_download = true;
@@ -3704,8 +3688,15 @@ mod test {
                     peer_configs[0].connection_opts.disable_natpunch = true;
                     peer_configs[1].connection_opts.disable_natpunch = true;
 
-                    // peer 0 ignores peer 1's handshakes
-                    peer_configs[0].connection_opts.disable_inbound_handshakes = true;
+                    // permit anti-entropy protocol even if nat'ed
+                    peer_configs[0].connection_opts.antientropy_public = true;
+                    peer_configs[1].connection_opts.antientropy_public = true;
+                    peer_configs[0].connection_opts.antientropy_retry = 1;
+                    peer_configs[1].connection_opts.antientropy_retry = 1;
+
+                    // full rescan by default
+                    peer_configs[0].connection_opts.full_inv_sync_interval = 1;
+                    peer_configs[1].connection_opts.full_inv_sync_interval = 1;
 
                     // make peer 0 go slowly
                     peer_configs[0].connection_opts.max_block_push = 2;
@@ -3768,13 +3759,26 @@ mod test {
                             Some(microblocks),
                         ));
                     }
+
+                    // cap with an empty sortition, so the antientropy protocol picks up all stacks
+                    // blocks
+                    let (_, burn_header_hash, consensus_hash) =
+                        peers[0].next_burnchain_block(vec![]);
+                    for i in 1..peers.len() {
+                        peers[i].next_burnchain_block_raw(vec![]);
+                    }
+                    let sn = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    block_data.push((sn.consensus_hash.clone(), None, None));
+
                     block_data
                 },
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let tip_opt = peers[1]
@@ -3896,8 +3900,7 @@ mod test {
                 |ref mut peers| {
                     for peer in peers.iter_mut() {
                         // force peers to keep trying to process buffered data
-                        peer.network.antientropy_last_burnchain_tip =
-                            BurnchainHeaderHash([0u8; 32]);
+                        peer.network.last_burnchain_tip = BurnchainHeaderHash([0u8; 32]);
                     }
 
                     let mut i = idx.borrow_mut();

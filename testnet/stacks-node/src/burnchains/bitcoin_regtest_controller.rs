@@ -1,5 +1,9 @@
 use async_std::io::ReadExt;
 use std::io::Cursor;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Instant;
 
 use async_h1::client;
@@ -23,7 +27,6 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::BurnchainHeaderHash;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
@@ -54,6 +57,7 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -70,6 +74,7 @@ pub struct BitcoinRegtestController {
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
+    should_keep_running: Option<Arc<AtomicBool>>,
 }
 
 struct OngoingBlockCommit {
@@ -186,13 +191,14 @@ impl LeaderBlockCommitFees {
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
-        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None)
+        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
     }
 
     pub fn with_burnchain(
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
+        should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Self {
         std::fs::create_dir_all(&config.get_burnchain_path_str())
             .expect("Unable to create workdir");
@@ -239,6 +245,7 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config,
             ongoing_block_commit: None,
+            should_keep_running,
         }
     }
 
@@ -274,6 +281,7 @@ impl BitcoinRegtestController {
             chain_tip: None,
             burnchain_config: None,
             ongoing_block_commit: None,
+            should_keep_running: None,
         }
     }
 
@@ -392,11 +400,15 @@ impl BitcoinRegtestController {
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, burnchain_height, state_transition) = loop {
+            if !self.should_keep_running() {
+                return Err(BurnchainControllerError::CoordinatorClosed);
+            }
             match burnchain.sync_with_indexer(
                 &mut burnchain_indexer,
                 coordinator_comms.clone(),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
+                self.should_keep_running.clone(),
             ) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
@@ -406,7 +418,7 @@ impl BitcoinRegtestController {
 
                     // wait for the chains coordinator to catch up with us
                     if block_for_sortitions {
-                        self.wait_for_sortitions(Some(x.block_height));
+                        self.wait_for_sortitions(Some(x.block_height))?;
                     }
 
                     // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
@@ -462,6 +474,13 @@ impl BitcoinRegtestController {
         debug!("Done receiving blocks");
 
         Ok((burnchain_tip, burnchain_height))
+    }
+
+    fn should_keep_running(&self) -> bool {
+        match self.should_keep_running {
+            Some(ref should_keep_running) => should_keep_running.load(Ordering::SeqCst),
+            _ => true,
+        }
     }
 
     #[cfg(test)]
@@ -546,6 +565,17 @@ impl BitcoinRegtestController {
         }
 
         result_vec
+    }
+
+    /// Checks if there is a default wallet with the name of "".
+    /// If the default wallet does not exist, this function creates a wallet with name "".
+    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
+        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
+
+        if !wallets.contains(&("".to_string())) {
+            BitcoinRPCRequest::create_wallet(&self.config, "")?;
+        }
+        Ok(())
     }
 
     pub fn get_utxos(
@@ -1013,9 +1043,14 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Stop as soon as the fee_rate is 1.50 higher, stop RBF
-        if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
-            warn!("RBF'd block commits reached 1.5x satoshi per byte fee rate, not resubmitting");
+        // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
+        if ongoing_op.fees.fee_rate
+            > (self.config.burnchain.satoshis_per_byte * self.config.burnchain.max_rbf / 100)
+        {
+            warn!(
+                "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",
+                self.config.burnchain.max_rbf
+            );
             self.ongoing_block_commit = Some(ongoing_op);
             return None;
         }
@@ -1282,7 +1317,10 @@ impl BitcoinRegtestController {
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
     ///   canonical chain tip, or has processed up to height_to_wait
-    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> BurnchainTip {
+    pub fn wait_for_sortitions(
+        &self,
+        height_to_wait: Option<u64>,
+    ) -> Result<BurnchainTip, BurnchainControllerError> {
         loop {
             let canonical_burnchain_tip = self
                 .burnchain_db
@@ -1298,12 +1336,11 @@ impl BitcoinRegtestController {
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
                     .expect("Sortition DB error.")
                     .expect("BUG: no data for the canonical chain tip");
-
-                return BurnchainTip {
+                return Ok(BurnchainTip {
                     block_snapshot: canonical_sortition_tip,
                     received_at: Instant::now(),
                     state_transition,
-                };
+                });
             } else if let Some(height_to_wait) = height_to_wait {
                 if canonical_sortition_tip.block_height >= height_to_wait {
                     let (_, state_transition) = self
@@ -1312,14 +1349,16 @@ impl BitcoinRegtestController {
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 
-                    return BurnchainTip {
+                    return Ok(BurnchainTip {
                         block_snapshot: canonical_sortition_tip,
                         received_at: Instant::now(),
                         state_transition,
-                    };
+                    });
                 }
             }
-
+            if !self.should_keep_running() {
+                return Err(BurnchainControllerError::CoordinatorClosed);
+            }
             // yield some time
             sleep_ms(100);
         }
@@ -1512,6 +1551,11 @@ impl BurnchainController for BitcoinRegtestController {
                     panic!();
                 }
             }
+            info!("Creating wallet if it does not exist");
+            match self.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
         }
     }
 }
@@ -1653,7 +1697,7 @@ struct BitcoinRPCRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-enum RPCError {
+pub enum RPCError {
     Network(String),
     Parsing(String),
     Bitcoind(String),
@@ -1849,6 +1893,57 @@ impl BitcoinRPCRequest {
         let payload = BitcoinRPCRequest {
             method: "importaddress".to_string(),
             params: vec![address.to_b58().into(), label.into(), rescan.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        BitcoinRPCRequest::send(&config, payload)?;
+        Ok(())
+    }
+
+    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
+    pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
+        let payload = BitcoinRPCRequest {
+            method: "listwallets".to_string(),
+            params: vec![],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let mut wallets = Vec::new();
+        match res.as_object_mut() {
+            Some(ref mut object) => match object.get_mut("result") {
+                Some(serde_json::Value::Array(entries)) => {
+                    while let Some(entry) = entries.pop() {
+                        let parsed_wallet_name: String = match serde_json::from_value(entry) {
+                            Ok(wallet_name) => wallet_name,
+                            Err(err) => {
+                                warn!("Failed parsing wallet name: {}", err);
+                                continue;
+                            }
+                        };
+
+                        wallets.push(parsed_wallet_name);
+                    }
+                }
+                _ => {
+                    warn!("Failed to get wallets");
+                }
+            },
+            _ => {
+                warn!("Failed to get wallets");
+            }
+        };
+
+        Ok(wallets)
+    }
+
+    /// Tries to create a wallet with the given name
+    pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "createwallet".to_string(),
+            params: vec![wallet_name.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };

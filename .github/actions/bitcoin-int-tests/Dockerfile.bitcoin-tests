@@ -24,3 +24,8 @@ RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::bitcoind_
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::pox_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::bitcoin_regtest::bitcoind_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::should_succeed_handling_malformed_and_valid_txs
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::antientropy_integration_test

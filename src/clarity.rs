@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rand::Rng;
 use std::convert::TryInto;
 use std::env;
 use std::fs;
@@ -24,21 +23,18 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
-use util::log;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use chainstate::stacks::StacksBlockId;
-
+use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use serde::Serialize;
 
+use address::c32::c32_address;
+use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use util::db::FromColumn;
-
 use util::hash::Sha512Trunc256Sum;
-
+use util::log;
 use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
 use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
@@ -46,22 +42,21 @@ use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
-    ClarityDatabase, HeadersDB, MarfedKV, MemoryBackingStore, STXBalance, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
-use address::c32::c32_address;
-
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::VRFSeed;
-use chainstate::stacks::StacksAddress;
-
-use serde::Serialize;
-
-use crate::vm::database::marf::WritableMarfStore;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::WritableMarfStore;
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::VRFSeed;
+use crate::types::proof::ClarityMarfTrieId;
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -1005,7 +1000,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         LimitedCostTracker::new_free(),
                     );
                     vm_env.execute_transaction(
-                        Value::Principal(sender),
+                        sender,
                         None,
                         contract_identifier,
                         &tx_name,
@@ -1046,6 +1041,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 #[cfg(test)]
 mod test {
     use super::*;
+
     #[test]
     fn test_initial_alloc() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());

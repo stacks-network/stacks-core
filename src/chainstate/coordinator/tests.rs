@@ -14,43 +14,49 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::operations::leader_block_commit::*;
-use chainstate::burn::operations::*;
-use chainstate::coordinator::{Error as CoordError, *};
-use chainstate::stacks::*;
-use std::collections::VecDeque;
-use util::hash::Hash160;
-
-use burnchains::{db::*, *};
-use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionId};
-use chainstate::burn::*;
-use chainstate::stacks::db::{
-    accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
-};
-use chainstate::stacks::index::TrieHash;
-use core;
-use core::*;
 use std::cmp;
-
-use monitoring::increment_stx_blocks_processed_counter;
-use rusqlite::Connection;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::sync_channel,
     Arc, RwLock,
 };
+
+use rusqlite::Connection;
+
+use address;
+use burnchains::{db::*, *};
+use chainstate;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::leader_block_commit::*;
+use chainstate::burn::operations::*;
+use chainstate::burn::*;
+use chainstate::coordinator::{Error as CoordError, *};
+use chainstate::stacks::db::{
+    accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
+};
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
+use core;
+use core::*;
+use monitoring::increment_stx_blocks_processed_counter;
+use util::hash::Hash160;
 use util::vrf::*;
 use vm::{
-    clarity::ClarityConnection,
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
     types::QualifiedContractIdentifier,
     Value,
 };
 
-use address;
-use chainstate;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+};
+use crate::types::proof::TrieHash;
+use crate::{types, util};
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -100,9 +106,6 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 
     produce_burn_block_do_not_set_height(burnchain_db, par, ops, others)
 }
-
-use chainstate::burn::distribution::BurnSamplePoint;
-use vm::types::OptionalData;
 
 fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<BurnSamplePoint> {
     conn.query_row(
@@ -256,7 +259,7 @@ pub fn setup_states(
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
-            let contract = boot::boot_code_id("pox", false);
+            let contract = util::boot::boot_code_id("pox", false);
             let sender = PrincipalData::from(contract.clone());
 
             clarity_tx.connection().as_transaction(|conn| {

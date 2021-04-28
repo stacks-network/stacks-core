@@ -14,20 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::proof::ClarityMarfTrieId;
+use chainstate::stacks::index::storage::TrieFileStorage;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, MarfedKV, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use vm::representations::SymbolicExpression;
-use vm::types::{OptionalData, Value};
+use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
+use vm::types::Value;
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
-use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::StacksBlockId;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 
@@ -74,7 +74,7 @@ fn test_at_block_mutations() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {
@@ -148,7 +148,7 @@ fn test_at_block_good() {
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str);
+        let p1 = execute(p1_str).expect_principal();
         eprintln!("Branched execution...");
 
         {
@@ -355,7 +355,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
 
     let (result, _, _) = owned_env
         .execute_transaction(
-            Value::Principal(PrincipalData::Standard(p1_address)),
+            PrincipalData::Standard(p1_address),
             None,
             contract_identifier,
             "destroy",

@@ -1,35 +1,38 @@
-mod atlas;
-mod bitcoin_regtest;
-mod integrations;
-mod mempool;
-mod neon_integrations;
+use std::convert::TryInto;
+
+use rand::RngCore;
 
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
 use stacks::chainstate::stacks::{
-    db::StacksChainState, miner::StacksMicroblockBuilder, CoinbasePayload, StacksAddress,
-    StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    db::StacksChainState, miner::StacksMicroblockBuilder, CoinbasePayload, StacksBlock,
+    StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::StacksMessageCodec;
+use stacks::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
 use stacks::util::strings::StacksString;
+use stacks::vm::database::BurnStateDB;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
 
+use crate::helium::RunLoop;
+
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::Config;
-use crate::helium::RunLoop;
-use rand::RngCore;
-use std::convert::TryInto;
 
-use stacks::vm::database::BurnStateDB;
+mod atlas;
+mod bitcoin_regtest;
+mod integrations;
+mod mempool;
+mod neon_integrations;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
@@ -63,6 +66,28 @@ lazy_static! {
         "store",
         STORE_CONTRACT
     );
+}
+
+pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: &StacksPrivateKey,
+    sender_nonce: u64,
+    payer_nonce: u64,
+    tx_fee: u64,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
+    serialize_sign_tx_anchor_mode_version(
+        payload,
+        sender,
+        Some(payer),
+        sender_nonce,
+        Some(payer_nonce),
+        tx_fee,
+        anchor_mode,
+        version,
+    )
 }
 
 pub fn serialize_sign_standard_single_sig_tx(
@@ -105,12 +130,48 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
     anchor_mode: TransactionAnchorMode,
     version: TransactionVersion,
 ) -> Vec<u8> {
-    let mut spending_condition =
+    serialize_sign_tx_anchor_mode_version(
+        payload,
+        sender,
+        None,
+        nonce,
+        None,
+        tx_fee,
+        anchor_mode,
+        version,
+    )
+}
+
+pub fn serialize_sign_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: Option<&StacksPrivateKey>,
+    sender_nonce: u64,
+    payer_nonce: Option<u64>,
+    tx_fee: u64,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
+    let mut sender_spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
-    spending_condition.set_nonce(nonce);
-    spending_condition.set_tx_fee(tx_fee);
-    let auth = TransactionAuth::Standard(spending_condition);
+    sender_spending_condition.set_nonce(sender_nonce);
+
+    let auth = match (payer, payer_nonce) {
+        (Some(payer), Some(payer_nonce)) => {
+            let mut payer_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+                StacksPublicKey::from_private(payer),
+            )
+            .expect("Failed to create p2pkh spending condition from public key.");
+            payer_spending_condition.set_nonce(payer_nonce);
+            payer_spending_condition.set_tx_fee(tx_fee);
+            TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
+        }
+        _ => {
+            sender_spending_condition.set_tx_fee(tx_fee);
+            TransactionAuth::Standard(sender_spending_condition)
+        }
+    };
     let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
     unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -118,6 +179,9 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
+    if let (Some(payer), Some(_)) = (payer, payer_nonce) {
+        tx_signer.sign_sponsor(payer).unwrap();
+    }
 
     let mut buf = vec![];
     tx_signer
@@ -216,6 +280,29 @@ pub fn make_stacks_transfer(
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+}
+
+pub fn make_sponsored_stacks_transfer_on_testnet(
+    sender: &StacksPrivateKey,
+    payer: &StacksPrivateKey,
+    sender_nonce: u64,
+    payer_nonce: u64,
+    tx_fee: u64,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> Vec<u8> {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    serialize_sign_sponsored_sig_tx_anchor_mode_version(
+        payload.into(),
+        sender,
+        payer,
+        sender_nonce,
+        payer_nonce,
+        tx_fee,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Testnet,
+    )
 }
 
 pub fn make_stacks_transfer_mblock_only(

@@ -14,27 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use burnchains::Txid;
+use std::collections::HashMap;
+use std::{fs, io};
+
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
 use serde_json;
-use std::{fs, io};
 
-use burnchains::{
-    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError,
-};
-
+use burnchains::Txid;
+use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
 use chainstate::burn::operations::BlockstackOperationType;
-
 use chainstate::stacks::index::MarfTrieId;
-
 use util::db::{
     query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
     Error as DBError, FromColumn, FromRow,
 };
 
-use std::collections::HashMap;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::proof::ClarityMarfTrieId;
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -149,6 +147,7 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
+
         match self.sql_tx.execute(sql, args) {
             Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
             Err(e) => Err(BurnchainError::from(e)),
@@ -380,7 +379,8 @@ impl BurnchainDB {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::convert::TryInto;
+
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::*;
     use burnchains::bitcoin::*;
@@ -390,8 +390,11 @@ mod tests {
     use chainstate::stacks::*;
     use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
     use deps::bitcoin::network::serialize::deserialize;
-    use std::convert::TryInto;
     use util::hash::*;
+
+    use crate::types::chainstate::StacksAddress;
+
+    use super::*;
 
     fn make_tx(hex_str: &str) -> BtcTx {
         let tx_bin = hex_bytes(hex_str).unwrap();

@@ -3,8 +3,11 @@ use crate::burnchains::Error as BurnchainControllerError;
 use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
-use stacks::burnchains::BurnchainHeaderHash;
 use stacks::chainstate::stacks::db::ClarityTx;
+use stacks::net::atlas::AttachmentInstance;
+use stacks::types::chainstate::BurnchainHeaderHash;
+use std::collections::HashSet;
+use std::sync::mpsc::{sync_channel, Receiver};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -12,6 +15,7 @@ pub struct RunLoop {
     config: Config,
     pub node: Node,
     pub callbacks: RunLoopCallbacks,
+    attachments_rx: Option<Receiver<HashSet<AttachmentInstance>>>,
 }
 
 impl RunLoop {
@@ -24,13 +28,16 @@ impl RunLoop {
         config: Config,
         boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
     ) -> Self {
+        let (attachments_tx, attachments_rx) = sync_channel(1);
+
         // Build node based on config
-        let node = Node::new(config.clone(), boot_exec);
+        let node = Node::new(config.clone(), boot_exec, attachments_tx);
 
         Self {
             config,
             node,
             callbacks: RunLoopCallbacks::new(),
+            attachments_rx: Some(attachments_rx),
         }
     }
 
@@ -67,7 +74,8 @@ impl RunLoop {
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
         let mut chain_tip = ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0);
 
-        self.node.spawn_peer_server();
+        let attachments_rx = self.attachments_rx.take().unwrap();
+        self.node.spawn_peer_server(attachments_rx);
 
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.

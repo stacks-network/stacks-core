@@ -115,12 +115,7 @@ pub fn stx_transfer_consolidated(
         return clarity_ecode!(StxErrorCodes::SENDER_IS_RECIPIENT);
     }
 
-    if Some(from.clone())
-        != env
-            .sender
-            .as_ref()
-            .map(|pval| pval.clone().expect_principal())
-    {
+    if Some(from) != env.sender.as_ref() {
         return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
     }
 
@@ -199,7 +194,7 @@ pub fn special_stx_burn(
             return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
-        if Some(&from_val) != env.sender.as_ref() {
+        if Some(from) != env.sender.as_ref() {
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
         }
 

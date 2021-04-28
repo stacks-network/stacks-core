@@ -1,36 +1,52 @@
 use std::collections::HashMap;
+use std::fmt::Write;
+use std::sync::Mutex;
+
+use reqwest;
 
 use stacks::burnchains::Address;
-use stacks::chainstate::burn::VRFSeed;
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, StacksAddress, StacksBlockHeader,
-    StacksPrivateKey, StacksTransaction,
+    db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
+use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
+use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
-use stacks::vm::clarity::ClarityConnection;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
         mem_type_check,
     },
     database::ClaritySerializable,
-    types::{QualifiedContractIdentifier, TupleData},
+    types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
-use std::fmt::Write;
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
+use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
 
-use reqwest;
+const OTHER_CONTRACT: &'static str = "
+  (define-data-var x uint u0)
+  (define-public (f1)
+    (ok (var-get x)))
+  (define-public (f2 (val uint))
+    (ok (var-set x val)))
+";
+
+const CALL_READ_CONTRACT: &'static str = "
+  (define-public (public-no-write)
+    (ok (contract-call? .other f1)))
+  (define-public (public-write)
+    (ok (contract-call? .other f2 u5)))
+";
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
@@ -104,14 +120,14 @@ const GET_INFO_CONTRACT: &'static str = "
           (begin
             (unwrap-panic (inner-update-info (- block-height u2)))
             (inner-update-info (- block-height u1))))
-        
+
         (define-trait trait-1 (
             (foo-exec (int) (response int int))))
 
         (define-trait trait-2 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))))
-        
+
         (define-trait trait-3 (
             (fn-1 (uint) (response uint uint))
             (fn-2 (uint) (response uint uint))))
@@ -122,7 +138,7 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (impl-trait .get-info.trait-1)
         (define-private (test-height) burn-block-height)
         (define-public (foo-exec (a int)) (ok 1))
-    
+
         ;; implicit trait compliance for trait-2
         (define-public (get-1 (x uint)) (ok u1))
         (define-public (get-2 (x uint)) (ok u1))
@@ -130,8 +146,6 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         ;; invalid trait compliance for trait-3
         (define-public (fn-1 (x uint)) (ok u1))
        ";
-
-use std::sync::Mutex;
 
 lazy_static! {
     static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
@@ -150,7 +164,7 @@ fn integration_test_get_info() {
 
     conf.burnchain.commit_anchor_block_within = 5000;
 
-    let num_rounds = 4;
+    let num_rounds = 5;
 
     let rpc_bind = conf.node.rpc_bind.clone();
     let mut run_loop = RunLoop::new(conf);
@@ -173,9 +187,30 @@ fn integration_test_get_info() {
 
             if round == 1 {
                 // block-height = 2
+                eprintln!("Tenure in 1 started!");
                 let publish_tx =
                     make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
-                eprintln!("Tenure in 1 started!");
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+                let publish_tx = make_contract_publish(&contract_sk, 1, 0, "other", OTHER_CONTRACT);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+                let publish_tx =
+                    make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -189,7 +224,7 @@ fn integration_test_get_info() {
                 // block-height = 3
                 let publish_tx = make_contract_publish(
                     &contract_sk,
-                    1,
+                    3,
                     0,
                     "impl-trait-contract",
                     IMPL_TRAIT_CONTRACT,
@@ -208,13 +243,14 @@ fn integration_test_get_info() {
                 // block-height > 3
                 let tx = make_contract_call(
                     &principal_sk,
-                    (round - 2).into(),
+                    (round - 3).into(),
                     0,
                     &to_addr(&contract_sk),
                     "get-info",
                     "update-info",
                     &[],
                 );
+                eprintln!("update-info submitted");
                 tenure
                     .mem_pool
                     .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
@@ -255,8 +291,8 @@ fn integration_test_get_info() {
                 let blocks = StacksChainState::list_blocks(&chain_state.db()).unwrap();
                 assert!(chain_tip.metadata.block_height == 2);
 
-                // Block #1 should have 3 txs
-                assert!(chain_tip.block.txs.len() == 3);
+                // Block #1 should have 5 txs
+                assert!(chain_tip.block.txs.len() == 5);
 
                 let parent = chain_tip.block.header.parent_block;
                 let bhh = &chain_tip.metadata.index_block_hash();
@@ -366,22 +402,22 @@ fn integration_test_get_info() {
                 let bhh = &chain_tip.metadata.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u1)"));
-                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u2)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u3)"));
+                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u4)"));
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u2)"));
-                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u3)"));
+                assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u4)"));
 
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{}/v2/map_entry/{}/{}/{}",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -391,7 +427,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 assert!(res.get("proof").is_some());
 
                 assert_eq!(result_data, expected_data);
@@ -413,7 +449,7 @@ fn integration_test_get_info() {
                 let path = format!("{}/v2/map_entry/{}/{}/{}?proof=0",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -425,7 +461,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_none());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -434,7 +470,7 @@ fn integration_test_get_info() {
                 let path = format!("{}/v2/map_entry/{}/{}/{}?proof=1",
                                    &http_origin, &contract_addr, "get-info", "block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {}", path);
@@ -446,7 +482,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_some());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info u3))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -456,8 +492,8 @@ fn integration_test_get_info() {
                                    &http_origin, &sender_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100000);
-                assert_eq!(res.nonce, 3);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 99900);
+                assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
@@ -467,7 +503,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
-                assert_eq!(res.nonce, 1);
+                assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
@@ -476,7 +512,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -495,7 +531,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_none());
                 assert!(res.balance_proof.is_none());
@@ -504,7 +540,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -566,7 +602,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
-                    arguments: vec![Value::UInt(1).serialize()]
+                    arguments: vec![Value::UInt(3).serialize()]
                 };
 
                 let res = client.post(&path)
@@ -578,8 +614,51 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info u1)");
+                                                                       "(get-exotic-data-info u3)");
                 assert_eq!(result_data, expected_data);
+
+                // how about a non read-only function call which does not modify anything
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-no-write");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                let expected_data = Value::Response(ResponseData {
+                    committed: true,
+                    data: Box::new(Value::Response(ResponseData {
+                        committed: true,
+                        data: Box::new(Value::UInt(0))
+                    }))
+                });
+                assert_eq!(result_data, expected_data);
+
+                // how about a non read-only function call which does modify something and should fail
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-write");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_some());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
 
                 // let's try a call with a url-encoded string.
                 let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
@@ -588,7 +667,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
-                    arguments: vec![Value::UInt(1).serialize()]
+                    arguments: vec![Value::UInt(3).serialize()]
                 };
 
                 let res = client.post(&path)
@@ -601,7 +680,7 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info? u1)");
+                                                                       "(get-exotic-data-info? u3)");
                 assert_eq!(result_data, expected_data);
 
                 // let's have a runtime error!
@@ -636,7 +715,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
 
-                eprintln!("{}", res["cause"].as_str().unwrap());
+                eprintln!("{:#?}", res["cause"].as_str().unwrap());
                 assert!(res.get("result").is_none());
                 assert!(!res["okay"].as_bool().unwrap());
                 assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
@@ -709,14 +788,21 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
+                // No trait found
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-4");
+                eprintln!("Test: GET {}", path);
+                assert_eq!(client.get(&path).send().unwrap().status(), 404);
+
                 // implicit trait compliance
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-2");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(res.is_implemented);
 
+
                 // invalid trait compliance
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-3");
+                let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
             },
@@ -1016,6 +1102,145 @@ fn contract_stx_transfer() {
                     );
                 }
 
+                _ => {}
+            }
+        },
+    );
+
+    run_loop.start(num_rounds).unwrap();
+}
+
+#[test]
+fn mine_transactions_out_of_order() {
+    let mut conf = super::new_test_conf();
+
+    let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr = to_addr(&sk);
+    conf.burnchain.commit_anchor_block_within = 5000;
+    conf.add_initial_balance(addr.to_string(), 100000);
+
+    let num_rounds = 5;
+    let mut run_loop = RunLoop::new(conf);
+
+    run_loop
+        .callbacks
+        .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+            let mut chainstate_copy = tenure.open_chainstate();
+
+            let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+            let header_hash = chain_tip.block.block_hash();
+            let consensus_hash = chain_tip.metadata.consensus_hash;
+
+            let contract_identifier = QualifiedContractIdentifier::parse(&format!(
+                "{}.{}",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                "faucet"
+            ))
+            .unwrap();
+
+            if round == 1 {
+                // block-height = 2
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 1, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            } else if round == 2 {
+                // block-height > 2
+                let publish_tx = make_contract_publish(&sk, 2, 0, "faucet", FAUCET_CONTRACT);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
+                    )
+                    .unwrap();
+            } else if round == 3 {
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 3, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            } else if round == 4 {
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk, 0, 0, &contract_identifier.into(), 1000);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        xfer_to_contract,
+                    )
+                    .unwrap();
+            }
+
+            return;
+        });
+
+    run_loop.callbacks.on_new_stacks_chain_state(
+        |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
+            let contract_identifier = QualifiedContractIdentifier::parse(&format!(
+                "{}.{}",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                "faucet"
+            ))
+            .unwrap();
+
+            match round {
+                1 => {
+                    assert_eq!(chain_tip.metadata.block_height, 2);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                2 => {
+                    assert_eq!(chain_tip.metadata.block_height, 3);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                3 => {
+                    assert_eq!(chain_tip.metadata.block_height, 4);
+                    assert_eq!(chain_tip.block.txs.len(), 1);
+                }
+                4 => {
+                    assert_eq!(chain_tip.metadata.block_height, 5);
+                    assert_eq!(chain_tip.block.txs.len(), 5);
+
+                    // check that 1000 stx _was_ transfered to the contract principal
+                    let curr_tip = (
+                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.anchored_header.block_hash(),
+                    );
+                    assert_eq!(
+                        chain_state
+                            .with_read_only_clarity_tx(
+                                burn_dbconn,
+                                &StacksBlockHeader::make_index_block_hash(&curr_tip.0, &curr_tip.1),
+                                |conn| {
+                                    conn.with_clarity_db_readonly(|db| {
+                                        db.get_account_stx_balance(
+                                            &contract_identifier.clone().into(),
+                                        )
+                                        .amount_unlocked
+                                    })
+                                }
+                            )
+                            .unwrap(),
+                        3000
+                    );
+                }
                 _ => {}
             }
         },
@@ -1585,6 +1810,50 @@ fn mempool_errors() {
                 assert_eq!(
                     data.get("expected").unwrap().as_str().unwrap(),
                     format!("0x{:032x}", 656)
+                );
+                assert_eq!(
+                    data.get("actual").unwrap().as_str().unwrap(),
+                    format!("0x{:032x}", 0)
+                );
+
+                let tx_xfer_invalid = make_sponsored_stacks_transfer_on_testnet(
+                    &spender_sk,
+                    &contract_sk,
+                    1 + MAXIMUM_MEMPOOL_TX_CHAINING,
+                    1,
+                    350,
+                    &send_to,
+                    1000,
+                );
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+                let res = client
+                    .post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer_invalid.clone())
+                    .send()
+                    .unwrap()
+                    .json::<serde_json::Value>()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(
+                    res.get("txid").unwrap().as_str().unwrap(),
+                    tx_xfer_invalid_tx.txid().to_string()
+                );
+                assert_eq!(
+                    res.get("error").unwrap().as_str().unwrap(),
+                    "transaction rejected"
+                );
+                assert_eq!(
+                    res.get("reason").unwrap().as_str().unwrap(),
+                    "NotEnoughFunds"
+                );
+                let data = res.get("reason_data").unwrap();
+                assert_eq!(
+                    data.get("expected").unwrap().as_str().unwrap(),
+                    format!("0x{:032x}", 350)
                 );
                 assert_eq!(
                     data.get("actual").unwrap().as_str().unwrap(),

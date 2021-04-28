@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::StacksAddress;
+use crate::types::chainstate::StacksAddress;
 use burnchains::Txid;
 use chainstate::stacks::StacksTransaction;
 use net::StacksMessageCodec;

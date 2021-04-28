@@ -14,54 +14,54 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
-};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs;
 use std::mem;
 
-use net::codec::{read_next, write_next};
-use net::Error as net_error;
-use net::StacksMessageCodec;
-use vm::clarity::ClarityConnection;
-
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-
-use net::StacksPublicKeyBuffer;
-
+use burnchains::PrivateKey;
+use burnchains::PublicKey;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
-
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-
-use burnchains::BurnchainHeaderHash;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-
-use util::vrf::*;
-
+use chainstate::stacks::db::{
+    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+};
+use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use core::*;
-
+use net::codec::{read_next, write_next};
+use net::Error as net_error;
+use net::StacksMessageCodec;
+use net::StacksPublicKeyBuffer;
+use util::get_epoch_time_ms;
+use util::hash::MerkleTree;
+use util::hash::Sha512Trunc256Sum;
+use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
+
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::proof::TrieHash;
 
 #[derive(Clone)]
 struct MicroblockMinerRuntime {
-    consumed_execution: ExecutionCost,
     bytes_so_far: u64,
     pub prev_microblock_header: Option<StacksMicroblockHeader>,
     considered: Option<HashSet<Txid>>,
+    num_mined: u64,
+    tip: StacksBlockId,
+
+    // fault injection, inherited from unconfirmed
+    disable_bytes_check: bool,
+    disable_cost_check: bool,
 }
 
 #[derive(PartialEq)]
@@ -79,10 +79,14 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             .map(|(txid, _)| txid.clone())
             .collect();
         MicroblockMinerRuntime {
-            consumed_execution: unconfirmed.cost_so_far.clone(),
             bytes_so_far: unconfirmed.bytes_so_far,
             prev_microblock_header: unconfirmed.last_mblock.clone(),
             considered: Some(considered),
+            num_mined: 0,
+            tip: unconfirmed.confirmed_chain_tip.clone(),
+
+            disable_bytes_check: unconfirmed.disable_bytes_check,
+            disable_cost_check: unconfirmed.disable_cost_check,
         }
     }
 }
@@ -138,6 +142,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
 
+        // find parent block's execution cost
+        let parent_index_hash =
+            StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block);
+        let cost_so_far =
+            StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+                .ok_or(Error::NoSuchBlockError)?;
+
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
         //  could take over.
@@ -149,7 +160,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        clarity_tx.reset_cost(runtime.consumed_execution.clone());
+        debug!(
+            "Begin microblock mining from {} from unconfirmed state with cost {:?}",
+            &StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block),
+            &cost_so_far
+        );
+        clarity_tx.reset_cost(cost_so_far);
 
         Ok(StacksMicroblockBuilder {
             anchor_block,
@@ -167,6 +183,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     pub fn resume_unconfirmed(
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a dyn BurnStateDB,
+        cost_so_far: &ExecutionCost,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
@@ -209,7 +226,15 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
 
-        clarity_tx.reset_cost(runtime.consumed_execution.clone());
+        debug!(
+            "Resume microblock mining from {} from unconfirmed state with cost {:?}",
+            &StacksBlockHeader::make_index_block_hash(
+                &anchored_consensus_hash,
+                &anchored_block_hash
+            ),
+            cost_so_far
+        );
+        clarity_tx.reset_cost(cost_so_far.clone());
 
         Ok(StacksMicroblockBuilder {
             anchor_block: anchored_block_hash,
@@ -287,6 +312,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             considered.insert(tx.txid());
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+            info!(
+                "Adding microblock tx {} would exceed epoch data size",
+                &tx.txid()
+            );
             return Err(Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
@@ -312,6 +341,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         return Ok(false);
     }
 
+    /// NOTE: this is only used in integration tests.
     pub fn mine_next_microblock_from_txs(
         &mut self,
         txs_and_lens: Vec<(StacksTransaction, u64)>,
@@ -331,6 +361,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
+        let mut num_txs = self.runtime.num_mined;
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
@@ -343,6 +374,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             ) {
                 Ok(true) => {
                     bytes_so_far += tx_len;
+                    num_txs += 1;
                     txs_included.push(tx);
                 }
                 Ok(false) => {
@@ -355,13 +387,24 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
+        }
+
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
+        self.runtime.num_mined = num_txs;
 
         match result {
             Err(Error::BlockTooBigError) => {
-                info!("Block budget reached with microblocks");
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
                 warn!("Error producing microblock: {}", e);
@@ -392,53 +435,60 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
+        let mut num_txs = self.runtime.num_mined;
 
-        let result = mem_pool.iterate_candidates(
-            &self.anchor_block_consensus_hash,
-            &self.anchor_block,
-            self.anchor_block_height,
-            &mut self.header_reader,
-            |micro_txs| {
-                let mut result = Ok(());
-                for mempool_tx in micro_txs.into_iter() {
-                    match StacksMicroblockBuilder::mine_next_transaction(
-                        &mut clarity_tx,
-                        mempool_tx.tx.clone(),
-                        mempool_tx.metadata.len,
-                        &mut considered,
-                        bytes_so_far,
-                    ) {
-                        Ok(true) => {
-                            bytes_so_far += mempool_tx.metadata.len;
+        let result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
+            let mut result = Ok(());
+            for mempool_tx in micro_txs.into_iter() {
+                match StacksMicroblockBuilder::mine_next_transaction(
+                    &mut clarity_tx,
+                    mempool_tx.tx.clone(),
+                    mempool_tx.metadata.len,
+                    &mut considered,
+                    bytes_so_far,
+                ) {
+                    Ok(true) => {
+                        bytes_so_far += mempool_tx.metadata.len;
 
-                            debug!(
-                                "Include tx {} ({}) in microblock",
-                                mempool_tx.tx.txid(),
-                                mempool_tx.tx.payload.name()
-                            );
-                            txs_included.push(mempool_tx.tx);
-                        }
-                        Ok(false) => {
-                            continue;
-                        }
-                        Err(e) => {
-                            result = Err(e);
-                            break;
-                        }
+                        debug!(
+                            "Include tx {} ({}) in microblock",
+                            mempool_tx.tx.txid(),
+                            mempool_tx.tx.payload.name()
+                        );
+                        txs_included.push(mempool_tx.tx);
+                        num_txs += 1;
+                    }
+                    Ok(false) => {
+                        continue;
+                    }
+                    Err(e) => {
+                        result = Err(e);
+                        break;
                     }
                 }
-                result
-            },
-        );
+            }
+            result
+        });
+
+        // do fault injection
+        if self.runtime.disable_bytes_check {
+            warn!("Fault injection: disabling miner limit on microblock stream size");
+            bytes_so_far = 0;
+        }
+        if self.runtime.disable_cost_check {
+            warn!("Fault injection: disabling miner limit on microblock runtime cost");
+            clarity_tx.reset_cost(ExecutionCost::zero());
+        }
 
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
+        self.runtime.num_mined = num_txs;
 
         match result {
             Ok(_) => {}
             Err(Error::BlockTooBigError) => {
-                info!("Block budget reached with microblocks");
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
                 warn!("Error producing microblock: {}", e);
@@ -460,7 +510,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
 impl<'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        debug!("Drop StacksMicroblockBuilder");
+        debug!(
+            "Drop StacksMicroblockBuilder";
+            "chain tip" => %&self.runtime.tip,
+            "txs mined off tip" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
+            "txs added" => self.runtime.num_mined,
+            "bytes so far" => self.runtime.bytes_so_far,
+            "cost so far" => &format!("{:?}", &self.get_cost_so_far())
+        );
         self.clarity_tx
             .take()
             .expect("Attempted to reclose closed microblock builder")
@@ -890,10 +947,13 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
+            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), state root = {}",
             block.block_hash(),
+            block.header.total_work.work,
             block.txs.len(),
             &self.header.parent_block,
+            &self.header.parent_microblock,
+            self.header.parent_microblock_sequence,
             state_root_hash
         );
 
@@ -1083,11 +1143,13 @@ impl StacksBlockBuilder {
         self.miner_payouts =
             matured_miner_rewards_opt.map(|(miner, users, parent, _)| (miner, users, parent));
 
-        test_debug!(
+        debug!(
             "Miner {}: Apply {} parent microblocks",
             self.miner_id,
             parent_microblocks.len()
         );
+
+        let t1 = get_epoch_time_ms();
 
         if parent_microblocks.len() == 0 {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
@@ -1111,10 +1173,13 @@ impl StacksBlockBuilder {
             self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
         }
 
-        test_debug!(
-            "Miner {}: Finished applying {} parent microblocks\n",
+        let t2 = get_epoch_time_ms();
+
+        debug!(
+            "Miner {}: Finished applying {} parent microblocks in {}ms\n",
             self.miner_id,
-            parent_microblocks.len()
+            parent_microblocks.len(),
+            t2.saturating_sub(t1)
         );
 
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
@@ -1314,11 +1379,10 @@ impl StacksBlockBuilder {
         );
 
         debug!(
-            "Build anchored block off of {}/{} height {}",
-            &tip_consensus_hash, &tip_block_hash, tip_height
+            "Build anchored block off of {}/{} height {} budget {:?}",
+            &tip_consensus_hash, &tip_block_hash, tip_height, execution_budget
         );
 
-        let (mut header_reader_chainstate, _) = chainstate_handle.reopen()?; // used for reading block headers during an epoch
         let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
 
         let mut builder = StacksBlockBuilder::make_block_builder(
@@ -1328,6 +1392,8 @@ impl StacksBlockBuilder {
             total_burn,
             pubkey_hash,
         )?;
+
+        let ts_start = get_epoch_time_ms();
 
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
@@ -1340,86 +1406,80 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        let result = mempool.iterate_candidates(
-            &tip_consensus_hash,
-            &tip_block_hash,
-            tip_height,
-            &mut header_reader_chainstate,
-            |available_txs| {
-                if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                    return Ok(());
-                }
+        let result = mempool.iterate_candidates(tip_height, |available_txs| {
+            if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                return Ok(());
+            }
 
-                for txinfo in available_txs.into_iter() {
-                    // skip transactions early if we can
-                    if considered.contains(&txinfo.tx.txid()) {
+            for txinfo in available_txs.into_iter() {
+                // skip transactions early if we can
+                if considered.contains(&txinfo.tx.txid()) {
+                    continue;
+                }
+                if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
+                    if *nonce >= txinfo.tx.get_origin_nonce() {
                         continue;
                     }
-                    if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                        if *nonce >= txinfo.tx.get_origin_nonce() {
-                            continue;
-                        }
-                    }
-                    if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                        if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                            if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                if *nonce >= sponsor_nonce {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
-                    considered.insert(txinfo.tx.txid());
-
-                    match builder.try_mine_tx_with_len(
-                        &mut epoch_tx,
-                        &txinfo.tx,
-                        txinfo.metadata.len,
-                        &block_limit_hit,
-                    ) {
-                        Ok(_) => {}
-                        Err(Error::BlockTooBigError) => {
-                            // done mining -- our execution budget is exceeded.
-                            // Make the block from the transactions we did manage to get
-                            debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                            if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                }
+                if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
+                    if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
+                        if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
+                            if *nonce >= sponsor_nonce {
                                 continue;
-                            } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
-                                block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                             }
                         }
-                        Err(Error::TransactionTooBigError) => {
-                            invalidated_txs.push(txinfo.metadata.txid);
-                            if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                continue;
-                            } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
-                                block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                            }
-                        }
-                        Err(Error::InvalidStacksTransaction(_, true)) => {
-                            // if we have an invalid transaction that was quietly ignored, don't warn here either
-                            continue;
-                        }
-                        Err(e) => {
-                            warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                            continue;
-                        }
-                    }
-
-                    mined_origin_nonces
-                        .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
-                    if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                        (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                    {
-                        mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                     }
                 }
-                Ok(())
-            },
-        );
+
+                considered.insert(txinfo.tx.txid());
+
+                match builder.try_mine_tx_with_len(
+                    &mut epoch_tx,
+                    &txinfo.tx,
+                    txinfo.metadata.len,
+                    &block_limit_hit,
+                ) {
+                    Ok(_) => {}
+                    Err(Error::BlockTooBigError) => {
+                        // done mining -- our execution budget is exceeded.
+                        // Make the block from the transactions we did manage to get
+                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                            continue;
+                        } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                        }
+                    }
+                    Err(Error::TransactionTooBigError) => {
+                        invalidated_txs.push(txinfo.metadata.txid);
+                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                            continue;
+                        } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                        }
+                    }
+                    Err(Error::InvalidStacksTransaction(_, true)) => {
+                        // if we have an invalid transaction that was quietly ignored, don't warn here either
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                        continue;
+                    }
+                }
+
+                mined_origin_nonces
+                    .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
+                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
+                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
+                {
+                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+                }
+            }
+            Ok(())
+        });
 
         mempool.drop_txs(&invalidated_txs)?;
         if let Some(observer) = event_observer {
@@ -1442,21 +1502,43 @@ impl StacksBlockBuilder {
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
         let consumed = builder.epoch_finish(epoch_tx);
+
+        let ts_end = get_epoch_time_ms();
+
+        debug!(
+            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), size {}, consumed {:?}, in {}ms",
+            block.block_hash(),
+            block.header.total_work.work,
+            block.txs.len(),
+            &block.header.parent_block,
+            &block.header.parent_microblock,
+            block.header.parent_microblock_sequence,
+            size,
+            &consumed,
+            ts_end.saturating_sub(ts_start);
+        );
+
         Ok((block, consumed, size))
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use crate::chainstate::stacks::boot::boot_code_addr;
-
-    use super::*;
-    use core::BLOCK_LIMIT_MAINNET;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+    use std::collections::VecDeque;
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
 
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+    use rand::Rng;
+
     use address::*;
+    use burnchains::test::*;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
@@ -1464,27 +1546,18 @@ pub mod test {
     use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-    use std::collections::VecDeque;
-
-    use burnchains::test::*;
-    use burnchains::*;
-
+    use core::BLOCK_LIMIT_MAINNET;
+    use net::test::*;
+    use util::sleep_ms;
     use util::vrf::VRFProof;
-
     use vm::types::*;
 
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
-    use rand::Rng;
+    use crate::types::chainstate::SortitionId;
+    use crate::util::boot::boot_code_addr;
 
-    use net::test::*;
-
-    use util::sleep_ms;
-
-    use std::cell::RefCell;
+    use super::*;
 
     pub const COINBASE: u128 = 500 * 1_000_000;
 

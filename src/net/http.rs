@@ -18,6 +18,7 @@
 */
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
@@ -26,20 +27,25 @@ use std::mem;
 use std::net::SocketAddr;
 use std::str;
 use std::str::FromStr;
+use std::time::SystemTime;
 
+use percent_encoding::percent_decode_str;
+use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use time;
+use url::{form_urlencoded, Url};
 
 use burnchains::{Address, Txid};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
+use deps::httparse;
 use net::atlas::Attachment;
 use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
+use net::Error::ClarityError;
 use net::HttpContentType;
 use net::HttpRequestMetadata;
 use net::HttpRequestPreamble;
@@ -64,14 +70,13 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use net::{MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
-
 use util::hash::hex_bytes;
 use util::hash::to_hex;
 use util::hash::Hash160;
 use util::log;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
-
+use vm::types::{StandardPrincipalData, TraitIdentifier};
 use vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
@@ -80,20 +85,7 @@ use vm::{
     ClarityName, ContractName, Value,
 };
 
-use std::convert::TryFrom;
-
-use regex::{Captures, Regex};
-
-use percent_encoding::percent_decode_str;
-use url::{form_urlencoded, Url};
-
-use deps::httparse;
-use std::time::SystemTime;
-use time;
-
-use chainstate::burn::ConsensusHash;
-use net::Error::ClarityError;
-use vm::types::{StandardPrincipalData, TraitIdentifier};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -1567,7 +1559,12 @@ impl HttpRequestType {
                 parser,
             )? {
                 Some(request) => {
-                    info!("Handle {} {}", verb, decoded_path);
+                    let query = if let Some(q) = url.query() {
+                        format!("?{}", q)
+                    } else {
+                        "".to_string()
+                    };
+                    info!("Handle {} {}{}", verb, decoded_path, query);
                     return Ok(request);
                 }
                 None => {
@@ -1595,7 +1592,6 @@ impl HttpRequestType {
                 "Invalid Http request: expected 0-length body for GetInfo".to_string(),
             ));
         }
-
         Ok(HttpRequestType::GetInfo(
             HttpRequestMetadata::from_preamble(preamble),
         ))
@@ -2341,30 +2337,56 @@ impl HttpRequestType {
             ));
         }
 
-        let mut tip = None;
-        let mut pages_indexes = HashSet::new();
+        let (index_block_hash, pages_indexes) = match query {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Invalid Http request: expecting index_block_hash and pages_indexes"
+                        .to_string(),
+                ));
+            }
+            Some(query) => {
+                let mut index_block_hash = None;
+                let mut pages_indexes = HashSet::new();
 
-        if let Some(query) = query {
-            for (key, value) in form_urlencoded::parse(query.as_bytes()) {
-                if key == "tip" {
-                    tip = match StacksBlockId::from_hex(&value) {
-                        Ok(tip) => Some(tip),
-                        _ => None,
-                    };
-                } else if key == "pages_indexes" {
-                    if let Ok(pages_indexes_value) = value.parse::<String>() {
-                        for entry in pages_indexes_value.split(",") {
-                            if let Ok(page_index) = entry.parse::<u32>() {
-                                pages_indexes.insert(page_index);
+                for (key, value) in form_urlencoded::parse(query.as_bytes()) {
+                    if key == "index_block_hash" {
+                        index_block_hash = match StacksBlockId::from_hex(&value) {
+                            Ok(index_block_hash) => Some(index_block_hash),
+                            _ => None,
+                        };
+                    } else if key == "pages_indexes" {
+                        if let Ok(pages_indexes_value) = value.parse::<String>() {
+                            for entry in pages_indexes_value.split(",") {
+                                if let Ok(page_index) = entry.parse::<u32>() {
+                                    pages_indexes.insert(page_index);
+                                }
                             }
                         }
                     }
                 }
+
+                let index_block_hash = match index_block_hash {
+                    None => {
+                        return Err(net_error::DeserializeError(
+                            "Invalid Http request: expecting index_block_hash".to_string(),
+                        ));
+                    }
+                    Some(index_block_hash) => index_block_hash,
+                };
+
+                if pages_indexes.is_empty() {
+                    return Err(net_error::DeserializeError(
+                        "Invalid Http request: expecting pages_indexes".to_string(),
+                    ));
+                }
+
+                (index_block_hash, pages_indexes)
             }
-        }
+        };
+
         Ok(HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_preamble(preamble),
-            tip,
+            index_block_hash,
             pages_indexes,
         ))
     }
@@ -2547,29 +2569,20 @@ impl HttpRequestType {
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
-            HttpRequestType::GetAttachmentsInv(_md, tip_opt, pages_indexes) => {
-                let prefix = if tip_opt.is_some() { "&" } else { "?" };
+            HttpRequestType::GetAttachmentsInv(_md, index_block_hash, pages_indexes) => {
                 let pages_query = match pages_indexes.len() {
                     0 => format!(""),
-                    1 => format!(
-                        "{}pages_indexes={}",
-                        prefix,
-                        pages_indexes.iter().next().unwrap()
-                    ),
                     _n => {
                         let mut indexes = pages_indexes
                             .iter()
                             .map(|i| format!("{}", i))
                             .collect::<Vec<String>>();
                         indexes.sort();
-                        format!("{}pages_indexes={}", prefix, indexes.join(","))
+                        format!("&pages_indexes={}", indexes.join(","))
                     }
                 };
-                format!(
-                    "/v2/attachments/inv{}{}",
-                    HttpRequestType::make_query_string(tip_opt.as_ref(), true),
-                    pages_query,
-                )
+                let index_block_hash = format!("index_block_hash={}", index_block_hash);
+                format!("/v2/attachments/inv?{}{}", index_block_hash, pages_query,)
             }
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
@@ -2578,6 +2591,38 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+        }
+    }
+
+    pub fn get_path(&self) -> &str {
+        match self {
+            HttpRequestType::GetInfo(..) => "/v2/info",
+            HttpRequestType::GetPoxInfo(..) => "/v2/pox",
+            HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
+            HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
+            HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
+            HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
+            HttpRequestType::GetMicroblocksUnconfirmed(..) => {
+                "/v2/microblocks/unconfirmed/:hash/:seq"
+            }
+            HttpRequestType::GetTransactionUnconfirmed(..) => "/v2/transactions/unconfirmed/:txid",
+            HttpRequestType::PostTransaction(..) => "/v2/transactions",
+            HttpRequestType::PostBlock(..) => "/v2/blocks/upload/:block",
+            HttpRequestType::PostMicroblock(..) => "/v2/microblocks",
+            HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
+            HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
+            HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
+            HttpRequestType::GetContractABI(..) => {
+                "/v2/contracts/interface/:principal/:contract_name"
+            }
+            HttpRequestType::GetContractSrc(..) => "/v2/contracts/source/:principal/:contract_name",
+            HttpRequestType::CallReadOnlyFunction(..) => {
+                "/v2/contracts/call-read/:principal/:contract_name/:func_name"
+            }
+            HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
+            HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
+            HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
+            HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
 
@@ -4325,36 +4370,36 @@ impl ProtocolFamily for StacksHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::test::*;
-    use net::RPCNeighbor;
-    use net::RPCNeighborsInfo;
     use std::error::Error;
+
+    use rand;
+    use rand::RngCore;
 
     use burnchains::Txid;
     use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksBlock;
-    use chainstate::stacks::StacksBlockHeader;
     use chainstate::stacks::StacksMicroblock;
+    use chainstate::stacks::StacksPrivateKey;
     use chainstate::stacks::StacksTransaction;
     use chainstate::stacks::TokenTransferMemo;
     use chainstate::stacks::TransactionAuth;
     use chainstate::stacks::TransactionPayload;
     use chainstate::stacks::TransactionPostConditionMode;
     use chainstate::stacks::TransactionVersion;
-
-    use chainstate::stacks::StacksPrivateKey;
-
+    use net::codec::test::check_codec_and_corruption;
+    use net::test::*;
+    use net::RPCNeighbor;
+    use net::RPCNeighborsInfo;
     use util::hash::to_hex;
     use util::hash::Hash160;
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use rand;
-    use rand::RngCore;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::StacksBlockHeader;
+
+    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {

@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use util::hash::to_hex;
 use util::sleep_ms;
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
 use vm::types::QualifiedContractIdentifier;
 
 use rusqlite::types::{
@@ -42,14 +42,14 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 
+use crate::types::chainstate::MARFValue;
+use crate::types::proof::TrieHash;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::storage::TrieStorageTransaction;
 use chainstate::stacks::index::Error as MARFError;
-use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::index::TrieHash;
 
 use rand::thread_rng;
 use rand::Rng;
@@ -325,7 +325,7 @@ where
 /// boilerplate code for querying a column out of a sequence of rows
 pub fn query_row_columns<T, P>(
     conn: &Connection,
-    sql_query: &String,
+    sql_query: &str,
     sql_args: P,
     column_name: &str,
 ) -> Result<Vec<T>, Error>

@@ -42,12 +42,12 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::StacksBlockId;
-use chainstate::stacks::StacksMicroblockHeader;
+
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::StacksMicroblockHeader;
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -69,8 +69,8 @@ pub struct Environment<'a, 'b> {
     pub global_context: &'a mut GlobalContext<'b>,
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
-    pub sender: Option<Value>,
-    pub caller: Option<Value>,
+    pub sender: Option<PrincipalData>,
+    pub caller: Option<PrincipalData>,
     pub sponsor: Option<PrincipalData>,
 }
 
@@ -494,7 +494,7 @@ impl<'a> OwnedEnvironment<'a> {
 
     pub fn get_exec_environment<'b>(
         &'b mut self,
-        sender: Option<Value>,
+        sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
     ) -> Environment<'b, 'a> {
         Environment::new(
@@ -509,7 +509,7 @@ impl<'a> OwnedEnvironment<'a> {
 
     pub fn execute_in_env<F, A, E>(
         &mut self,
-        sender: Value,
+        sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
@@ -544,7 +544,7 @@ impl<'a> OwnedEnvironment<'a> {
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
-            Value::from(contract_identifier.issuer.clone()),
+            contract_identifier.issuer.clone().into(),
             sponsor.clone(),
             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
@@ -558,7 +558,7 @@ impl<'a> OwnedEnvironment<'a> {
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
-            Value::from(contract_identifier.issuer.clone()),
+            contract_identifier.issuer.clone().into(),
             sponsor.clone(),
             |exec_env| {
                 exec_env.initialize_contract_from_ast(
@@ -572,7 +572,7 @@ impl<'a> OwnedEnvironment<'a> {
 
     pub fn execute_transaction(
         &mut self,
-        sender: Value,
+        sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         contract_identifier: QualifiedContractIdentifier,
         tx_name: &str,
@@ -590,7 +590,7 @@ impl<'a> OwnedEnvironment<'a> {
         amount: u128,
         memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(Value::Principal(from.clone()), None, |exec_env| {
+        self.execute_in_env(from.clone(), None, |exec_env| {
             exec_env.stx_transfer(from, to, amount, memo)
         })
     }
@@ -601,14 +601,14 @@ impl<'a> OwnedEnvironment<'a> {
         mblock_hdr_1: &StacksMicroblockHeader,
         mblock_hdr_2: &StacksMicroblockHeader,
     ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-        self.execute_in_env(Value::Principal(sender.clone()), None, |exec_env| {
+        self.execute_in_env(sender.clone(), None, |exec_env| {
             exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
         })
     }
 
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, ()>(recipient.clone().into(), None, |env| {
+        self.execute_in_env::<_, _, ()>(recipient.clone(), None, |env| {
             let mut snapshot = env
                 .global_context
                 .database
@@ -634,7 +634,7 @@ impl<'a> OwnedEnvironment<'a> {
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
-            Value::from(QualifiedContractIdentifier::transient().issuer),
+            QualifiedContractIdentifier::transient().issuer.into(),
             None,
             |exec_env| exec_env.eval_raw(program),
         )
@@ -646,7 +646,7 @@ impl<'a> OwnedEnvironment<'a> {
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
-            Value::from(QualifiedContractIdentifier::transient().issuer),
+            QualifiedContractIdentifier::transient().issuer.into(),
             None,
             |exec_env| exec_env.eval_read_only(contract, program),
         )
@@ -748,23 +748,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         global_context: &'a mut GlobalContext<'b>,
         contract_context: &'a ContractContext,
         call_stack: &'a mut CallStack,
-        sender: Option<Value>,
-        caller: Option<Value>,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
     ) -> Environment<'a, 'b> {
-        if let Some(ref sender) = sender {
-            if let Value::Principal(_) = sender {
-            } else {
-                panic!("Tried to construct environment with bad sender {}", sender);
-            }
-        }
-        if let Some(ref caller) = caller {
-            if let Value::Principal(_) = caller {
-            } else {
-                panic!("Tried to construct environment with bad caller {}", caller);
-            }
-        }
-
         Environment {
             global_context,
             contract_context,
@@ -776,7 +763,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 
     /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
-    pub fn nest_as_principal<'c>(&'c mut self, sender: Value) -> Environment<'c, 'b> {
+    pub fn nest_as_principal<'c>(&'c mut self, sender: PrincipalData) -> Environment<'c, 'b> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -787,7 +774,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         )
     }
 
-    pub fn nest_with_caller<'c>(&'c mut self, caller: Value) -> Environment<'c, 'b> {
+    pub fn nest_with_caller<'c>(&'c mut self, caller: PrincipalData) -> Environment<'c, 'b> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -916,8 +903,7 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             match res {
                 Ok(value) => {
-                    let sender_principal = self.sender.clone().map(|v| v.expect_principal());
-                    handle_contract_call_special_cases(&mut self.global_context, sender_principal.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
+                    handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
                     Ok(value)
                 },
                 Err(e) => Err(e)

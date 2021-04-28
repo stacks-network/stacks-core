@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
@@ -22,8 +38,8 @@ use util::secp256k1::Secp256k1PublicKey;
 
 use vm::types::QualifiedContractIdentifier;
 
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
+use burnchains::Txid;
 use net::StacksMessageCodec;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
@@ -41,17 +57,16 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         content_hash TEXT,
         created_at INTEGER NOT NULL,
-        consensus_hash STRING NOT NULL,
-        block_header_hash STRING NOT NULL,
         index_block_hash STRING NOT NULL,
         attachment_index INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
         metadata TEXT NOT NULL,
-        contract_id STRING NOT NULL
+        contract_id STRING NOT NULL,
+        tx_id STRING NOT NULL,
+        PRIMARY KEY(index_block_hash, contract_id, attachment_index)
     );"#,
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
@@ -70,20 +85,29 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
         let block_height =
             u64::from_column(row, "block_height").map_err(|_| db_error::TypeError)?;
         let content_hash = Hash160::from_hex(&hex_content_hash).map_err(|_| db_error::TypeError)?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
+        let index_block_hash = StacksBlockId::from_column(row, "index_block_hash")?;
         let metadata: String = row.get_unwrap("metadata");
         let contract_id = QualifiedContractIdentifier::from_column(row, "contract_id")?;
+        let hex_tx_id: String = row.get_unwrap("tx_id");
+        let tx_id = Txid::from_hex(&hex_tx_id).map_err(|_| db_error::TypeError)?;
 
         Ok(AttachmentInstance {
             content_hash,
             attachment_index,
-            consensus_hash,
-            block_header_hash,
+            index_block_hash,
             block_height,
             metadata,
             contract_id,
+            tx_id,
         })
+    }
+}
+
+impl FromRow<(u32, u32)> for (u32, u32) {
+    fn from_row<'a>(row: &'a Row) -> Result<(u32, u32), db_error> {
+        let t1: u32 = row.get_unwrap(0);
+        let t2: u32 = row.get_unwrap(1);
+        Ok((t1, t2))
     }
 }
 
@@ -216,12 +240,11 @@ impl AtlasDB {
 
     pub fn get_minmax_heights_window_for_page_index(
         &self,
-        oldest_page_index: u32,
-        newest_page_index: u32,
+        page_index: u32,
     ) -> Result<(u64, u64), db_error> {
-        let min = oldest_page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let max = (newest_page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2".to_string();
+        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
         let args = [&min as &dyn ToSql, &max as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(&args)?;
@@ -236,41 +259,41 @@ impl AtlasDB {
         }
     }
 
-    pub fn get_attachments_available_at_pages_indexes(
+    pub fn get_attachments_available_at_page_index(
         &self,
-        pages_indexes: &Vec<u32>,
-        blocks_ids: &Vec<StacksBlockId>,
-    ) -> Result<Vec<Vec<u8>>, db_error> {
-        let mut pages = vec![];
-        for page_index in pages_indexes {
-            let page = self.get_attachments_missing_at_page_index(*page_index, blocks_ids)?;
-            let mut bit_vector = vec![];
-            for (_index, is_attachment_missing) in page.iter().enumerate() {
-                // todo(ludo): use a bitvector instead
-                bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
-            }
-            pages.push(bit_vector);
+        page_index: u32,
+        block_id: &StacksBlockId,
+    ) -> Result<Vec<u8>, db_error> {
+        let page = self.get_attachments_missing_at_page_index(page_index, block_id)?;
+        let mut bit_vector = vec![];
+        for (_index, is_attachment_missing) in page.iter().enumerate() {
+            // todo(ludo): use a bitvector instead
+            bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
         }
-        Ok(pages)
+        Ok(bit_vector)
     }
 
     pub fn get_attachments_missing_at_page_index(
         &self,
         page_index: u32,
-        blocks_ids: &Vec<StacksBlockId>,
+        block_id: &StacksBlockId,
     ) -> Result<Vec<bool>, db_error> {
-        // todo(ludo): unable to build a compiled stmt with rusqlite that includes a WHERE ... IN () clause - investigate carray.
-        let ancestor_tree_sql = blocks_ids
-            .iter()
-            .map(|index_block_hash| format!("'{}'", index_block_hash))
-            .collect::<Vec<String>>()
-            .join(", ");
         let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let max = min + AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let qry = format!("SELECT is_available FROM attachment_instances WHERE attachment_index >= {} AND attachment_index < {} AND index_block_hash IN ({}) ORDER BY attachment_index ASC", min, max, ancestor_tree_sql);
-        let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
-        let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
-        Ok(res)
+        let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
+        let args = [
+            &min as &dyn ToSql,
+            &max as &dyn ToSql,
+            block_id as &dyn ToSql,
+        ];
+        let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, &args)?;
+
+        let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
+        for (attachment_index, is_available) in rows.into_iter() {
+            let index = attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+            bool_vector[index as usize] = is_available == 0;
+        }
+        Ok(bool_vector)
     }
 
     pub fn insert_uninstantiated_attachment(
@@ -331,6 +354,13 @@ impl AtlasDB {
         Ok(count)
     }
 
+    pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
+        let qry = "SELECT COUNT(rowid) FROM attachment_instances
+                   WHERE is_available = 0";
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        Ok(count)
+    }
+
     pub fn insert_instantiated_attachment(
         &mut self,
         attachment: &Attachment,
@@ -367,6 +397,30 @@ impl AtlasDB {
         Ok(row)
     }
 
+    pub fn evict_expired_unresolved_attachment_instances(&mut self) -> Result<(), db_error> {
+        let now = util::get_epoch_time_secs() as i64;
+        let cut_off = now
+            - self
+                .atlas_config
+                .unresolved_attachment_instances_expire_after as i64;
+        let tx = self.tx_begin()?;
+        let res = tx.execute(
+            "DELETE FROM attachment_instances WHERE is_available = 0 AND created_at < ?",
+            &[&cut_off as &dyn ToSql],
+        );
+        res.map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    pub fn find_unresolved_attachment_instances(
+        &mut self,
+    ) -> Result<Vec<AttachmentInstance>, db_error> {
+        let qry = "SELECT * FROM attachment_instances WHERE is_available = 0".to_string();
+        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, NO_PARAMS)?;
+        Ok(rows)
+    }
+
     pub fn find_all_attachment_instances(
         &mut self,
         content_hash: &Hash160,
@@ -396,21 +450,21 @@ impl AtlasDB {
         is_available: bool,
     ) -> Result<(), db_error> {
         let hex_content_hash = to_hex(&attachment.content_hash.0[..]);
+        let hex_tx_id = attachment.tx_id.to_hex();
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, contract_id, tx_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             &[
                 &hex_content_hash as &dyn ToSql,
                 &now as &dyn ToSql,
-                &attachment.get_stacks_block_id() as &dyn ToSql,
+                &attachment.index_block_hash as &dyn ToSql,
                 &attachment.attachment_index as &dyn ToSql,
                 &u64_to_sql(attachment.block_height)?,
                 &is_available as &dyn ToSql,
                 &attachment.metadata as &dyn ToSql,
-                &attachment.consensus_hash as &dyn ToSql,
-                &attachment.block_header_hash as &dyn ToSql,
                 &attachment.contract_id.to_string() as &dyn ToSql,
+                &hex_tx_id as &dyn ToSql,
             ]
         );
         res.map_err(db_error::SqliteError)?;

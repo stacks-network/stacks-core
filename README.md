@@ -33,6 +33,23 @@ according to the following rubric:
 - **Medium Priority**. Any fix for an issue that could cause miners to waste funds
 - **Low Priority**. Any fix for an issue that could deny service to individual nodes
 
+## Versioning
+
+This repository uses a 5 part version number.
+
+```
+X.Y.Z.A.n
+
+X = 2 and does not change in practice unless there’s another Stacks 2.0 type event
+Y increments on consensus-breaking changes
+Z increments on non-consensus-breaking changes that require a fresh chainstate (akin to semantic MAJOR)
+A increments on non-consensus-breaking changes that do not require a fresh chainstate, but introduce new features (akin to semantic MINOR)
+n increments on patches and hot-fixes (akin to semantic PATCH)
+```
+
+For example, a node operator running version `2.0.10.0.0` would not need to wipe and refresh their chainstate
+to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` would require a new chainstate.
+
 ## Roadmap
 
 - [x] [SIP 001: Burn Election](https://github.com/stacksgov/sips/blob/main/sips/sip-001/sip-001-burn-election.md)

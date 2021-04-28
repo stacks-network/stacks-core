@@ -17,13 +17,33 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::{convert::TryFrom, fmt};
 
+use rand::prelude::*;
+use rand::thread_rng;
+use rusqlite::{DatabaseName, NO_PARAMS};
+
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use burnchains::*;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::db::blocks::CheckError;
+use chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
+};
+use chainstate::stacks::Error as chain_error;
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
+use monitoring;
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
@@ -61,54 +81,35 @@ use net::{
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainView;
-
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use monitoring;
-
-use rusqlite::{DatabaseName, NO_PARAMS};
-
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
-
-use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
-    version_string,
-};
-
+use vm::database::clarity_store::make_contract_hash_key;
+use vm::types::TraitIdentifier;
 use vm::{
-    clarity::ClarityConnection,
+    analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
+        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
+    errors::Error::Unchecked,
     errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
 
-use chainstate::stacks::db::blocks::CheckError;
-use rand::prelude::*;
-use rand::thread_rng;
-use vm::types::TraitIdentifier;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{
+    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
+use crate::{
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
+    util::hash::Sha256Sum, version_string,
+};
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -246,7 +247,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -379,7 +380,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -623,6 +624,7 @@ impl ConversationHttp {
         ) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
+                // timer.observe_duration();
                 response.send(http, fd)
             }
             Err(e) => {
@@ -631,6 +633,7 @@ impl ConversationHttp {
                     response_metadata,
                     "Failed to query peer info".to_string(),
                 );
+                // timer.observe_duration();
                 response.send(http, fd)
             }
         }
@@ -677,104 +680,67 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        _atlasdb: &AtlasDB,
-        _chainstate: &mut StacksChainState,
-        _tip_consensus_hash: &ConsensusHash,
-        _tip_block_hash: &BlockHeaderHash,
-        _pages_indexes: &HashSet<u32>,
+        atlasdb: &AtlasDB,
+        index_block_hash: &StacksBlockId,
+        pages_indexes: &HashSet<u32>,
         _options: &ConnectionOptions,
     ) -> Result<(), net_error> {
+        // We are receiving a list of page indexes with a chain tip hash.
+        // The amount of pages_indexes is capped by MAX_ATTACHMENT_INV_PAGES_PER_REQUEST (8)
+        // Pages sizes are controlled by the constant ATTACHMENTS_INV_PAGE_SIZE (8), which
+        // means that a `GET v2/attachments/inv` request can be requesting for a 64 bit vector
+        // at once.
+        // Since clients can be asking for non-consecutive pages indexes (1, 5_000, 10_000, ...),
+        // we will be handling each page index separately.
+        // We could also add the notion of "budget" so that a client could only get a limited number
+        // of pages when they are spanning over many blocks.
         let response_metadata = HttpResponseMetadata::from(req);
-        let msg = format!("Atlas disabled");
-        warn!("{}", msg);
-        let response = HttpResponseType::NotFound(response_metadata, msg.clone());
-        response.send(http, fd)?;
-        Ok(())
+        if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
+            let msg = format!(
+                "Number of attachment inv pages is limited by {} per request",
+                MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+            );
+            warn!("{}", msg);
+            let response = HttpResponseType::NotFound(response_metadata, msg);
+            response.send(http, fd)?;
+            return Ok(());
+        }
+        if pages_indexes.len() == 0 {
+            let msg = format!("Page indexes missing");
+            warn!("{}", msg);
+            let response = HttpResponseType::NotFound(response_metadata, msg.clone());
+            response.send(http, fd)?;
+            return Ok(());
+        }
 
-        // let response_metadata = HttpResponseMetadata::from(req);
-        // if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
-        //     let msg = format!(
-        //         "Number of attachment inv pages is limited by {} per request",
-        //         MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
-        //     );
-        //     warn!("{}", msg);
-        //     let response = HttpResponseType::ServerError(response_metadata, msg);
-        //     response.send(http, fd)?;
-        //     return Ok(());
-        // }
+        let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        pages_indexes.sort();
 
-        // let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
-        // pages_indexes.sort();
-        // let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
+        let mut pages = vec![];
 
-        // let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
-        //     (
-        //         *pages_indexes.first().unwrap(),
-        //         *pages_indexes.last().unwrap(),
-        //         pages_indexes.clone(),
-        //     )
-        // } else {
-        //     // Pages indexes not provided, aborting
-        //     let msg = format!("Page indexes missing");
-        //     warn!("{}", msg);
-        //     let response = HttpResponseType::BadRequest(response_metadata, msg.clone());
-        //     response.send(http, fd)?;
-        //     return Err(net_error::ClientError(ClientError::Message(msg)));
-        // };
+        for page_index in pages_indexes.iter() {
+            match atlasdb.get_attachments_available_at_page_index(*page_index, &index_block_hash) {
+                Ok(inventory) => {
+                    pages.push(AttachmentPage {
+                        inventory,
+                        index: *page_index,
+                    });
+                }
+                Err(e) => {
+                    let msg = format!("Unable to read Atlas DB - {}", e);
+                    warn!("{}", msg);
+                    let response = HttpResponseType::NotFound(response_metadata, msg);
+                    return response.send(http, fd);
+                }
+            }
+        }
 
-        // // We need to rebuild an ancestry tree, but we're still missing some informations at this point
-        // let (min_block_height, max_block_height) = match atlasdb
-        //     .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
-        // {
-        //     Ok(window) => window,
-        //     Err(e) => {
-        //         let msg = format!("Unable to read Atlas DB");
-        //         warn!("{}", msg);
-        //         let response = HttpResponseType::ServerError(response_metadata, msg);
-        //         response.send(http, fd)?;
-        //         return Err(net_error::DBError(e));
-        //     }
-        // };
-
-        // let mut blocks_ids = vec![];
-        // let mut headers_tx = chainstate.index_tx_begin()?;
-        // let tip_index_hash =
-        //     StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
-
-        // for block_height in min_block_height..=max_block_height {
-        //     match StacksChainState::get_index_tip_ancestor(
-        //         &mut headers_tx,
-        //         &tip_index_hash,
-        //         block_height,
-        //     )? {
-        //         Some(header) => blocks_ids.push(header.index_block_hash()),
-        //         _ => {}
-        //     }
-        // }
-
-        // match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
-        //     Ok(pages) => {
-        //         let pages = pages
-        //             .into_iter()
-        //             .zip(pages_indexes)
-        //             .map(|(inventory, index)| AttachmentPage { index, inventory })
-        //             .collect();
-
-        //         let content = GetAttachmentsInvResponse {
-        //             block_id: tip.clone(),
-        //             pages,
-        //         };
-        //         let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
-        //         response.send(http, fd)
-        //     }
-        //     Err(e) => {
-        //         let msg = format!("Unable to read Atlas DB");
-        //         warn!("{}", msg);
-        //         let response = HttpResponseType::ServerError(response_metadata, msg);
-        //         response.send(http, fd)?;
-        //         return Err(net_error::DBError(e));
-        //     }
-        // }
+        let content = GetAttachmentsInvResponse {
+            block_id: index_block_hash.clone(),
+            pages,
+        };
+        let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
+        response.send(http, fd)
     }
 
     fn handle_getattachment<W: Write>(
@@ -794,7 +760,7 @@ impl ConversationHttp {
             _ => {
                 let msg = format!("Unable to find attachment");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(response_metadata, msg);
+                let response = HttpResponseType::NotFound(response_metadata, msg);
                 response.send(http, fd)
             }
         }
@@ -854,7 +820,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
@@ -898,7 +863,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.has_processed_microblocks(index_anchor_block_hash) {
@@ -1004,7 +968,6 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
-
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this processed microblock stream?
@@ -1239,22 +1202,28 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let mut cost_limit = options.read_only_call_limit.clone();
+        cost_limit.write_length = 0;
+        cost_limit.write_count = 0;
+
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(
-                            mainnet,
-                            options.read_only_call_limit.clone(),
-                            clarity_db,
-                        )
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
                 clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                    // we want to execute any function as long as no actual writes are made as
+                    // opposed to be limited to purely calling `define-read-only` functions,
+                    // so use `read_only = false`.  This broadens the number of functions that
+                    // can be called, and also circumvents limitations on `define-read-only`
+                    // functions that can not use `contrac-call?`, even when calling other
+                    // read-only functions
+                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
                 })
             });
 
@@ -1267,19 +1236,32 @@ impl ConversationHttp {
                     cause: None,
                 },
             ),
-            Ok(Some(Err(e))) => HttpResponseType::CallReadOnlyFunction(
-                response_metadata,
-                CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
-                },
-            ),
+            Ok(Some(Err(e))) => match e {
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    HttpResponseType::CallReadOnlyFunction(
+                        response_metadata,
+                        CallReadOnlyResponse {
+                            okay: false,
+                            result: None,
+                            cause: Some("NotReadOnly".to_string()),
+                        },
+                    )
+                }
+                _ => HttpResponseType::CallReadOnlyFunction(
+                    response_metadata,
+                    CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some(e.to_string()),
+                    },
+                ),
+            },
             Ok(None) | Err(_) => {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
             }
         };
-
         response.send(http, fd).map(|_| ())
     }
 
@@ -1304,8 +1286,7 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
-                    let contract_commit_key =
-                        MarfedKV::make_contract_hash_key(&contract_identifier);
+                    let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
@@ -1354,13 +1335,16 @@ impl ConversationHttp {
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
-                    let mut analysis = db.load_contract_analysis(&contract_identifier)?;
+                    let analysis = db.load_contract_analysis(&contract_identifier)?;
                     if analysis.implemented_traits.contains(trait_id) {
                         Some(GetIsTraitImplementedResponse {
                             is_implemented: true,
                         })
                     } else {
-                        let trait_definition = analysis.get_defined_trait(&trait_id.name)?;
+                        let trait_defining_contract =
+                            db.load_contract_analysis(&trait_id.contract_identifier)?;
+                        let trait_definition =
+                            trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
                             .check_trait_compliance(trait_id, trait_definition)
                             .is_ok();
@@ -1699,7 +1683,6 @@ impl ConversationHttp {
         block: &StacksBlock,
     ) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-
         // is this a consensus hash we recognize?
         let (response, accepted) =
             match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
@@ -1874,8 +1857,6 @@ impl ConversationHttp {
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
-        monitoring::increment_rpc_calls_counter();
-
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
@@ -2173,29 +2154,20 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
-                if let Some((tip_consensus_hash, tip_block_hash)) =
-                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        tip_opt.as_ref(),
-                        sortdb,
-                        chainstate,
-                    )?
-                {
-                    ConversationHttp::handle_getattachmentsinv(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        atlasdb,
-                        chainstate,
-                        &tip_consensus_hash,
-                        &tip_block_hash,
-                        pages_indexes,
-                        &self.connection.options,
-                    )?;
-                }
+            HttpRequestType::GetAttachmentsInv(
+                ref _md,
+                ref index_block_hash,
+                ref pages_indexes,
+            ) => {
+                ConversationHttp::handle_getattachmentsinv(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    atlasdb,
+                    &index_block_hash,
+                    pages_indexes,
+                    &self.connection.options,
+                )?;
                 None
             }
             HttpRequestType::PostBlock(ref _md, ref consensus_hash, ref block) => {
@@ -2577,17 +2549,19 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    let msg_opt = self.handle_request(
-                        req,
-                        chain_view,
-                        peers,
-                        sortdb,
-                        peerdb,
-                        atlasdb,
-                        chainstate,
-                        mempool,
-                        handler_args,
-                    )?;
+                    let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
+                        self.handle_request(
+                            req,
+                            chain_view,
+                            peers,
+                            sortdb,
+                            peerdb,
+                            atlasdb,
+                            chainstate,
+                            mempool,
+                            handler_args,
+                        )
+                    })?;
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
                     }
@@ -2638,6 +2612,7 @@ impl ConversationHttp {
                 break;
             }
         }
+        monitoring::update_inbound_rpc_bandwidth(total_recv as i64);
         Ok(total_recv)
     }
 
@@ -2667,6 +2642,7 @@ impl ConversationHttp {
                 break;
             }
         }
+        monitoring::update_inbound_rpc_bandwidth(total_sz as i64);
         Ok(total_sz)
     }
 
@@ -2862,12 +2838,12 @@ impl ConversationHttp {
     /// Make a new request for attachment inventory page
     pub fn new_getattachmentsinv(
         &self,
-        tip_opt: Option<StacksBlockId>,
+        index_block_hash: StacksBlockId,
         pages_indexes: HashSet<u32>,
     ) -> HttpRequestType {
         HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
-            tip_opt,
+            index_block_hash,
             pages_indexes,
         )
     }
@@ -2875,20 +2851,14 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
     use std::cell::RefCell;
+    use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use address::*;
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
-
     use burnchains::*;
-    use chainstate::burn::BlockHeaderHash;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
@@ -2897,16 +2867,20 @@ mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::*;
-
-    use address::*;
-
+    use net::codec::*;
+    use net::http::*;
+    use net::test::*;
+    use net::*;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::pipe::*;
-
-    use std::convert::TryInto;
-
     use vm::types::*;
+
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+
+    use super::*;
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)
@@ -2915,7 +2889,7 @@ mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
-          (begin 
+          (begin
             (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin
@@ -4603,7 +4577,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 let pages_indexes = HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-                convo_client.new_getattachmentsinv(None, pages_indexes)
+                convo_client.new_getattachmentsinv(StacksBlockId([0x00; 32]), pages_indexes)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();

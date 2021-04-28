@@ -14,31 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::{types::ToSql, OptionalExtension, Row};
-
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
+use std::path::{Path, PathBuf};
+
+use rusqlite::{types::ToSql, OptionalExtension, Row};
 
 use chainstate::burn::ConsensusHash;
-
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-
-use std::path::{Path, PathBuf};
-use vm::costs::ExecutionCost;
-
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
 use util::db::Error as db_error;
 use util::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
     FromRow,
 };
+use vm::costs::ExecutionCost;
 
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
+use crate::types::chainstate::{
+    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
+};
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
@@ -279,21 +279,32 @@ impl StacksChainState {
         }
     }
 
-    /// Get an ancestor block header given an index hash
-    pub fn get_index_tip_ancestor_conn(
-        conn: &StacksDBConn,
-        tip_index_hash: &StacksBlockId,
-        height: u64,
-    ) -> Result<Option<StacksHeaderInfo>, Error> {
-        match conn
-            .get_ancestor_block_hash(height, tip_index_hash)
-            .map_err(Error::DBError)?
-        {
-            Some(bhh) => {
-                StacksChainState::get_stacks_block_header_info_by_index_block_hash(conn, &bhh)
+    /// Get a segment of headers from the canonical chain
+    pub fn get_ancestors_headers(
+        conn: &Connection,
+        upper_bound_header: StacksHeaderInfo,
+        lower_bound_height: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let mut ancestors = vec![];
+        let mut ancestry_cursor = Some(upper_bound_header);
+        while let Some(cursor) = ancestry_cursor.take() {
+            if cursor.block_height < lower_bound_height {
+                break;
             }
-            None => Ok(None),
+            let block_id = cursor.index_block_hash();
+            ancestors.push(cursor.clone());
+            let parent_block_id = StacksChainState::get_parent_block_id(conn, &block_id)?;
+            if let Some(parent_block_id) = parent_block_id {
+                ancestry_cursor =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        conn,
+                        &parent_block_id,
+                    )?;
+            } else {
+                ancestry_cursor = None;
+            }
         }
+        Ok(ancestors)
     }
 
     /// Get the genesis (boot code) block header
@@ -310,10 +321,9 @@ impl StacksChainState {
         conn: &Connection,
         block_id: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
-        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1"
-            .to_string();
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[block_id];
-        let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
+        let mut rows = query_row_columns::<StacksBlockId, _>(conn, sql, args, "parent_block_id")?;
         Ok(rows.pop())
     }
 

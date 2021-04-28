@@ -29,6 +29,10 @@ warp = "0.2"
 tokio = "0.2.21"
 reqwest = { version = "0.10", features = ["blocking", "json", "rustls"] }
 
+[dev-dependencies.rusqlite]
+version = "=0.24.2"
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
+
 [[bin]]
 name = "stacks-node"
 path = "src/main.rs"

@@ -47,14 +47,14 @@ pub fn lookup_reserved_variable(
                     .sender
                     .clone()
                     .ok_or(RuntimeErrorType::NoSenderInContext)?;
-                Ok(Some(sender))
+                Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
                 let caller = env
                     .caller
                     .clone()
                     .ok_or(RuntimeErrorType::NoCallerInContext)?;
-                Ok(Some(caller))
+                Ok(Some(Value::Principal(caller)))
             }
             NativeVariables::TxSponsor => {
                 let sponsor = match env.sponsor.clone() {

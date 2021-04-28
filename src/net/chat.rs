@@ -14,67 +14,57 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::mem;
-
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-
-use net::codec::*;
-use net::relay::*;
-use net::*;
-
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::GetBlocksInv;
-use net::GetPoxInv;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::GETPOXINV_MAX_BITLEN;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::db::*;
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
-
-use burnchains::PublicKey;
-
-use chainstate::burn::db::sortdb;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, PoxId, SortitionDB};
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksPublicKey;
-use monitoring;
-
-use std::net::SocketAddr;
-
+use std::cmp;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-
-use std::cmp;
 use std::convert::TryFrom;
 use std::io::Read;
 use std::io::Write;
-
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
+use std::mem;
+use std::net::SocketAddr;
 
 use rand;
 use rand::thread_rng;
 use rand::Rng;
+
+use crate::types::chainstate::StacksBlockHeader;
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use burnchains::PublicKey;
+use chainstate::burn::db::sortdb;
+use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::StacksPublicKey;
+use monitoring;
+use net::asn::ASEntry4;
+use net::codec::*;
+use net::connection::ConnectionOptions;
+use net::connection::ConnectionP2P;
+use net::connection::ReplyHandleP2P;
+use net::db::PeerDB;
+use net::db::*;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::relay::*;
+use net::Error as net_error;
+use net::GetBlocksInv;
+use net::GetPoxInv;
+use net::Neighbor;
+use net::NeighborKey;
+use net::PeerAddress;
+use net::StacksMessage;
+use net::StacksP2P;
+use net::GETPOXINV_MAX_BITLEN;
+use net::*;
+use util::db::DBConn;
+use util::db::Error as db_error;
+use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::log;
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
+
+use crate::types::chainstate::PoxId;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -999,7 +989,8 @@ impl ConversationP2P {
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
-        monitoring::increment_p2p_msg_nat_punch_request_received_counter();
+        // monitoring::increment_p2p_msg_nat_punch_request_received_counter();
+        monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
         let natpunch_data = NatPunchData {
             addrbytes: self.peer_addrbytes.clone(),
@@ -1166,7 +1157,8 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> {
-        monitoring::increment_p2p_msg_ping_received_counter();
+        // monitoring::increment_p2p_msg_ping_received_counter();
+        monitoring::increment_msg_counter("p2p_ping".to_string());
 
         let ping_data = match message.payload {
             StacksMessageType::Ping(ref data) => data,
@@ -1189,7 +1181,8 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
-        monitoring::increment_p2p_msg_get_neighbors_received_counter();
+        // monitoring::increment_p2p_msg_get_neighbors_received_counter();
+        monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
         // get neighbors at random as long as they're fresh
         let mut neighbors = PeerDB::get_random_neighbors(
@@ -1377,7 +1370,9 @@ impl ConversationP2P {
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
-        monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
+        // monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
+        monitoring::increment_msg_counter("p2p_get_blocks_inv".to_string());
+
         let mut response = ConversationP2P::make_getblocksinv_response(
             local_peer,
             &self.burnchain,
@@ -1952,7 +1947,8 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
+                // monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
+                monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) =
@@ -2023,8 +2019,8 @@ impl ConversationP2P {
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
-
+                // monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
+                monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
                     self.handle_handshake(local_peer, peerdb, burnchain_view, msg, false)?;
@@ -2099,7 +2095,8 @@ impl ConversationP2P {
                     nack_payload,
                 );
 
-                monitoring::increment_p2p_msg_nack_sent_counter();
+                // monitoring::increment_p2p_msg_nack_sent_counter();
+                monitoring::increment_msg_counter("p2p_nack_sent".to_string());
 
                 // unauthenticated, so don't forward it (but do consume it, and do nack it)
                 consume = true;
@@ -2305,38 +2302,36 @@ impl ConversationP2P {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use burnchains::burnchain::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use chainstate::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::p2p::*;
-    use net::*;
-    use util::pipe::*;
-    use util::secp256k1::*;
-    use util::uint::*;
-
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::stacks::db::ChainStateBootData;
-    use vm::costs::ExecutionCost;
-
-    use std::net::SocketAddr;
-    use std::net::SocketAddrV4;
-
     use std::fs;
     use std::io::prelude::*;
     use std::io::Read;
     use std::io::Write;
+    use std::net::SocketAddr;
+    use std::net::SocketAddrV4;
 
-    use util::test::*;
-
-    use net::test::*;
-
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::burnchain::*;
+    use burnchains::*;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::*;
+    use chainstate::stacks::db::ChainStateBootData;
+    use chainstate::*;
     use core::{NETWORK_P2P_PORT, PEER_VERSION_TESTNET};
+    use net::connection::*;
+    use net::db::*;
+    use net::p2p::*;
+    use net::test::*;
+    use net::*;
+    use util::pipe::*;
+    use util::secp256k1::*;
+    use util::test::*;
+    use util::uint::*;
+    use vm::costs::ExecutionCost;
+
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+
+    use super::*;
 
     fn make_test_chain_dbs(
         testname: &str,

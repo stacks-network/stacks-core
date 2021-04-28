@@ -342,8 +342,7 @@ impl Value {
 
                 r.read_exact(&mut data[..])?;
 
-                // can safely unwrap, because the buffer length was _already_ checked.
-                Ok(Value::buff_from(data).unwrap())
+                Value::buff_from(data).map_err(|_| "Bad buffer".into())
             }
             TypePrefix::BoolTrue => {
                 check_match!(expected_type, TypeSignature::BoolType)?;
@@ -517,8 +516,7 @@ impl Value {
 
                 r.read_exact(&mut data[..])?;
 
-                // can safely unwrap, because the string length was _already_ checked.
-                Ok(Value::string_ascii_from_bytes(data).unwrap())
+                Value::string_ascii_from_bytes(data).map_err(|_| "Bad string".into())
             }
             TypePrefix::StringUTF8 => {
                 let mut total_len = [0; 4];
