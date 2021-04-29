@@ -279,23 +279,6 @@ impl StacksChainState {
         }
     }
 
-    /// Get an ancestor block header given an index hash
-    pub fn get_index_tip_ancestor_conn(
-        conn: &StacksDBConn,
-        tip_index_hash: &StacksBlockId,
-        height: u64,
-    ) -> Result<Option<StacksHeaderInfo>, Error> {
-        match conn
-            .get_ancestor_block_hash(height, tip_index_hash)
-            .map_err(Error::DBError)?
-        {
-            Some(bhh) => {
-                StacksChainState::get_stacks_block_header_info_by_index_block_hash(conn, &bhh)
-            }
-            None => Ok(None),
-        }
-    }
-
     /// Get a segment of headers from the canonical chain
     pub fn get_ancestors_headers(
         conn: &Connection,
