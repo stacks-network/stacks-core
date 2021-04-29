@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use core::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
@@ -47,6 +47,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
     StacksBlockId, VRFSeed,
 };
+
 use crate::types::proof::TrieMerkleProof;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -97,6 +98,7 @@ pub trait BurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -134,6 +136,10 @@ impl BurnStateDB for &dyn BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash(height, sortition_id)
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        (*self).get_stacks_epoch(height)
     }
 }
 
@@ -218,6 +224,10 @@ impl BurnStateDB for NullBurnStateDB {
         _height: u32,
         _sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
+        None
+    }
+
+    fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         None
     }
 }
@@ -1393,5 +1403,14 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Option<BurnchainHeaderHash> {
         self.burn_state_db
             .get_burn_header_hash(height, sortition_id)
+    }
+
+    pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        self.burn_state_db.get_stacks_epoch(height)
+    }
+
+    pub fn get_current_stacks_epoch(&mut self) -> Option<StacksEpoch> {
+        let cur_burn_height = self.get_current_burnchain_block_height();
+        self.get_stacks_epoch(cur_burn_height)
     }
 }

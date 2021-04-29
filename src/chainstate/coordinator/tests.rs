@@ -187,6 +187,7 @@ pub fn setup_states(
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             burnchain.first_block_timestamp.into(),
+            &StacksEpoch::unit_test(burnchain.first_block_height),
             true,
         )
         .unwrap();
