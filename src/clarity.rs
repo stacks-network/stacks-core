@@ -59,6 +59,7 @@ use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNE
 use util::boot::{boot_code_addr, boot_code_id};
 
 use core::BLOCK_LIMIT_MAINNET;
+use core::HELIUM_BLOCK_LIMIT;
 
 use serde::Serialize;
 use serde_json::json;
@@ -88,15 +89,6 @@ macro_rules! panic_test {
         process::exit(1)
     };
 }
-
-const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_0_000_000,
-    write_count: 5_0_000,
-    read_length: 1_000_000_000,
-    read_count: 5_0_000,
-    // allow much more runtime in helium blocks than mainnet
-    runtime: 100_000_000_000,
-};
 
 #[cfg_attr(tarpaulin, skip)]
 fn print_usage(invoked_by: &str) {
