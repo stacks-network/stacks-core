@@ -58,6 +58,8 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::ClarityMarfTrieId;
 
+use core::StacksEpochId;
+
 #[cfg(test)]
 macro_rules! panic_test {
     () => {
@@ -655,6 +657,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 false,
                 marf.as_clarity_db(),
                 LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch21,
             );
             let mut exec_env = vm_env.get_exec_environment(None, None);
 
@@ -728,6 +731,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 false,
                 marf.as_clarity_db(),
                 LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch21,
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -768,6 +772,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         false,
                         db,
                         LimitedCostTracker::new_free(),
+                        StacksEpochId::Epoch21,
                     );
                     vm_env
                         .get_exec_environment(None, None)
@@ -801,6 +806,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         false,
                         db,
                         LimitedCostTracker::new_free(),
+                        StacksEpochId::Epoch21,
                     );
                     vm_env
                         .get_exec_environment(None, None)
@@ -854,6 +860,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         false,
                         db,
                         LimitedCostTracker::new_free(),
+                        StacksEpochId::Epoch21,
                     );
                     vm_env
                         .get_exec_environment(None, None)
@@ -917,6 +924,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                                 false,
                                 db,
                                 LimitedCostTracker::new_free(),
+                                StacksEpochId::Epoch21,
                             );
                             vm_env.initialize_contract(contract_identifier, &contract_content, None)
                         };
@@ -980,7 +988,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 .iter()
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument),
+                        vm_execute(argument, StacksEpochId::Epoch21),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(
@@ -998,6 +1006,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         false,
                         db,
                         LimitedCostTracker::new_free(),
+                        StacksEpochId::Epoch21,
                     );
                     vm_env.execute_transaction(
                         sender,
