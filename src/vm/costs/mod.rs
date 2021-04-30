@@ -37,6 +37,8 @@ use vm::types::{
 };
 use vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
+use core::StacksEpochId;
+
 pub mod constants;
 pub mod cost_functions;
 
@@ -767,7 +769,16 @@ fn compute_cost(
     let mainnet = cost_tracker.mainnet;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context = GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free());
+
+    // NOTE: all cost-functions evaluate under Stacks 2.0 epoch rules.
+    // This shouldn't be a problem, because they're all arithmetic circuits -- they don't need any
+    // special functionality introduced in later epochs.
+    let mut global_context = GlobalContext::new(
+        mainnet,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch20,
+    );
 
     let cost_contract = cost_tracker
         .cost_contracts
