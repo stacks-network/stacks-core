@@ -39,7 +39,7 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use blockstack_lib::core::{StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::util::{
@@ -441,7 +441,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                vm::execute(input)?
+                vm::execute(input, StacksEpochId::Epoch21)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {
