@@ -52,6 +52,10 @@ use crate::types::chainstate::StacksMicroblockHeader;
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
 
+use core::StacksEpochId;
+
+use vm::extensions::{load_extension_function_implementations, ExtensionImplementation};
+
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 // TODO:
@@ -118,6 +122,8 @@ pub struct GlobalContext<'a> {
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
+    pub epoch_id: StacksEpochId,
+    extensions: HashMap<FunctionIdentifier, ExtensionImplementation>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -454,7 +460,26 @@ impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(
+                false,
+                database,
+                LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch20,
+            ),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_2_1(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(
+                false,
+                database,
+                LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch21,
+            ),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -466,15 +491,24 @@ impl<'a> OwnedEnvironment<'a> {
             .expect("FAIL: problem instantiating cost tracking");
 
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, cost_track),
+            context: GlobalContext::new(false, database, cost_track, StacksEpochId::Epoch20),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
     }
 
-    pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_free(
+        mainnet: bool,
+        database: ClarityDatabase<'a>,
+        epoch_id: StacksEpochId,
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(mainnet, database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(
+                mainnet,
+                database,
+                LimitedCostTracker::new_free(),
+                epoch_id,
+            ),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -484,9 +518,10 @@ impl<'a> OwnedEnvironment<'a> {
         mainnet: bool,
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
+        epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(mainnet, database, cost_tracker),
+            context: GlobalContext::new(mainnet, database, cost_tracker, epoch_id),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -669,6 +704,17 @@ impl<'a> OwnedEnvironment<'a> {
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
+    }
+
+    /// Add a native extension function (TEST ONLY)
+    #[cfg(test)]
+    pub fn insert_extension_function_implementation(
+        &mut self,
+        function_id: FunctionIdentifier,
+        implementation: ExtensionImplementation,
+    ) {
+        self.context
+            .insert_extension_function_implementation(function_id, implementation);
     }
 }
 
@@ -898,7 +944,10 @@ impl<'a, 'b> Environment<'a, 'b> {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+
+            let extension_impl_opt = self.global_context.lookup_extension_function_implementation(&func_identifier);
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), extension_impl_opt.as_ref());
+
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -916,6 +965,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         function: &DefinedFunction,
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
+        extension_impl_opt: Option<&ExtensionImplementation>,
     ) -> Result<Value> {
         let make_read_only = function.is_read_only();
 
@@ -937,7 +987,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.sponsor.clone(),
             );
 
-            function.execute_apply(args, &mut nested_env)
+            function.execute_apply(args, &mut nested_env, extension_impl_opt)
         };
 
         if make_read_only {
@@ -961,7 +1011,27 @@ impl<'a, 'b> Environment<'a, 'b> {
             .database
             .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
+                // roll back epoch as well.  This is guaranteed to succeed if we get here.
+                let prior_burn_height = self
+                    .global_context
+                    .database
+                    .get_burnchain_block_height(&prior_bhh)
+                    .expect("BUG: no burn block height for prior block");
+
+                let prior_epoch = self
+                    .global_context
+                    .database
+                    .get_stacks_epoch(prior_burn_height)
+                    .expect("BUG: no epoch defined for burn height");
+
+                let epoch_id = self.global_context.epoch_id;
+                self.global_context.epoch_id = prior_epoch.epoch_id;
+
+                // do the work
                 let result = eval(closure, self, local);
+
+                // restore
+                self.global_context.epoch_id = epoch_id;
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
@@ -1288,7 +1358,9 @@ impl<'a> GlobalContext<'a> {
         mainnet: bool,
         database: ClarityDatabase,
         cost_track: LimitedCostTracker,
+        epoch_id: StacksEpochId,
     ) -> GlobalContext {
+        let extensions = load_extension_function_implementations(mainnet, epoch_id);
         GlobalContext {
             database,
             cost_track,
@@ -1296,6 +1368,8 @@ impl<'a> GlobalContext<'a> {
             asset_maps: Vec::new(),
             event_batches: Vec::new(),
             mainnet,
+            epoch_id,
+            extensions,
         }
     }
 
@@ -1456,6 +1530,24 @@ impl<'a> GlobalContext<'a> {
         } else {
             None
         }
+    }
+
+    /// Look up a extension function implementation
+    pub fn lookup_extension_function_implementation(
+        &self,
+        function_id: &FunctionIdentifier,
+    ) -> Option<ExtensionImplementation> {
+        self.extensions.get(function_id).cloned()
+    }
+
+    /// Add a extension function (TEST ONLY)
+    #[cfg(test)]
+    pub fn insert_extension_function_implementation(
+        &mut self,
+        function_id: FunctionIdentifier,
+        implementation: ExtensionImplementation,
+    ) {
+        self.extensions.insert(function_id, implementation);
     }
 }
 
