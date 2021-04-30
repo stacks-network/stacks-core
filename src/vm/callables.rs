@@ -32,8 +32,10 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext, Value};
 
+use vm::extensions::ExtensionImplementation;
+
 pub enum CallableType {
-    UserFunction(DefinedFunction),
+    UserFunction(DefinedFunction, Option<ExtensionImplementation>),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
     SpecialFunction(
         &'static str,
@@ -99,12 +101,12 @@ impl DefinedFunction {
         body: SymbolicExpression,
         define_type: DefineType,
         name: &ClarityName,
-        context_name: &str,
+        contract_id: &QualifiedContractIdentifier,
     ) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction {
-            identifier: FunctionIdentifier::new_user_function(name, context_name),
+            identifier: FunctionIdentifier::new_contract_function(contract_id, name),
             name: name.clone(),
             arguments: argument_names,
             define_type,
@@ -113,7 +115,32 @@ impl DefinedFunction {
         }
     }
 
-    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    #[cfg(test)]
+    pub fn new_context(
+        mut arguments: Vec<(ClarityName, TypeSignature)>,
+        body: SymbolicExpression,
+        define_type: DefineType,
+        name: &ClarityName,
+        context: &str,
+    ) -> DefinedFunction {
+        let (argument_names, types) = arguments.drain(..).unzip();
+
+        DefinedFunction {
+            identifier: FunctionIdentifier::new_context_function(name, context),
+            name: name.clone(),
+            arguments: argument_names,
+            define_type,
+            body,
+            arg_types: types,
+        }
+    }
+
+    pub fn execute_apply(
+        &self,
+        args: &[Value],
+        env: &mut Environment,
+        extension_impl_opt: Option<&ExtensionImplementation>,
+    ) -> Result<Value> {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
             env,
@@ -172,7 +199,10 @@ impl DefinedFunction {
             }
         }
 
-        let result = eval(&self.body, env, &context);
+        let result = match extension_impl_opt {
+            Some(native_func) => native_func.run(env, &context),
+            None => eval(&self.body, env, &context),
+        };
 
         // if the error wasn't actually an error, but a function return,
         //    pull that out and return it.
@@ -216,11 +246,20 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn apply(
+        &self,
+        args: &[Value],
+        env: &mut Environment,
+        extension_impl_opt: Option<&ExtensionImplementation>,
+    ) -> Result<Value> {
         match self.define_type {
-            DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args, None),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None),
+            DefineType::Private => self.execute_apply(args, env, None),
+            DefineType::Public => {
+                env.execute_function_as_transaction(self, args, None, extension_impl_opt)
+            }
+            DefineType::ReadOnly => {
+                env.execute_function_as_transaction(self, args, None, extension_impl_opt)
+            }
         }
     }
 
@@ -240,7 +279,7 @@ impl DefinedFunction {
 impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
-            CallableType::UserFunction(f) => f.get_identifier(),
+            CallableType::UserFunction(f, ..) => f.get_identifier(),
             CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
             CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
         }
@@ -255,7 +294,18 @@ impl FunctionIdentifier {
         }
     }
 
-    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+    pub fn new_contract_function(
+        contract_id: &QualifiedContractIdentifier,
+        name: &str,
+    ) -> FunctionIdentifier {
+        let identifier = format!("{}:{}", contract_id.to_string(), name);
+        FunctionIdentifier {
+            identifier: identifier,
+        }
+    }
+
+    #[cfg(test)]
+    fn new_context_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
         FunctionIdentifier {
             identifier: identifier,
