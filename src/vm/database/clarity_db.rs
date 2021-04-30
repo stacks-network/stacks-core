@@ -43,9 +43,12 @@ use vm::types::{
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId, VRFSeed,
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+        StacksBlockId, VRFSeed,
+    },
 };
 
 use crate::types::proof::TrieMerkleProof;
@@ -320,6 +323,10 @@ impl<'a> ClarityDatabase<'a> {
         format!("vm-metadata::{}::{}", data as u8, var_name)
     }
 
+    fn clarity_state_epoch_key() -> &'static str {
+        "vm-epoch::epoch-version"
+    }
+
     pub fn make_key_for_quad(
         contract_identifier: &QualifiedContractIdentifier,
         data: StoreType,
@@ -492,6 +499,19 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn ustx_liquid_supply_key() -> &'static str {
         "_stx-data::ustx_liquid_supply"
+    }
+
+    /// Returns the epoch version currently applied in the stored Clarity state
+    pub fn get_clarity_epoch_version(&mut self) -> StacksEpochId {
+        match self.get(Self::clarity_state_epoch_key()) {
+            Some(x) => u32::try_into(x).expect("Bad Clarity epoch version in stored Clarity state"),
+            None => StacksEpochId::Epoch20,
+        }
+    }
+
+    /// Should be called _after_ all of the epoch's initialization has been invoked
+    pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) {
+        self.put(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
     /// Returns the _current_ total liquid ustx
@@ -1409,6 +1429,10 @@ impl<'a> ClarityDatabase<'a> {
         self.burn_state_db.get_stacks_epoch(height)
     }
 
+    /// returns the current stacks epoch _according to the burnchain_
+    ///   this could be different than the current epoch in the Stacks
+    ///   chainstate (i.e., before the new epoch's initialization has
+    ///   been applied).
     pub fn get_current_stacks_epoch(&mut self) -> Option<StacksEpoch> {
         let cur_burn_height = self.get_current_burnchain_block_height();
         self.get_stacks_epoch(cur_burn_height)

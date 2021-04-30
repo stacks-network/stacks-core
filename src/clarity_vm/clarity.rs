@@ -18,7 +18,8 @@ use std::error;
 use std::fmt;
 
 use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_MAINNET,
+    BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
@@ -42,13 +43,13 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
+use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -609,6 +610,35 @@ impl<'a> ClarityBlockConnection<'a> {
         self.datastore.commit_unconfirmed();
 
         self.cost_track.unwrap()
+    }
+
+    pub fn initialize_epoch_2_1(&mut self) -> Result<(), Error> {
+        self.as_transaction(|tx_conn| {
+            let pox_2_code = if self.mainnet {
+                &*BOOT_CODE_POX_MAINNET
+            } else {
+                &*BOOT_CODE_POX_TESTNET
+            };
+
+            let (ast, _) = tx_conn
+                .analyze_smart_contract(&boot_code_id("pox-2", self.mainnet), pox_2_code)
+                .unwrap();
+            tx_conn
+                .initialize_smart_contract(
+                    &boot_code_id("pox", self.mainnet),
+                    &ast,
+                    pox_2_code,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+
+            tx_conn.with_clarity_db(|db| {
+                db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                Ok(())
+            })
+        })?;
+        Ok(())
     }
 
     pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
