@@ -1342,6 +1342,7 @@ impl fmt::Display for FunctionArg {
 mod test {
     use super::CheckErrors::*;
     use super::*;
+    use core::StacksEpochId;
     use vm::execute;
 
     fn fail_parse(val: &str) -> CheckErrors {
@@ -1352,7 +1353,9 @@ mod test {
 
     #[test]
     fn type_of_list_of_buffs() {
-        let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
+        let value = execute("(list \"abc\" \"abcde\")", StacksEpochId::Epoch20)
+            .unwrap()
+            .unwrap();
         let type_descr = "(list 2 (string-ascii 5))".into();
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
