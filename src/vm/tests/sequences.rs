@@ -20,8 +20,14 @@ use vm::types::{TypeSignature, Value};
 
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
+use vm::errors::{CheckErrors, Error, InterpreterResult, RuntimeErrorType};
+use vm::execute as vm_execute;
+
+use core::StacksEpochId;
+
+fn execute(program: &str) -> InterpreterResult<Option<Value>> {
+    vm_execute(program, StacksEpochId::Epoch20)
+}
 
 #[test]
 fn test_simple_list_admission() {
