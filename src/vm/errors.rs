@@ -223,6 +223,7 @@ impl Into<Value> for ShortReturnType {
 #[cfg(test)]
 mod test {
     use super::*;
+    use core::StacksEpochId;
     use vm::execute;
 
     #[test]
@@ -233,7 +234,10 @@ mod test {
 _native_:native_div
 ";
 
-        assert_eq!(format!("{}", execute(t).unwrap_err()), expected);
+        assert_eq!(
+            format!("{}", execute(t, StacksEpochId::Epoch20).unwrap_err()),
+            expected
+        );
     }
 
     #[test]
