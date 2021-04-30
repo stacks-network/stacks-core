@@ -8,6 +8,8 @@ use vm::execute;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
+use core::StacksEpochId;
+
 #[derive(Serialize)]
 struct ContractRef {
     public_functions: Vec<FunctionRef>,
@@ -185,13 +187,6 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
     }
 }
 
-fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
-    let to_eval = format!("{}\n{}", contract_content, var_name);
-    execute(&to_eval)
-        .expect("BUG: failed to evaluate contract for constant value")
-        .expect("BUG: failed to return constant value")
-}
-
 fn produce_docs() -> BTreeMap<String, ContractRef> {
     let mut docs = BTreeMap::new();
     let support_docs = make_contract_support_docs();
@@ -251,7 +246,7 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
                 .collect::<Vec<_>>()
                 .join(", ");
             let ecode_to_eval = format!("{}\n {{ {} }}", content, ecode_names);
-            let ecode_result = execute(&ecode_to_eval)
+            let ecode_result = execute(&ecode_to_eval, StacksEpochId::Epoch21)
                 .expect("BUG: failed to evaluate contract for constant value")
                 .expect("BUG: failed to return constant value")
                 .expect_tuple();

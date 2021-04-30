@@ -1835,7 +1835,7 @@ mod test {
         }
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
+                epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
             })
@@ -1879,7 +1879,12 @@ mod test {
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context = ContractContext::new(contract_id.clone());
-        let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            conn,
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch21,
+        );
 
         global_context
             .execute(|g| {
@@ -2002,7 +2007,7 @@ mod test {
             docs_execute(&mut marf, &without_throws);
             for expect_err in the_throws {
                 eprintln!("{}", expect_err);
-                execute(expect_err).unwrap_err();
+                execute(expect_err, StacksEpochId::Epoch21).unwrap_err();
             }
         }
     }
