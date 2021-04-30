@@ -37,6 +37,8 @@ use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
+use core::StacksEpochId;
+
 #[test]
 fn test_doubly_defined_persisted_vars() {
     let tests = [
@@ -46,7 +48,7 @@ fn test_doubly_defined_persisted_vars() {
         "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })" ];
     for p in tests.iter() {
         assert_eq!(
-            vm_execute(p).unwrap_err(),
+            vm_execute(p, StacksEpochId::Epoch20).unwrap_err(),
             CheckErrors::NameAlreadyUsed("cursor".into()).into()
         );
     }
@@ -296,7 +298,10 @@ fn test_secp256k1_errors() {
     ];
 
     for (program, expectation) in secp256k1_evals.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -363,7 +368,7 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".into(), TypeSignature::IntType)];
         let func_args2 = vec![("x".into(), TypeSignature::IntType)];
-        let user_function1 = DefinedFunction::new(
+        let user_function1 = DefinedFunction::new_context(
             func_args1,
             parsed_bodies[0].clone(),
             Private,
@@ -371,7 +376,7 @@ fn test_simple_if_functions() {
             &"",
         );
 
-        let user_function2 = DefinedFunction::new(
+        let user_function2 = DefinedFunction::new_context(
             func_args2,
             parsed_bodies[1].clone(),
             Private,
@@ -382,8 +387,12 @@ fn test_simple_if_functions() {
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch20,
+        );
 
         contract_context
             .functions
@@ -597,7 +606,10 @@ fn test_simple_arithmetic_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -626,7 +638,10 @@ fn test_unsigned_arithmetic() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -669,7 +684,10 @@ fn test_options_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -694,7 +712,10 @@ fn test_stx_ops_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -725,7 +746,12 @@ fn test_some() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap().unwrap());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20)
+                .unwrap()
+                .unwrap()
+        );
     }
 }
 
@@ -784,7 +810,10 @@ fn test_option_destructs() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).map(|x| x.unwrap()));
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).map(|x| x.unwrap())
+        );
     }
 }
 
@@ -857,7 +886,10 @@ fn test_hash_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+        );
     }
 }
 
@@ -917,7 +949,10 @@ fn test_bad_lets() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| {
-            assert_eq!((*expectation), vm_execute(program).unwrap_err())
+            assert_eq!(
+                (*expectation),
+                vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+            )
         });
 }
 
@@ -1018,6 +1053,9 @@ fn test_asserts_short_circuit() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| {
-            assert_eq!((*expectation), vm_execute(program).unwrap_err())
+            assert_eq!(
+                (*expectation),
+                vm_execute(program, StacksEpochId::Epoch20).unwrap_err()
+            )
         });
 }
