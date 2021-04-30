@@ -20,6 +20,8 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute;
 use vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 
+use core::StacksEpochId;
+
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
     assert_eq!(e1, e2)
@@ -32,19 +34,25 @@ fn test_defines() {
          (define-private (f (a int) (b int)) (+ x y a b))
          (f 3 1)";
 
-    assert_eq!(Ok(Some(Value::Int(29))), execute(&tests));
+    assert_eq!(
+        Ok(Some(Value::Int(29))),
+        execute(&tests, StacksEpochId::Epoch20)
+    );
 
     let tests = "(define-private (f (a int) (b int)) (+ a b))
          (f 3 1 4)";
 
     assert_eq!(
-        execute(&tests).unwrap_err(),
+        execute(&tests, StacksEpochId::Epoch20).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(2, 3).into()
     );
 
     let tests = "1";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
+    assert_eq!(
+        Ok(Some(Value::Int(1))),
+        execute(&tests, StacksEpochId::Epoch20)
+    );
 }
 
 #[test]
@@ -66,12 +74,12 @@ fn test_accept_options() {
     ];
 
     for (test, expect) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expect, execute(test));
+        assert_eq!(*expect, execute(test, StacksEpochId::Epoch20));
     }
 
     let bad_defun = "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(
-        execute(bad_defun).unwrap_err(),
+        execute(bad_defun, StacksEpochId::Epoch20).unwrap_err(),
         CheckErrors::InvalidTypeDescription.into()
     );
 }
@@ -90,16 +98,19 @@ fn test_bad_define_names() {
 
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("tx-sender".to_string()),
-        execute(&test0).unwrap_err(),
+        execute(&test0, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("*".to_string()),
-        execute(&test1).unwrap_err(),
+        execute(&test1, StacksEpochId::Epoch20).unwrap_err(),
     );
-    assert_eq_err(CheckErrors::ExpectedName, execute(&test2).unwrap_err());
+    assert_eq_err(
+        CheckErrors::ExpectedName,
+        execute(&test2, StacksEpochId::Epoch20).unwrap_err(),
+    );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("foo".to_string()),
-        execute(&test3).unwrap_err(),
+        execute(&test3, StacksEpochId::Epoch20).unwrap_err(),
     );
 }
 
@@ -112,23 +123,29 @@ fn test_unwrap_ret() {
     let test4 = "(define-private (foo) (unwrap-err! (err 1) 2)) (foo)";
     let test5 = "(define-private (foo) (unwrap-err! (err 1))) (foo)";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
+    assert_eq!(
+        Ok(Some(Value::Int(1))),
+        execute(&test0, StacksEpochId::Epoch20)
+    );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(&test1, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::ExpectedOptionalOrResponseValue(Value::Int(1)),
-        execute(&test2).unwrap_err(),
+        execute(&test2, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::ExpectedResponseValue(Value::Int(1)),
-        execute(&test3).unwrap_err(),
+        execute(&test3, StacksEpochId::Epoch20).unwrap_err(),
     );
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test4));
+    assert_eq!(
+        Ok(Some(Value::Int(1))),
+        execute(&test4, StacksEpochId::Epoch20)
+    );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test5).unwrap_err(),
+        execute(&test5, StacksEpochId::Epoch20).unwrap_err(),
     );
 }
 
@@ -141,18 +158,21 @@ fn test_define_read_only() {
     let test3 =
         "(define-read-only (silly) (map-set map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
-    assert_eq_err(
-        CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test1).unwrap_err(),
+    assert_eq!(
+        Ok(Some(Value::Int(1))),
+        execute(&test0, StacksEpochId::Epoch20)
     );
     assert_eq_err(
         CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test2).unwrap_err(),
+        execute(&test1, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test3).unwrap_err(),
+        execute(&test2, StacksEpochId::Epoch20).unwrap_err(),
+    );
+    assert_eq_err(
+        CheckErrors::WriteAttemptedInReadOnly,
+        execute(&test3, StacksEpochId::Epoch20).unwrap_err(),
     );
 }
 
@@ -173,8 +193,11 @@ fn test_stack_depth() {
     function_defines.push(format!("(foo-63 2)"));
     let test1 = function_defines.join("\n");
 
-    assert_eq!(Ok(Some(Value::Int(64))), execute(&test0));
-    assert!(match execute(&test1).unwrap_err() {
+    assert_eq!(
+        Ok(Some(Value::Int(64))),
+        execute(&test0, StacksEpochId::Epoch20)
+    );
+    assert!(match execute(&test1, StacksEpochId::Epoch20).unwrap_err() {
         Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _) => true,
         _ => false,
     })
@@ -199,19 +222,31 @@ fn test_recursive_panic() {
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
     let expected = CheckErrors::UndefinedVariable("a".to_string());
-    assert_eq_err(expected, execute(&test0).unwrap_err());
+    assert_eq_err(
+        expected,
+        execute(&test0, StacksEpochId::Epoch20).unwrap_err(),
+    );
 
     let test1 = "(foo 2 1)";
     let expected = CheckErrors::UndefinedFunction("foo".to_string());
-    assert_eq_err(expected, execute(&test1).unwrap_err());
+    assert_eq_err(
+        expected,
+        execute(&test1, StacksEpochId::Epoch20).unwrap_err(),
+    );
 
     let test2 = "((lambda (x y) 1) 2 1)";
     let expected = CheckErrors::BadFunctionName;
-    assert_eq_err(expected, execute(&test2).unwrap_err());
+    assert_eq_err(
+        expected,
+        execute(&test2, StacksEpochId::Epoch20).unwrap_err(),
+    );
 
     let test4 = "()";
     let expected = CheckErrors::NonFunctionApplication;
-    assert_eq_err(expected, execute(&test4).unwrap_err());
+    assert_eq_err(
+        expected,
+        execute(&test4, StacksEpochId::Epoch20).unwrap_err(),
+    );
 }
 
 #[test]
@@ -235,19 +270,19 @@ fn test_variable_shadowing() {
 
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test0).unwrap_err(),
+        execute(&test0, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test1).unwrap_err(),
+        execute(&test1, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test2).unwrap_err(),
+        execute(&test2, StacksEpochId::Epoch20).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test3).unwrap_err(),
+        execute(&test3, StacksEpochId::Epoch20).unwrap_err(),
     );
 }
 
@@ -255,7 +290,10 @@ fn test_variable_shadowing() {
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
     let expected = CheckErrors::DefineFunctionBadSignature;
-    assert_eq_err(expected, execute(&tests).unwrap_err());
+    assert_eq_err(
+        expected,
+        execute(&tests, StacksEpochId::Epoch20).unwrap_err(),
+    );
 }
 
 #[test]
@@ -263,6 +301,6 @@ fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
         CheckErrors::BadSyntaxExpectedListOfPairs,
-        execute(&tests).unwrap_err(),
+        execute(&tests, StacksEpochId::Epoch20).unwrap_err(),
     );
 }
