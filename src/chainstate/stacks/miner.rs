@@ -22,23 +22,21 @@ use std::mem;
 
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
+use chainstate::burn::*;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
-};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::Error;
 use chainstate::stacks::*;
+use chainstate::stacks::db::{
+    blocks::MemPoolRejection, ClarityTx, MINER_REWARD_MATURITY, StacksChainState,
+};
+use chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use chainstate::stacks::Error;
+use chainstate::stacks::events::StacksTransactionReceipt;
 use clarity_vm::clarity::ClarityConnection;
-use core::mempool::*;
 use core::*;
-use net::codec::{read_next, write_next};
+use core::mempool::*;
 use net::Error as net_error;
-use net::StacksMessageCodec;
-use net::StacksPublicKeyBuffer;
+use crate::types::StacksPublicKeyBuffer;
 use util::get_epoch_time_ms;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -46,9 +44,10 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use crate::codec::{read_next, StacksMessageCodec, write_next};
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::proof::TrieHash;
 
 #[derive(Clone)]
@@ -832,7 +831,7 @@ impl StacksBlockBuilder {
     ) -> Result<(), Error> {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes)
-            .map_err(Error::NetError)?;
+            .map_err(Error::CodecError)?;
         let tx_len = tx_bytes.len() as u64;
 
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
@@ -1532,22 +1531,22 @@ pub mod test {
     use std::io;
     use std::path::{Path, PathBuf};
 
+    use rand::Rng;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
-    use rand::Rng;
 
     use address::*;
-    use burnchains::test::*;
     use burnchains::*;
+    use burnchains::test::*;
+    use chainstate::burn::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::db::test::*;
     use core::BLOCK_LIMIT_MAINNET;
     use net::test::*;
     use util::sleep_ms;

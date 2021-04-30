@@ -34,9 +34,8 @@ use chainstate::burn::Opcodes;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use core::POX_MAX_NUM_CYCLES;
-use net::codec::write_next;
+use crate::codec::{StacksMessageCodec, write_next, Error as codec_error};
 use net::Error as net_error;
-use net::StacksMessageCodec;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
@@ -287,15 +286,15 @@ impl StacksMessageCodec for StackStxOp {
             |------|--|-----------------------------|---------|
              magic  op         uSTX to lock (u128)     cycles (u8)
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
         fd.write_all(&self.stacked_ustx.to_be_bytes())
-            .map_err(|e| net_error::WriteError(e))?;
+            .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }

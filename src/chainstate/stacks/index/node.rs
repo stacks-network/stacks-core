@@ -25,18 +25,18 @@ use std::ops::{Deref, DerefMut};
 
 use sha2::Digest;
 
+use chainstate::stacks::index::{BlockMap, MarfTrieId, slice_partialeq, TrieHasher};
 use chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId, TrieHasher};
-use net::{codec::read_next, StacksMessageCodec};
 use util::hash::to_hex;
 use util::log;
 
+use crate::codec::{read_next, StacksMessageCodec, Error as codec_error};
+use crate::types::chainstate::{BlockHeaderHash, MARF_VALUE_ENCODED_SIZE, MARFValue};
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::chainstate::{BlockHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE, TrieLeaf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -619,12 +619,12 @@ impl TrieLeaf {
 }
 
 impl StacksMessageCodec for TrieLeaf {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.path.consensus_serialize(fd)?;
         self.data.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, codec_error> {
         let path = read_next(fd)?;
         let data = read_next(fd)?;
 

@@ -9,9 +9,10 @@ use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
-use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
+use stacks::net::GetIsTraitImplementedResponse;
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
 use stacks::vm::{
@@ -29,8 +30,8 @@ use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 use super::{
-    make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
-    SK_3,
+    ADDR_4, make_contract_call, make_contract_publish, make_stacks_transfer, SK_1, SK_2, SK_3,
+    to_addr,
 };
 
 const OTHER_CONTRACT: &'static str = "

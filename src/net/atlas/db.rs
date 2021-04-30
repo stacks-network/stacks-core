@@ -40,7 +40,7 @@ use vm::types::QualifiedContractIdentifier;
 
 use crate::types::chainstate::StacksBlockId;
 use burnchains::Txid;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 

@@ -44,9 +44,9 @@ use net::Preamble;
 use net::ProtocolFamily;
 use net::RelayData;
 use net::StacksHttp;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 use net::StacksP2P;
-use net::MAX_MESSAGE_LEN;
+use crate::codec::MAX_MESSAGE_LEN;
 
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
 use net::inv::{FULL_INV_SYNC_INTERVAL, INV_REWARD_CYCLES, INV_SYNC_INTERVAL};

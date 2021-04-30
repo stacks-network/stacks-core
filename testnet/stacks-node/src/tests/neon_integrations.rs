@@ -19,7 +19,7 @@ use stacks::core;
 use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use stacks::net::StacksMessageCodec;
+use stacks::codec::StacksMessageCodec;
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData,

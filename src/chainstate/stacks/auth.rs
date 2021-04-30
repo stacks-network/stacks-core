@@ -15,14 +15,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io;
-use std::io::prelude::*;
 use std::io::{Read, Write};
+use std::io::prelude::*;
 
-use address::public_keys_to_address_hash;
 use address::AddressHashMode;
+use address::public_keys_to_address_hash;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use burnchains::Txid;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use chainstate::stacks::Error;
 use chainstate::stacks::MultisigHashMode;
 use chainstate::stacks::MultisigSpendingCondition;
@@ -36,28 +40,23 @@ use chainstate::stacks::TransactionAuthFieldID;
 use chainstate::stacks::TransactionAuthFlags;
 use chainstate::stacks::TransactionPublicKeyEncoding;
 use chainstate::stacks::TransactionSpendingCondition;
-use net::codec::{read_next, write_next};
 use net::Error as net_error;
-use net::StacksMessageCodec;
-use net::StacksPublicKeyBuffer;
-use net::MAX_MESSAGE_LEN;
+use crate::codec::MAX_MESSAGE_LEN;
 use net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
-use util::hash::to_hex;
+use crate::types::StacksPublicKeyBuffer;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
+use util::hash::to_hex;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
-use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::secp256k1::MessageSignature;
 
+use crate::codec::{read_next, StacksMessageCodec, write_next, Error as codec_error};
 use crate::types::chainstate::StacksAddress;
-use chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 
 impl StacksMessageCodec for TransactionAuthField {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             TransactionAuthField::PublicKey(ref pubk) => {
                 let field_id = if pubk.compressed() {
@@ -85,7 +84,7 @@ impl StacksMessageCodec for TransactionAuthField {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuthField, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuthField, codec_error> {
         let field_id: u8 = read_next(fd)?;
         let field = match field_id {
             x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
@@ -112,7 +111,7 @@ impl StacksMessageCodec for TransactionAuthField {
             }
             _ => {
                 test_debug!("Failed to deserialize auth field ID {}", field_id);
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse auth field: unkonwn auth field ID {}",
                     field_id
                 )));
@@ -123,7 +122,7 @@ impl StacksMessageCodec for TransactionAuthField {
 }
 
 impl StacksMessageCodec for MultisigSpendingCondition {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(self.hash_mode.clone() as u8))?;
         write_next(fd, &self.signer)?;
         write_next(fd, &self.nonce)?;
@@ -133,10 +132,10 @@ impl StacksMessageCodec for MultisigSpendingCondition {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MultisigSpendingCondition, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MultisigSpendingCondition, codec_error> {
         let hash_mode_u8: u8 = read_next(fd)?;
         let hash_mode =
-            MultisigHashMode::from_u8(hash_mode_u8).ok_or(net_error::DeserializeError(format!(
+            MultisigHashMode::from_u8(hash_mode_u8).ok_or(codec_error::DeserializeError(format!(
                 "Failed to parse multisig spending condition: unknown hash mode {}",
                 hash_mode_u8
             )))?;
@@ -160,7 +159,7 @@ impl StacksMessageCodec for MultisigSpendingCondition {
                     num_sigs_given =
                         num_sigs_given
                             .checked_add(1)
-                            .ok_or(net_error::DeserializeError(
+                            .ok_or(codec_error::DeserializeError(
                                 "Failed to parse multisig spending condition: too many signatures"
                                     .to_string(),
                             ))?;
@@ -183,7 +182,7 @@ impl StacksMessageCodec for MultisigSpendingCondition {
                 num_sigs_given,
                 signatures_required
             );
-            return Err(net_error::DeserializeError(format!(
+            return Err(codec_error::DeserializeError(format!(
                 "Failed to parse multisig spending condition: got {} sigs, expected {}",
                 num_sigs_given, signatures_required
             )));
@@ -194,7 +193,7 @@ impl StacksMessageCodec for MultisigSpendingCondition {
             test_debug!(
                 "Failed to deserialize multisig spending condition: expected compressed keys only"
             );
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Failed to parse multisig spending condition: expected compressed keys only"
                     .to_string(),
             ));
@@ -325,7 +324,7 @@ impl MultisigSpendingCondition {
 }
 
 impl StacksMessageCodec for SinglesigSpendingCondition {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(self.hash_mode.clone() as u8))?;
         write_next(fd, &self.signer)?;
         write_next(fd, &self.nonce)?;
@@ -335,10 +334,10 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<SinglesigSpendingCondition, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<SinglesigSpendingCondition, codec_error> {
         let hash_mode_u8: u8 = read_next(fd)?;
         let hash_mode = SinglesigHashMode::from_u8(hash_mode_u8).ok_or(
-            net_error::DeserializeError(format!(
+            codec_error::DeserializeError(format!(
                 "Failed to parse singlesig spending condition: unknown hash mode {}",
                 hash_mode_u8
             )),
@@ -350,7 +349,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
 
         let key_encoding_u8: u8 = read_next(fd)?;
         let key_encoding = TransactionPublicKeyEncoding::from_u8(key_encoding_u8).ok_or(
-            net_error::DeserializeError(format!(
+            codec_error::DeserializeError(format!(
                 "Failed to parse singlesig spending condition: unknown key encoding {}",
                 key_encoding_u8
             )),
@@ -363,7 +362,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
             && key_encoding != TransactionPublicKeyEncoding::Compressed
         {
             test_debug!("Incompatible hashing mode and key encoding");
-            return Err(net_error::DeserializeError("Failed to parse singlesig spending condition: incomaptible hash mode and key encoding".to_string()));
+            return Err(codec_error::DeserializeError("Failed to parse singlesig spending condition: incomaptible hash mode and key encoding".to_string()));
         }
 
         Ok(SinglesigSpendingCondition {
@@ -461,7 +460,7 @@ impl SinglesigSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionSpendingCondition {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
                 data.consensus_serialize(fd)?;
@@ -475,7 +474,7 @@ impl StacksMessageCodec for TransactionSpendingCondition {
 
     fn consensus_deserialize<R: Read>(
         fd: &mut R,
-    ) -> Result<TransactionSpendingCondition, net_error> {
+    ) -> Result<TransactionSpendingCondition, codec_error> {
         // peek the hash mode byte
         let hash_mode_u8: u8 = read_next(fd)?;
         let peek_buf = [hash_mode_u8];
@@ -489,7 +488,7 @@ impl StacksMessageCodec for TransactionSpendingCondition {
                 TransactionSpendingCondition::Multisig(cond)
             } else {
                 test_debug!("Invalid address hash mode {}", hash_mode_u8);
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse spending condition: invalid hash mode {}",
                     hash_mode_u8
                 )));
@@ -846,7 +845,7 @@ impl TransactionSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionAuth {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
                 write_next(fd, &(TransactionAuthFlags::AuthStandard as u8))?;
@@ -861,7 +860,7 @@ impl StacksMessageCodec for TransactionAuth {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuth, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuth, codec_error> {
         let type_id: u8 = read_next(fd)?;
         let auth = match type_id {
             x if x == TransactionAuthFlags::AuthStandard as u8 => {
@@ -875,7 +874,7 @@ impl StacksMessageCodec for TransactionAuth {
             }
             _ => {
                 test_debug!("Unrecognized transaction auth flags {:?}", type_id);
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse transaction authorization: unrecognized auth flags {}",
                     type_id
                 )));
@@ -1079,11 +1078,11 @@ impl TransactionAuth {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::StacksPublicKey as PubKey;
     use chainstate::stacks::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
+    use chainstate::stacks::StacksPublicKey as PubKey;
     use net::*;
+    use net::codec::*;
+    use net::codec::test::check_codec_and_corruption;
 
     use super::*;
 

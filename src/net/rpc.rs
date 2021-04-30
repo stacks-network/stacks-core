@@ -67,7 +67,7 @@ use net::PeerHost;
 use net::ProtocolFamily;
 use net::StacksHttp;
 use net::StacksHttpMessage;
-use net::StacksMessageCodec;
+use crate::codec::StacksMessageCodec;
 use net::StacksMessageType;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;

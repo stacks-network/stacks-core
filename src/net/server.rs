@@ -787,6 +787,7 @@ mod test {
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
     use vm::types::*;
+    use codec::MAX_MESSAGE_LEN;
 
     fn test_http_server<F, C>(
         test_name: &str,
