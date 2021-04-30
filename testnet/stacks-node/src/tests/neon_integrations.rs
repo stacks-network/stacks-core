@@ -73,6 +73,8 @@ use super::{
     SK_2,
 };
 
+use stacks::core::StacksEpochId;
+
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -3341,10 +3343,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_pubkey_hash
-            ))
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                StacksEpochId::Epoch20,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -3454,10 +3456,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal / 2),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_2_pubkey_hash
-            ))
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
+                StacksEpochId::Epoch20,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -3477,10 +3479,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal / 2),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_2_pubkey_hash
-            ))
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
+                StacksEpochId::Epoch20,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
