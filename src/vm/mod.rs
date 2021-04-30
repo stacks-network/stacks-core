@@ -38,6 +38,8 @@ mod variables;
 pub mod analysis;
 pub mod docs;
 
+mod extensions;
+
 #[cfg(test)]
 pub mod tests;
 
@@ -64,6 +66,8 @@ use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::stx_transfer_consolidated;
+
+use core::StacksEpochId;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -111,7 +115,16 @@ pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType
             .contract_context
             .lookup_function(name)
             .ok_or(CheckErrors::UndefinedFunction(name.to_string()))?;
-        Ok(CallableType::UserFunction(user_function))
+
+        // find the accelerated implemetation of this function, if it exists.
+        let function_id = user_function.get_identifier();
+        let extension_impl_opt = env
+            .global_context
+            .lookup_extension_function_implementation(&function_id);
+        Ok(CallableType::UserFunction(
+            user_function,
+            extension_impl_opt,
+        ))
     }
 }
 
@@ -135,7 +148,7 @@ pub fn apply(
 
     // do recursion check on user functions.
     let track_recursion = match function {
-        CallableType::UserFunction(_) => true,
+        CallableType::UserFunction(..) => true,
         _ => false,
     };
 
@@ -187,7 +200,9 @@ pub fn apply(
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args))
             }
-            CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
+            CallableType::UserFunction(function, extension_impl_opt) => {
+                function.apply(&evaluated_args, env, extension_impl_opt.as_ref())
+            }
             _ => panic!("Should be unreachable."),
         };
         add_stack_trace(&mut resp, env);
@@ -353,12 +368,12 @@ fn eval_all(
  *
  *  Only used by CLI.
  */
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute(program: &str, epoch: StacksEpochId) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -380,6 +395,8 @@ mod test {
         Value,
     };
 
+    use core::StacksEpochId;
+
     #[test]
     fn test_simple_user_function() {
         //
@@ -400,7 +417,7 @@ mod test {
         ]));
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
-        let user_function = DefinedFunction::new(
+        let user_function = DefinedFunction::new_context(
             func_args,
             func_body,
             DefineType::Private,
@@ -412,8 +429,12 @@ mod test {
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
 
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch20,
+        );
 
         contract_context
             .variables
