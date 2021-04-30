@@ -324,7 +324,7 @@ impl RPCPoxInfoData {
 
         let pox_consts = &burnchain.pox_constants;
 
-        if mainnet && prepare_cycle_length != pox_consts.prepare_length as u64 {
+        if prepare_cycle_length != pox_consts.prepare_length as u64 {
             error!(
                 "PoX Constants in config mismatched with PoX contract constants: {} != {}",
                 prepare_cycle_length, pox_consts.prepare_length
@@ -332,7 +332,7 @@ impl RPCPoxInfoData {
             return Err(net_error::DBError(db_error::Corruption));
         }
 
-        if mainnet && reward_cycle_length != pox_consts.reward_cycle_length as u64 {
+        if reward_cycle_length != pox_consts.reward_cycle_length as u64 {
             error!(
                 "PoX Constants in config mismatched with PoX contract constants: {} != {}",
                 reward_cycle_length, pox_consts.reward_cycle_length

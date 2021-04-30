@@ -30,7 +30,7 @@ use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::{Address, Burnchain, BurnchainParameters};
+use burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use chainstate::burn::db::sortdb::BlockHeaderCache;
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
@@ -56,7 +56,6 @@ use clarity_vm::clarity::{
     Error as clarity_error,
 };
 use core::*;
-use monitoring;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use util::db::Error as db_error;
@@ -76,6 +75,7 @@ use vm::database::{
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
+use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{
@@ -83,6 +83,7 @@ use crate::types::chainstate::{
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 use crate::util::boot::{boot_code_addr, boot_code_id};
+use vm::Value;
 
 pub mod accounts;
 pub mod blocks;
@@ -672,6 +673,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub pox_constants: Option<PoxConstants>,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
@@ -694,6 +696,7 @@ impl ChainStateBootData {
             first_burnchain_block_height: burnchain.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
+            pox_constants: Some(burnchain.pox_constants.clone()),
             post_flight_callback,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
@@ -1203,6 +1206,28 @@ impl StacksChainState {
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
                 callback(&mut clarity_tx);
+            }
+
+            // Setup burnchain parameters for pox contract
+            if let Some(pox_constants) = &boot_data.pox_constants {
+                let contract = util::boot::boot_code_id("pox", mainnet);
+                let sender = PrincipalData::from(contract.clone());
+                let params = vec![
+                    Value::UInt(boot_data.first_burnchain_block_height as u128),
+                    Value::UInt(pox_constants.prepare_length as u128),
+                    Value::UInt(pox_constants.reward_cycle_length as u128),
+                    Value::UInt(pox_constants.pox_rejection_fraction as u128),
+                ];
+                clarity_tx.connection().as_transaction(|conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
+                });
             }
 
             clarity_tx
@@ -1974,6 +1999,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: None,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_names: None,
@@ -2032,6 +2058,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: None,
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(true).read_lockups().map(|item| {
@@ -2122,6 +2149,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: None,
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(false).read_lockups().map(|item| {

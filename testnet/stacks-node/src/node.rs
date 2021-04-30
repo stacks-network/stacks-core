@@ -51,6 +51,8 @@ use stacks::{
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::PoxConstants;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -267,12 +269,18 @@ impl Node {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+        let pox_constants = match config.burnchain.get_bitcoin_network() {
+            (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
+            (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
+            (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
+        };
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: Some(pox_constants),
             post_flight_callback: Some(boot_block_exec),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
