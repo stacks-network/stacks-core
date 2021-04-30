@@ -155,7 +155,7 @@ fn handle_define_function(
         expression.clone(),
         define_type,
         function_name,
-        &env.contract_context.contract_identifier.to_string(),
+        &env.contract_context.contract_identifier,
     );
 
     Ok(DefineResult::Function(function_name.clone(), function))
