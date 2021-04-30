@@ -41,6 +41,8 @@ use super::download::{
 };
 use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 
+use core::StacksEpochId;
+
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {
         content: content.as_bytes().to_vec(),
@@ -157,6 +159,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+        StacksEpochId::Epoch20,
     )
     .unwrap()
     .unwrap();
@@ -183,6 +186,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+        StacksEpochId::Epoch20,
     )
     .unwrap()
     .unwrap();
@@ -209,6 +213,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+        StacksEpochId::Epoch20,
     )
     .unwrap()
     .unwrap();
@@ -237,6 +242,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+            StacksEpochId::Epoch20,
         )
         .unwrap()
         .unwrap(),
@@ -250,6 +256,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+            StacksEpochId::Epoch20,
         )
         .unwrap()
         .unwrap(),
@@ -263,6 +270,7 @@ fn test_attachment_instance_parsing() {
         }
     }
     "#,
+            StacksEpochId::Epoch20,
         )
         .unwrap()
         .unwrap(),
