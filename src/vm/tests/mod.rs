@@ -30,12 +30,15 @@ use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
 
+use core::StacksEpochId;
+
 mod assets;
 mod contracts;
 pub mod costs;
 mod datamaps;
 mod defines;
 mod events;
+mod extensions;
 mod forking;
 mod large_contract;
 mod sequences;
@@ -99,7 +102,7 @@ where
 }
 
 pub fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
+    vm_execute(s, StacksEpochId::Epoch20).unwrap().unwrap()
 }
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
