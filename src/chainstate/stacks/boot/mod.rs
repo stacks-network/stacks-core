@@ -60,7 +60,7 @@ const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 
 lazy_static! {
-    static ref BOOT_CODE_POX_MAINNET: String =
+    pub static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);

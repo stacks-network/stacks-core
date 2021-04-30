@@ -613,19 +613,20 @@ impl<'a> ClarityBlockConnection<'a> {
     }
 
     pub fn initialize_epoch_2_1(&mut self) -> Result<(), Error> {
+        let mainnet = self.mainnet;
         self.as_transaction(|tx_conn| {
-            let pox_2_code = if self.mainnet {
+            let pox_2_code = if mainnet {
                 &*BOOT_CODE_POX_MAINNET
             } else {
                 &*BOOT_CODE_POX_TESTNET
             };
 
             let (ast, _) = tx_conn
-                .analyze_smart_contract(&boot_code_id("pox-2", self.mainnet), pox_2_code)
+                .analyze_smart_contract(&boot_code_id("pox-2", mainnet), pox_2_code)
                 .unwrap();
             tx_conn
                 .initialize_smart_contract(
-                    &boot_code_id("pox", self.mainnet),
+                    &boot_code_id("pox", mainnet),
                     &ast,
                     pox_2_code,
                     None,
