@@ -30,7 +30,6 @@ use vm::types::{QualifiedContractIdentifier, Value};
 
 use core::StacksEpochId;
 
-pub mod assets;
 pub type ExtensionFunctionBody = &'static dyn Fn(&mut Environment, &LocalContext) -> Result<Value>;
 
 /// Native function implementation that does the actual work if a publicly-defined contract
