@@ -27,13 +27,21 @@ use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
 use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute as vm_execute;
+use vm::execute as inner_vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+
+use vm::errors::InterpreterResult;
+
+use core::StacksEpochId;
+
+fn vm_execute(program: &str) -> InterpreterResult<Option<Value>> {
+    inner_vm_execute(program, StacksEpochId::Epoch20)
+}
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
