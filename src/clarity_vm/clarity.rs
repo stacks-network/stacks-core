@@ -50,6 +50,8 @@ use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
 
+use core::StacksEpochId;
+
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -78,6 +80,7 @@ pub struct ClarityBlockConnection<'a> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
+    epoch_id: StacksEpochId,
 }
 
 ///
@@ -92,12 +95,14 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
     mainnet: bool,
+    epoch_id: StacksEpochId,
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
     datastore: ReadOnlyMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    epoch_id: StacksEpochId,
 }
 
 #[derive(Debug)]
@@ -209,6 +214,22 @@ macro_rules! using {
     }};
 }
 
+fn get_epoch_id_for_stacks_block(
+    header_db: &dyn HeadersDB,
+    burn_state_db: &dyn BurnStateDB,
+    stacks_block_id: &StacksBlockId,
+) -> StacksEpochId {
+    let burn_height = header_db
+        .get_burn_block_height_for_block(stacks_block_id)
+        .expect("BUG: no burn block height for current block");
+
+    let epoch = burn_state_db
+        .get_stacks_epoch(burn_height)
+        .expect("BUG: no epoch defined for burn height");
+
+    epoch.epoch_id
+}
+
 impl ClarityBlockConnection<'_> {
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
@@ -265,6 +286,9 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
+
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
@@ -279,6 +303,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch_id,
         }
     }
 
@@ -291,6 +316,9 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let datastore = self.datastore.begin(current, next);
 
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
+
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
@@ -299,6 +327,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch_id,
         }
     }
 
@@ -313,6 +342,9 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let writable = self.datastore.begin(current, next);
 
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
+
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
@@ -321,6 +353,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: false,
+            epoch_id: epoch_id,
         };
 
         conn.as_transaction(|clarity_db| {
@@ -386,6 +419,9 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
+
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
@@ -400,6 +436,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch_id: epoch_id,
         }
     }
 
@@ -421,10 +458,14 @@ impl ClarityInstance {
     ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
         let datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
 
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, at_block);
+
         Ok(ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
+            epoch_id: epoch_id,
         })
     }
 
@@ -438,7 +479,11 @@ impl ClarityInstance {
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
         let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db);
+
+        // if the above succeeds, then this will *definitely* succeed
+        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, at_block);
+
+        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch_id);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -475,8 +520,10 @@ pub trait ClarityConnection {
     where
         F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
     {
+        let epoch_id = self.get_stacks_epoch_id();
         self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track);
+            let mut vm_env =
+                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
             let result = vm_env
                 .execute_in_env(sender, None, to_do)
                 .map(|(result, _, _)| result);
@@ -486,6 +533,8 @@ pub trait ClarityConnection {
             (result, db)
         })
     }
+
+    fn get_stacks_epoch_id(&self) -> StacksEpochId;
 }
 
 impl ClarityConnection for ClarityBlockConnection<'_> {
@@ -511,6 +560,10 @@ impl ClarityConnection for ClarityBlockConnection<'_> {
         let result = to_do(&mut db);
         db.roll_back();
         result
+    }
+
+    fn get_stacks_epoch_id(&self) -> StacksEpochId {
+        self.epoch_id
     }
 }
 
@@ -538,6 +591,10 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
         let result = to_do(&mut db);
         db.roll_back();
         result
+    }
+
+    fn get_stacks_epoch_id(&self) -> StacksEpochId {
+        self.epoch_id
     }
 }
 
@@ -626,6 +683,7 @@ impl<'a> ClarityBlockConnection<'a> {
             burn_state_db,
             log: Some(log),
             mainnet,
+            epoch_id: self.epoch_id,
         }
     }
 
@@ -675,6 +733,10 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
             db.roll_back();
             result
         })
+    }
+
+    fn get_stacks_epoch_id(&self) -> StacksEpochId {
+        self.epoch_id
     }
 }
 
@@ -778,6 +840,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             &mut OwnedEnvironment,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>,
     {
+        let epoch_id = self.get_stacks_epoch_id();
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
@@ -790,7 +853,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
                 db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track);
+                let mut vm_env =
+                    OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track, epoch_id);
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
