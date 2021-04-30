@@ -58,6 +58,7 @@ pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const BOOT_CODE_EXTENSIONS_2_1: &'static str = std::include_str!("ext-2_1.clar");
 
 lazy_static! {
     static ref BOOT_CODE_POX_MAINNET: String =
