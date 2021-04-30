@@ -26,8 +26,13 @@ use vm::types::{
 };
 use vm::ClarityName;
 
+use core::StacksEpochId;
+
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
-    assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
+    assert_eq!(
+        expected.unwrap(),
+        execute(input, StacksEpochId::Epoch20).unwrap().unwrap()
+    );
 }
 
 #[test]
@@ -302,7 +307,7 @@ fn test_set_response_variable() {
     let contract_src = contract_src.to_string();
     assert_eq!(
         Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
-        execute(&contract_src)
+        execute(&contract_src, StacksEpochId::Epoch20)
     );
 }
 
@@ -340,7 +345,9 @@ fn test_get_list_max_len() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(get-ranking)");
 
-    let actual_value = execute(&contract_src).unwrap().unwrap();
+    let actual_value = execute(&contract_src, StacksEpochId::Epoch20)
+        .unwrap()
+        .unwrap();
 
     match actual_value {
         Value::Sequence(SequenceData::List(ListData {
@@ -478,7 +485,7 @@ fn datamap_errors() {
 
     for program in tests.iter() {
         assert_eq!(
-            execute(program).unwrap_err(),
+            execute(program, StacksEpochId::Epoch20).unwrap_err(),
             CheckErrors::NoSuchMap("non-existent".to_string()).into()
         );
     }
@@ -498,7 +505,7 @@ fn lists_system_2() {
                     (get-list 1))
         (map-insert lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
-    match execute(test) {
+    match execute(test, StacksEpochId::Epoch20) {
         Err(Error::Unchecked(CheckErrors::TypeError(_, _))) => true,
         _ => false,
     };
@@ -561,7 +568,7 @@ fn lists_system() {
     ]
     .iter()
     {
-        let test = execute(test);
+        let test = execute(test, StacksEpochId::Epoch20);
         println!("{:#?}", test);
         let expected_type_error = match test {
             Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
@@ -629,10 +636,10 @@ fn tuples_system() {
     ];
 
     for test in type_error_tests.iter() {
-        let expected_type_error = match execute(test) {
+        let expected_type_error = match execute(test, StacksEpochId::Epoch20) {
             Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
             _ => {
-                println!("{:?}", execute(test));
+                println!("{:?}", execute(test, StacksEpochId::Epoch20));
                 false
             }
         };
@@ -659,7 +666,7 @@ fn bad_define_maps() {
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
-        let outcome = execute(test).unwrap_err();
+        let outcome = execute(test, StacksEpochId::Epoch20).unwrap_err();
         assert_eq!(outcome, expected_err);
     }
 }
@@ -687,7 +694,7 @@ fn bad_tuples() {
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
-        let outcome = execute(test).unwrap_err();
+        let outcome = execute(test, StacksEpochId::Epoch20).unwrap_err();
         assert_eq!(outcome, expected_err.into());
     }
 }
@@ -737,7 +744,10 @@ fn test_combines_tuples() {
     ];
 
     for (test, expected) in ok.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+        assert_eq!(
+            expected.clone(),
+            execute(test, StacksEpochId::Epoch20).unwrap().unwrap()
+        );
     }
 }
 
@@ -775,10 +785,10 @@ fn test_non_tuple_map_get_set() {
     let type_error_tests = [test_value_too_big, test_bad_value, test_bad_key];
 
     for test in type_error_tests.iter() {
-        let expected_type_error = match execute(test) {
+        let expected_type_error = match execute(test, StacksEpochId::Epoch20) {
             Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
             _ => {
-                println!("{:?}", execute(test));
+                println!("{:?}", execute(test, StacksEpochId::Epoch20));
                 false
             }
         };
