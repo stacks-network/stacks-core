@@ -60,6 +60,7 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
+    core::StacksEpochId,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
 };
@@ -592,7 +593,7 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match vm::execute(&program) {
+        match vm::execute(&program, StacksEpochId::Epoch21) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
