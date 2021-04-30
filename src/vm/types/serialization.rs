@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt, str};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
+use std::{error, fmt, str};
 
 use serde_json::Value as JSONValue;
 
@@ -31,12 +31,12 @@ use vm::errors::{
 };
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use vm::types::{
-    BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CharType, MAX_VALUE_SIZE, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype, StandardPrincipalData,
-    StringSubtype, StringUTF8Length, TupleData, TypeSignature, Value,
+    BufferLength, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length,
+    TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
 };
 
-use crate::codec::{StacksMessageCodec, Error as codec_error};
+use crate::codec::{Error as codec_error, StacksMessageCodec};
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -671,8 +671,8 @@ mod tests {
     use vm::errors::Error;
     use vm::types::TypeSignature::{BoolType, IntType};
 
-    use super::SerializationError;
     use super::super::*;
+    use super::SerializationError;
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()

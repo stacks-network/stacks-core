@@ -30,6 +30,7 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::codec::StacksMessageCodec;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::*;
@@ -67,7 +68,6 @@ use net::PeerHost;
 use net::ProtocolFamily;
 use net::StacksHttp;
 use net::StacksHttpMessage;
-use crate::codec::StacksMessageCodec;
 use net::StacksMessageType;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;

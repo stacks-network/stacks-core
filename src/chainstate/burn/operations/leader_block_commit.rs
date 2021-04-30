@@ -16,6 +16,7 @@
 
 use std::io::{Read, Write};
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::bitcoin::BitcoinNetworkType;
@@ -36,7 +37,6 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::SortitionId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::codec::{StacksMessageCodec, write_next, Error as codec_error};
 use net::Error as net_error;
 use util::hash::to_hex;
 use util::log;

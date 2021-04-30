@@ -17,6 +17,7 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::proof::TrieHash;
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -33,7 +34,6 @@ use chainstate::burn::operations::{
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use net::Error as net_error;
-use crate::codec::{StacksMessageCodec, write_next, Error as codec_error};
 use util::db::DBConn;
 use util::db::DBTx;
 use util::hash::Hash160;

@@ -16,33 +16,33 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 
 use sha2::Digest;
 use sha2::Sha512Trunc256;
 
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::*;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::operations::*;
-use chainstate::stacks::*;
-use chainstate::stacks::Error;
-use core::*;
-use net::Error as net_error;
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::types::StacksPublicKeyBuffer;
+use burnchains::PrivateKey;
+use burnchains::PublicKey;
+use chainstate::burn::operations::*;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::*;
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
+use core::*;
+use net::Error as net_error;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
-use crate::codec::{read_next, StacksMessageCodec, write_next, Error as codec_error};
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::proof::TrieHash;
 
 impl StacksMessageCodec for VRFProof {
@@ -925,19 +925,19 @@ mod test {
 
     use address::*;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::BurnchainBlockHeader;
     use burnchains::BurnchainSigner;
     use burnchains::Txid;
     use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use chainstate::stacks::*;
-    use chainstate::stacks::test::*;
     use chainstate::stacks::test::make_codec_test_block;
-    use net::*;
-    use net::codec::*;
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
     use net::codec::test::*;
+    use net::codec::*;
+    use net::*;
     use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;

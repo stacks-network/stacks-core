@@ -1,5 +1,5 @@
-use std::{error, fmt, io, mem};
 use std::io::{Read, Write};
+use std::{error, fmt, io, mem};
 
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;

@@ -16,6 +16,7 @@
 
 use std::io::{Read, Write};
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
 use address::AddressHashMode;
@@ -34,7 +35,6 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
-use crate::codec::{StacksMessageCodec, write_next, Error as codec_error};
 use net::Error as net_error;
 use util::db::DBConn;
 use util::db::DBTx;

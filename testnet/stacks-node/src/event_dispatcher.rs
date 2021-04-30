@@ -25,9 +25,9 @@ use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::codec::StacksMessageCodec;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;

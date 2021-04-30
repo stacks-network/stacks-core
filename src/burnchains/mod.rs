@@ -25,12 +25,12 @@ use std::marker::PhantomData;
 use rusqlite::Error as sqlite_error;
 
 use address::AddressHashMode;
-use chainstate::burn::ConsensusHash;
 use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use chainstate::burn::operations::LeaderKeyRegisterOp;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::StacksPublicKey;
 use core::*;
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -43,14 +43,14 @@ use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
 
-use self::bitcoin::{
-    BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-};
-use self::bitcoin::Error as btc_error;
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
+};
+use self::bitcoin::Error as btc_error;
+use self::bitcoin::{
+    BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
 
 /// This module contains drivers and types for all burn chains we support.
@@ -567,15 +567,15 @@ pub mod test {
     use std::collections::HashMap;
 
     use address::*;
-    use burnchains::*;
-    use burnchains::Burnchain;
     use burnchains::db::*;
-    use chainstate::burn::*;
+    use burnchains::Burnchain;
+    use burnchains::*;
     use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::*;
     use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::coordinator::*;
+    use chainstate::burn::operations::*;
+    use chainstate::burn::*;
     use chainstate::coordinator::comm::*;
+    use chainstate::coordinator::*;
     use chainstate::stacks::*;
     use util::db::*;
     use util::get_epoch_time_secs;

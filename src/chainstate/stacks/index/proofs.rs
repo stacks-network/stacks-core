@@ -28,27 +28,27 @@ use std::path::{Path, PathBuf};
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
-use chainstate::stacks::index::{BlockMap, MarfTrieId, slice_partialeq};
 use chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
 };
-use chainstate::stacks::index::Error;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
-    clear_backptr, ConsensusSerializable, CursorError, is_backptr, set_backptr, TrieCursor,
+    clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
     TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath,
     TriePtr,
 };
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::trie::Trie;
+use chainstate::stacks::index::Error;
+use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId};
 use util::{hash::to_hex, log};
 
-use crate::codec::{read_next, StacksMessageCodec, Error as codec_error};
-use crate::types::chainstate::{BlockHeaderHash, MARFValue};
+use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BlockHeaderHash, MARFValue};
 use crate::types::proof::{
-    ClarityMarfTrieId, ProofTrieNode, ProofTriePtr, TrieHash, TRIEHASH_ENCODED_SIZE, TrieLeaf,
-    TrieMerkleProof, TrieMerkleProofType,
+    ClarityMarfTrieId, ProofTrieNode, ProofTriePtr, TrieHash, TrieLeaf, TrieMerkleProof,
+    TrieMerkleProofType, TRIEHASH_ENCODED_SIZE,
 };
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
@@ -1496,9 +1496,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::index::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::test::*;
+    use chainstate::stacks::index::*;
 
     use super::*;
 

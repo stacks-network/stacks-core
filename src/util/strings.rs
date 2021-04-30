@@ -18,8 +18,8 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -30,14 +30,14 @@ use codec::Error as codec_error;
 
 use crate::codec::MAX_MESSAGE_LEN;
 use util::retry::BoundReader;
-use vm::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, lex, LexItem};
-use vm::representations::{
-    ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH, SymbolicExpression,
-};
+use vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 pub use vm::representations::UrlString;
+use vm::representations::{
+    ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
+};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
-use crate::codec::{read_next, read_next_at_most, StacksMessageCodec, write_next};
+use crate::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 
 /// printable-ASCII-only string, but encodable.
 /// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
@@ -405,9 +405,9 @@ impl UrlString {
 mod test {
     use std::error::Error;
 
-    use net::*;
-    use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
+    use net::codec::*;
+    use net::*;
 
     use super::*;
 

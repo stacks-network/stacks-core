@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
 use burnchains::Txid;
 use chainstate::stacks::StacksTransaction;
-use crate::codec::StacksMessageCodec;
 use vm::analysis::ContractAnalysis;
 use vm::costs::ExecutionCost;
 use vm::types::{

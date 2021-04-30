@@ -21,25 +21,25 @@
 
 extern crate blockstack_lib;
 
-use std::{env, fs, io};
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;
+use std::{env, fs, io};
 
-use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::address::b58;
-use blockstack_lib::burnchains::Address;
+use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksBlock, StacksMicroblock, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion,
+    StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use blockstack_lib::codec::{StacksMessageCodec, Error as CodecError};
+use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
@@ -48,9 +48,9 @@ use blockstack_lib::util::{
 };
 use blockstack_lib::vm;
 use blockstack_lib::vm::{
-    ClarityName,
-    ContractName,
-    errors::{Error as ClarityError, RuntimeErrorType}, types::PrincipalData, Value,
+    errors::{Error as ClarityError, RuntimeErrorType},
+    types::PrincipalData,
+    ClarityName, ContractName, Value,
 };
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]

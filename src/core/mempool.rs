@@ -21,33 +21,33 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
+use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
-use rusqlite::NO_PARAMS;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::types::ToSql;
+use rusqlite::NO_PARAMS;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, Error as ChainstateError,
-    index::Error as MarfError, StacksTransaction,
-};
 use chainstate::stacks::TransactionPayload;
+use chainstate::stacks::{
+    db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
+    Error as ChainstateError, StacksTransaction,
+};
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
-use util::db::{Error, query_row};
-use util::db::{DBConn, DBTx, FromRow, sql_pragma};
-use util::db::Error as db_error;
-use util::db::FromColumn;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
+use util::db::Error as db_error;
+use util::db::FromColumn;
+use util::db::{query_row, Error};
+use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 use vm::types::PrincipalData;
 
@@ -1004,9 +1004,13 @@ mod tests {
     use address::AddressHashMode;
     use burnchains::Address;
     use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::db::test::chainstate_path;
+    use chainstate::stacks::db::test::instantiate_chainstate;
+    use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
+    use chainstate::stacks::test::codec_all_transactions;
     use chainstate::stacks::{
-        CoinbasePayload, db::blocks::MemPoolRejection, db::StacksChainState, Error as ChainstateError,
-        index::MarfTrieId, SinglesigHashMode, SinglesigSpendingCondition, StacksPrivateKey,
+        db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
+        Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksPrivateKey,
         StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
         TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
         TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
@@ -1015,29 +1019,22 @@ mod tests {
     use chainstate::stacks::{
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
-    use chainstate::stacks::db::test::chainstate_path;
-    use chainstate::stacks::db::test::instantiate_chainstate;
-    use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
-    use chainstate::stacks::test::codec_all_transactions;
     use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
     use core::FIRST_STACKS_BLOCK_HASH;
     use net::Error as NetError;
-    use util::{hash::*, hash::hex_bytes, hash::to_hex, log, secp256k1::*, strings::StacksString};
     use util::db::{DBConn, FromRow};
     use util::hash::Hash160;
     use util::secp256k1::MessageSignature;
+    use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
     use vm::{
-        ClarityName,
-        ContractName,
         database::HeadersDB,
         database::NULL_BURN_STATE_DB,
         errors::Error as ClarityError,
-        errors::RuntimeErrorType, types::{PrincipalData, QualifiedContractIdentifier}, Value,
+        errors::RuntimeErrorType,
+        types::{PrincipalData, QualifiedContractIdentifier},
+        ClarityName, ContractName, Value,
     };
 
-    use crate::{
-        chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
-    };
     use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{
@@ -1045,6 +1042,9 @@ mod tests {
         VRFSeed,
     };
     use crate::types::proof::TrieHash;
+    use crate::{
+        chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
+    };
 
     use super::MemPoolDB;
 

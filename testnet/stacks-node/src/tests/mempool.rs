@@ -2,16 +2,15 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::sync::Mutex;
 
-use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 use stacks::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, db::blocks::MemPoolRejection, Error as ChainstateError, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
-    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
-    TransactionVersion,
+    db::blocks::MemPoolRejection, Error as ChainstateError, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAuth,
+    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::core::CHAIN_ID_TESTNET;
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::Error as NetError;
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
@@ -21,13 +20,14 @@ use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
+use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 
 use crate::helium::RunLoop;
 use crate::Keychain;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
-    serialize_sign_standard_single_sig_tx_anchor_mode_version, SK_1, SK_2, to_addr,
+    serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))

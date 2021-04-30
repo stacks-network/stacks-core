@@ -782,12 +782,12 @@ mod test {
     use util::sleep_ms;
 
     use chainstate::burn::ConsensusHash;
+    use codec::MAX_MESSAGE_LEN;
     use types::chainstate::StacksBlockHeader;
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
     use vm::types::*;
-    use codec::MAX_MESSAGE_LEN;
 
     fn test_http_server<F, C>(
         test_name: &str,

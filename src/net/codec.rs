@@ -30,27 +30,30 @@ use burnchains::BurnchainView;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::MAX_BLOCK_LEN;
 use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksTransaction;
-use codec::{MAX_MESSAGE_LEN, read_next_at_most, read_next_exact};
+use chainstate::stacks::MAX_BLOCK_LEN;
+use codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
 use core::PEER_VERSION_TESTNET;
-use net::*;
 use net::db::LocalPeer;
 use net::Error as net_error;
+use net::*;
+use util::hash::to_hex;
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::MerkleHashFunc;
-use util::hash::to_hex;
 use util::log;
 use util::retry::BoundReader;
-use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::secp256k1::MessageSignature;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::codec::{Error as codec_error, MAX_RELAYERS_LEN, PREAMBLE_ENCODED_SIZE, read_next, StacksMessageCodec, write_next};
+use crate::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
+    PREAMBLE_ENCODED_SIZE,
+};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockHeader;

@@ -31,6 +31,7 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
+use crate::codec::MAX_MESSAGE_LEN;
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::operations::*;
 use chainstate::burn::BlockSnapshot;
@@ -49,7 +50,6 @@ use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
 use net::BlocksInvData;
 use net::Error as net_error;
-use crate::codec::MAX_MESSAGE_LEN;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{

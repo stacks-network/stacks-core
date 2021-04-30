@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
 use std::io;
-use std::io::{Read, Write};
 use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::mem;
 use std::net::SocketAddr;
 use std::str;
@@ -40,16 +40,11 @@ use burnchains::{Address, Txid};
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
 use deps::httparse;
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use net::{};
 use net::atlas::Attachment;
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
 use net::Error::ClarityError;
-use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-use net::HTTP_REQUEST_ID_RESERVED;
 use net::HttpContentType;
 use net::HttpRequestMetadata;
 use net::HttpRequestPreamble;
@@ -58,7 +53,6 @@ use net::HttpResponseMetadata;
 use net::HttpResponsePreamble;
 use net::HttpResponseType;
 use net::HttpVersion;
-use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::MessageSequence;
 use net::NeighborAddress;
 use net::PeerAddress;
@@ -68,22 +62,30 @@ use net::StacksHttpMessage;
 use net::StacksHttpPreamble;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
-use util::hash::Hash160;
+use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
+use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
+use net::HTTP_REQUEST_ID_RESERVED;
+use net::MAX_MICROBLOCKS_UNCONFIRMED;
+use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use util::hash::hex_bytes;
 use util::hash::to_hex;
+use util::hash::Hash160;
 use util::log;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
+use vm::types::{StandardPrincipalData, TraitIdentifier};
 use vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
     },
-    ClarityName,
-    ContractName, types::{BOUND_VALUE_SERIALIZATION_HEX, PrincipalData}, Value,
+    types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
+    ClarityName, ContractName, Value,
 };
-use vm::types::{StandardPrincipalData, TraitIdentifier};
 
-use crate::codec::{read_next, StacksMessageCodec, write_next, Error as codec_error, MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
+use crate::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
+};
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
@@ -869,7 +871,10 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
     Ok(())
 }
 
-fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), codec_error> {
+fn write_headers<W: Write>(
+    fd: &mut W,
+    headers: &HashMap<String, String>,
+) -> Result<(), codec_error> {
     for (ref key, ref value) in headers.iter() {
         fd.write_all(key.as_str().as_bytes())
             .map_err(codec_error::WriteError)?;
@@ -4376,24 +4381,24 @@ mod test {
 
     use burnchains::Txid;
     use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
+    use chainstate::stacks::test::make_codec_test_block;
     use chainstate::stacks::StacksBlock;
     use chainstate::stacks::StacksMicroblock;
     use chainstate::stacks::StacksPrivateKey;
     use chainstate::stacks::StacksTransaction;
-    use chainstate::stacks::test::make_codec_test_block;
     use chainstate::stacks::TokenTransferMemo;
     use chainstate::stacks::TransactionAuth;
     use chainstate::stacks::TransactionPayload;
     use chainstate::stacks::TransactionPostConditionMode;
     use chainstate::stacks::TransactionVersion;
     use net::codec::test::check_codec_and_corruption;
+    use net::test::*;
     use net::RPCNeighbor;
     use net::RPCNeighborsInfo;
-    use net::test::*;
+    use util::hash::to_hex;
     use util::hash::Hash160;
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
-    use util::hash::to_hex;
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::StacksBlockHeader;
