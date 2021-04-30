@@ -36,7 +36,6 @@ use vm::types::{
 use vm::{eval, Environment, LocalContext};
 
 use vm::costs::cost_functions::ClarityCostFunction;
-use vm::functions::special::handle_contract_call_special_cases;
 
 pub fn special_contract_call(
     args: &[SymbolicExpression],
