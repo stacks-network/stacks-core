@@ -221,11 +221,15 @@ fn get_epoch_id_for_stacks_block(
 ) -> StacksEpochId {
     let burn_height = header_db
         .get_burn_block_height_for_block(stacks_block_id)
-        .expect("BUG: no burn block height for current block");
+        .expect(&format!(
+            "BUG: no burn block height for current block {}",
+            stacks_block_id
+        ));
 
-    let epoch = burn_state_db
-        .get_stacks_epoch(burn_height)
-        .expect("BUG: no epoch defined for burn height");
+    let epoch = burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
+        "BUG: no epoch defined for burn height {}",
+        burn_height
+    ));
 
     epoch.epoch_id
 }
@@ -316,9 +320,6 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let datastore = self.datastore.begin(current, next);
 
-        // if the above succeeds, then this will *definitely* succeed
-        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
-
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
@@ -327,7 +328,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch_id,
+            epoch_id: StacksEpochId::Epoch20,
         }
     }
 
@@ -342,9 +343,6 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let writable = self.datastore.begin(current, next);
 
-        // if the above succeeds, then this will *definitely* succeed
-        let epoch_id = get_epoch_id_for_stacks_block(header_db, burn_state_db, current);
-
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
@@ -353,7 +351,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: false,
-            epoch_id: epoch_id,
+            epoch_id: StacksEpochId::Epoch20,
         };
 
         conn.as_transaction(|clarity_db| {
