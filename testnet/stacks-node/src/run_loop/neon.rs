@@ -1,4 +1,9 @@
 use ctrlc as termination;
+use std::cmp;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
+use std::thread;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -11,11 +16,6 @@ use stacks::chainstate::coordinator::{
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
-use std::cmp;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
-use std::sync::Arc;
-use std::thread;
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;

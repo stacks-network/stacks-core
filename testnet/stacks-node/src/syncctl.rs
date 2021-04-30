@@ -252,7 +252,7 @@ impl PoxSyncWatchdog {
             last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
         if ibd {
             debug!(
-                "PoX watchdog: {} + {} < {}, so iniitial block download",
+                "PoX watchdog: {} + {} < {}, so initial block download",
                 last_processed_height, burnchain.stable_confirmations, burnchain_height
             );
         } else {
