@@ -50,7 +50,7 @@ use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
 
-use core::StacksEpochId;
+use core::{StacksEpochId, STACKS_EPOCH_MAX};
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -219,6 +219,13 @@ fn get_epoch_id_for_stacks_block(
     burn_state_db: &dyn BurnStateDB,
     stacks_block_id: &StacksBlockId,
 ) -> StacksEpochId {
+    // if this is NULL_HEADERS_DB, then we're always in Stacks 2.0
+    if let Some(epoch) = burn_state_db.get_stacks_epoch(0) {
+        if epoch.start_height == 0 && epoch.end_height == STACKS_EPOCH_MAX {
+            return epoch.epoch_id;
+        }
+    }
+
     let burn_height = header_db
         .get_burn_block_height_for_block(stacks_block_id)
         .expect(&format!(

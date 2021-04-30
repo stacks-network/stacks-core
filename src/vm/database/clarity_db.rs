@@ -49,6 +49,7 @@ use crate::types::chainstate::{
 };
 
 use crate::types::proof::TrieMerkleProof;
+use core::{StacksEpochId, STACKS_EPOCH_MAX};
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -228,7 +229,13 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-        None
+        // don't change this -- there's test code that depends on start_height == 0 and
+        // epoch_id == StacksEpochId::Epoch20 being returned here.
+        Some(StacksEpoch {
+            start_height: 0,
+            end_height: STACKS_EPOCH_MAX,
+            epoch_id: StacksEpochId::Epoch20,
+        })
     }
 }
 
