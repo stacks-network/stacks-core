@@ -37,6 +37,8 @@ use util::hash::Hash160;
 
 use crate::vm::costs::runtime_cost;
 
+use core::StacksEpochId;
+
 fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
@@ -70,8 +72,8 @@ fn parse_pox_stacking_result(
     }
 }
 
-/// Handle special cases when calling into the PoX API contract
-fn handle_pox_api_contract_call(
+/// Handle special cases when calling into the PoX API contract in Stacks 2.0
+fn handle_pox_api_contract_call_2_0(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
     function_name: &str,
@@ -133,7 +135,39 @@ fn handle_pox_api_contract_call(
     Ok(())
 }
 
-/// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
+/// Handle special cases when calling into the PoX API contract in Stacks 2.1
+fn handle_pox_api_contract_call_2_1(
+    _global_context: &mut GlobalContext,
+    _sender_opt: Option<&PrincipalData>,
+    _function_name: &str,
+    _value: &Value,
+) -> Result<()> {
+    // stubbed
+    panic!("Stacks 2.1 contract calls to .pox are not yet implemented");
+}
+
+/// Handle special cases when calling into the PoX API contract
+fn handle_pox_api_contract_call(
+    global_context: &mut GlobalContext,
+    _sender_opt: Option<&PrincipalData>,
+    function_name: &str,
+    value: &Value,
+) -> Result<()> {
+    match global_context.epoch_id {
+        StacksEpochId::Epoch10 => {
+            panic!("In epoch prior to Stacks 2.0");
+        }
+        StacksEpochId::Epoch20 => {
+            handle_pox_api_contract_call_2_0(global_context, _sender_opt, function_name, value)
+        }
+        StacksEpochId::Epoch21 => {
+            handle_pox_api_contract_call_2_1(global_context, _sender_opt, function_name, value)
+        }
+    }
+}
+
+/// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX,
+/// as well as contracts gated by epoch.
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
     sender: Option<&PrincipalData>,
