@@ -1011,27 +1011,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             .database
             .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
-                // roll back epoch as well.  This is guaranteed to succeed if we get here.
-                let prior_burn_height = self
-                    .global_context
-                    .database
-                    .get_burnchain_block_height(&prior_bhh)
-                    .expect("BUG: no burn block height for prior block");
-
-                let prior_epoch = self
-                    .global_context
-                    .database
-                    .get_stacks_epoch(prior_burn_height)
-                    .expect("BUG: no epoch defined for burn height");
-
-                let epoch_id = self.global_context.epoch_id;
-                self.global_context.epoch_id = prior_epoch.epoch_id;
-
-                // do the work
                 let result = eval(closure, self, local);
-
-                // restore
-                self.global_context.epoch_id = epoch_id;
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
