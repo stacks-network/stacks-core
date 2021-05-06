@@ -500,7 +500,7 @@ impl BitcoinIndexer {
                 Err(btc_error::SerializationError(
                     btc_serialization_err::UnrecognizedNetworkCommand(s),
                 )) => {
-                    debug!("Received unrecognized netowkr command while receiving a message: {}, ignoring", s);
+                    debug!("Received unrecognized network command while receiving a message: {}, ignoring", s);
                 }
                 Err(e) => {
                     warn!("Unhandled error while receiving a message: {:?}", e);
