@@ -48,7 +48,6 @@ use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
-use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::BlockHeaderHash;
@@ -57,6 +56,7 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::ClarityMarfTrieId;
+use crate::{clarity_vm::database::marf::MarfedKV, vm::ClarityVersion};
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -137,6 +137,7 @@ fn run_analysis(
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
+        ClarityVersion::Clarity1,
     )
     .map_err(|(e, _)| e)
 }

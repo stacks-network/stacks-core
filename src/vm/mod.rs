@@ -37,6 +37,7 @@ mod variables;
 
 pub mod analysis;
 pub mod docs;
+pub mod version;
 
 #[cfg(test)]
 pub mod tests;
@@ -64,6 +65,7 @@ use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::stx_transfer_consolidated;
+pub use vm::version::ClarityVersion;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -104,7 +106,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
-    if let Some(result) = functions::lookup_reserved_functions(name) {
+    if let Some(result) =
+        functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
+    {
         Ok(result)
     } else {
         let user_function = env
@@ -223,8 +227,8 @@ pub fn eval<'a>(
     }
 }
 
-pub fn is_reserved(name: &str) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name) {
+pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
+    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
     } else if variables::is_reserved_name(name) {
         true
@@ -355,7 +359,7 @@ fn eval_all(
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity1);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());

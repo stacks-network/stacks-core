@@ -42,13 +42,13 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
+use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, vm::ClarityVersion};
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -739,6 +739,12 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
+        let epoch_id = self
+            .with_clarity_db_readonly(|db| db.get_current_stacks_epoch())
+            .expect("Failed to load current epoch")
+            .epoch_id;
+        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+
         using!(self.cost_track, "cost tracker", |mut cost_track| {
             self.inner_with_analysis_db(|db| {
                 let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
@@ -754,6 +760,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                     db,
                     false,
                     cost_track,
+                    clarity_version,
                 );
 
                 match result {

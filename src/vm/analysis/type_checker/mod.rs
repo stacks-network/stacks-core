@@ -37,6 +37,8 @@ use vm::types::{
 };
 use vm::variables::NativeVariables;
 
+use crate::vm::ClarityVersion;
+
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
 
@@ -75,6 +77,7 @@ pub struct TypeChecker<'a, 'b> {
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
+    clarity_version: ClarityVersion,
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
@@ -115,7 +118,8 @@ impl AnalysisPass for TypeChecker<'_, '_> {
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command = TypeChecker::new(analysis_db, cost_track);
+        let mut command =
+            TypeChecker::new(analysis_db, cost_track, &contract_analysis.clarity_version);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -316,6 +320,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
+        clarity_version: &ClarityVersion,
     ) -> TypeChecker<'a, 'b> {
         Self {
             db,
@@ -323,6 +328,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             contract_context: ContractContext::new(),
             function_return_tracker: None,
             type_map: TypeMap::new(),
+            clarity_version: clarity_version.clone(),
         }
     }
 
@@ -607,7 +613,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> Option<TypeResult> {
-        if let Some(ref native_function) = NativeFunctions::lookup_by_name(function) {
+        if let Some(ref native_function) =
+            NativeFunctions::lookup_by_name_before_version(function, &self.clarity_version)
+        {
             let typed_function = TypedNativeFunction::type_native_function(native_function);
             Some(typed_function.type_check_appliction(self, args, context))
         } else {

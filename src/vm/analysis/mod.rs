@@ -28,6 +28,7 @@ use vm::costs::LimitedCostTracker;
 use vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use vm::representations::SymbolicExpression;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use vm::ClarityVersion;
 
 pub use self::analysis_db::AnalysisDatabase;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -77,6 +78,7 @@ pub fn type_check(
         analysis_db,
         insert_contract,
         LimitedCostTracker::new_free(),
+        ClarityVersion::Clarity1,
     )
     .map_err(|(e, _cost_tracker)| e)
 }
@@ -87,11 +89,13 @@ pub fn run_analysis(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
+    version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
         cost_tracker,
+        version,
     );
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;

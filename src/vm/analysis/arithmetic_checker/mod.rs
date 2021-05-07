@@ -27,6 +27,8 @@ use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSi
 use std::collections::HashMap;
 use vm::variables::NativeVariables;
 
+use crate::vm::ClarityVersion;
+
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
@@ -42,7 +44,9 @@ mod tests;
 ///  any database operations, traits, or iterating operations (e.g., list
 ///  operations)
 ///
-pub struct ArithmeticOnlyChecker();
+pub struct ArithmeticOnlyChecker<'a> {
+    clarity_version: &'a ClarityVersion,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error {
@@ -65,14 +69,16 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl ArithmeticOnlyChecker {
+impl<'a> ArithmeticOnlyChecker<'a> {
     pub fn check_contract_cost_eligible(contract_analysis: &mut ContractAnalysis) {
         let is_eligible = ArithmeticOnlyChecker::run(contract_analysis).is_ok();
         contract_analysis.is_cost_contract_eligible = is_eligible;
     }
 
     pub fn run(contract_analysis: &ContractAnalysis) -> Result<(), Error> {
-        let checker = ArithmeticOnlyChecker();
+        let checker = ArithmeticOnlyChecker {
+            clarity_version: &contract_analysis.clarity_version,
+        };
         for exp in contract_analysis.expressions.iter() {
             checker.check_top_levels(&exp)?;
         }
@@ -154,7 +160,7 @@ impl ArithmeticOnlyChecker {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<Result<(), Error>> {
-        NativeFunctions::lookup_by_name(function)
+        NativeFunctions::lookup_by_name_before_version(function, self.clarity_version)
             .map(|function| self.check_native_function(function, args))
     }
 
