@@ -37,11 +37,14 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
-};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::util::boot::boot_code_id;
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+    },
+};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -102,10 +105,15 @@ struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
+    epoch_bounds: Vec<u64>,
 }
 
 struct TestSimHeadersDB {
     height: u64,
+}
+
+struct TestSimBurnStateDB {
+    epoch_bounds: Vec<u64>,
 }
 
 impl ClarityTestSim {
@@ -137,6 +145,7 @@ impl ClarityTestSim {
             marf,
             height: 0,
             fork: 0,
+            epoch_bounds: vec![0, u64::max_value()],
         }
     }
 
@@ -153,8 +162,10 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+            };
+            let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
             f(&mut owned_env)
         };
 
@@ -204,6 +215,55 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(&in_bytes[0..8]);
         Some(u64::from_le_bytes(bytes))
+    }
+}
+
+impl BurnStateDB for TestSimBurnStateDB {
+    fn get_burn_block_height(
+        &self,
+        sortition_id: &crate::types::chainstate::SortitionId,
+    ) -> Option<u32> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        height: u32,
+        sortition_id: &crate::types::chainstate::SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        let epoch_begin_index = match self.epoch_bounds.binary_search(height as u64) {
+            Ok(index) => index,
+            Err(index) => {
+                if index == 0 {
+                    return Some(StacksEpoch {
+                        start_height: 0,
+                        end_height: self.epoch_bounds[0],
+                        epoch_id: StacksEpochId::Epoch10,
+                    });
+                } else {
+                    index - 1
+                }
+            }
+        };
+
+        let epoch_id = match epoch_begin_index {
+            0 => Epoch20,
+            1 => Epoch21,
+            _ => panic!("Epoch unknown"),
+        };
+
+        Some(StacksEpoch {
+            start_height: self.epoch_bounds[epoch_begin_index],
+            end_height: self
+                .epoch_bounds
+                .get(epoch_begin_index + 1)
+                .unwrap_or(u64::max_value()),
+            epoch_id,
+        })
     }
 }
 
