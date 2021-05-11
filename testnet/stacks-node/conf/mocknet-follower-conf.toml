@@ -1,0 +1,33 @@
+[node]
+# working_dir = "/dir/to/save/chainstate"
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+wait_time_for_microblocks = 10000
+use_test_genesis_chainstate = true
+
+[burnchain]
+chain = "bitcoin"
+mode = "mocknet"
+
+[[ustx_balance]]
+address = "ST3EQ88S02BXXD0T5ZVT3KW947CRMQ1C6DMQY8H19"
+amount = 100000000000000
+
+[[ustx_balance]]
+address = "ST3KCNDSWZSFZCC6BE4VA9AXWXC9KEB16FBTRK36T"
+amount = 100000000000000
+
+[[ustx_balance]]
+address = "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8"
+amount = 100000000000000
+
+[[ustx_balance]]
+address = "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7"
+amount = 100000000000000
+
+[connection_options]
+read_only_call_limit_write_length = 0
+read_only_call_limit_read_length = 100000
+read_only_call_limit_write_count = 0
+read_only_call_limit_read_count = 30
+read_only_call_limit_runtime = 1000000000

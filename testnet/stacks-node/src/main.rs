@@ -200,7 +200,7 @@ xenon\t\tStart a node that will join and stream blocks from the public xenon tes
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:
-\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/Stacks.toml).
+\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/testnet-follower-conf.toml).
 \t\tExample:
 \t\t  stacks-node start --config=/path/to/config.toml
 

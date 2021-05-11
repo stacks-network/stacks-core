@@ -1,0 +1,38 @@
+[node]
+# working_dir = "/dir/to/save/chainstate"
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+bootstrap_node = "048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@regtest.stacks.co:20444"
+wait_time_for_microblocks = 10000
+
+[burnchain]
+chain = "bitcoin"
+mode = "krypton"
+peer_host = "bitcoind.regtest.stacks.co"
+username = "blockstack"
+password = "blockstacksystem"
+rpc_port = 18443
+peer_port = 18444
+
+[[ustx_balance]]
+address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+amount = 10000000000000000
+
+[connection_options]
+read_only_call_limit_write_length = 0
+read_only_call_limit_read_length = 100000
+read_only_call_limit_write_count = 0
+read_only_call_limit_read_count = 30
+read_only_call_limit_runtime = 1000000000
