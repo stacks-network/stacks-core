@@ -44,6 +44,7 @@ pub enum ParseErrors {
     FailedParsingPrincipal(String),
     FailedParsingField(String),
     FailedParsingRemainder(String),
+    CheckError(String), // These errors would be caught by the Typchecker and other check passes
     ClosingParenthesisUnexpected,
     ClosingParenthesisExpected,
     ClosingTupleLiteralUnexpected,

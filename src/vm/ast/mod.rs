@@ -39,6 +39,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use vm::ast::cost::StaticCostAnalyzer;
 use vm::costs::cost_functions::ClarityCostFunction;
 
 /// Legacy function
@@ -50,6 +51,8 @@ pub fn parse(
     Ok(ast.expressions)
 }
 
+// todo: maybe take in analysis db so that static cost analyzer can look up cost expressions from
+// other contracts / OR / do the analysis lazily when fn is invoked.
 pub fn build_ast<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -68,6 +71,7 @@ pub fn build_ast<T: CostTracker>(
     TraitsResolver::run_pass(&mut contract_ast)?;
     SugarExpander::run_pass(&mut contract_ast)?;
     ExpressionIdentifier::run_expression_pass(&mut contract_ast)?;
+    StaticCostAnalyzer::run_pass(&mut contract_ast)?;
     Ok(contract_ast)
 }
 

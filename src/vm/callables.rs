@@ -48,14 +48,15 @@ pub enum DefineType {
     Private,
 }
 
+// todo - double check its ok to make these fields public
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     name: ClarityName,
-    arg_types: Vec<TypeSignature>,
+    pub arg_types: Vec<TypeSignature>,
     pub define_type: DefineType,
-    arguments: Vec<ClarityName>,
-    body: SymbolicExpression,
+    pub arguments: Vec<ClarityName>,
+    pub body: SymbolicExpression,
 }
 
 pub enum NativeHandle {
