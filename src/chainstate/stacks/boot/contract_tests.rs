@@ -25,8 +25,7 @@ use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
 use vm::database::*;
 use vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
@@ -37,7 +36,7 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::util::boot::boot_code_id;
+use crate::{clarity_vm::clarity::ClarityBlockConnection, util::boot::boot_code_id};
 use crate::{
     core::StacksEpoch,
     types::proof::{ClarityMarfTrieId, TrieMerkleProof},
@@ -48,6 +47,8 @@ use crate::{
         BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
     },
 };
+
+use clarity_vm::clarity::Error as ClarityError;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -150,6 +151,34 @@ impl ClarityTestSim {
             fork: 0,
             epoch_bounds: vec![0, u64::max_value()],
         }
+    }
+
+    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut ClarityBlockConnection) -> R,
+    {
+        let r = {
+            let store = self.marf.begin(
+                &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+            );
+
+            let headers_db = TestSimHeadersDB {
+                height: self.height + 1,
+            };
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+            };
+            let mut block_conn =
+                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db);
+            let r = f(&mut block_conn);
+            block_conn.commit_block();
+
+            r
+        };
+
+        self.height += 1;
+        r
     }
 
     pub fn execute_next_block<F, R>(&mut self, f: F) -> R
@@ -339,17 +368,83 @@ fn simple_epoch21_test() {
     sim.epoch_bounds = vec![0, 3];
     let delegator = StacksPrivateKey::new();
 
-    sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
-            .unwrap()
+    let clarity_2_0_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
+    let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-0-bad".into(),
+    );
+    let clarity_2_0_content = "
+(define-private (stx-account (a principal)) 1)
+(define-public (call-through)
+  (ok (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+";
+
+    let clarity_2_1_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-1".into());
+    let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-1-bad".into(),
+    );
+    let clarity_2_1_content = "
+(define-public (call-through)
+  (let ((balance-1 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+        (balance-2 (unwrap-panic (contract-call? .contract-2-0 call-through)))
+        (balance-3 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+       (print balance-1)
+       (print balance-2)
+       (print balance-3)
+       (ok 1)))
+(call-through)
+";
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
+            .expect("2.0 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
+            .expect_err("2.0 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Analysis(e) => {
+                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+            }
+            e => panic!("Should have caused an analysis error: {:#?}", e),
+        };
     });
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(block, &clarity_2_1_id, clarity_2_1_content)
+            .expect("2.1 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(block, &clarity_2_1_bad_id, clarity_2_0_content)
+            .expect_err("2.1 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Interpreter(e) => {
+                assert_eq!(
+                    e,
+                    Error::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
+                );
+            }
+            e => panic!("Should have caused an Interpreter error: {:#?}", e),
+        };
+    });
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
-    sim.execute_next_block(|_env| {});
+}
+
+fn test_deploy_smart_contract(
+    block: &mut ClarityBlockConnection,
+    contract_id: &QualifiedContractIdentifier,
+    content: &str,
+) -> Result<(), ClarityError> {
+    block.as_transaction(|tx| {
+        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, content)?;
+        tx.initialize_smart_contract(&contract_id, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(&contract_id, &analysis)?;
+        return Ok(());
+    })
 }
 
 #[test]

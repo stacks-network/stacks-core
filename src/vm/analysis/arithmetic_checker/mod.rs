@@ -174,7 +174,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
             | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
-            | GetTokenSupply | BurnToken | BurnAsset => {
+            | GetTokenSupply | BurnToken | BurnAsset | StxGetAccount => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print

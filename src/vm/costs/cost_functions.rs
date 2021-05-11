@@ -130,4 +130,5 @@ define_named_enum!(ClarityCostFunction {
     NftOwner("cost_nft_owner"),
     NftBurn("cost_nft_burn"),
     PoisonMicroblock("poison_microblock"),
+    StxGetAccount("cost_stx_get_account"),
 });

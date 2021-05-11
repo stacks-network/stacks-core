@@ -210,6 +210,21 @@ macro_rules! using {
 }
 
 impl ClarityBlockConnection<'_> {
+    #[cfg(test)]
+    pub fn new_test_conn<'a>(
+        datastore: WritableMarfStore<'a>,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a> {
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track: Some(LimitedCostTracker::new_free()),
+            mainnet: false,
+        }
+    }
+
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {

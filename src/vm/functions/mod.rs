@@ -134,7 +134,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
     StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
-    GetAccountLockup("stx-account?", ClarityVersion::Clarity2),
+    StxGetAccount("stx-account", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -432,6 +432,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
+            StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
         };
         Some(callable)
     } else {

@@ -626,6 +626,20 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
+            StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("owner".to_owned())
+                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                )],
+                returns: TupleTypeSignature::try_from(vec![
+                    ("unlocked".into(), TypeSignature::UIntType),
+                    ("locked".into(), TypeSignature::UIntType),
+                    ("unlock-height".into(), TypeSignature::UIntType),
+                ])
+                .expect("FAIL: StxGetAccount failed to initialize type signature")
+                .into(),
+            }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
