@@ -15,8 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
+use vm::analysis::mem_type_check as mem_run_analysis;
 use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
 use vm::analysis::types::ContractAnalysis;
 use vm::analysis::AnalysisDatabase;
@@ -37,8 +36,15 @@ use std::convert::TryInto;
 use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
 
+use super::CheckResult;
+
 mod assets;
-mod contracts;
+pub mod contracts;
+
+/// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
+pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity2)
+}
 
 fn type_check_helper(exp: &str) -> TypeResult {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
@@ -1334,8 +1340,6 @@ fn test_response_inference() {
 
 #[test]
 fn test_function_arg_names() {
-    use vm::analysis::type_check;
-
     let functions = vec![
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))

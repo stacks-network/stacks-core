@@ -1763,12 +1763,14 @@ mod test {
         Value,
     };
 
-    use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::proof::ClarityMarfTrieId;
-    use crate::vm::analysis::type_check;
+    use crate::{
+        clarity_vm::database::marf::MarfedKV,
+        vm::analysis::type_checker::tests::contracts::type_check,
+    };
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;

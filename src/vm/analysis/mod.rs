@@ -39,48 +39,36 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
-pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+pub fn mem_type_check(
+    snippet: &str,
+    version: ClarityVersion,
+) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    type_check(
+    match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
         &mut analysis_db,
         false,
-    )
-    .map(|x| {
-        // return the first type result of the type checker
-        let first_type = x
-            .type_map
-            .as_ref()
-            .unwrap()
-            .get_type(&x.expressions.last().unwrap())
-            .cloned();
-        (first_type, x)
-    })
-}
-
-// Legacy function
-// The analysis is not just checking type.
-pub fn type_check(
-    contract_identifier: &QualifiedContractIdentifier,
-    expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
-    insert_contract: bool,
-) -> CheckResult<ContractAnalysis> {
-    run_analysis(
-        &contract_identifier,
-        expressions,
-        analysis_db,
-        insert_contract,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity1,
-    )
-    .map_err(|(e, _cost_tracker)| e)
+        version,
+    ) {
+        Ok(x) => {
+            // return the first type result of the type checker
+            let first_type = x
+                .type_map
+                .as_ref()
+                .unwrap()
+                .get_type(&x.expressions.last().unwrap())
+                .cloned();
+            Ok((first_type, x))
+        }
+        Err((e, _)) => Err(e),
+    }
 }
 
 pub fn run_analysis(

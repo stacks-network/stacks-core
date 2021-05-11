@@ -758,6 +758,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             .with_clarity_db_readonly(|db| db.get_current_stacks_epoch())
             .expect("Failed to load current epoch")
             .epoch_id;
+
+        // ClarityVersionPragmaTodo: need to use contract's declared version or default
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
 
         using!(self.cost_track, "cost tracker", |mut cost_track| {

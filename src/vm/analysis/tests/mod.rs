@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{mem_type_check, AnalysisDatabase};
-use vm::analysis::{type_check, ContractAnalysis};
+use vm::analysis::type_checker::tests::mem_type_check;
+use vm::analysis::ContractAnalysis;
 use vm::ast::parse;
 
 mod costs;

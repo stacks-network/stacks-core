@@ -29,14 +29,10 @@ use vm::database::{
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::{
-    clarity_vm::{clarity::ClarityInstance, database::marf::MarfedKV},
-    types::chainstate::StacksBlockId,
-    vm::costs::ExecutionCost,
-};
 
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 
@@ -65,55 +61,6 @@ fn test_burnstatedb_epoch(
         }
     }
 }
-
-// #[test]
-// fn test_vm_across_epoch_switch() {
-//     use chainstate::burn::db::sortdb::tests::test_append_snapshot;
-
-//     let mut rng = rand::thread_rng();
-//     let mut buf = [0u8; 32];
-//     rng.fill_bytes(&mut buf);
-//     let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
-
-//     let mut db = SortitionDB::connect(
-//         &db_path_dir,
-//         3,
-//         &BurnchainHeaderHash([0u8; 32]),
-//         0,
-//         &vec![
-//             StacksEpoch {
-//                 epoch_id: StacksEpochId::Epoch10,
-//                 start_height: 0,
-//                 end_height: 8,
-//             },
-//             StacksEpoch {
-//                 epoch_id: StacksEpochId::Epoch20,
-//                 start_height: 8,
-//                 end_height: 12,
-//             },
-//             StacksEpoch {
-//                 epoch_id: StacksEpochId::Epoch21,
-//                 start_height: 12,
-//                 end_height: STACKS_EPOCH_MAX,
-//             },
-//         ],
-//         true,
-//     )
-//     .unwrap();
-
-//     let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
-//     let start_height = cur_snapshot.block_height as u32;
-//     let mut end_height = 0;
-
-//     let marf = MarfedKV::temporary();
-//     let clarity = ClarityInstance::new(false, marf, ExecutionCost::max_value());
-
-//     for i in 0..20 {
-//         cur_snapshot =
-//             test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
-//         clarity.begin_test_genesis_block(
-//     }
-// }
 
 #[test]
 fn test_vm_epoch_switch() {

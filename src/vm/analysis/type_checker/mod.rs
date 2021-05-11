@@ -53,7 +53,7 @@ use vm::contexts::Environment;
 use vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 /*
 

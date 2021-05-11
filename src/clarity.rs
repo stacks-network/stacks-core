@@ -137,6 +137,7 @@ fn run_analysis(
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
+        // ClarityVersionPragmaTodo: need to use contract's declared version
         ClarityVersion::Clarity1,
     )
     .map_err(|(e, _)| e)

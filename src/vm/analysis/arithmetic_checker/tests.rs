@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::ClarityVersion;
 use chainstate::stacks::boot::BOOT_CODE_COSTS;
+use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
-    arithmetic_checker::Error::*, mem_type_check, ContractAnalysis,
+    arithmetic_checker::Error::*, ContractAnalysis,
 };
 use vm::ast::parse;
 use vm::costs::LimitedCostTracker;
@@ -25,8 +27,6 @@ use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::QualifiedContractIdentifier;
 use vm::variables::NativeVariables;
-
-use crate::vm::ClarityVersion;
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
