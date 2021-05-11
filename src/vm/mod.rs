@@ -384,6 +384,8 @@ mod test {
         Value,
     };
 
+    use super::ClarityVersion;
+
     #[test]
     fn test_simple_user_function() {
         //
@@ -413,7 +415,10 @@ mod test {
         );
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
+        let mut contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context =

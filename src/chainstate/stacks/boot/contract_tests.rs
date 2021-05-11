@@ -37,8 +37,11 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::util::boot::boot_code_id;
+use crate::{
+    core::StacksEpoch,
+    types::proof::{ClarityMarfTrieId, TrieMerkleProof},
+};
 use crate::{
     core::StacksEpochId,
     types::chainstate::{
@@ -235,7 +238,7 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
-        let epoch_begin_index = match self.epoch_bounds.binary_search(height as u64) {
+        let epoch_begin_index = match self.epoch_bounds.binary_search(&(height as u64)) {
             Ok(index) => index,
             Err(index) => {
                 if index == 0 {
@@ -251,8 +254,8 @@ impl BurnStateDB for TestSimBurnStateDB {
         };
 
         let epoch_id = match epoch_begin_index {
-            0 => Epoch20,
-            1 => Epoch21,
+            0 => StacksEpochId::Epoch20,
+            1 => StacksEpochId::Epoch21,
             _ => panic!("Epoch unknown"),
         };
 
@@ -261,6 +264,7 @@ impl BurnStateDB for TestSimBurnStateDB {
             end_height: self
                 .epoch_bounds
                 .get(epoch_begin_index + 1)
+                .cloned()
                 .unwrap_or(u64::max_value()),
             epoch_id,
         })
@@ -327,6 +331,25 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }
+}
+
+#[test]
+fn simple_epoch21_test() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3];
+    let delegator = StacksPrivateKey::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
+            .unwrap()
+    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
 }
 
 #[test]

@@ -134,6 +134,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
     StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
+    GetAccountLockup("stx-account?", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
