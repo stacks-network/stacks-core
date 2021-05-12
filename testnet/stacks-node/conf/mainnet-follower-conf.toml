@@ -13,9 +13,8 @@ password = "<PASSWORD>"
 rpc_port = 8332
 peer_port = 8333
 
-[connection_options]
-read_only_call_limit_write_length = 0
-read_only_call_limit_read_length = 100000
-read_only_call_limit_write_count = 0
-read_only_call_limit_read_count = 30
-read_only_call_limit_runtime = 1000000000
+# Used for sending events to a local stacks-blockchain-api service
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# retry_count = 255
+# events_keys = ["*"]

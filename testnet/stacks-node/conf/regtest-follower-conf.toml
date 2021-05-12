@@ -14,6 +14,12 @@ password = "blockstacksystem"
 rpc_port = 18443
 peer_port = 18444
 
+# Used for sending events to a local stacks-blockchain-api service
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# retry_count = 255
+# events_keys = ["*"]
+
 [[ustx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
 amount = 10000000000000000
@@ -29,10 +35,3 @@ amount = 10000000000000000
 [[ustx_balance]]
 address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
 amount = 10000000000000000
-
-[connection_options]
-read_only_call_limit_write_length = 0
-read_only_call_limit_read_length = 100000
-read_only_call_limit_write_count = 0
-read_only_call_limit_read_count = 30
-read_only_call_limit_runtime = 1000000000

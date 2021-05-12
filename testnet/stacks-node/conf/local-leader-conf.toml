@@ -4,7 +4,6 @@ p2p_bind = "127.0.0.1:20444"
 seed = "0000000000000000000000000000000000000000000000000000000000000000"
 local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
 miner = true
-mine_microblocks = false
 prometheus_bind = "127.0.0.1:4000"
 pox_sync_sample_secs = 10
 wait_time_for_microblocks = 0
@@ -13,9 +12,8 @@ wait_time_for_microblocks = 0
 chain = "bitcoin"
 mode = "krypton"
 peer_host = "127.0.0.1"
-rpc_port = 28443
+rpc_port = 18443
 peer_port = 18444
-poll_time_secs = 5
 
 [[ustx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001
@@ -137,8 +135,3 @@ amount = 100000000000000
 # Private key: b4dc4945b57c9649ae2ef51aba46ad24f1ec45721969b096a4a9eabfff5e58df01
 address = "ST289WH00WPBAG852K4FRCBNFV7HQ76SZKBHQZ427"
 amount = 100000000000000
-
-
-# [[events_observer]]
-# endpoint = "http://127.0.0.1:8080"
-# events_keys = ["*"]

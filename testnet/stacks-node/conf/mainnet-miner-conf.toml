@@ -17,10 +17,3 @@ rpc_port = 8332
 peer_port = 8333
 satoshis_per_byte = 100
 burn_fee_cap = 20000
-
-[connection_options]
-read_only_call_limit_write_length = 0
-read_only_call_limit_read_length = 100000
-read_only_call_limit_write_count = 0
-read_only_call_limit_read_count = 30
-read_only_call_limit_runtime = 1000000000
