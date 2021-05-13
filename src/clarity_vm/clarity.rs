@@ -48,6 +48,7 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
+use chainstate::stacks::db::StacksChainState;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -939,9 +940,20 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     ) -> Result<Value, Error> {
         self.with_abort_callback(
             |vm_env| {
-                vm_env
-                    .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
-                    .map_err(Error::from)
+                vm_env.execute_in_env(sender.clone(), |exec_env| {
+                    exec_env.global_context.begin();
+                    let result = StacksChainState::handle_poison_microblock(exec_env, mblock_header_1, mblock_header_2);
+                    match result {
+                        Ok(ret) => {
+                            exec_env.global_context.commit()?;
+                            Ok(ret)
+                        }
+                        Err(e) => {
+                            exec_env.global_context.roll_back();
+                            Err(e)
+                        }
+                    }
+                }).map_err(Error::from)
             },
             |_, _| false,
         )

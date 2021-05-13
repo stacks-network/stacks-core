@@ -42,7 +42,6 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
 
@@ -655,17 +654,6 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
-    pub fn handle_poison_microblock(
-        &mut self,
-        sender: &PrincipalData,
-        mblock_hdr_1: &StacksMicroblockHeader,
-        mblock_hdr_2: &StacksMicroblockHeader,
-    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-        self.execute_in_env(sender.clone(), |exec_env| {
-            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
-        })
-    }
-
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env::<_, _, ()>(recipient.clone(), |env| {
@@ -1130,27 +1118,6 @@ impl<'a, 'b> Environment<'a, 'b> {
                     Err(InterpreterError::InsufficientBalance.into())
                 }
             },
-            Err(e) => {
-                self.global_context.roll_back();
-                Err(e)
-            }
-        }
-    }
-
-    /// Top-level poison-microblock handler
-    pub fn handle_poison_microblock(
-        &mut self,
-        mblock_header_1: &StacksMicroblockHeader,
-        mblock_header_2: &StacksMicroblockHeader,
-    ) -> std::result::Result<Value, ChainstateError> {
-        self.global_context.begin();
-        let result =
-            StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
-        match result {
-            Ok(ret) => {
-                self.global_context.commit()?;
-                Ok(ret)
-            }
             Err(e) => {
                 self.global_context.roll_back();
                 Err(e)
