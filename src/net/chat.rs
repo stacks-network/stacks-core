@@ -28,7 +28,6 @@ use rand;
 use rand::thread_rng;
 use rand::Rng;
 
-use crate::types::chainstate::StacksBlockHeader;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::PublicKey;
@@ -65,6 +64,8 @@ use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
 use crate::types::chainstate::PoxId;
+use crate::types::chainstate::StacksBlockHeader;
+use crate::types::StacksPublicKeyBuffer;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]

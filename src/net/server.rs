@@ -782,6 +782,7 @@ mod test {
     use util::sleep_ms;
 
     use chainstate::burn::ConsensusHash;
+    use codec::MAX_MESSAGE_LEN;
     use types::chainstate::StacksBlockHeader;
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
