@@ -45,8 +45,9 @@ pub struct ProcessedUnconfirmedState {
     pub total_burns: u128,
     pub total_fees: u128,
     // each element of this vector is a tuple, where each tuple contains a microblock
-    // sequence number, and a vector of transaction receipts for that microblock
-    pub receipts: Vec<(u16, Vec<StacksTransactionReceipt>)>,
+    // sequence number, microblock header hash, and a vector of transaction receipts
+    // for that microblock
+    pub receipts: Vec<(u16, BlockHeaderHash, Vec<StacksTransactionReceipt>)>,
 }
 
 impl Default for ProcessedUnconfirmedState {
@@ -229,7 +230,7 @@ impl UnconfirmedState {
                 total_fees += stx_fees;
                 total_burns += stx_burns;
                 num_new_mblocks += 1;
-                all_receipts.push((seq, receipts));
+                all_receipts.push((seq, mblock_hash, receipts));
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;

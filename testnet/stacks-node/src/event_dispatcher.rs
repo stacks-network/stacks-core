@@ -28,7 +28,9 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
@@ -239,6 +241,7 @@ impl EventObserver {
     fn make_new_microblock_txs_payload(
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
+        header_hash: &BlockHeaderHash,
         sequence: u16,
     ) -> serde_json::Value {
         let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
@@ -251,7 +254,8 @@ impl EventObserver {
             "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
             "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
-            "sequence": sequence,
+            "microblock_sequence": sequence,
+            "microblock_header_hash": format!("0x{}", header_hash),
         })
     }
 
@@ -348,6 +352,7 @@ impl EventObserver {
             "parent_block_hash": format!("0x{}", chain_tip.block.header.parent_block),
             "parent_index_block_hash": format!("0x{}", parent_index_hash),
             "parent_microblock": format!("0x{}", chain_tip.block.header.parent_microblock),
+            "parent_microblock_sequence": chain_tip.block.header.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
@@ -670,7 +675,7 @@ impl EventDispatcher {
         let flattened_receipts = processed_unconfirmed_state
             .receipts
             .iter()
-            .flat_map(|(_, r)| r.clone())
+            .flat_map(|(_, _, r)| r.clone())
             .collect();
         let (dispatch_matrix, events) =
             self.create_dispatch_matrix_and_event_vector(&flattened_receipts);
@@ -679,12 +684,15 @@ impl EventDispatcher {
         let mut tx_index;
         let mut serialized_txs = Vec::new();
 
-        for (curr_sequence_number, receipts) in processed_unconfirmed_state.receipts.iter() {
+        for (curr_sequence_number, header_hash, receipts) in
+            processed_unconfirmed_state.receipts.iter()
+        {
             tx_index = 0;
             for receipt in receipts.iter() {
                 let payload = EventObserver::make_new_microblock_txs_payload(
                     receipt,
                     tx_index,
+                    header_hash,
                     *curr_sequence_number,
                 );
                 serialized_txs.push(payload);
