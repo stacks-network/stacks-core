@@ -29,7 +29,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksMicroblockHeader,
 };
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -241,7 +241,7 @@ impl EventObserver {
     fn make_new_microblock_txs_payload(
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
-        header_hash: &BlockHeaderHash,
+        microblock_header: &StacksMicroblockHeader,
         sequence: u16,
     ) -> serde_json::Value {
         let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
@@ -255,7 +255,8 @@ impl EventObserver {
             "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
             "microblock_sequence": sequence,
-            "microblock_header_hash": format!("0x{}", header_hash),
+            "microblock_hash": format!("0x{}", microblock_header.block_hash()),
+            "microblock_parent_hash": format!("0x{}", microblock_header.prev_block),
         })
     }
 
@@ -684,7 +685,7 @@ impl EventDispatcher {
         let mut tx_index;
         let mut serialized_txs = Vec::new();
 
-        for (curr_sequence_number, header_hash, receipts) in
+        for (curr_sequence_number, microblock_header, receipts) in
             processed_unconfirmed_state.receipts.iter()
         {
             tx_index = 0;
@@ -692,7 +693,7 @@ impl EventDispatcher {
                 let payload = EventObserver::make_new_microblock_txs_payload(
                     receipt,
                     tx_index,
-                    header_hash,
+                    microblock_header,
                     *curr_sequence_number,
                 );
                 serialized_txs.push(payload);
