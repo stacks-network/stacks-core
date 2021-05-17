@@ -216,7 +216,7 @@ impl RunLoop {
             first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
             first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
-            pox_constants: Some(coordinator_burnchain_config.pox_constants.clone()),
+            pox_constants: coordinator_burnchain_config.pox_constants.clone(),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
             })),

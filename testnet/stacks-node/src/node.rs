@@ -280,7 +280,7 @@ impl Node {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
-            pox_constants: Some(pox_constants),
+            pox_constants,
             post_flight_callback: Some(boot_block_exec),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
