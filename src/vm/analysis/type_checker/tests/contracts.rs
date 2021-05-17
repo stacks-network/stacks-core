@@ -392,7 +392,8 @@ fn test_names_tokens_contracts_interface() {
             { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
         ],
         "fungible_tokens": [],
-        "non_fungible_tokens": []
+        "non_fungible_tokens": [],
+        "clarity_version": "Clarity2"
     }"#).unwrap();
 
     eprintln!("{}", test_contract_json_str);

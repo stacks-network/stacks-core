@@ -298,6 +298,10 @@ impl BurnStateDB for TestSimBurnStateDB {
             epoch_id,
         })
     }
+
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
 }
 
 impl HeadersDB for TestSimHeadersDB {

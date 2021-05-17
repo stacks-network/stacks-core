@@ -1843,6 +1843,10 @@ mod test {
                 end_height: STACKS_EPOCH_MAX,
             })
         }
+
+        fn get_burn_start_height(&self) -> u32 {
+            0
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {

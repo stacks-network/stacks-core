@@ -43,9 +43,12 @@ use vm::types::{
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId, VRFSeed,
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+        StacksBlockId, VRFSeed,
+    },
 };
 
 use crate::types::proof::TrieMerkleProof;
@@ -93,6 +96,7 @@ pub trait HeadersDB {
 
 pub trait BurnStateDB {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+    fn get_burn_start_height(&self) -> u32;
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -130,6 +134,10 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_burn_block_height(sortition_id)
     }
 
+    fn get_burn_start_height(&self) -> u32 {
+        (*self).get_burn_start_height()
+    }
+
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -144,10 +152,17 @@ impl BurnStateDB for &dyn BurnStateDB {
 }
 
 pub struct NullHeadersDB {}
-pub struct NullBurnStateDB {}
+pub struct NullBurnStateDB {
+    epoch: StacksEpochId,
+}
 
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
-pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {};
+pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {
+    epoch: StacksEpochId::Epoch20,
+};
+pub const NULL_BURN_STATE_DB_2_1: NullBurnStateDB = NullBurnStateDB {
+    epoch: StacksEpochId::Epoch21,
+};
 
 impl HeadersDB for NullHeadersDB {
     fn get_burn_header_hash_for_block(
@@ -206,7 +221,7 @@ impl HeadersDB for NullHeadersDB {
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
-            None
+            Some(1)
         }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
@@ -219,6 +234,10 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
 
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+
     fn get_burn_header_hash(
         &self,
         _height: u32,
@@ -228,7 +247,11 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-        None
+        Some(StacksEpoch {
+            epoch_id: self.epoch.clone(),
+            start_height: 0,
+            end_height: u64::max_value(),
+        })
     }
 }
 
@@ -561,10 +584,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
         let last_mined_bhh = if cur_stacks_height == 0 {
-            StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+            return self.burn_state_db.get_burn_start_height();
         } else {
             self.get_index_block_header_hash(
                 cur_stacks_height
