@@ -34,7 +34,6 @@ pub struct ConfigFile {
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
-    pub block_limit: Option<BlockLimitFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -506,9 +505,6 @@ impl Config {
                             );
                         }
                     }
-                    if config_file.block_limit.is_some() {
-                        panic!("Attempted to run mainnet node with a specified `block_limit`");
-                    }
                 }
 
                 BurnchainConfig {
@@ -821,28 +817,7 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = if burnchain.mode == "mainnet" || burnchain.mode == "xenon" {
-            BLOCK_LIMIT_MAINNET.clone()
-        } else {
-            match config_file.block_limit {
-                Some(opts) => ExecutionCost {
-                    write_length: opts
-                        .write_length
-                        .unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
-                    write_count: opts
-                        .write_count
-                        .unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
-                    read_length: opts
-                        .read_length
-                        .unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
-                    read_count: opts
-                        .read_count
-                        .unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
-                    runtime: opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
-                },
-                None => HELIUM_BLOCK_LIMIT.clone(),
-            }
-        };
+        let block_limit = BLOCK_LIMIT_MAINNET.clone();
 
         Config {
             node,
@@ -1256,15 +1231,6 @@ pub struct ConnectionOptionsFile {
     pub disable_block_download: Option<bool>,
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-pub struct BlockLimitFile {
-    pub write_length: Option<u64>,
-    pub read_length: Option<u64>,
-    pub write_count: Option<u64>,
-    pub read_count: Option<u64>,
-    pub runtime: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]
