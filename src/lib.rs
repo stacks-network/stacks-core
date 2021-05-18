@@ -65,6 +65,9 @@ extern crate assert_json_diff;
 pub extern crate prometheus;
 
 #[macro_use]
+pub mod codec;
+
+#[macro_use]
 pub mod util;
 
 #[macro_use]
