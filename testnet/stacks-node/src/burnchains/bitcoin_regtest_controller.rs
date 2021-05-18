@@ -3,7 +3,6 @@ use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
 use http_types::{Method, Request, Url};
-use std::cmp::Ordering as CmpOrdering;
 use std::io::Cursor;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -1183,13 +1182,7 @@ impl BitcoinRegtestController {
                 // for block-commits, the smaller value is likely the UTXO-chained value, so
                 // continue to prioritize it as the first spend in order to avoid breaking the
                 // miner commit chain.
-                if u1.amount < u2.amount {
-                    CmpOrdering::Greater
-                } else if u1.amount > u2.amount {
-                    CmpOrdering::Less
-                } else {
-                    CmpOrdering::Equal
-                }
+                u1.amount.cmp(&u2.amount)
             }
         });
 
