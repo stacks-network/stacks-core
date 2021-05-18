@@ -233,9 +233,9 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 
 version\t\tDisplay information about the current version and our release cycle.
 
-key-for-seed\t\tOutput the associated secret key for a burnchain signer created with a given seed.
-Can be passed a config file for the seed via the `--config=<file>` option *or* by supplying the hex seed on
-the command line directly.
+key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
+\t\tCan be passed a config file for the seed via the `--config=<file>` option *or* by supplying the hex seed on
+\t\tthe command line directly.
 
 help\t\tDisplay this help.
 
