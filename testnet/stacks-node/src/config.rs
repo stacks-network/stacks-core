@@ -8,8 +8,8 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
-    PEER_VERSION_TESTNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -358,9 +358,41 @@ impl ConfigFile {
             ..NodeConfigFile::default()
         };
 
+        let balances = vec![
+            InitialBalanceFile {
+                // "mnemonic": "point approve language letter cargo rough similar wrap focus edge polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen tiger climb",
+                // "privateKey": "539e35c740079b79f931036651ad01f76d8fe1496dbd840ba9e62c7e7b355db001",
+                // "btcAddress": "n1htkoYKuLXzPbkn9avC2DJxt7X85qVNCK",
+                address: "ST3EQ88S02BXXD0T5ZVT3KW947CRMQ1C6DMQY8H19".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                // "mnemonic": "laugh capital express view pull vehicle cluster embark service clerk roast glance lumber glove purity project layer lyrics limb junior reduce apple method pear",
+                // "privateKey": "075754fb099a55e351fe87c68a73951836343865cd52c78ae4c0f6f48e234f3601",
+                // "btcAddress": "n2ZGZ7Zau2Ca8CLHGh11YRnLw93b4ufsDR",
+                address: "ST3KCNDSWZSFZCC6BE4VA9AXWXC9KEB16FBTRK36T".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                // "mnemonic": "level garlic bean design maximum inhale daring alert case worry gift frequent floor utility crowd twenty burger place time fashion slow produce column prepare",
+                // "privateKey": "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001",
+                // "btcAddress": "mhY4cbHAFoXNYvXdt82yobvVuvR6PHeghf",
+                address: "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                // "mnemonic": "drop guess similar uphold alarm remove fossil riot leaf badge lobster ability mesh parent lawn today student olympic model assault syrup end scorpion lab",
+                // "privateKey": "26f235698d02803955b7418842affbee600fc308936a7ca48bf5778d1ceef9df01",
+                // "btcAddress": "mkEDDqbELrKYGUmUbTAyQnmBAEz4V1MAro",
+                address: "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
+            ustx_balance: Some(balances),
             ..ConfigFile::default()
         }
     }
@@ -406,15 +438,6 @@ lazy_static! {
         .. std::default::Default::default()
     };
 }
-
-pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_0_000_000,
-    write_count: 5_0_000,
-    read_length: 1_000_000_000,
-    read_count: 5_0_000,
-    // allow much more runtime in helium blocks than mainnet
-    runtime: 100_000_000_000,
-};
 
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
@@ -1274,6 +1297,7 @@ pub enum EventKeyType {
     AssetEvent(AssetIdentifier),
     STXEvent,
     MemPoolTransactions,
+    Microblocks,
     AnyEvent,
     BurnchainBlocks,
 }
@@ -1294,6 +1318,10 @@ impl EventKeyType {
 
         if raw_key == "burn_blocks" {
             return Some(EventKeyType::BurnchainBlocks);
+        }
+
+        if raw_key == "microblocks" {
+            return Some(EventKeyType::Microblocks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

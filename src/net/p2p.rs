@@ -14,51 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::mem;
-
-use net::asn::ASEntry4;
-use net::atlas::AtlasDB;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-
-use net::*;
-
-use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
-use net::connection::ReplyHandleHttp;
-use net::connection::ReplyHandleP2P;
-
-use net::chat::ConversationP2P;
-use net::chat::NeighborStats;
-
-use net::relay::RelayerStats;
-
-use net::download::BlockDownloader;
-
-use net::poll::NetworkPollState;
-use net::poll::NetworkState;
-
-use net::db::LocalPeer;
-
-use net::neighbors::*;
-
-use net::prune::*;
-
-use net::server::*;
-
-use net::relay::*;
-
-use net::atlas::{AttachmentInstance, AttachmentsDownloader};
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-
-use util::hash::to_hex;
-use util::secp256k1::Secp256k1PublicKey;
-
+use std::net::SocketAddr;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvError;
@@ -67,39 +29,54 @@ use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
 
-use std::net::SocketAddr;
-
-use std::cmp;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
+use mio;
+use mio::net as mio_net;
+use rand::prelude::*;
+use rand::thread_rng;
 
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::PublicKey;
-
-use chainstate::burn::db::sortdb::{BlockHeaderCache, PoxId, SortitionDB, SortitionId};
-
+use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use chainstate::stacks::db::StacksChainState;
-
-use chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
-
-use util::get_epoch_time_secs;
-use util::log;
-
-use rand::prelude::*;
-use rand::thread_rng;
-
-use mio;
-use mio::net as mio_net;
-
+use chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+use net::asn::ASEntry4;
+use net::atlas::AtlasDB;
+use net::atlas::{AttachmentInstance, AttachmentsDownloader};
+use net::chat::ConversationP2P;
+use net::chat::NeighborStats;
+use net::connection::ConnectionOptions;
+use net::connection::NetworkReplyHandle;
+use net::connection::ReplyHandleHttp;
+use net::connection::ReplyHandleP2P;
+use net::db::LocalPeer;
+use net::db::PeerDB;
+use net::download::BlockDownloader;
 use net::inv::*;
+use net::neighbors::*;
+use net::poll::NetworkPollState;
+use net::poll::NetworkState;
+use net::prune::*;
+use net::relay::RelayerStats;
+use net::relay::*;
 use net::relay::*;
 use net::rpc::RPCHandlerArgs;
+use net::server::*;
+use net::Error as net_error;
+use net::Neighbor;
+use net::NeighborKey;
+use net::PeerAddress;
+use net::*;
+use util::db::DBConn;
+use util::db::Error as db_error;
+use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::log;
+use util::secp256k1::Secp256k1PublicKey;
 
-use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -4475,25 +4452,27 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
+    use std::thread;
+    use std::time;
 
-    use super::*;
+    use rand;
+    use rand::RngCore;
+
     use burnchains::burnchain::*;
     use burnchains::*;
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
     use net::atlas::*;
     use net::codec::*;
     use net::db::*;
     use net::*;
-    use std::thread;
-    use std::time;
     use util::log;
     use util::sleep_ms;
     use util::test::*;
 
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
+    use crate::types::chainstate::BurnchainHeaderHash;
 
-    use rand;
-    use rand::RngCore;
+    use super::*;
 
     fn make_random_peer_address() -> PeerAddress {
         let mut rng = rand::thread_rng();

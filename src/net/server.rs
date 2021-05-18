@@ -751,12 +751,12 @@ mod test {
     use net::*;
     use std::cell::RefCell;
 
+    use crate::types::chainstate::BurnchainHeaderHash;
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
 
+    use crate::types::chainstate::BlockHeaderHash;
     use burnchains::*;
-    use chainstate::burn::BlockHeaderHash;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;
@@ -781,6 +781,9 @@ mod test {
     use util::pipe::*;
     use util::sleep_ms;
 
+    use chainstate::burn::ConsensusHash;
+    use codec::MAX_MESSAGE_LEN;
+    use types::chainstate::StacksBlockHeader;
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;

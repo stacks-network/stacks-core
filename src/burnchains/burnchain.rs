@@ -14,29 +14,35 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::sync_channel;
-use std::thread;
-use std::time::Instant;
-
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+use std::thread;
+use std::time::Instant;
 
+use crate::types::chainstate::StacksAddress;
+use crate::types::proof::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
-
+use burnchains::bitcoin::address::address_type_to_version_byte;
+use burnchains::bitcoin::address::to_c32_version_byte;
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddressType;
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use burnchains::db::BurnchainDB;
+use burnchains::indexer::{
+    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
+};
 use burnchains::Address;
 use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
 use burnchains::PublicKey;
 use burnchains::Txid;
 use burnchains::{
@@ -44,34 +50,23 @@ use burnchains::{
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
     Error as burnchain_error, PoxConstants,
 };
-
-use burnchains::db::BurnchainDB;
-
-use burnchains::indexer::{
-    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
-};
-
-use burnchains::bitcoin::address::address_type_to_version_byte;
-use burnchains::bitcoin::address::to_c32_version_byte;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::address::BitcoinAddressType;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
-
-use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
-
 use chainstate::coordinator::comm::CoordinatorChannels;
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
-
+use core::MINING_COMMITMENT_WINDOW;
+use core::NETWORK_ID_MAINNET;
+use core::NETWORK_ID_TESTNET;
+use core::PEER_VERSION_MAINNET;
+use core::PEER_VERSION_TESTNET;
+use deps;
+use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+use monitoring::update_burnchain_height;
 use util::db::DBConn;
 use util::db::DBTx;
 use util::db::Error as db_error;
@@ -81,12 +76,8 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
 
-use core::NETWORK_ID_MAINNET;
-use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION_MAINNET;
-use core::PEER_VERSION_TESTNET;
-
-use monitoring::update_burnchain_height;
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -102,10 +93,6 @@ impl BurnchainStateTransitionOps {
         }
     }
 }
-
-use core::MINING_COMMITMENT_WINDOW;
-
-use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
@@ -1459,55 +1446,44 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
+    use ed25519_dalek::Keypair as VRFKeypair;
+    use rand::rngs::ThreadRng;
+    use rand::thread_rng;
+    use serde::Serialize;
+    use sha2::Sha512;
 
-    use burnchains::{BurnchainHeaderHash, Txid};
-    use chainstate::burn::{
-        BlockHeaderHash, BlockSnapshot, ConsensusHash, OpsHash, SortitionHash, VRFSeed,
-    };
-
-    use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleTx, SortitionId};
-
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::proof::TrieHash;
+    use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::*;
+    use burnchains::Txid;
     use burnchains::*;
-
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::log;
-
+    use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+    use chainstate::burn::distribution::BurnSamplePoint;
     use chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-
-    use chainstate::burn::distribution::BurnSamplePoint;
-
-    use ed25519_dalek::Keypair as VRFKeypair;
-    use util::vrf::VRFPrivateKey;
-    use util::vrf::VRFPublicKey;
-
-    use sha2::Sha512;
-
-    use rand::rngs::ThreadRng;
-    use rand::thread_rng;
-
+    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use chainstate::stacks::StacksPublicKey;
     use util::db::Error as db_error;
+    use util::get_epoch_time_secs;
+    use util::hash::hex_bytes;
     use util::hash::to_hex;
     use util::hash::Hash160;
+    use util::log;
     use util::secp256k1::Secp256k1PrivateKey;
     use util::uint::BitArray;
     use util::uint::Uint256;
     use util::uint::Uint512;
+    use util::vrf::VRFPrivateKey;
+    use util::vrf::VRFPublicKey;
 
-    use chainstate::stacks::StacksAddress;
-    use chainstate::stacks::StacksPublicKey;
-
-    use address::AddressHashMode;
-
-    use serde::Serialize;
-
-    use chainstate::stacks::index::TrieHash;
+    use crate::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
+    };
 
     #[test]
     fn test_process_block_ops() {
