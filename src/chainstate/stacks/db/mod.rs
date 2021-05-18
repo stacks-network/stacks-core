@@ -1954,7 +1954,7 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use std::fs;
+    use std::{env, fs};
 
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
@@ -2133,22 +2133,26 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "beb536eb6e37350d9745c7578ff295142e5fef2bcd0aad8beff3b8ce287ca0e4"
+            "3102b7d9c7fdddc49910ea49a3ed4e322b772b9e5ee9505d9fb3f566affd1c54"
         );
     }
 
     #[test]
-    #[ignore]
     fn test_chainstate_full_genesis_consistency() {
+        if env::var("CIRCLE_CI_TEST") != Ok("1".into()) {
+            return;
+        }
+
         // Test root hash for the final chainstate data set
-        // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
-        // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: 0,
-            first_burnchain_block_timestamp: 0,
-            pox_constants: PoxConstants::testnet_default(),
+            first_burnchain_block_hash: BurnchainHeaderHash::from_hex(
+                BITCOIN_MAINNET_FIRST_BLOCK_HASH,
+            )
+            .unwrap(),
+            first_burnchain_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32,
+            first_burnchain_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            pox_constants: PoxConstants::mainnet_default(),
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(false).read_lockups().map(|item| {
@@ -2224,7 +2228,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "cff7b73beb78d2e0f45b6108f1e7376cefce0f9f691d62a130e0c0730fb090c5"
+            STACKS_2_0_GENESIS_ROOT_HASH
         );
     }
 }
