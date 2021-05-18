@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::clarity_vm::database::MemoryBackingStore;
 use chainstate::stacks::events::*;
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::tests::execute;
 use vm::types::TypeSignature::UIntType;

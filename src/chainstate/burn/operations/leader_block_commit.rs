@@ -16,39 +16,33 @@
 
 use std::io::{Read, Write};
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::proof::TrieHash;
 use address::AddressHashMode;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockHeaderHash, SortitionId, VRFSeed};
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-
-use chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
 use burnchains::{BurnchainRecipient, BurnchainSigner};
 use burnchains::{BurnchainTransaction, PublicKey};
-
-use net::codec::write_next;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::{
+    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, UserBurnSupportOp,
+};
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
+use chainstate::burn::SortitionId;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use net::Error as net_error;
-use net::StacksMessageCodec;
-
 use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use chainstate::stacks::index::storage::TrieFileStorage;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 
 // return type from parse_data below
 struct ParsedData {
@@ -422,11 +416,11 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
          magic  op   block hash     new seed     parent parent key   key   burn parent modulus
                                                 block  txoff  block txoff
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderBlockCommit as u8))?;
         write_next(fd, &self.block_header_hash)?;
         fd.write_all(&self.new_seed.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         write_next(fd, &self.parent_block_ptr)?;
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
@@ -437,7 +431,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
@@ -807,32 +801,28 @@ impl LeaderBlockCommitOp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::*;
     use burnchains::*;
-
-    use address::AddressHashMode;
-
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
+    use chainstate::burn::operations::*;
+    use chainstate::burn::ConsensusHash;
+    use chainstate::burn::*;
+    use chainstate::stacks::StacksPublicKey;
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
-
-    use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-
-    use chainstate::burn::operations::*;
-
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::vrf::VRFPublicKey;
 
-    use chainstate::stacks::StacksAddress;
-    use chainstate::stacks::StacksPublicKey;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::*;
+    use super::*;
 
     struct OpFixture {
         txstr: String,

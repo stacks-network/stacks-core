@@ -8,8 +8,8 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::core::{
-    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET,
-    PEER_VERSION_TESTNET,
+    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -439,15 +439,6 @@ lazy_static! {
         .. std::default::Default::default()
     };
 }
-
-pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
-    write_length: 15_0_000_000,
-    write_count: 5_0_000,
-    read_length: 1_000_000_000,
-    read_count: 5_0_000,
-    // allow much more runtime in helium blocks than mainnet
-    runtime: 100_000_000_000,
-};
 
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Config {
@@ -1340,6 +1331,7 @@ pub enum EventKeyType {
     AssetEvent(AssetIdentifier),
     STXEvent,
     MemPoolTransactions,
+    Microblocks,
     AnyEvent,
     BurnchainBlocks,
 }
@@ -1360,6 +1352,10 @@ impl EventKeyType {
 
         if raw_key == "burn_blocks" {
             return Some(EventKeyType::BurnchainBlocks);
+        }
+
+        if raw_key == "microblocks" {
+            return Some(EventKeyType::Microblocks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

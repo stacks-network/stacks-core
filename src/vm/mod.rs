@@ -27,7 +27,6 @@ pub mod types;
 pub mod contracts;
 
 pub mod ast;
-pub mod clarity;
 pub mod contexts;
 pub mod database;
 pub mod representations;
@@ -42,14 +41,14 @@ pub mod docs;
 #[cfg(test)]
 pub mod tests;
 
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
-use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
+pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
 use vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,
 };
-use vm::database::MemoryBackingStore;
 use vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -367,10 +366,10 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use crate::clarity_vm::database::MemoryBackingStore;
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;
-    use vm::database::MemoryBackingStore;
     use vm::errors::RuntimeErrorType;
     use vm::eval;
     use vm::execute;

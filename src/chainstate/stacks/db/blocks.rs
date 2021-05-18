@@ -22,70 +22,61 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 
+use rand::thread_rng;
+use rand::Rng;
+use rand::RngCore;
 use rusqlite::Connection;
 use rusqlite::DatabaseName;
+use rusqlite::{Error as sqlite_error, OptionalExtension};
 
-use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use core::*;
-
+use crate::codec::MAX_MESSAGE_LEN;
+use chainstate::burn::db::sortdb::*;
 use chainstate::burn::operations::*;
-
+use chainstate::burn::BlockSnapshot;
 use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use chainstate::stacks::db::*;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-
-use chainstate::burn::BlockSnapshot;
-
-use std::path::{Path, PathBuf};
-
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use core::*;
+use net::BlocksInvData;
+use net::Error as net_error;
+use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
-
-use util::db::u64_to_sql;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
-use util::strings::StacksString;
-
 use util::retry::BoundReader;
-
-use chainstate::burn::db::sortdb::*;
-
-use net::BlocksInvData;
-use net::Error as net_error;
-use net::MAX_MESSAGE_LEN;
-
+use util::strings::StacksString;
+pub use vm::analysis::errors::{CheckError, CheckErrors};
+use vm::analysis::run_analysis;
+use vm::ast::build_ast;
+use vm::contexts::AssetMap;
+use vm::contracts::Contract;
+use vm::costs::LimitedCostTracker;
+use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use vm::contexts::AssetMap;
-
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-
-use vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
-
-pub use vm::analysis::errors::{CheckError, CheckErrors};
-
-use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-
-use vm::contracts::Contract;
-use vm::costs::LimitedCostTracker;
-
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
-
-use rusqlite::{Error as sqlite_error, OptionalExtension};
+use crate::types::chainstate::{
+    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
+};
+use crate::{types, util};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -128,8 +119,8 @@ pub struct StagingUserBurnSupport {
 
 #[derive(Debug)]
 pub enum MemPoolRejection {
-    SerializationFailure(net_error),
-    DeserializationFailure(net_error),
+    SerializationFailure(codec_error),
+    DeserializationFailure(codec_error),
     FailedToValidate(Error),
     FeeTooLow(u64, u64),
     BadNonces(TransactionNonceMismatch),
@@ -665,7 +656,7 @@ impl StacksChainState {
             })?;
 
         let mut bound_reader = BoundReader::from_reader(&mut fd, MAX_MESSAGE_LEN as u64);
-        let inst = T::consensus_deserialize(&mut bound_reader).map_err(Error::NetError)?;
+        let inst = T::consensus_deserialize(&mut bound_reader).map_err(Error::CodecError)?;
         Ok(inst)
     }
 
@@ -728,7 +719,7 @@ impl StacksChainState {
             &block_path
         );
         StacksChainState::atomic_file_store(&block_path, true, |ref mut fd| {
-            block.consensus_serialize(fd).map_err(Error::NetError)
+            block.consensus_serialize(fd).map_err(Error::CodecError)
         })
     }
 
@@ -1090,7 +1081,7 @@ impl StacksChainState {
 
                 match StacksBlock::consensus_deserialize(&mut &staging_block.block_data[..]) {
                     Ok(block) => Ok(Some(block)),
-                    Err(e) => Err(Error::NetError(e)),
+                    Err(e) => Err(Error::CodecError(e)),
                 }
             }
             None => Ok(None),
@@ -1688,7 +1679,7 @@ impl StacksChainState {
         let mut microblock_bytes = vec![];
         microblock
             .consensus_serialize(&mut microblock_bytes)
-            .map_err(Error::NetError)?;
+            .map_err(Error::CodecError)?;
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(
             parent_consensus_hash,
@@ -4103,7 +4094,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -4703,7 +4694,7 @@ impl StacksChainState {
     fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
         let block = {
             StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
-                .map_err(Error::NetError)?
+                .map_err(Error::CodecError)?
         };
 
         let block_hash = block.block_hash();
@@ -5494,28 +5485,30 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
+    use std::fs;
+
+    use rand::thread_rng;
+    use rand::Rng;
+
+    use burnchains::*;
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::*;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::miner::test::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chainstate_error;
     use chainstate::stacks::*;
-
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use std::fs;
+    use core::mempool::*;
+    use net::test::*;
     use util::db::Error as db_error;
     use util::db::*;
     use util::hash::*;
     use util::retry::*;
 
-    use core::mempool::*;
-    use net::test::*;
+    use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
-    use rand::thread_rng;
-    use rand::Rng;
+    use super::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(
