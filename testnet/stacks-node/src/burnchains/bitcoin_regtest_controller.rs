@@ -1,15 +1,15 @@
+use async_h1::client;
 use async_std::io::ReadExt;
+use async_std::net::TcpStream;
+use base64::encode;
+use http_types::{Method, Request, Url};
+use std::cmp::Ordering as CmpOrdering;
 use std::io::Cursor;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Instant;
-
-use async_h1::client;
-use async_std::net::TcpStream;
-use base64::encode;
-use http_types::{Method, Request, Url};
 
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -1174,10 +1174,24 @@ impl BitcoinRegtestController {
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
     ) -> Option<()> {
-        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first.
-        utxos_set
-            .utxos
-            .sort_by(|u1, u2| u1.confirmations.cmp(&u2.confirmations));
+        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
+        // event of a tie, spend the smallest-value UTXO first.
+        utxos_set.utxos.sort_by(|u1, u2| {
+            if u1.confirmations != u2.confirmations {
+                u1.confirmations.cmp(&u2.confirmations)
+            } else {
+                // for block-commits, the smaller value is likely the UTXO-chained value, so
+                // continue to prioritize it as the first spend in order to avoid breaking the
+                // miner commit chain.
+                if u1.amount < u2.amount {
+                    CmpOrdering::Greater
+                } else if u1.amount > u2.amount {
+                    CmpOrdering::Less
+                } else {
+                    CmpOrdering::Equal
+                }
+            }
+        });
 
         let tx_size = {
             // We will be calling 2 times serialize_tx, the first time with an estimated size,
