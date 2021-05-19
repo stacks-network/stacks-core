@@ -33,6 +33,7 @@ use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -43,7 +44,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
+    Error as NetError, NetworkResult, PeerAddress,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
@@ -132,7 +133,7 @@ fn set_processed_counter(blocks_processed: &BlocksProcessedCounter, value: u64) 
 }
 
 #[cfg(not(test))]
-fn set_processed_counter(_blocks_processed: &BlocksProcessedCounter, value: u64) {}
+fn set_processed_counter(_blocks_processed: &BlocksProcessedCounter, _value: u64) {}
 
 /// Process artifacts from the tenure.
 /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.

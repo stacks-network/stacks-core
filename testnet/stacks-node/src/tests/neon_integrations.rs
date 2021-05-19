@@ -15,11 +15,11 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use stacks::net::StacksMessageCodec;
 use stacks::net::{
     AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData,
@@ -455,6 +455,122 @@ fn bitcoind_integration_test() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn most_recent_utxo_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, _) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let pubkey = miner_signer.get_public_key();
+    let utxos_before = btc_regtest_controller.get_all_utxos(&pubkey);
+
+    let mut last_utxo: Option<UTXO> = None;
+    let mut smallest_utxo: Option<UTXO> = None; // smallest non-dust UTXO
+    let mut biggest_utxo: Option<UTXO> = None;
+    for utxo in utxos_before.iter() {
+        if let Some(last) = last_utxo {
+            if utxo.confirmations < last.confirmations {
+                last_utxo = Some(utxo.clone());
+            } else {
+                last_utxo = Some(last);
+            }
+        } else {
+            last_utxo = Some(utxo.clone());
+        }
+
+        if let Some(smallest) = smallest_utxo {
+            if utxo.amount > 5500 && utxo.amount < smallest.amount {
+                smallest_utxo = Some(utxo.clone());
+            } else {
+                smallest_utxo = Some(smallest);
+            }
+        } else {
+            smallest_utxo = Some(utxo.clone());
+        }
+
+        if let Some(biggest) = biggest_utxo {
+            if utxo.amount > biggest.amount {
+                biggest_utxo = Some(utxo.clone());
+            } else {
+                biggest_utxo = Some(biggest);
+            }
+        } else {
+            biggest_utxo = Some(utxo.clone());
+        }
+    }
+
+    let last_utxo = last_utxo.unwrap();
+    let smallest_utxo = smallest_utxo.unwrap();
+    let mut biggest_utxo = biggest_utxo.unwrap();
+
+    eprintln!("Last-spent UTXO is {:?}", &last_utxo);
+    eprintln!("Smallest UTXO is {:?}", &smallest_utxo);
+    eprintln!("Biggest UTXO is {:?}", &biggest_utxo);
+
+    assert_eq!(last_utxo, smallest_utxo);
+    assert_ne!(biggest_utxo, last_utxo);
+    assert_ne!(biggest_utxo, smallest_utxo);
+
+    // third block will be the second mined Stacks block, and mining it should *not* spend the
+    // biggest UTXO, but should spend the *smallest non-dust* UTXO
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let utxos_after = btc_regtest_controller.get_all_utxos(&pubkey);
+
+    // last UTXO was spent, which would also have been the smallest.
+    let mut has_biggest = false;
+    for utxo in utxos_after.into_iter() {
+        assert_ne!(utxo, last_utxo);
+        assert_ne!(utxo, smallest_utxo);
+
+        // don't care about confirmations here
+        biggest_utxo.confirmations = utxo.confirmations;
+        if utxo == biggest_utxo {
+            has_biggest = true;
+        }
+    }
+
+    // biggest UTXO is *not* spent
+    assert!(has_biggest);
 
     channel.stop_chains_coordinator();
 }
@@ -927,6 +1043,7 @@ fn stx_transfer_btc_integration_test() {
         vout: 1,
         script_pub_key: pre_stx_tx.output[1].script_pubkey.clone(),
         amount: pre_stx_tx.output[1].value,
+        confirmations: 0,
     };
 
     // let's fire off our transfer op.

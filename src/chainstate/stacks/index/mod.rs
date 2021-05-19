@@ -46,7 +46,7 @@ pub trait MarfTrieId:
     ClarityMarfTrieId
     + rusqlite::types::ToSql
     + rusqlite::types::FromSql
-    + ::net::StacksMessageCodec
+    + crate::codec::StacksMessageCodec
     + std::convert::From<MARFValue>
 {
 }

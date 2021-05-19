@@ -12,8 +12,8 @@ use stacks::chainstate::stacks::{
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::core::CHAIN_ID_TESTNET;
-use stacks::net::StacksMessageCodec;
 use stacks::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;

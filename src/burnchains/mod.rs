@@ -24,9 +24,6 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
@@ -42,6 +39,9 @@ use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::PoxId;
+use crate::types::chainstate::StacksAddress;
+use crate::types::proof::TrieHash;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -65,8 +65,6 @@ impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
-
-pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
