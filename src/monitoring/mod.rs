@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fs, path::PathBuf};
+use std::{fmt, fs, path::PathBuf};
 
 use rusqlite::{OpenFlags, OptionalExtension};
 
@@ -27,10 +27,22 @@ use crate::{
         get_epoch_time_secs,
     },
 };
+use burnchains::BurnchainSigner;
+use std::error::Error;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use util::db::Error as DatabaseError;
+use util::uint::{Uint256, Uint512};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
+
+static BURNCHAIN_SIGNER_INIT: AtomicUsize = AtomicUsize::new(BURNCHAIN_SIGNER_UNINITIALIZED);
+
+const BURNCHAIN_SIGNER_UNINITIALIZED: usize = 0;
+const BURNCHAIN_SIGNER_INITIALIZING: usize = 1;
+const BURNCHAIN_SIGNER_INITIALIZED: usize = 2;
+
+static mut GLOBAL_BURNCHAIN_SIGNER: Option<BurnchainSigner> = None;
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]
@@ -284,3 +296,126 @@ pub fn increment_contract_calls_processed() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::CONTRACT_CALLS_PROCESSED_COUNT.inc();
 }
+
+/// Given a value (type uint256), return value/uint256::max() as an f64 value.
+/// The precision of the percentage is determined by the input `precision_points`.
+fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f64 {
+    let base = 10;
+    let multiplier = Uint512::from_u128(100 * u128::pow(base, precision_points));
+    let intermediate_result = ((Uint512::from_uint256(&value) * multiplier)
+        / Uint512::from_uint256(&Uint256::max()))
+    .low_u64() as i64;
+    let divisor = i64::pow(base as i64, precision_points);
+
+    let result = intermediate_result as f64 / divisor as f64;
+    result
+}
+
+macro_rules! assert_approx_eq {
+    ($a: expr, $b: expr) => {{
+        let (a, b) = (&$a, &$b);
+        assert!(
+            (*a - *b).abs() < 1.0e-6,
+            "{} is not approximately equal to {}",
+            *a,
+            *b
+        );
+    }};
+}
+
+#[test]
+pub fn test_convert_uint256_to_f64() {
+    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(10))
+        / Uint512::from_u64(100))
+    .to_uint256();
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10 as f64);
+
+    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122))
+        / Uint512::from_u64(1000))
+    .to_uint256();
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.2);
+
+    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122345))
+        / Uint512::from_u64(1000000))
+    .to_uint256();
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.2345);
+
+    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(12234567))
+        / Uint512::from_u64(100000000))
+    .to_uint256();
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.234567);
+}
+
+#[allow(unused_variables)]
+pub fn update_computed_relative_miner_score(value: Uint256) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let percentage = convert_uint256_to_f64_percentage(value, 7);
+        prometheus::COMPUTED_RELATIVE_MINER_SCORE.set(percentage);
+    }
+}
+
+#[allow(unused_variables)]
+pub fn update_computed_miner_commitment(value: u128) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let high_bits = (value >> 64) as u64;
+        let low_bits = value as u64;
+        prometheus::COMPUTED_MINER_COMMITMENT_HIGH.set(high_bits as i64);
+        prometheus::COMPUTED_MINER_COMMITMENT_LOW.set(low_bits as i64);
+    }
+}
+
+#[allow(unused_variables)]
+pub fn update_miner_current_median_commitment(value: u128) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let high_bits = (value >> 64) as u64;
+        let low_bits = value as u64;
+        prometheus::MINER_CURRENT_MEDIAN_COMMITMENT_HIGH.set(high_bits as i64);
+        prometheus::MINER_CURRENT_MEDIAN_COMMITMENT_LOW.set(low_bits as i64);
+    }
+}
+
+/// Function sets the global variable `GLOBAL_BURNCHAIN_SIGNER`.
+/// Fails if there are multiple attempts to set this variable.
+pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurnchainSignerError> {
+    if BURNCHAIN_SIGNER_INIT.compare_and_swap(
+        BURNCHAIN_SIGNER_UNINITIALIZED,
+        BURNCHAIN_SIGNER_INITIALIZING,
+        Ordering::SeqCst,
+    ) == BURNCHAIN_SIGNER_UNINITIALIZED
+    {
+        unsafe {
+            GLOBAL_BURNCHAIN_SIGNER = Some(signer);
+        }
+        BURNCHAIN_SIGNER_INIT.store(BURNCHAIN_SIGNER_INITIALIZED, Ordering::SeqCst);
+        Ok(())
+    } else {
+        Err(SetGlobalBurnchainSignerError)
+    }
+}
+
+pub fn get_burnchain_signer() -> Option<&'static BurnchainSigner> {
+    if BURNCHAIN_SIGNER_INIT.load(Ordering::SeqCst) != BURNCHAIN_SIGNER_INITIALIZED {
+        return None;
+    }
+    unsafe {
+        Some(
+            GLOBAL_BURNCHAIN_SIGNER
+                .as_ref()
+                .expect("GLOBAL_BURNCHAIN_SIGNER must be set before BURNCHAIN_SIGNER_INIT is set."),
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct SetGlobalBurnchainSignerError;
+
+impl fmt::Display for SetGlobalBurnchainSignerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad("A global default burnchain signer has already been set.")
+    }
+}
+
+impl Error for SetGlobalBurnchainSignerError {}

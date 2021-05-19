@@ -64,6 +64,7 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -1232,6 +1233,8 @@ impl InitializedNeonNode {
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
         let burnchain_signer = keychain.get_burnchain_signer();
+        monitoring::set_burnchain_signer(burnchain_signer.clone());
+
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 

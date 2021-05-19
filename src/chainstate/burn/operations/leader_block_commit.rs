@@ -561,7 +561,7 @@ impl LeaderBlockCommitOp {
                             .collect();
 
                         if check_recipients.len() == 1 {
-                            // If the number of recipients in the set was even, we need to pad
+                            // If the number of recipients in the set was odd, we need to pad
                             // with a burn address
                             check_recipients
                                 .push(StacksAddress::burn_address(burnchain.is_mainnet()))
@@ -598,14 +598,14 @@ impl LeaderBlockCommitOp {
                             error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
                                    parent_block_height, &reward_set_info.anchor_block, e);
                             op_error::BlockCommitAnchorCheck})?;
-                    if descended_from_anchor != expect_pox_descendant {
-                        if descended_from_anchor {
-                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
-                        } else {
-                            warn!(
+                    if descended_from_anchor && !expect_pox_descendant {
+                        warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                        return Err(op_error::BlockCommitBadOutputs);
+                    }
+                    if !descended_from_anchor && expect_pox_descendant {
+                        warn!(
                                 "Invalid block commit: not descended from PoX anchor, but used PoX outputs"
                             );
-                        }
                         return Err(op_error::BlockCommitBadOutputs);
                     }
                 }
