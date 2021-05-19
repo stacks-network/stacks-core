@@ -473,7 +473,7 @@ fn run_microblock_tenure(
     relayer: &mut Relayer,
     miner_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
     microblocks_processed: BlocksProcessedCounter,
-    event_observer: &EventDispatcher,
+    event_dispatcher: &EventDispatcher,
 ) {
     // TODO: this is sensitive to poll latency -- can we call this on a fixed
     // schedule, regardless of network activity?
@@ -521,7 +521,7 @@ fn run_microblock_tenure(
 
         let parent_index_block_hash =
             StacksBlockHeader::make_index_block_hash(parent_consensus_hash, parent_block_hash);
-        event_observer
+        event_dispatcher
             .process_new_microblocks(parent_index_block_hash, processed_unconfirmed_state);
 
         // send it off

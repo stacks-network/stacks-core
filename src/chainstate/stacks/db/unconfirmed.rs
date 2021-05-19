@@ -246,10 +246,7 @@ impl UnconfirmedState {
                 };
 
                 for tx in &mblock.txs {
-                    mined_txs.insert(
-                        tx.txid(),
-                        (tx.clone(), mblock_hash, seq),
-                    );
+                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash, seq));
                 }
             }
 

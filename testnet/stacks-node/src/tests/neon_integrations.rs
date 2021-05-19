@@ -1325,7 +1325,7 @@ fn microblock_integration_test() {
     let _ = btc_regtest_controller.sortdb_mut();
 
     // put each into a microblock
-    let (microblock, second_microblock) = {
+    let (first_microblock, second_microblock) = {
         let path = format!("{}/v2/info", &http_origin);
         let tip_info = client
             .get(&path)
@@ -1364,7 +1364,7 @@ fn microblock_integration_test() {
     };
 
     let mut microblock_bytes = vec![];
-    microblock
+    first_microblock
         .consensus_serialize(&mut microblock_bytes)
         .unwrap();
 
@@ -1379,9 +1379,9 @@ fn microblock_integration_test() {
         .json()
         .unwrap();
 
-    assert_eq!(res, format!("{}", &microblock.block_hash()));
+    assert_eq!(res, format!("{}", &first_microblock.block_hash()));
 
-    eprintln!("\n\nBegin testing\nmicroblock: {:?}\n\n", &microblock);
+    eprintln!("\n\nBegin testing\nmicroblock: {:?}\n\n", &first_microblock);
 
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.nonce, 1);
@@ -1441,13 +1441,26 @@ fn microblock_integration_test() {
 
     // check event observer for new microblock event (expect 2)
     let mut microblock_events = test_observer::get_microblocks();
-    assert_eq!(microblock_events.len(), 2);
+    assert_eq!(microblock_events.len(), 4);
     // this microblock should correspond to `second_microblock`
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
     assert_eq!(transactions.len(), 1);
-    let tx_sequence = transactions[0].get("sequence").unwrap().as_u64().unwrap();
+    let tx_sequence = transactions[0]
+        .get("microblock_sequence")
+        .unwrap()
+        .as_u64()
+        .unwrap();
     assert_eq!(tx_sequence, 1);
+    let microblock_hash = transactions[0]
+        .get("microblock_hash")
+        .unwrap()
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        microblock_hash[2..],
+        format!("{}", second_microblock.header.block_hash())
+    );
     let microblock_associated_hash = microblock
         .get("parent_index_block_hash")
         .unwrap()
@@ -1462,7 +1475,11 @@ fn microblock_integration_test() {
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
     assert_eq!(transactions.len(), 1);
-    let tx_sequence = transactions[0].get("sequence").unwrap().as_u64().unwrap();
+    let tx_sequence = transactions[0]
+        .get("microblock_sequence")
+        .unwrap()
+        .as_u64()
+        .unwrap();
     assert_eq!(tx_sequence, 0);
 
     // check mempool tx events
