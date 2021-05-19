@@ -1242,6 +1242,29 @@ impl StacksChainState {
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
 
+        // verify that genesis root hash is as expected
+        {
+            let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+                let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    &FIRST_STACKS_BLOCK_HASH,
+                );
+                marf.get_root_hash_at(&index_block_hash).unwrap()
+            });
+
+            info!("Computed Clarity state genesis"; "root_hash" => %genesis_root_hash);
+
+            if mainnet {
+                assert_eq!(
+                    &genesis_root_hash.to_string(),
+                    MAINNET_2_0_GENESIS_ROOT_HASH,
+                    "Incorrect root hash for genesis block computed. expected={} computed={}",
+                    MAINNET_2_0_GENESIS_ROOT_HASH,
+                    genesis_root_hash.to_string()
+                )
+            }
+        }
+
         {
             // add a block header entry for the boot code
             let mut tx = chainstate.index_tx_begin()?;
@@ -2228,7 +2251,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            STACKS_2_0_GENESIS_ROOT_HASH
+            MAINNET_2_0_GENESIS_ROOT_HASH
         );
     }
 }
