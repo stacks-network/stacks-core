@@ -469,7 +469,6 @@ fn bitcoind_integration_test() {
             .unwrap()
             .text()
             .unwrap();
-        info!("result is: {:?}", res);
         assert!(res.contains("stacks_node_computed_miner_commitment_high 0"));
         assert!(res.contains("stacks_node_computed_miner_commitment_low 1"));
         assert!(res.contains("stacks_node_computed_relative_miner_score 100"));

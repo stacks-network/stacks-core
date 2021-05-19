@@ -30,6 +30,7 @@ use crate::{
 use burnchains::BurnchainSigner;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
 
@@ -42,7 +43,9 @@ const BURNCHAIN_SIGNER_UNINITIALIZED: usize = 0;
 const BURNCHAIN_SIGNER_INITIALIZING: usize = 1;
 const BURNCHAIN_SIGNER_INITIALIZED: usize = 2;
 
-static mut GLOBAL_BURNCHAIN_SIGNER: Option<BurnchainSigner> = None;
+lazy_static! {
+    static ref GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
+}
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]
@@ -298,8 +301,10 @@ pub fn increment_contract_calls_processed() {
 }
 
 /// Given a value (type uint256), return value/uint256::max() as an f64 value.
-/// The precision of the percentage is determined by the input `precision_points`.
+/// The precision of the percentage is determined by the input `precision_points`, which is capped
+/// at a max of 15.
 fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f64 {
+    let precision_points = precision_points.min(15);
     let base = 10;
     let multiplier = Uint512::from_u128(100 * u128::pow(base, precision_points));
     let intermediate_result = ((Uint512::from_uint256(&value) * multiplier)
@@ -344,6 +349,11 @@ pub fn test_convert_uint256_to_f64() {
         / Uint512::from_u64(100000000))
     .to_uint256();
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.234567);
+
+    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(12234567))
+        / Uint512::from_u64(100000000))
+    .to_uint256();
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 1000), 12.234567);
 }
 
 #[allow(unused_variables)]
@@ -386,9 +396,8 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
         Ordering::SeqCst,
     ) == BURNCHAIN_SIGNER_UNINITIALIZED
     {
-        unsafe {
-            GLOBAL_BURNCHAIN_SIGNER = Some(signer);
-        }
+        let mut signer_mutex = GLOBAL_BURNCHAIN_SIGNER.lock().unwrap();
+        *signer_mutex = Some(signer);
         BURNCHAIN_SIGNER_INIT.store(BURNCHAIN_SIGNER_INITIALIZED, Ordering::SeqCst);
         Ok(())
     } else {
@@ -396,17 +405,15 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
     }
 }
 
-pub fn get_burnchain_signer() -> Option<&'static BurnchainSigner> {
+pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
     if BURNCHAIN_SIGNER_INIT.load(Ordering::SeqCst) != BURNCHAIN_SIGNER_INITIALIZED {
         return None;
     }
-    unsafe {
-        Some(
-            GLOBAL_BURNCHAIN_SIGNER
-                .as_ref()
-                .expect("GLOBAL_BURNCHAIN_SIGNER must be set before BURNCHAIN_SIGNER_INIT is set."),
-        )
-    }
+    let mut signer_opt = GLOBAL_BURNCHAIN_SIGNER.lock().unwrap().clone();
+    Some(
+        signer_opt
+            .expect("GLOBAL_BURNCHAIN_SIGNER must be set before BURNCHAIN_SIGNER_INIT is set."),
+    )
 }
 
 #[derive(Debug)]

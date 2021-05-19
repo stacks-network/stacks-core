@@ -598,14 +598,13 @@ impl LeaderBlockCommitOp {
                             error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
                                    parent_block_height, &reward_set_info.anchor_block, e);
                             op_error::BlockCommitAnchorCheck})?;
-                    if descended_from_anchor && !expect_pox_descendant {
-                        warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
-                        return Err(op_error::BlockCommitBadOutputs);
-                    }
-                    if !descended_from_anchor && expect_pox_descendant {
-                        warn!(
-                                "Invalid block commit: not descended from PoX anchor, but used PoX outputs"
+                    if descended_from_anchor != expect_pox_descendant {
+                        if descended_from_anchor {
+                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                        } else {
+                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs"
                             );
+                        }
                         return Err(op_error::BlockCommitBadOutputs);
                     }
                 }

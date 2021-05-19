@@ -288,7 +288,7 @@ impl BurnSamplePoint {
                        "all_burns" => %format!("{:?}", all_burns));
 
                 // prometheus: log miner commitment
-                if let Some(signer) = global_burnchain_signer {
+                if let Some(signer) = &global_burnchain_signer {
                     if candidate.apparent_sender == *signer {
                         monitoring::update_computed_miner_commitment(burns);
                         monitoring::update_miner_current_median_commitment(median_burn);
@@ -312,9 +312,9 @@ impl BurnSamplePoint {
             let mut range_total = Uint256::zero();
             let mut signer_seen = false;
             for burn in burn_sample.iter() {
-                if burn.candidate.apparent_sender == *signer {
+                if burn.candidate.apparent_sender == signer {
                     signer_seen = true;
-                    range_total = range_total + burn.range_end - burn.range_start;
+                    range_total = range_total + (burn.range_end - burn.range_start);
                 }
             }
             if signer_seen {
