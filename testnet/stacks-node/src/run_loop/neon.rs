@@ -1,9 +1,11 @@
-use crate::{
-    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode,
-};
+use std::cmp;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
+use std::thread;
+
 use ctrlc as termination;
+
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
@@ -12,23 +14,21 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::boot;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stacks::vm::types::{PrincipalData, Value};
-use std::cmp;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
-use std::sync::Arc;
-use std::thread;
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
-
 use crate::monitoring::start_serving_monitoring_metrics;
-
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::PoxSyncWatchdog;
+use crate::{
+    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
+    util, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    NeonGenesisNode,
+};
+
+use super::RunLoopCallbacks;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -209,38 +209,14 @@ impl RunLoop {
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
-        let first_block_height = burnchain_config.first_block_height as u128;
-        let pox_prepare_length = burnchain_config.pox_constants.prepare_length as u128;
-        let pox_reward_cycle_length = burnchain_config.pox_constants.reward_cycle_length as u128;
-        let pox_rejection_fraction = burnchain_config.pox_constants.pox_rejection_fraction as u128;
 
-        let boot_block = Box::new(move |clarity_tx: &mut ClarityTx| {
-            let contract = boot::boot_code_id("pox", mainnet);
-            let sender = PrincipalData::from(contract.clone());
-            let params = vec![
-                Value::UInt(first_block_height),
-                Value::UInt(pox_prepare_length),
-                Value::UInt(pox_reward_cycle_length),
-                Value::UInt(pox_rejection_fraction),
-            ];
-
-            clarity_tx.connection().as_transaction(|conn| {
-                conn.run_contract_call(
-                    &sender,
-                    &contract,
-                    "set-burnchain-parameters",
-                    &params,
-                    |_, _| false,
-                )
-                .expect("Failed to set burnchain parameters in PoX contract");
-            });
-        });
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: Some(boot_block),
+            post_flight_callback: None,
             first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
             first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
+            pox_constants: coordinator_burnchain_config.pox_constants.clone(),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
             })),

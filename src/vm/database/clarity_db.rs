@@ -14,11 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::OptionalExtension;
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
+use core::{
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    POX_REWARD_CYCLE_LENGTH,
+};
+use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
+use vm::costs::CostOverflowingMath;
+use vm::database::structures::{
+    ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
+    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
+    STXBalanceSnapshot, SimmedBlock,
+};
+use vm::database::ClarityBackingStore;
+use vm::database::RollbackWrapper;
 use vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -29,34 +43,11 @@ use vm::types::{
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use chainstate::stacks::index::proofs::TrieMerkleProof;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::{StacksAddress, StacksBlockId};
-
-use util::db::{DBConn, FromRow};
-use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
-use vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use vm::costs::CostOverflowingMath;
-use vm::database::structures::{
-    ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
-    STXBalanceSnapshot, SimmedBlock,
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId, VRFSeed,
 };
-use vm::database::RollbackWrapper;
-use vm::database::{ClarityBackingStore, MarfedKV};
-
-use chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx, SortitionId,
-};
-
-use core::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-    POX_REWARD_CYCLE_LENGTH,
-};
+use crate::types::proof::TrieMerkleProof;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -108,58 +99,6 @@ pub trait BurnStateDB {
     ) -> Option<BurnchainHeaderHash>;
 }
 
-fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
-    conn.query_row(
-        "SELECT * FROM block_headers WHERE index_block_hash = ?",
-        [id_bhh].iter(),
-        |x| Ok(StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database")),
-    )
-    .optional()
-    .expect("Unexpected SQL failure querying block header table")
-}
-
-fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentSchedule> {
-    conn.query_row(
-        "SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
-        [id_bhh].iter(),
-        |x| Ok(MinerPaymentSchedule::from_row(x).expect("Bad payment info in database")),
-    )
-    .optional()
-    .expect("Unexpected SQL failure querying payment table")
-}
-
-impl HeadersDB for DBConn {
-    fn get_stacks_block_header_hash_for_block(
-        &self,
-        id_bhh: &StacksBlockId,
-    ) -> Option<BlockHeaderHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
-    }
-
-    fn get_burn_header_hash_for_block(
-        &self,
-        id_bhh: &StacksBlockId,
-    ) -> Option<BurnchainHeaderHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_hash)
-    }
-
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_timestamp)
-    }
-
-    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_height)
-    }
-
-    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
-        get_stacks_header_info(self, id_bhh).map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
-    }
-
-    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
-        get_miner_info(self, id_bhh).map(|x| x.address)
-    }
-}
-
 impl HeadersDB for &dyn HeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
@@ -181,54 +120,6 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
-    }
-}
-
-impl BurnStateDB for SortitionHandleTx<'_> {
-    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
-            Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
-        }
-    }
-
-    fn get_burn_header_hash(
-        &self,
-        height: u32,
-        sortition_id: &SortitionId,
-    ) -> Option<BurnchainHeaderHash> {
-        let readonly_marf = self
-            .index()
-            .reopen_readonly()
-            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
-        let mut context = self.context.clone();
-        context.chain_tip = sortition_id.clone();
-        let db_handle = SortitionHandleConn::new(&readonly_marf, context);
-        match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
-        }
-    }
-}
-
-impl BurnStateDB for SortitionDBConn<'_> {
-    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
-            Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
-        }
-    }
-
-    fn get_burn_header_hash(
-        &self,
-        height: u32,
-        sortition_id: &SortitionId,
-    ) -> Option<BurnchainHeaderHash> {
-        let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
-        match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
-        }
     }
 }
 

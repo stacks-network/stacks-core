@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use burnchains::Burnchain;
 // This module contains the "main loop" that drives everything
 use burnchains::Error as burnchain_error;
-use burnchains::{Burnchain, BurnchainHeaderHash};
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorCommunication;
 use util::log;
 use vm::costs::ExecutionCost;
 
-pub mod mempool;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 pub use self::mempool::MemPoolDB;
+
+pub mod mempool;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
@@ -65,6 +67,8 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
+pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
+    "9653c92b1ad726e2dc17862a3786f7438ab9239c16dd8e7aaba8b0b5c34b52af";
 
 // first burnchain block hash
 // TODO: update once we know the true first burnchain block
@@ -117,6 +121,15 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     read_length: 100_000_000,
     read_count: 7_750,
     runtime: 5_000_000_000,
+};
+
+pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_0_000_000,
+    write_count: 5_0_000,
+    read_length: 1_000_000_000,
+    read_count: 5_0_000,
+    // allow much more runtime in helium blocks than mainnet
+    runtime: 100_000_000_000,
 };
 
 pub const FAULT_DISABLE_MICROBLOCKS_COST_CHECK: &str = "MICROBLOCKS_DISABLE_COST_CHECK";
