@@ -121,7 +121,7 @@ pub fn increment_errors_emitted_counter() {
 fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError> {
     let mut path = PathBuf::from(chainstate_root_path);
 
-    path.push("tx_tracking.db");
+    path.push("tx_tracking.sqlite");
     let db_path = path.to_str().ok_or_else(|| DatabaseError::ParseError)?;
 
     let mut create_flag = false;
