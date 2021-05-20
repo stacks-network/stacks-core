@@ -1233,7 +1233,12 @@ impl InitializedNeonNode {
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
         let burnchain_signer = keychain.get_burnchain_signer();
-        monitoring::set_burnchain_signer(burnchain_signer.clone());
+        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
+            Err(e) => {
+                warn!("Failed to set global burnchain signer: {:?}", &e);
+            }
+            _ => {}
+        }
 
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));

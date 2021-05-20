@@ -37,12 +37,7 @@ use util::uint::{Uint256, Uint512};
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
-static BURNCHAIN_SIGNER_INIT: AtomicUsize = AtomicUsize::new(BURNCHAIN_SIGNER_UNINITIALIZED);
-
-const BURNCHAIN_SIGNER_UNINITIALIZED: usize = 0;
-const BURNCHAIN_SIGNER_INITIALIZING: usize = 1;
-const BURNCHAIN_SIGNER_INITIALIZED: usize = 2;
-
+#[cfg(feature = "monitoring_prom")]
 lazy_static! {
     static ref GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
 }
@@ -316,6 +311,7 @@ fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f
     result
 }
 
+#[cfg(test)]
 macro_rules! assert_approx_eq {
     ($a: expr, $b: expr) => {{
         let (a, b) = (&$a, &$b);
@@ -389,31 +385,26 @@ pub fn update_miner_current_median_commitment(value: u128) {
 
 /// Function sets the global variable `GLOBAL_BURNCHAIN_SIGNER`.
 /// Fails if there are multiple attempts to set this variable.
+#[allow(unused_variables)]
 pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurnchainSignerError> {
-    if BURNCHAIN_SIGNER_INIT.compare_and_swap(
-        BURNCHAIN_SIGNER_UNINITIALIZED,
-        BURNCHAIN_SIGNER_INITIALIZING,
-        Ordering::SeqCst,
-    ) == BURNCHAIN_SIGNER_UNINITIALIZED
+    #[cfg(feature = "monitoring_prom")]
     {
         let mut signer_mutex = GLOBAL_BURNCHAIN_SIGNER.lock().unwrap();
+        if signer_mutex.is_some() {
+            return Err(SetGlobalBurnchainSignerError);
+        }
+
         *signer_mutex = Some(signer);
-        BURNCHAIN_SIGNER_INIT.store(BURNCHAIN_SIGNER_INITIALIZED, Ordering::SeqCst);
-        Ok(())
-    } else {
-        Err(SetGlobalBurnchainSignerError)
     }
+    Ok(())
 }
 
 pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
-    if BURNCHAIN_SIGNER_INIT.load(Ordering::SeqCst) != BURNCHAIN_SIGNER_INITIALIZED {
-        return None;
+    #[cfg(feature = "monitoring_prom")]
+    {
+        return GLOBAL_BURNCHAIN_SIGNER.lock().unwrap().clone();
     }
-    let mut signer_opt = GLOBAL_BURNCHAIN_SIGNER.lock().unwrap().clone();
-    Some(
-        signer_opt
-            .expect("GLOBAL_BURNCHAIN_SIGNER must be set before BURNCHAIN_SIGNER_INIT is set."),
-    )
+    None
 }
 
 #[derive(Debug)]
