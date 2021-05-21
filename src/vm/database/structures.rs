@@ -239,6 +239,10 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
     }
 
+    pub fn canonical_balance_repr(&self) -> STXBalance {
+        self.balance.canonical_repr_at_block(self.burn_block_height)
+    }
+
     pub fn has_locked_tokens(&self) -> bool {
         self.balance
             .has_locked_tokens_at_burn_block(self.burn_block_height)
@@ -349,6 +353,21 @@ impl STXBalance {
             amount_unlocked,
             amount_locked: 0,
             unlock_height: 0,
+        }
+    }
+
+    /// Returns a canonicalized STXBalance at a given burn_block_height
+    /// (i.e., if burn_block_height >= unlock_height, then return struct where
+    ///   amount_unlocked = 0, unlock_height = 0)
+    pub fn canonical_repr_at_block(&self, burn_block_height: u64) -> STXBalance {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+            STXBalance {
+                amount_unlocked: self.get_total_balance(),
+                amount_locked: 0,
+                unlock_height: 0,
+            }
+        } else {
+            self.clone()
         }
     }
 

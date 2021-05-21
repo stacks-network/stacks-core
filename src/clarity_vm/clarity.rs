@@ -49,7 +49,9 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
-use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
+use crate::{
+    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
+};
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -211,6 +213,21 @@ macro_rules! using {
 }
 
 impl ClarityBlockConnection<'_> {
+    #[cfg(test)]
+    pub fn new_test_conn<'a>(
+        datastore: WritableMarfStore<'a>,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a> {
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track: Some(LimitedCostTracker::new_free()),
+            mainnet: false,
+        }
+    }
+
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
@@ -770,6 +787,14 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
+        let epoch_id = self
+            .with_clarity_db_readonly(|db| db.get_current_stacks_epoch())
+            .expect("Failed to load current epoch")
+            .epoch_id;
+
+        // ClarityVersionPragmaTodo: need to use contract's declared version or default
+        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+
         using!(self.cost_track, "cost tracker", |mut cost_track| {
             self.inner_with_analysis_db(|db| {
                 let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
@@ -785,6 +810,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                     db,
                     false,
                     cost_track,
+                    clarity_version,
                 );
 
                 match result {

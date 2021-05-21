@@ -150,6 +150,7 @@ pub enum StacksEpochId {
 }
 
 impl PartialOrd for StacksEpochId {
+    // Note: this comparison makes Epoch10 > Epoch21 > Epoch20. Is that the intention?
     fn partial_cmp(&self, other: &StacksEpochId) -> Option<Ordering> {
         (*self as u32).partial_cmp(&(*other as u32))
     }

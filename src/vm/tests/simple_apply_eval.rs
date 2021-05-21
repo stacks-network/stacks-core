@@ -33,8 +33,8 @@ use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::StacksAddress;
+use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
 #[test]
@@ -380,7 +380,10 @@ fn test_simple_if_functions() {
         );
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
+        let mut contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
             GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());

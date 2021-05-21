@@ -1658,6 +1658,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_BALANCE, &StxGetAccount, name),
         StxTransfer => make_for_special(&STX_TRANSFER, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
@@ -1762,12 +1763,14 @@ mod test {
         Value,
     };
 
-    use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::proof::ClarityMarfTrieId;
-    use crate::vm::analysis::type_check;
+    use crate::{
+        clarity_vm::database::marf::MarfedKV,
+        vm::analysis::type_checker::tests::contracts::type_check,
+    };
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
@@ -1840,6 +1843,10 @@ mod test {
                 end_height: STACKS_EPOCH_MAX,
             })
         }
+
+        fn get_burn_start_height(&self) -> u32 {
+            0
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
@@ -1878,7 +1885,8 @@ mod test {
         }
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
-        let mut contract_context = ContractContext::new(contract_id.clone());
+        let mut contract_context =
+            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity1);
         let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
 
         global_context

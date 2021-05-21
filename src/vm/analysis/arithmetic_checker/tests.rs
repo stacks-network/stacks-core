@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::ClarityVersion;
 use chainstate::stacks::boot::BOOT_CODE_COSTS;
+use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
-    arithmetic_checker::Error::*, mem_type_check, ContractAnalysis,
+    arithmetic_checker::Error::*, ContractAnalysis,
 };
 use vm::ast::parse;
 use vm::costs::LimitedCostTracker;
@@ -37,6 +39,7 @@ fn arithmetic_check(contract: &str) -> Result<(), Error> {
         contract_identifier,
         expressions,
         LimitedCostTracker::new_free(),
+        ClarityVersion::Clarity1,
     );
 
     ArithmeticOnlyChecker::run(&analysis)
