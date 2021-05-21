@@ -761,6 +761,26 @@ impl Node {
 
             parent_consensus_hash
         };
+
+        // get previous burn block stats
+        let (prev_burn_header_hash, prev_burn_header_height, prev_burn_header_timestamp) =
+            match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
+                .unwrap()
+            {
+                Some(sn) => (
+                    sn.burn_header_hash,
+                    sn.block_height as u32,
+                    sn.burn_header_timestamp,
+                ),
+                None => {
+                    // shouldn't happen
+                    panic!(
+                        "CORRUPTION: staging block {}/{} does not correspond to a burn block",
+                        &parent_consensus_hash, &anchored_block.header.parent_block
+                    );
+                }
+            };
+
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
@@ -833,6 +853,9 @@ impl Node {
             Txid([0; 32]),
             vec![],
             None,
+            prev_burn_header_hash,
+            prev_burn_header_height,
+            prev_burn_header_timestamp,
         );
 
         self.chain_tip = Some(chain_tip.clone());

@@ -1537,6 +1537,21 @@ fn microblock_integration_test() {
 
         let _miner_txid = block.get("miner_txid").unwrap().as_str().unwrap();
 
+        // make sure we have stats for the previous burn block
+        let _prev_burn_block_hash = block.get("prev_burn_block_hash").unwrap().as_str().unwrap();
+
+        let _prev_burn_block_height = block
+            .get("prev_burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+
+        let _prev_burn_block_timestamp = block
+            .get("prev_burn_block_timestamp")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+
         prior = Some(my_index_hash);
     }
 
