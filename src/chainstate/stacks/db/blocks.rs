@@ -3875,10 +3875,12 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_receipt) =
+                let (tx_fee, mut tx_receipt) =
                     StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
+                // TODO: also keep track of a real tx_index here and add to receipt
+                tx_receipt.microblock_header = Some(microblock.header.clone());
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
                     .checked_add(tx_receipt.stx_burned as u128)
@@ -3946,6 +3948,7 @@ impl StacksChainState {
                             stx_burned: 0,
                             contract_analysis: None,
                             execution_cost,
+                            microblock_header: None,
                         };
 
                         all_receipts.push(receipt);
@@ -3999,6 +4002,7 @@ impl StacksChainState {
                                 stx_burned: 0,
                                 contract_analysis: None,
                                 execution_cost: ExecutionCost::zero(),
+                                microblock_header: None,
                             }),
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";

@@ -29,7 +29,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksMicroblockHeader,
+    BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -219,7 +219,7 @@ impl EventObserver {
         }
     }
 
-    /// Returns json payload to send for new block event
+    /// Returns json payload to send for new block or microblock event
     fn make_new_block_txs_payload(
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
@@ -234,29 +234,9 @@ impl EventObserver {
             "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
             "contract_abi": receipt_payload_info.contract_interface_json,
             "execution_cost": receipt.execution_cost,
-        })
-    }
-
-    /// Returns json payload to send for new microblock event
-    fn make_new_microblock_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-        microblock_header: &StacksMicroblockHeader,
-        sequence: u16,
-    ) -> serde_json::Value {
-        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
-
-        json!({
-            "txid": format!("0x{}", &receipt_payload_info.txid),
-            "tx_index": tx_index,
-            "status": receipt_payload_info.success,
-            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
-            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
-            "contract_abi": receipt_payload_info.contract_interface_json,
-            "execution_cost": receipt.execution_cost,
-            "microblock_sequence": sequence,
-            "microblock_hash": format!("0x{}", microblock_header.block_hash()),
-            "microblock_parent_hash": format!("0x{}", microblock_header.prev_block),
+            "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
+            "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
+            "microblock_parent_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.prev_block)),
         })
     }
 
@@ -703,16 +683,14 @@ impl EventDispatcher {
         let mut tx_index;
         let mut serialized_txs = Vec::new();
 
-        for (curr_sequence_number, microblock_header, receipts) in
+        for (_, _, receipts) in
             processed_unconfirmed_state.receipts.iter()
         {
             tx_index = 0;
             for receipt in receipts.iter() {
-                let payload = EventObserver::make_new_microblock_txs_payload(
+                let payload = EventObserver::make_new_block_txs_payload(
                     receipt,
                     tx_index,
-                    microblock_header,
-                    *curr_sequence_number,
                 );
                 serialized_txs.push(payload);
                 tx_index += 1;
