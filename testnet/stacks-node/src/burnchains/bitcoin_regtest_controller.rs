@@ -1,15 +1,14 @@
+use async_h1::client;
 use async_std::io::ReadExt;
+use async_std::net::TcpStream;
+use base64::encode;
+use http_types::{Method, Request, Url};
 use std::io::Cursor;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Instant;
-
-use async_h1::client;
-use async_std::net::TcpStream;
-use base64::encode;
-use http_types::{Method, Request, Url};
 
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -555,6 +554,7 @@ impl BitcoinRegtestController {
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
+                            confirmations: parsed_utxo.confirmations,
                         });
                     }
                 }
@@ -1173,9 +1173,18 @@ impl BitcoinRegtestController {
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
     ) -> Option<()> {
-        // spend UTXOs in decreasing order
-        utxos_set.utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
-        utxos_set.utxos.reverse();
+        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
+        // event of a tie, spend the smallest-value UTXO first.
+        utxos_set.utxos.sort_by(|u1, u2| {
+            if u1.confirmations != u2.confirmations {
+                u1.confirmations.cmp(&u2.confirmations)
+            } else {
+                // for block-commits, the smaller value is likely the UTXO-chained value, so
+                // continue to prioritize it as the first spend in order to avoid breaking the
+                // miner commit chain.
+                u1.amount.cmp(&u2.amount)
+            }
+        });
 
         let tx_size = {
             // We will be calling 2 times serialize_tx, the first time with an estimated size,
@@ -1611,12 +1620,13 @@ pub struct ParsedUTXO {
     safe: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UTXO {
     pub txid: Sha256dHash,
     pub vout: u32,
     pub script_pub_key: Script,
     pub amount: u64,
+    pub confirmations: u32,
 }
 
 impl ParsedUTXO {
@@ -1844,6 +1854,7 @@ impl BitcoinRPCRequest {
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
+                            confirmations: parsed_utxo.confirmations,
                         });
                     }
                 }
