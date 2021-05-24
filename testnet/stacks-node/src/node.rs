@@ -763,7 +763,7 @@ impl Node {
         };
 
         // get previous burn block stats
-        let (prev_burn_header_hash, prev_burn_header_height, prev_burn_header_timestamp) =
+        let (prev_burn_block_hash, prev_burn_block_height, prev_burn_block_timestamp) =
             match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
                 .unwrap()
             {
@@ -853,9 +853,9 @@ impl Node {
             Txid([0; 32]),
             vec![],
             None,
-            prev_burn_header_hash,
-            prev_burn_header_height,
-            prev_burn_header_timestamp,
+            prev_burn_block_hash,
+            prev_burn_block_height,
+            prev_burn_block_timestamp,
         );
 
         self.chain_tip = Some(chain_tip.clone());

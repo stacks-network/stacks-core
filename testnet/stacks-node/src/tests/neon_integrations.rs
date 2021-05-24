@@ -1439,7 +1439,7 @@ fn microblock_integration_test() {
         sleep_ms(1000);
     }
 
-    // check event observer for new microblock event (expect 2)
+    // check event observer for new microblock event (expect 4)
     let mut microblock_events = test_observer::get_microblocks();
     assert_eq!(microblock_events.len(), 4);
     // this microblock should correspond to `second_microblock`
@@ -1471,6 +1471,19 @@ fn microblock_integration_test() {
         StacksBlockId::from_vec(&index_block_hash_bytes),
         Some(stacks_id_tip)
     );
+    // make sure we have stats for the burn block
+    let _burn_block_hash = microblock.get("burn_block_hash").unwrap().as_str().unwrap();
+    let _burn_block_height = microblock
+        .get("burn_block_height")
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    let _burn_block_timestamp = microblock
+        .get("burn_block_timestamp")
+        .unwrap()
+        .as_u64()
+        .unwrap();
+
     // this microblock should correspond to the first microblock that was posted
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();

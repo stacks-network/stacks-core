@@ -28,9 +28,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
+use stacks::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
@@ -269,6 +267,9 @@ impl EventObserver {
         parent_index_block_hash: StacksBlockId,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         serialized_txs: &Vec<serde_json::Value>,
+        burn_block_hash: BurnchainHeaderHash,
+        burn_block_height: u32,
+        burn_block_timestamp: u64,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -282,6 +283,9 @@ impl EventObserver {
             "parent_index_block_hash": format!("0x{}", parent_index_block_hash),
             "events": serialized_events,
             "transactions": serialized_txs,
+            "burn_block_hash": format!("0x{}", burn_block_hash),
+            "burn_block_height": burn_block_height,
+            "burn_block_timestamp": burn_block_timestamp,
         });
 
         self.send_payload(&payload, PATH_MICROBLOCK_SUBMIT);
@@ -303,9 +307,9 @@ impl EventObserver {
         boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
-        prev_burn_header_hash: BurnchainHeaderHash,
-        prev_burn_header_height: u32,
-        prev_burn_header_timestamp: u64,
+        prev_burn_block_hash: BurnchainHeaderHash,
+        prev_burn_block_height: u32,
+        prev_burn_block_timestamp: u64,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -340,9 +344,9 @@ impl EventObserver {
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
-            "prev_burn_block_hash":  format!("0x{}", prev_burn_header_hash),
-            "prev_burn_block_height": prev_burn_header_height,
-            "prev_burn_block_timestamp": prev_burn_header_timestamp,
+            "prev_burn_block_hash":  format!("0x{}", prev_burn_block_hash),
+            "prev_burn_block_height": prev_burn_block_height,
+            "prev_burn_block_timestamp": prev_burn_block_timestamp,
         });
 
         // Send payload
@@ -381,9 +385,9 @@ impl BlockEventDispatcher for EventDispatcher {
         winner_txid: Txid,
         mature_rewards: Vec<MinerReward>,
         mature_rewards_info: Option<MinerRewardInfo>,
-        prev_burn_header_hash: BurnchainHeaderHash,
-        prev_burn_header_height: u32,
-        prev_burn_header_timestamp: u64,
+        prev_burn_block_hash: BurnchainHeaderHash,
+        prev_burn_block_height: u32,
+        prev_burn_block_timestamp: u64,
     ) {
         let chain_tip = ChainTip {
             metadata,
@@ -396,9 +400,9 @@ impl BlockEventDispatcher for EventDispatcher {
             winner_txid,
             mature_rewards,
             mature_rewards_info,
-            prev_burn_header_hash,
-            prev_burn_header_height,
-            prev_burn_header_timestamp,
+            prev_burn_block_hash,
+            prev_burn_block_height,
+            prev_burn_block_timestamp,
         )
     }
 
@@ -580,9 +584,9 @@ impl EventDispatcher {
         winner_txid: Txid,
         mature_rewards: Vec<MinerReward>,
         mature_rewards_info: Option<MinerRewardInfo>,
-        prev_burn_header_hash: BurnchainHeaderHash,
-        prev_burn_header_height: u32,
-        prev_burn_header_timestamp: u64,
+        prev_burn_block_hash: BurnchainHeaderHash,
+        prev_burn_block_height: u32,
+        prev_burn_block_timestamp: u64,
     ) {
         let boot_receipts = if chain_tip.metadata.block_height == 1 {
             let mut boot_receipts_result = self
@@ -642,9 +646,9 @@ impl EventDispatcher {
                     &boot_receipts,
                     &winner_txid,
                     &mature_rewards,
-                    prev_burn_header_hash,
-                    prev_burn_header_height,
-                    prev_burn_header_timestamp,
+                    prev_burn_block_hash,
+                    prev_burn_block_height,
+                    prev_burn_block_timestamp,
                 );
             }
         }
@@ -683,15 +687,10 @@ impl EventDispatcher {
         let mut tx_index;
         let mut serialized_txs = Vec::new();
 
-        for (_, _, receipts) in
-            processed_unconfirmed_state.receipts.iter()
-        {
+        for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
             tx_index = 0;
             for receipt in receipts.iter() {
-                let payload = EventObserver::make_new_block_txs_payload(
-                    receipt,
-                    tx_index,
-                );
+                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
                 serialized_txs.push(payload);
                 tx_index += 1;
             }
@@ -708,6 +707,9 @@ impl EventDispatcher {
                 parent_index_block_hash,
                 filtered_events,
                 &serialized_txs,
+                processed_unconfirmed_state.burn_block_hash,
+                processed_unconfirmed_state.burn_block_height,
+                processed_unconfirmed_state.burn_block_timestamp,
             );
         }
     }

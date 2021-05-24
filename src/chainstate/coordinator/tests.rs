@@ -304,9 +304,9 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _winner_txid: Txid,
         _rewards: Vec<MinerReward>,
         _rewards_info: Option<MinerRewardInfo>,
-        _prev_burn_header_hash: BurnchainHeaderHash,
-        _prev_burn_header_height: u32,
-        _prev_burn_header_timestamp: u64,
+        _prev_burn_block_hash: BurnchainHeaderHash,
+        _prev_burn_block_height: u32,
+        _prev_burn_block_timestamp: u64,
     ) {
         assert!(
             false,
