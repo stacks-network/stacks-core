@@ -68,8 +68,7 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
 
-// first burnchain block hash
-// TODO: update once we know the true first burnchain block
+/// This is the "dummy" parent to the actual first burnchain block that we process.
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 
 // TODO: TO BE SET BY STACKS_V1_MINER_THRESHOLD

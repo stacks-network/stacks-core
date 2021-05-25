@@ -120,9 +120,9 @@ pub trait BlockEventDispatcher {
         winner_txid: Txid,
         matured_rewards: Vec<MinerReward>,
         matured_rewards_info: Option<MinerRewardInfo>,
-        prev_burn_block_hash: BurnchainHeaderHash,
-        prev_burn_block_height: u32,
-        prev_burn_block_timestamp: u64,
+        parent_burn_block_hash: BurnchainHeaderHash,
+        parent_burn_block_height: u32,
+        parent_burn_block_timestamp: u64,
     );
 
     /// called whenever a burn block is about to be
@@ -763,9 +763,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             winner_txid,
                             block_receipt.matured_rewards,
                             block_receipt.matured_rewards_info,
-                            block_receipt.prev_burn_block_hash,
-                            block_receipt.prev_burn_block_height,
-                            block_receipt.prev_burn_block_timestamp,
+                            block_receipt.parent_burn_block_hash,
+                            block_receipt.parent_burn_block_height,
+                            block_receipt.parent_burn_block_timestamp,
                         );
                     }
 

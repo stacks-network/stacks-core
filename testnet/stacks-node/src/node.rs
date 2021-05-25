@@ -763,21 +763,25 @@ impl Node {
         };
 
         // get previous burn block stats
-        let (prev_burn_block_hash, prev_burn_block_height, prev_burn_block_timestamp) =
-            match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
-                .unwrap()
-            {
-                Some(sn) => (
-                    sn.burn_header_hash,
-                    sn.block_height as u32,
-                    sn.burn_header_timestamp,
-                ),
-                None => {
-                    // shouldn't happen
-                    panic!(
-                        "CORRUPTION: staging block {}/{} does not correspond to a burn block",
-                        &parent_consensus_hash, &anchored_block.header.parent_block
-                    );
+        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
+            if anchored_block.is_first_mined() {
+                (BurnchainHeaderHash([0; 32]), 0, 0)
+            } else {
+                match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
+                    .unwrap()
+                {
+                    Some(sn) => (
+                        sn.burn_header_hash,
+                        sn.block_height as u32,
+                        sn.burn_header_timestamp,
+                    ),
+                    None => {
+                        // shouldn't happen
+                        panic!(
+                            "CORRUPTION: block {}/{} does not correspond to a burn block",
+                            &parent_consensus_hash, &anchored_block.header.parent_block
+                        );
+                    }
                 }
             };
 
@@ -853,9 +857,9 @@ impl Node {
             Txid([0; 32]),
             vec![],
             None,
-            prev_burn_block_hash,
-            prev_burn_block_height,
-            prev_burn_block_timestamp,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
         );
 
         self.chain_tip = Some(chain_tip.clone());

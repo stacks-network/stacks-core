@@ -77,6 +77,7 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
+use types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4235,9 +4236,9 @@ impl StacksChainState {
             block_execution_cost,
             matured_rewards,
             matured_rewards_info,
-            prev_burn_block_hash,
-            prev_burn_block_height,
-            prev_burn_block_timestamp,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
         ) = {
             let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
                 // has to be the sentinal hashes if this block has no parent
@@ -4253,22 +4254,26 @@ impl StacksChainState {
             };
 
             // get previous burn block stats
-            let (prev_burn_block_hash, prev_burn_block_height, prev_burn_block_timestamp) =
-                match SortitionDB::get_block_snapshot_consensus(
-                    burn_dbconn,
-                    &parent_consensus_hash,
-                )? {
-                    Some(sn) => (
-                        sn.burn_header_hash,
-                        sn.block_height as u32,
-                        sn.burn_header_timestamp,
-                    ),
-                    None => {
-                        // shouldn't happen
-                        panic!(
-                            "CORRUPTION: staging block {}/{} does not correspond to a burn block",
-                            &parent_consensus_hash, &parent_block_hash
-                        );
+            let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
+                if block.is_first_mined() {
+                    (BurnchainHeaderHash([0; 32]), 0, 0)
+                } else {
+                    match SortitionDB::get_block_snapshot_consensus(
+                        burn_dbconn,
+                        &parent_consensus_hash,
+                    )? {
+                        Some(sn) => (
+                            sn.burn_header_hash,
+                            sn.block_height as u32,
+                            sn.burn_header_timestamp,
+                        ),
+                        None => {
+                            // shouldn't happen
+                            panic!(
+                                "CORRUPTION: block {}/{} does not correspond to a burn block",
+                                &parent_consensus_hash, &parent_block_hash
+                            );
+                        }
                     }
                 };
 
@@ -4607,9 +4612,9 @@ impl StacksChainState {
                 block_cost,
                 matured_rewards,
                 matured_rewards_info,
-                prev_burn_block_hash,
-                prev_burn_block_height,
-                prev_burn_block_timestamp,
+                parent_burn_block_hash,
+                parent_burn_block_height,
+                parent_burn_block_timestamp,
             )
         };
 
@@ -4644,9 +4649,9 @@ impl StacksChainState {
             matured_rewards_info,
             parent_microblocks_cost: microblock_execution_cost,
             anchored_block_cost: block_execution_cost,
-            prev_burn_block_hash,
-            prev_burn_block_height,
-            prev_burn_block_timestamp,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
         };
 
         Ok(epoch_receipt)
