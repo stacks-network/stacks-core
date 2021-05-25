@@ -7,7 +7,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.0.11.1.0]
 
-This software update is our monthly release. It introduces fixes and features for both developers and miners.  
+This software update is our monthly release. It introduces fixes and features for both developers and miners. 
+This release's chainstate directory is compatible with chainstate directories from 2.0.11.0.0.
 
 ## Added
 
