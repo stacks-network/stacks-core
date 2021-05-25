@@ -7,9 +7,9 @@ bootstrap_node = "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459
 [burnchain]
 chain = "bitcoin"
 mode = "mainnet"
-peer_host = "127.0.0.1"
-username = "<USERNAME>"
-password = "<PASSWORD>"
+peer_host = "bitcoind.stacks.co"
+username = "blockstack"
+password = "blockstacksystem"
 rpc_port = 8332
 peer_port = 8333
 
