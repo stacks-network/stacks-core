@@ -17,6 +17,22 @@
 // This module is concerned with the implementation of the BitcoinIndexer
 // structure and its methods and traits.
 
+use std::error;
+use std::fmt;
+use std::io;
+use std::sync::Arc;
+
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::Txid;
+use chainstate::burn::operations::BlockstackOperationType;
+use deps;
+use deps::bitcoin::network::serialize::Error as btc_serialize_error;
+use util::db::Error as db_error;
+use util::HexError as btc_hex_error;
+
+use crate::types::chainstate::BurnchainHeaderHash;
+
 pub mod address;
 pub mod bits;
 pub mod blocks;
@@ -25,25 +41,6 @@ pub mod keys;
 pub mod messages;
 pub mod network;
 pub mod spv;
-
-use std::error;
-use std::fmt;
-use std::io;
-use std::sync::Arc;
-
-use chainstate::burn::operations::BlockstackOperationType;
-
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::{BurnchainHeaderHash, Txid};
-
-use deps;
-
-use deps::bitcoin::network::serialize::Error as btc_serialize_error;
-
-use util::HexError as btc_hex_error;
-
-use util::db::Error as db_error;
 
 pub type PeerMessage = deps::bitcoin::network::message::NetworkMessage;
 

@@ -14,29 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::BlockHeaderHash;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::proof::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::StacksBlockId;
+use clarity_vm::clarity::ClarityInstance;
 use util::hash::hex_bytes;
 use vm::ast;
 use vm::ast::errors::ParseErrors;
-use vm::clarity::ClarityInstance;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
-use vm::database::{
-    ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
+use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
+use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
 
-use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))

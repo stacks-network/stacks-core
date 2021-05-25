@@ -14,6 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::error;
+use std::fmt;
+use std::hash::Hash;
+use std::io;
+use std::io::{Seek, SeekFrom};
+use std::ptr;
+
+use sha2::Digest;
+use sha2::Sha512Trunc256 as TrieHasher;
+
+use util::db::Error as db_error;
+use util::hash::to_hex;
+use util::log;
+
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::SortitionId;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
+
 pub mod bits;
 pub mod marf;
 pub mod node;
@@ -22,65 +42,20 @@ pub mod storage;
 pub mod trie;
 pub mod trie_sql;
 
-use std::error;
-use std::fmt;
-use std::io;
-use std::io::{Seek, SeekFrom};
-use std::ptr;
-
-use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
-
-use burnchains::BurnchainHeaderHash;
-use chainstate::burn::db::sortdb::SortitionId;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::StacksBlockId;
-use std::hash::Hash;
-
-use util::db::Error as db_error;
-use util::hash::to_hex;
-use util::log;
-
-/// Hash of a Trie node.  This is a SHA2-512/256.
-pub struct TrieHash(pub [u8; 32]);
-impl_array_newtype!(TrieHash, u8, 32);
-impl_array_hexstring_fmt!(TrieHash);
-impl_byte_array_newtype!(TrieHash, u8, 32);
-impl_byte_array_serde!(TrieHash);
-pub const TRIEHASH_ENCODED_SIZE: usize = 32;
-
-/// Structure that holds the actual data in a MARF leaf node.
-/// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
-/// If not used (the rule today), then they should all be 0.
-pub struct MARFValue(pub [u8; 40]);
-impl_array_newtype!(MARFValue, u8, 40);
-impl_array_hexstring_fmt!(MARFValue);
-impl_byte_array_newtype!(MARFValue, u8, 40);
-impl_byte_array_message_codec!(MARFValue, 40);
-pub const MARF_VALUE_ENCODED_SIZE: u32 = 40;
-
 pub trait MarfTrieId:
-    PartialEq
-    + Clone
-    + std::fmt::Display
-    + std::fmt::Debug
+    ClarityMarfTrieId
     + rusqlite::types::ToSql
     + rusqlite::types::FromSql
-    + std::convert::From<[u8; 32]>
+    + crate::codec::StacksMessageCodec
     + std::convert::From<MARFValue>
-    + ::net::StacksMessageCodec
 {
-    fn as_bytes(&self) -> &[u8];
-    fn to_bytes(self) -> [u8; 32];
-    fn from_bytes([u8; 32]) -> Self;
-    fn sentinel() -> Self;
 }
 
 pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
 
-macro_rules! impl_marf_trie_id {
+macro_rules! impl_clarity_marf_trie_id {
     ($thing:ident) => {
-        impl MarfTrieId for $thing {
+        impl ClarityMarfTrieId for $thing {
             fn as_bytes(&self) -> &[u8] {
                 self.as_ref()
             }
@@ -115,11 +90,17 @@ macro_rules! impl_marf_trie_id {
     };
 }
 
-impl_marf_trie_id!(BurnchainHeaderHash);
-impl_marf_trie_id!(StacksBlockId);
-impl_marf_trie_id!(SortitionId);
+impl_clarity_marf_trie_id!(BurnchainHeaderHash);
+impl_clarity_marf_trie_id!(StacksBlockId);
+impl_clarity_marf_trie_id!(SortitionId);
 #[cfg(test)]
-impl_marf_trie_id!(BlockHeaderHash);
+impl_clarity_marf_trie_id!(BlockHeaderHash);
+
+impl MarfTrieId for SortitionId {}
+impl MarfTrieId for StacksBlockId {}
+impl MarfTrieId for BurnchainHeaderHash {}
+#[cfg(test)]
+impl MarfTrieId for BlockHeaderHash {}
 
 impl TrieHash {
     /// TrieHash of zero bytes
@@ -185,20 +166,6 @@ impl<T: MarfTrieId> From<T> for MARFValue {
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
-        }
-        for i in 0..h.len() {
-            d[i] = h[i];
-        }
-        MARFValue(d)
-    }
-}
-
-impl From<u32> for MARFValue {
-    fn from(value: u32) -> MARFValue {
-        let h = value.to_le_bytes();
-        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
-        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
-            panic!("Cannot convert a u32 into a MARF Value.");
         }
         for i in 0..h.len() {
             d[i] = h[i];
@@ -400,7 +367,9 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 // test infrastructure common to multiple files in the index
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::collections::HashMap;
+    use std::io::{Cursor, Seek, SeekFrom};
+
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
@@ -408,8 +377,9 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use std::collections::HashMap;
-    use std::io::{Cursor, Seek, SeekFrom};
+    use crate::types::proof::{TrieLeaf, TrieMerkleProof};
+
+    use super::*;
 
     /// Print out a trie to stderr
     pub fn dump_trie(s: &mut TrieStorageConnection<BlockHeaderHash>) -> () {

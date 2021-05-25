@@ -65,12 +65,16 @@ extern crate assert_json_diff;
 pub extern crate prometheus;
 
 #[macro_use]
+pub mod codec;
+
+#[macro_use]
 pub mod util;
 
 #[macro_use]
 pub mod net;
 
 #[macro_use]
+/// The Clarity virtual machine
 pub mod vm;
 
 #[macro_use]
@@ -81,12 +85,16 @@ extern crate stx_genesis;
 
 pub mod address;
 pub mod burnchains;
+
+/// A high level library for interacting with the Clarity vm
+pub mod clarity_vm;
 pub mod core;
 pub mod deps;
 
 pub mod clarity;
 
 pub mod monitoring;
+pub mod types;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");

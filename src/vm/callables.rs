@@ -19,8 +19,6 @@ use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
 
-use chainstate::stacks::events::StacksTransactionEvent;
-
 use vm::costs::{cost_functions, runtime_cost};
 
 use vm::analysis::errors::CheckErrors;
