@@ -41,9 +41,9 @@ use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection}
 use chainstate::stacks::index::trie::Trie;
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId};
-use net::{codec::read_next, StacksMessageCodec};
 use util::{hash::to_hex, log};
 
+use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use crate::types::chainstate::{BlockHeaderHash, MARFValue};
 use crate::types::proof::{
@@ -161,7 +161,7 @@ fn serialize_id_hash_node<W: Write, T: MarfTrieId>(
     id: &u8,
     node: &ProofTrieNode<T>,
     hashes: &[TrieHash],
-) -> Result<(), ::net::Error> {
+) -> Result<(), codec_error> {
     id.consensus_serialize(fd)?;
     node.consensus_serialize(fd)?;
     for hash in hashes.iter() {
@@ -183,13 +183,13 @@ macro_rules! deserialize_id_hash_node {
 }
 
 impl<T: MarfTrieId> StacksMessageCodec for ProofTriePtr<T> {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.id.consensus_serialize(fd)?;
         self.chr.consensus_serialize(fd)?;
         self.back_block.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTriePtr<T>, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTriePtr<T>, codec_error> {
         let id = read_next(fd)?;
         let chr = read_next(fd)?;
         let back_block = read_next(fd)?;
@@ -203,13 +203,13 @@ impl<T: MarfTrieId> StacksMessageCodec for ProofTriePtr<T> {
 }
 
 impl<T: MarfTrieId> StacksMessageCodec for ProofTrieNode<T> {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.id.consensus_serialize(fd)?;
         self.path.consensus_serialize(fd)?;
         self.ptrs.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTrieNode<T>, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTrieNode<T>, codec_error> {
         let id = read_next(fd)?;
         let path = read_next(fd)?;
         let ptrs = read_next(fd)?;
@@ -219,7 +219,7 @@ impl<T: MarfTrieId> StacksMessageCodec for ProofTrieNode<T> {
 }
 
 impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         let type_byte = match self {
             TrieMerkleProofType::Node4(_) => TrieMerkleProofTypeIndicator::Node4,
             TrieMerkleProofType::Node16(_) => TrieMerkleProofTypeIndicator::Node16,
@@ -255,9 +255,9 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
         }
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProofType<T>, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProofType<T>, codec_error> {
         let type_byte = TrieMerkleProofTypeIndicator::from_u8(read_next(fd)?).ok_or_else(|| {
-            ::net::Error::DeserializeError("Bad type byte in Trie Merkle Proof".into())
+            codec_error::DeserializeError("Bad type byte in Trie Merkle Proof".into())
         })?;
 
         let codec = match type_byte {

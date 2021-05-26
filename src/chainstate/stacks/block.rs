@@ -22,6 +22,8 @@ use std::io::{Read, Write};
 use sha2::Digest;
 use sha2::Sha512Trunc256;
 
+use crate::codec::MAX_MESSAGE_LEN;
+use crate::types::StacksPublicKeyBuffer;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use chainstate::burn::operations::*;
@@ -30,32 +32,29 @@ use chainstate::burn::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use core::*;
-use net::codec::{read_next, write_next};
 use net::Error as net_error;
-use net::StacksMessageCodec;
-use net::StacksPublicKeyBuffer;
-use net::MAX_MESSAGE_LEN;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
 
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
 
 impl StacksMessageCodec for VRFProof {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         fd.write_all(&self.to_bytes())
-            .map_err(net_error::WriteError)
+            .map_err(codec_error::WriteError)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, codec_error> {
         let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
-        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
-        let res = VRFProof::from_slice(&bytes).ok_or(net_error::DeserializeError(
+        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
+        let res = VRFProof::from_slice(&bytes).ok_or(codec_error::DeserializeError(
             "Failed to parse VRF proof".to_string(),
         ))?;
 
@@ -64,13 +63,13 @@ impl StacksMessageCodec for VRFProof {
 }
 
 impl StacksMessageCodec for StacksWorkScore {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.burn)?;
         write_next(fd, &self.work)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, codec_error> {
         let burn = read_next(fd)?;
         let work = read_next(fd)?;
 
@@ -94,7 +93,7 @@ impl StacksWorkScore {
 }
 
 impl StacksMessageCodec for StacksBlockHeader {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
         write_next(fd, &self.total_work)?;
         write_next(fd, &self.proof)?;
@@ -107,7 +106,7 @@ impl StacksMessageCodec for StacksBlockHeader {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlockHeader, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlockHeader, codec_error> {
         let version: u8 = read_next(fd)?;
         let total_work: StacksWorkScore = read_next(fd)?;
         let proof: VRFProof = read_next(fd)?;
@@ -343,13 +342,13 @@ impl StacksBlockHeader {
 }
 
 impl StacksMessageCodec for StacksBlock {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.header)?;
         write_next(fd, &self.txs)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlock, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlock, codec_error> {
         // NOTE: don't worry about size clamps here; do that when receiving the data from the peer
         // network.  This code assumes that the block will be small enough.
         let header: StacksBlockHeader = read_next(fd)?;
@@ -361,7 +360,7 @@ impl StacksMessageCodec for StacksBlock {
         // there must be at least one transaction (the coinbase)
         if txs.len() == 0 {
             warn!("Invalid block: Zero-transaction block");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid block: zero transactions".to_string(),
             ));
         }
@@ -370,7 +369,7 @@ impl StacksMessageCodec for StacksBlock {
         // (no OffChainOnly allowed)
         if !StacksBlock::validate_anchor_mode(&txs, true) {
             warn!("Invalid block: Found offchain-only transaction");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid block: Found offchain-only transaction".to_string(),
             ));
         }
@@ -378,7 +377,7 @@ impl StacksMessageCodec for StacksBlock {
         // all transactions are unique
         if !StacksBlock::validate_transactions_unique(&txs) {
             warn!("Invalid block: Found duplicate transaction");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid block: found duplicate transaction".to_string(),
             ));
         }
@@ -391,7 +390,7 @@ impl StacksMessageCodec for StacksBlock {
 
         if tx_merkle_root != header.tx_merkle_root {
             warn!("Invalid block: Tx Merkle root mismatch");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid block: tx Merkle root mismatch".to_string(),
             ));
         }
@@ -403,7 +402,7 @@ impl StacksMessageCodec for StacksBlock {
                 TransactionPayload::Coinbase(_) => {
                     coinbase_count += 1;
                     if coinbase_count > 1 {
-                        return Err(net_error::DeserializeError(
+                        return Err(codec_error::DeserializeError(
                             "Invalid block: multiple coinbases found".to_string(),
                         ));
                     }
@@ -415,7 +414,7 @@ impl StacksMessageCodec for StacksBlock {
         // coinbase is present at the right place
         if !StacksBlock::validate_coinbase(&txs, true) {
             warn!("Invalid block: no coinbase found at first transaction slot");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid block: no coinbase found at first transaction slot".to_string(),
             ));
         }
@@ -632,11 +631,11 @@ impl StacksBlock {
 }
 
 impl StacksMessageCodec for StacksMicroblockHeader {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.serialize(fd, false)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, codec_error> {
         let version: u8 = read_next(fd)?;
         let sequence: u16 = read_next(fd)?;
         let prev_block: BlockHeaderHash = read_next(fd)?;
@@ -646,7 +645,7 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         // signature must be well-formed
         let _ = signature
             .to_secp256k1_recoverable()
-            .ok_or(net_error::DeserializeError(
+            .ok_or(codec_error::DeserializeError(
                 "Failed to parse signature".to_string(),
             ))?;
 
@@ -681,7 +680,7 @@ impl StacksMicroblockHeader {
         Ok(())
     }
 
-    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), net_error> {
+    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
         write_next(fd, &self.sequence)?;
         write_next(fd, &self.prev_block)?;
@@ -787,13 +786,13 @@ impl StacksMicroblockHeader {
 }
 
 impl StacksMessageCodec for StacksMicroblock {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.header)?;
         write_next(fd, &self.txs)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblock, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblock, codec_error> {
         // NOTE: maximum size must be checked elsewhere!
         let header: StacksMicroblockHeader = read_next(fd)?;
         let txs: Vec<StacksTransaction> = {
@@ -803,21 +802,21 @@ impl StacksMessageCodec for StacksMicroblock {
 
         if txs.len() == 0 {
             warn!("Invalid microblock: zero transactions");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid microblock: zero transactions".to_string(),
             ));
         }
 
         if !StacksBlock::validate_transactions_unique(&txs) {
             warn!("Invalid microblock: duplicate transaction");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid microblock: duplicate transaction".to_string(),
             ));
         }
 
         if !StacksBlock::validate_anchor_mode(&txs, false) {
             warn!("Invalid microblock: found on-chain-only transaction");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid microblock: found on-chain-only transaction".to_string(),
             ));
         }
@@ -829,14 +828,14 @@ impl StacksMessageCodec for StacksMicroblock {
         let tx_merkle_root = merkle_tree.root();
 
         if tx_merkle_root != header.tx_merkle_root {
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid microblock: tx Merkle root mismatch".to_string(),
             ));
         }
 
         if !StacksBlock::validate_coinbase(&txs, false) {
             warn!("Invalid microblock: found coinbase transaction");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Invalid microblock: found coinbase transaction".to_string(),
             ));
         }

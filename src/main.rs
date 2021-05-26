@@ -44,7 +44,7 @@ use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::*;
-use blockstack_lib::net::StacksMessageCodec;
+use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
 use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
 use blockstack_lib::types::proof::ClarityMarfTrieId;
@@ -773,6 +773,7 @@ simulating a miner.
             first_burnchain_block_hash,
             first_burnchain_block_height: first_burnchain_block_height as u32,
             first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::regtest_default(),
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_namespaces: None,

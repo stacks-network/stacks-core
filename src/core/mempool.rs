@@ -40,7 +40,6 @@ use chainstate::stacks::{
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
-use net::StacksMessageCodec;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
@@ -52,6 +51,7 @@ use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 use vm::types::PrincipalData;
 
+use crate::codec::StacksMessageCodec;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 
@@ -1021,7 +1021,7 @@ mod tests {
     };
     use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
     use core::FIRST_STACKS_BLOCK_HASH;
-    use net::{Error as NetError, StacksMessageCodec};
+    use net::Error as NetError;
     use util::db::{DBConn, FromRow};
     use util::hash::Hash160;
     use util::secp256k1::MessageSignature;
@@ -1035,6 +1035,7 @@ mod tests {
         ClarityName, ContractName, Value,
     };
 
+    use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{
         StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,

@@ -20,12 +20,12 @@ use std::hash::{Hash, Hasher};
 
 use regex::Regex;
 
+use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksBlockId;
 use crate::util::boot::boot_code_id;
 use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::ConsensusHash;
-use net::StacksMessageCodec;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 
