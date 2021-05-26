@@ -39,6 +39,7 @@ compatible with prior chainstate directories.
 
 - Fixed faulty logic in the mempool that was still treating the transaction fee
   as a fee rate, which prevented replace-by-fee from working as expected.
+- Log peer addresses in the HTTP server
 
 ## [2.0.10.0.1]
 
