@@ -629,9 +629,7 @@ impl<'a> OwnedEnvironment<'a> {
                 .database
                 .get_stx_balance_snapshot(&recipient);
 
-            let mut balance = snapshot.balance().clone();
-            balance.amount_unlocked += amount;
-            snapshot.set_balance(balance);
+            snapshot.credit(amount);
             snapshot.save();
 
             env.global_context

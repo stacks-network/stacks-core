@@ -2027,7 +2027,7 @@ pub mod test {
         pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
                 db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
-                    .amount_unlocked
+                    .amount_unlocked()
             })
         }
 

@@ -127,8 +127,8 @@ pub fn stx_transfer_consolidated(
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
-    env.add_memory(STXBalance::size_of as u64)?;
-    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
     let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
     if !sender_snapshot.can_transfer(amount) {
@@ -204,15 +204,15 @@ pub fn special_stx_account(
     TupleData::from_data(vec![
         (
             "unlocked".try_into().unwrap(),
-            Value::UInt(stx_balance.amount_unlocked),
+            Value::UInt(stx_balance.amount_unlocked()),
         ),
         (
             "locked".try_into().unwrap(),
-            Value::UInt(stx_balance.amount_locked),
+            Value::UInt(stx_balance.amount_locked()),
         ),
         (
             "unlock-height".try_into().unwrap(),
-            Value::UInt(stx_balance.unlock_height as u128),
+            Value::UInt(stx_balance.effective_unlock_height() as u128),
         ),
     ])
     .map(|t| Value::Tuple(t))
@@ -240,7 +240,7 @@ pub fn special_stx_burn(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(STXBalance::size_of as u64)?;
+        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
         if !burner_snapshot.can_transfer(amount) {

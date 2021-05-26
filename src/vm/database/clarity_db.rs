@@ -1373,9 +1373,9 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height),
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
@@ -1392,9 +1392,9 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height),
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));

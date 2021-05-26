@@ -1878,11 +1878,11 @@ fn test_pox_btc_ops() {
 
             if ix > 2 && reward_cycle_count < 6 {
                 assert_eq!(
-                    stacker_balance.amount_unlocked,
+                    stacker_balance.amount_unlocked(),
                     (balance as u128) - stacked_amt,
                     "Lock should be active"
                 );
-                assert_eq!(stacker_balance.amount_locked, stacked_amt);
+                assert_eq!(stacker_balance.amount_locked(), stacked_amt);
             } else {
                 assert_eq!(
                     stacker_balance.get_available_balance_at_burn_block(burn_height as u64),

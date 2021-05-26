@@ -142,24 +142,11 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy)]
 pub enum StacksEpochId {
     Epoch10 = 0x1000,
     Epoch20 = 0x0200,
     Epoch21 = 0x0201,
-}
-
-impl PartialOrd for StacksEpochId {
-    // Note: this comparison makes Epoch10 > Epoch21 > Epoch20. Is that the intention?
-    fn partial_cmp(&self, other: &StacksEpochId) -> Option<Ordering> {
-        (*self as u32).partial_cmp(&(*other as u32))
-    }
-}
-
-impl Ord for StacksEpochId {
-    fn cmp(&self, other: &StacksEpochId) -> Ordering {
-        (*self as u32).cmp(&(*other as u32))
-    }
 }
 
 impl TryFrom<u32> for StacksEpochId {
