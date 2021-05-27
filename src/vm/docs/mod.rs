@@ -463,31 +463,46 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B, ..., N) -> X, (list A1 A2 ... Am), (list B1 B2 ... Bm), ..., (list N1 N2 ... Nm)",
+    input_type: "Function((buff 1)_1, ..., (buff 1)_N) -> X, (buff m)_1, ..., (buff m)_N
+Function(A, B, ..., N) -> X, (list A1 A2 ... Am), (list B1 B2 ... Bm), ..., (list N1 N2 ... Nm)
+Function((string-ascii 1)_1, ..., (string-ascii 1)_N) -> X, (string-ascii m)_1, ..., (string-ascii m)_N
+Function((string-utf8 1)_1, ..., (string-utf8 1)_N) -> X, (string-utf8 m)_1, ..., (string-utf8 m)_N",
     output_type: "(list X)",
-    signature: "(map func list-A list-B ... list-N)",
+    signature: "(map func sequence-A sequence-B ... sequence-N)",
     description: "The `map` function applies the input function `func` to each element of the
-input lists, and outputs a list containing the _outputs_ from those function applications.",
+input sequences (where each sequence is either `buff`, `list`, `string-ascii` or `string-utf8`), and outputs a
+_list_ of the same type containing the _outputs_ from those function applications. Note that,
+no matter what kind of sequences the inputs are, the output is always a list.",
     example: "
 (map not (list true false true false)) ;; Returns (false true false true)
 (map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)",
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A) -> bool, (list A)",
-    output_type: "(list A)",
-    signature: "(filter func list)",
+    input_type: "Function((buff 1)) -> bool, buff
+Function(A) -> bool, (list A)
+Function((string-ascii 1)) -> bool, string-ascii
+Function((string-utf8 1)) -> bool, string-utf8",
+    output_type: "buff
+(list A)
+string-ascii
+string-utf8",
+    signature: "(filter func sequence)",
     description: "The `filter` function applies the input function `func` to each element of the
-input list, and returns the same list with any elements removed for which the `func` returned `false`.",
+input sequence (which is either a `buff`, `list`, `string-ascii` or `string-utf8`), and returns the
+same list with any elements removed for which the `func` returned `false`.",
     example: "(filter not (list true false true false)) ;; Returns (false false)"
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B) -> B, (list A), B",
+    input_type: "Function((buff 1), B) -> B, buff, B
+Function(A, B) -> B, (list A), B
+Function((string-ascii 1), B) -> B, string-ascii, B
+Function((string-utf8 1), B) -> B, string-utf8, B",
     output_type: "B",
-    signature: "(fold func list initial-value)",
-    description: "The `fold` special form applies the input function `func` to each element of the
-input list _and_ the output of the previous application of the `fold` function. When invoked on
+    signature: "(fold func sequence initial-value)",
+    description: "The `fold` function applies the input function `func` to each element of the
+input sequence (buff, list or string) _and_ the output of the previous application of the `fold` function. When invoked on
 the first list element, it uses the `initial-value` as the second input. `fold` returns the last
 value returned by the successive applications. Note that the first argument is not evaluated thus
 has to be a literal function name.",
@@ -501,11 +516,15 @@ has to be a literal function name.",
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff, buff)|(list, list)",
-    output_type: "buff|list",
-    signature: "(concat buff-a buff-b)",
-    description: "The `concat` function takes two buffers or two lists with the same entry type,
-and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
+    input_type: "
+buff, buff
+list, list
+string-ascii, string-ascii
+string-utf8, string-utf8",
+    output_type: "buff|list|string-ascii|string-utf8",
+    signature: "(concat sequence-a sequence-b)",
+    description: "The `concat` function takes two sequences (buffers, lists or strings) with the same entry type,
+and returns a concatenated sequence of the same type, with seq_len = seq_len_a + seq_len_b.",
     example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
@@ -519,36 +538,38 @@ and outputs a list of the same type with max_len += 1.",
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list, uint",
-    output_type: "(optional buff|list)",
-    signature: "(as-max-len? buffer u10)",
-    description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
+    input_type: "buff|list|string-ascii|string-utf8, uint",
+    output_type: "(optional buff|list|string-ascii|string-utf8)",
+    signature: "(as-max-len? sequence u10)",
+    description: "The `as-max-len?` function takes a length N (must be a literal) and a sequence
+(buffer, list or string) argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 
 This function returns an optional type with the resulting sequence. If the input sequence is less than
 or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it returns `none`.",
     example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
-(as-max-len? (list 1 2 3) u2) ;; Returns none"
+(as-max-len? (list 1 2 3) u2) ;; Returns none
+(as-max-len? \"hello\" u10) ;; Returns (some \"hello\")"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list",
+    input_type: "buff|list|string-ascii|string-utf8",
     output_type: "uint",
-    signature: "(len buffer)",
-    description: "The `len` function returns the length of a given buffer or list.",
+    signature: "(len sequence)",
+    description: "The `len` function returns the length of a given buffer, list or string.",
     example: "(len \"blockstack\") ;; Returns u10
 (len (list 1 2 3 4 5)) ;; Returns u5
 ",
 };
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list A, uint",
-    output_type: "(optional buff|A)",
+    input_type: "buff|list|string-ascii|string-utf8 A, uint",
+    output_type: "(optional (buff 1)|A|(string-ascii 1)|(string-utf8 1))",
     signature: "(element-at sequence index)",
     description:
         "The `element-at` function returns the element at `index` in the provided sequence.
 If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
-For strings and buffers, this function will return 1-length strings or buffers.",
+For strings or buffers, this function will return 1-length strings or buffers.",
     example: "(element-at \"blockstack\" u5) ;; Returns (some \"s\")
 (element-at (list 1 2 3 4 5) u5) ;; Returns none
 (element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
@@ -558,11 +579,15 @@ For strings and buffers, this function will return 1-length strings or buffers."
 };
 
 const INDEX_OF_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list A, buff|A",
+    input_type: "buff, (buff 1)
+list A, A
+string-ascii (string-ascii 1)
+string-utf8 (string-utf8 1)",
     output_type: "(optional uint)",
     signature: "(index-of sequence item)",
     description: "The `index-of` function returns the first index at which `item` can be
-found in the provided sequence (using `is-eq` checks).
+found, using `is-eq` checks, in the provided sequence, which is either
+`buff`, `list`, `string-ascii` or `string-utf8`.
 
 If this item is not found in the sequence (or an empty string/buffer is supplied), this
 function returns `none`.",
