@@ -34,6 +34,8 @@ This release's chainstate directory is compatible with chainstate directories fr
 - Fix trait rpc lookups for implicitly implemented traits (#2602).
 - Fix `v2/pox` endpoint, broken on Mocknet (#2634).
 - Align cost limits on mocknet, testnet and mainnet (#2660). 
+- Log peer addresses in the HTTP server (#2667)
+- Mine microblocks if there are no recent unprocessed Stacks blocks
 
 ## [2.0.11.0.0]
 

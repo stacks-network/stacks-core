@@ -436,9 +436,13 @@ fn try_mine_microblock(
             if microblock_miner.last_mined + (microblock_miner.frequency as u128)
                 < get_epoch_time_ms()
             {
-                // opportunistically try and mine, but only if there's no attachable blocks
-                let num_attachable =
-                    StacksChainState::count_attachable_staging_blocks(chainstate.db(), 1, 0)?;
+                // opportunistically try and mine, but only if there are no attachable blocks in
+                // recent history (i.e. in the last 10 minutes)
+                let num_attachable = StacksChainState::count_attachable_staging_blocks(
+                    chainstate.db(),
+                    1,
+                    get_epoch_time_secs() - 600,
+                )?;
                 if num_attachable == 0 {
                     match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool)
                     {
@@ -453,6 +457,8 @@ fn try_mine_microblock(
                             warn!("Failed to mine one microblock: {:?}", &e);
                         }
                     }
+                } else {
+                    debug!("Will not mine microblocks yet -- have {} attachable blocks that arrived in the last 10 minutes", num_attachable);
                 }
             }
             microblock_miner.last_mined = get_epoch_time_ms();
