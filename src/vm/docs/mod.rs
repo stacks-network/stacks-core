@@ -491,7 +491,7 @@ string-utf8",
     description: "The `filter` function applies the input function `func` to each element of the
 input sequence (which is either a `buff`, `list`, `string-ascii` or `string-utf8`), and returns the
 same list with any elements removed for which the `func` returned `false`.",
-    example: "(filter not (list true false true false)) ;; Returns (false false)"
+    example: "(filter not (list true false true false)) ;; Returns (false false)",
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
