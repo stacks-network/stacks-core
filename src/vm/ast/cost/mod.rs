@@ -30,18 +30,52 @@ use vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use vm::types::{PrincipalData, TraitIdentifier, TypeSignature};
-use vm::{
-    functions, lookup_variable, CallStack, ClarityName, ContractContext, Environment,
-    SymbolicExpression,
-};
+use vm::{functions, lookup_variable, CallStack, ClarityName, ContractContext, Environment, SymbolicExpression, LocalContext, variables};
 
-/// Overall Considerations
+
+/// Notes on the status of this branch:
+/// -> SymbolicCostExpression enum
+///     - I foresee this being tweaked to better handle references (references to traits, to other
+///       functions in the same contract)
+/// -> Trait reference
+///     - This will be handled as part of handling the contract-call function call (the dynamic dispatch case)
+///     - Determine where else trait references would show up
+/// -> Parsing multiple functions in one contract
+///     - We are evaluating expression in the contract according to a sorted order (based on dependencies)
+///     - We store the symbolic cost expression for expressions we have "parsed"
+///     - If there is a reference to another expression in some expression, it gets stored as a
+///       FnList, which right now is a copy of the symbolic cost expression of the function, and a
+///       parameter list (also cost expressions)
+///     - Need to convert the first field in FnList to be a reference to the symbolic cost expression, not a copy
+///     - In evaluating the cost expression, will evalaute the costs of the parameters first, then substitute the
+///       costs wherever Var(i) appears in the function's cost expression.
+/// -> Storing variables/ other env specific information
+///     - We need the actual value of certain variables, so these need to be stored in the env/ contract context.
+///     - For example, we would need to store a variable defined through a top-level "DefineVariable" expression
+/// -> Refactor this & runtime_cost() calls in the evaluation functions (ex: special_contract_call).
+///     - Calls to runtime_cost are not straightforward because inputs to cost functions are variable,
+///       and can depend on the env (context.depth), or value (value.size())
+///     - A possible remedy would be to implement a trait, such as CostSupplier, that would
+///       implement methods like .value_size() or .context_depth()
+///     - The clarity runtime and the static analysis env could independently implement this trait
+///     - We could then have a separate suite of cost functions that takes in an object that implements the CostSupplier trait
+///     - These cost functions would be used in both places then
+/// -> Matching top-level expressions
+///     - Currently only handling DefineFunction, need to expand to handle all other top-level expressions
+
+
+/// Some Considerations
 /// - possibly keep track of call stack depth when evaluating top level expressions
 /// - possibly we may need to add Var variants to know how to substitute
 ///     -> maybe want to substitute with the length of the var, not the var itself ..
+/// - consider the case when the contract is invalid - what should we store as the cost then?
+/// - i think there are two "levels" of failures
+///     - one for failure to compute the static cost altogether => should be a ParseError
+///     - a second for contracts/ functions that yield "Invalid" cost expressions (todo: need to think about whether this case is possible)
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolicCostExpression {
+    // todo - consider making a second var type, like Parameter (for the unknown inputs to functions)
     Var(u32), // the number stored with this enum variant represents the var name
     Number(u32),
     Sum(Box<SymbolicCostExpression>, Box<SymbolicCostExpression>),
@@ -50,15 +84,16 @@ pub enum SymbolicCostExpression {
     TraitInvocation(TraitIdentifier), // todo: how should we uniquely identify traits?
     // note: maybe switch ClarityCostFunction to ClarityCostFunctionReference
     //todo - add rationale here for Vec v Box
-    ClarityCostFn(Vec<SymbolicCostExpression>, ClarityCostFunction), // tuple of (input cost expr, clarity cost fn)
-    // tuple of cost expr for fn, and list of cost expressions for its args
-    // arg i corresponds to Var(i) in the fn cost expression
-    // the number is the starting i for the Var terms
+    ClarityCostFn(ClarityCostFunction, Vec<SymbolicCostExpression>), // tuple of (clarity cost fn, input cost expr)
+    // tuple of (a) cost expr for a particular function call, (b) list of cost expressions for its args
+    // arg i in the list corresponds to Var(i) in the fn cost expression
+    // (c) the number is the starting i for the Var terms
     FnList(
         Box<SymbolicCostExpression>,
         Vec<SymbolicCostExpression>,
         u32,
     ),
+    Nil, // when there is 0 cost (ex: matching with an AtomValue)
 }
 
 pub struct StaticCostAnalyzer {
@@ -66,11 +101,12 @@ pub struct StaticCostAnalyzer {
     user_defined_functions: HashMap<ClarityName, DefinedFunction>,
     user_defined_function_cost_exprs: HashMap<ClarityName, SymbolicCostExpression>,
     next_available_var: u32,
+    context_depth: u32,
 }
 
 impl BuildASTPass for StaticCostAnalyzer {
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
-        let pass = StaticCostAnalyzer::new();
+        let mut pass = StaticCostAnalyzer::new();
         pass.run(contract_ast);
         Ok(())
     }
@@ -83,6 +119,8 @@ impl StaticCostAnalyzer {
             // todo -> possibly make into a list, where ith position corresponds to ith in sorted indices
             user_defined_function_cost_exprs: HashMap::new();
             next_available_var: 0,
+            // todo: reconsider; alternatively, start the depth at 0, and incr to 1 when entering a fn definition
+            context_depth: 1,
         }
     }
 
@@ -101,7 +139,7 @@ impl StaticCostAnalyzer {
 
         for i in sorted_indices.iter() {
             let expr = &contract_ast.expressions[i];
-            // q: line below is optional - can delete
+            // q: line below is optional - can delete?
             self.next_available_var = 0;
             match self.eval_top_level_expr(
                 expr,
@@ -124,7 +162,7 @@ impl StaticCostAnalyzer {
 
     /// Evaluate a top level Clarity expression
     fn eval_top_level_expr(
-        &self,
+        &mut self,
         exp: &SymbolicExpression,
         contract_context: &mut ContractContext,
         global_context: &mut GlobalContext,
@@ -159,7 +197,7 @@ impl StaticCostAnalyzer {
         }
     }
 
-    fn get_cost_expr_for_defined_fn(
+    fn get_cost_expr_for_defined_fn<'a>(
         &mut self,
         env: &'a mut Environment,
         function: &DefinedFunction,
@@ -170,42 +208,45 @@ impl StaticCostAnalyzer {
             .into_iter()
             .zip(function.arg_types.into_iter()).enumerate()
         {
-            args.insert(name, (i as u32, arg_type));
+            args.insert(name, (self.next_available_var + (i as u32), arg_type));
         }
         self.next_available_var += args.len();
 
         // call recursive helper function that takes in args, an expression, and returns a cost expression
         // todo - might need contract context as well
-        self.eval_body_expr(env, &function.body, &args)
+        self.eval_function_body(env, &function.body, &args)
     }
 
     // evaluates a non-top level expression, is recursive
     // calls lookup function uses info to lookup function costs
-    fn eval_body_expr(
+    fn eval_function_body(
         &mut self,
         env: &'a mut Environment,
         expr: &SymbolicExpression,
-        // todo - possibly make a part of the env / contract context
         original_args: &HashMap<ClarityName, (u32, TypeSignature)>,
     ) -> ParseResult<SymbolicCostExpression> {
         match exp.expr {
             AtomValue(ref value) | LiteralValue(ref value) => {
-                // todo - fix
-                Ok(SymbolicCostExpression::Number(0))
+                Ok(SymbolicCostExpression::Nil)
             }
             Atom(ref value) => {
                 // note: this value may be an original arg
                 match original_args.get(value) {
                     Some((i, _)) => {
+                        // todo - could the arg in question could be type `TraitReferenceType`? if so, should store ref to trait
+                        // todo - make sure we are storing the args in the CostExpr type
+                        // todo - we might want to store some function of the parameter (ex: length of buffer) - that's what we want to capture
+                        //          we aren't trying to directly sub the param value in cost expr
+                        //         - maybe not BC any case like this would be encapsulated in a function call (like the List match below)
                         Ok(SymbolicCostExpression::Var(*i))
                     }
                     None => {
+                        // todo - same as above, do we want to  have a cost expression based on the actual value of the var here (like length)
                         // todo - pass in local context
-                        // todo - see if there's a way around passing the env
-                        lookup_variable(&value, context, env);
+                        // store variables as cost expressions too, make it a part of the struct? (like for user defined functions)?
+                        self.cost_lookup_variable(&value, context, env)
                     }
                 }
-
             }
             List(ref children) => {
                 let (function_variable, rest) =
@@ -220,17 +261,20 @@ impl StaticCostAnalyzer {
                 let next_var = self.next_available_var;
                 self.next_available_var += len(rest);
 
-                let f = self.lookup_function(function_name, rest, next_var)?;
-
+                let (f, incr_depth) = self.lookup_function(function_name, rest, next_var)?;
+                if incr_depth {
+                    self.context_depth += 1;
+                }
                 let mut evaluated_args = vec![];
                 for arg in rest.iter() {
                     let arg_value =
-                        self.eval_body_expr(env, arg, original_args)?;
+                        self.eval_function_body(env, arg, original_args)?;
                     evaluated_args.push(arg_value);
                 }
-                // two options here, going with (1) for now:
-                //  (1) store the function args as a list, in the symbolic cost expression for a function
-                //  (2) replace the given symbolic expression for the Var(n)'s in the function def
+                if incr_depth {
+                    self.context_depth -= 1;
+                }
+                //  store the function args as a list, in the symbolic cost expression for a function
                 let cost_expr = SymbolicCostExpression::FnList(
                     Box::new(f),
                     evaluated_args,
@@ -238,27 +282,22 @@ impl StaticCostAnalyzer {
                 );
                 Ok(cost_expr)
             }
-            TraitReference(ref name, ref def) => {
-                // todo - refer to the analysis of this trait & store "address" of other analysis in Symbolic Cost Expression enum
-            }
-            Field(ref id) => {
-                // todo - what is the field?
-            }
+            // not sure about the match below
+            TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
         }
     }
 
     // Given a name, returns SymbolicCostExpression (user function, native function, or special function)
     // todo - make sure this always returns a SymbolicCostExpression
-    fn lookup_function(&self, name: &str, curr_args: &[SymbolicExpression], next_var: u32) -> ParseResult<SymbolicCostExpression> {
+    fn lookup_function(&self, name: &str, curr_args: &[SymbolicExpression], next_var: u32) -> ParseResult<(SymbolicCostExpression, bool)> {
         if let Some(result) = lookup_reserved_functions(name) {
             Self::convert_callable_type_to_cost_expr(result, curr_args, next_var)
         } else {
             // need to perform substitution; refresh vars that are in the stored cost expression
-            // todo - possibly do the lookup with contract_context.functions
             let user_function_opt = self.user_defined_function_cost_exprs.get(name);
             match user_function_opt {
                 // todo -> avoid clone?
-                Some(user_function) => Ok(user_function.clone()),
+                Some(user_function) => Ok((user_function.clone(), false)),
                 None => Err(ParseError::new(ParseErrors::CostComputationFailed(
                     format!("Unknown user function called: {}", name),
                 ))),
@@ -266,8 +305,49 @@ impl StaticCostAnalyzer {
         }
     }
 
+    // costs based off of `lookup_variable` in `src/vm/mod.rs`.
+    /// Returns the cost of looking up a variable
+    fn cost_lookup_variable(&self, name: &str, context: &LocalContext, env: &mut Environment) -> ParseResult<SymbolicCostExpression> {
+        // first check if the name is valid. if not, return error
+        if name.starts_with(char::is_numeric) || name.starts_with('\'') {
+            return Err(ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string())))
+        }
+
+        if let Some(_) = variables::lookup_reserved_variable(name, context, env)? {
+            Ok(SymbolicCostExpression::Nil)
+        } else {
+            // add cost of LookupVariableDepth
+            let mut lookup_cost = SymbolicCostExpression::ClarityCostFn(
+                ClarityCostFunction::LookupVariableDepth,
+                vec![SymbolicCostExpression::Number(self.context_depth)]
+            );
+
+            // todo - update this variable-fetching logic - are we properly storing vars in the context ...?
+            if let Some(value) = context
+                .lookup_variable(name)
+                .or_else(|| env.contract_context.lookup_variable(name))
+            {
+            // if we find the variable in the contract context or env, add cost of LookupVariableSize
+                let lookup_size_cost = SymbolicCostExpression::ClarityCostFn(
+                    ClarityCostFunction::LookupVariableSize,
+                    vec![SymbolicCostExpression::Number(value.size())]
+                );
+                lookup_cost = SymbolicCostExpression::Sum(Box::new(lookup_cost), Box::new(lookup_size_cost));
+            }
+            // q: in what cases do we not have the value of the var stored? do we want to add an upper bound estimation for
+            //    value.size() in that case?
+
+            Ok(lookup_cost)
+        }
+
+    }
+
+    // q: i think we need to check # of arguments as is done in special_.. functions?
     // note: cost functions may take in more than 1 input in the future
-    fn convert_callable_type_to_cost_expr(function: CallableType, curr_args: &[SymbolicExpression], next_var: u32) -> ParseResult<SymbolicCostExpression> {
+    /// Returns the symbolic cost expression for the function, as well as a boolean representing whether or not this function
+    /// would increase the context depth. Functions that "bind" variables, such as let or match, lead to an increase
+    /// in the context depth.
+    fn convert_callable_type_to_cost_expr(function: CallableType, curr_args: &[SymbolicExpression], next_var: u32) -> ParseResult<(SymbolicCostExpression, bool)> {
         let num_args = curr_args.len() as u32;
         match function {
             // for native function, number of args is the input
@@ -275,31 +355,54 @@ impl StaticCostAnalyzer {
                 let mut input_list = Vec::new();
                 // note: might need to change logic in the future if cost fns change
                 input_list.push(SymbolicCostExpression::Number(num_args));
-                Ok(SymbolicCostExpression::ClarityCostFn(input_list, cost_function))
+                Ok((SymbolicCostExpression::ClarityCostFn(cost_function, input_list), false))
             }
             // runtime cost hidden inside special_{} functions
             // this will include the contract-call edge case as well - would need to pass in `args` to determine var values
             CallableType::SpecialFunction(fn_name, _) => {
                 match fn_name {
                     "special_and" => {
-                        Ok(SymbolicCostExpression::ClarityCostFn(
-                            Box::new(SymbolicCostExpression::Number(num_args)),
-                            ClarityCostFunction::And
-                        ))
+                        Ok((SymbolicCostExpression::ClarityCostFn(
+                            ClarityCostFunction::And,
+                            vec![SymbolicCostExpression::Number(num_args)]
+                        ), false))
                     },
                     "special_or" => {
-                        Ok(SymbolicCostExpression::ClarityCostFn(
-                            Box::new(SymbolicCostExpression::Number(num_args)),
-                            ClarityCostFunction::Or
-                        ))
+                        Ok((SymbolicCostExpression::ClarityCostFn(
+                            ClarityCostFunction::Or,
+                            vec![SymbolicCostExpression::Number(num_args)]
+                        ), false))
 
                     },
                     // todo - add rest of the functions
-                    "special_contract-call" => {
+                    "special_contract_call" => {
                         let base_cost = SymbolicCostExpression::ClarityCostFn(
-                            Box::new(SymbolicCostExpression::Number(0)),
-                            ClarityCostFunction::ContractCall
+                            ClarityCostFunction::ContractCall,
+                            vec![SymbolicCostExpression::Number(0)]
                         );
+                        // load contract cost - usually checked in `execute_contract`
+                        let contract_size_placeholder = vec![SymbolicCostExpression::Number(0)]; // todo - change this value
+                        let load_cost = SymbolicCostExpression::ClarityCostFn(
+                            ClarityCostFunction::LoadContract,
+                            contract_size_placeholder
+                        );
+
+                        // todo - user function application cost - usually checked in `execute_apply`
+                        // runtime_cost(
+                        //     ClarityCostFunction::UserFunctionApplication,
+                        //     env,
+                        //     self.arguments.len(),
+                        // )?;
+
+                        // todo - inner type check cost - usually checked in `execute_apply`
+                        // for arg_type in self.arg_types.iter() {
+                        //     runtime_cost(
+                        //         ClarityCostFunction::InnerTypeCheckCost,
+                        //         env,
+                        //         arg_type.size(),
+                        //     )?;
+                        // }
+
                         // two cases, (1) static dispatch: known contract ID, (2) dynamic dispatch: trait reference
                         // static
 
