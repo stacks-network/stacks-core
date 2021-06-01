@@ -266,6 +266,9 @@ fn test_functions_clarity1() {
          Err(FunctionNotPermitted(NativeFunctions::Sha512))),
         ("(define-private (foo) (sha512/256 0))",
          Err(FunctionNotPermitted(NativeFunctions::Sha512Trunc256))),
+        ("(define-private (foo (a (list 3 uint)))
+         (slice a u2 u1))",
+         Err(FunctionNotPermitted(NativeFunctions::Slice))),
 
         // Clarity2 functions.
         (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
