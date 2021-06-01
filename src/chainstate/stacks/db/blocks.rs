@@ -4269,10 +4269,11 @@ impl StacksChainState {
                         ),
                         None => {
                             // shouldn't happen
-                            panic!(
+                            warn!(
                                 "CORRUPTION: block {}/{} does not correspond to a burn block",
                                 &parent_consensus_hash, &parent_block_hash
                             );
+                            (BurnchainHeaderHash([0; 32]), 0, 0)
                         }
                     }
                 };
