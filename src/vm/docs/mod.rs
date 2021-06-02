@@ -539,7 +539,10 @@ string-utf8, string-utf8",
     signature: "(concat sequence-a sequence-b)",
     description: "The `concat` function takes two sequences (buffers, lists or strings) with the same entry type,
 and returns a concatenated sequence of the same type, with seq_len = seq_len_a + seq_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+    example: "
+(concat \"hello \" \"world\") ;; Returns \"hello world\"
+(concat 0x0102 0x0304) ;; Returns 0x01020304
+"
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
