@@ -523,7 +523,10 @@ has to be a literal function name.",
 (fold - (list 3 7 11) 2) ;; Returns 5 
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-string \"cdef\" \"ab\")   ;; Returns \"fedcab\"
-(fold concat-string (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\"",
+(fold concat-string (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\"
+(define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
+(fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
+",
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -560,7 +563,8 @@ This function returns an optional type with the resulting sequence. If the input
 or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it returns `none`.",
     example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
 (as-max-len? (list 1 2 3) u2) ;; Returns none
-(as-max-len? \"hello\" u10) ;; Returns (some \"hello\")"
+(as-max-len? \"hello\" u10) ;; Returns (some \"hello\")
+(as-max-len? 0x010203 u10) ;; Returns (some 0x010203)"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
@@ -568,8 +572,10 @@ const LEN_API: SpecialAPI = SpecialAPI {
     output_type: "uint",
     signature: "(len sequence)",
     description: "The `len` function returns the length of a given buffer, list or string.",
-    example: "(len \"blockstack\") ;; Returns u10
+    example: "
+(len \"blockstack\") ;; Returns u10
 (len (list 1 2 3 4 5)) ;; Returns u5
+(len 0x010203) ;; Returns u3
 ",
 };
 
