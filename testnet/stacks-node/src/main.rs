@@ -16,6 +16,7 @@ extern crate stacks;
 extern crate slog;
 
 pub use stacks::util;
+use stacks::util::hash::hex_bytes;
 
 pub mod monitoring;
 
@@ -129,6 +130,32 @@ fn main() {
             println!("{}", &version());
             return;
         }
+        "key-for-seed" => {
+            let seed = {
+                let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
+                if let Some(config_path) = config_path {
+                    let conf = Config::from_config_file(ConfigFile::from_path(&config_path));
+                    args.finish().unwrap();
+                    conf.node.seed
+                } else {
+                    let free_args = args.free().unwrap();
+                    let seed_hex = free_args
+                        .first()
+                        .expect("`wif-for-seed` must be passed either a config file via the `--config` flag or a hex seed string");
+                    hex_bytes(seed_hex).expect("Seed should be a hex encoded string")
+                }
+            };
+            let keychain = Keychain::default(seed);
+            println!(
+                "Hex formatted secret key: {}",
+                keychain.generate_op_signer().get_sk_as_hex()
+            );
+            println!(
+                "WIF formatted secret key: {}",
+                keychain.generate_op_signer().get_sk_as_wif()
+            );
+            return;
+        }
         _ => {
             print_help();
             return;
@@ -205,6 +232,10 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\t  stacks-node start --config=/path/to/config.toml
 
 version\t\tDisplay information about the current version and our release cycle.
+
+key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
+\t\tCan be passed a config file for the seed via the `--config=<file>` option *or* by supplying the hex seed on
+\t\tthe command line directly.
 
 help\t\tDisplay this help.
 

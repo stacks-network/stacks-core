@@ -19,7 +19,7 @@ use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 use vm::callables::DefineType;
 use vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,

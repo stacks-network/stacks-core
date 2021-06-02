@@ -17,36 +17,31 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::proof::TrieHash;
+use burnchains::Address;
+use burnchains::Burnchain;
+use burnchains::BurnchainBlockHeader;
+use burnchains::BurnchainTransaction;
+use burnchains::PublicKey;
+use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::stacks::index::TrieHash;
-
 use chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainTransaction;
-use burnchains::PublicKey;
-use burnchains::Txid;
-
-use net::codec::write_next;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use net::Error as net_error;
-use net::StacksMessageCodec;
-
+use util::db::DBConn;
+use util::db::DBTx;
 use util::hash::Hash160;
 use util::log;
 use util::vrf::{VRFPublicKey, VRF};
 
-use util::db::DBConn;
-use util::db::DBTx;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 // return type for parse_data (below)
 struct ParsedData {
@@ -194,20 +189,20 @@ impl StacksMessageCodec for UserBurnSupportOp {
          magic  op consensus hash   proving public key       block hash 160   key blk  key
                 (truncated by 1)                                                        vtxindex
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::UserBurnSupport as u8))?;
         let truncated_consensus = self.consensus_hash.to_bytes();
         fd.write_all(&truncated_consensus[0..19])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(&self.public_key.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         write_next(fd, &self.block_header_hash_160)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
@@ -287,29 +282,26 @@ impl UserBurnSupportOp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::types::chainstate::StacksAddress;
+    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::*;
-
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-
+    use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-
-    use chainstate::burn::db::sortdb::*;
     use chainstate::burn::*;
-
-    use chainstate::stacks::StacksAddress;
-
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::deserialize;
-
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex, Hash160};
     use util::log;
+
+    use crate::types::chainstate::SortitionId;
+
+    use super::*;
 
     struct OpFixture {
         txstr: String,

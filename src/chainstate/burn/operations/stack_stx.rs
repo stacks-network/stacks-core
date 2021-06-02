@@ -16,37 +16,32 @@
 
 use std::io::{Read, Write};
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::proof::TrieHash;
 use address::AddressHashMode;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockHeaderHash, VRFSeed};
-
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-
-use chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, PreStxOp, StackStxOp,
-};
-use core::POX_MAX_NUM_CYCLES;
-
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
 use burnchains::{BurnchainRecipient, BurnchainSigner};
 use burnchains::{BurnchainTransaction, PublicKey};
-
-use net::codec::write_next;
-use net::Error as net_error;
-use net::StacksMessageCodec;
-
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::{
+    parse_u128_from_be, BlockstackOperationType, PreStxOp, StackStxOp,
+};
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use core::POX_MAX_NUM_CYCLES;
+use net::Error as net_error;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
+use crate::types::chainstate::VRFSeed;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 
 // return type from parse_data below
 struct ParsedData {
@@ -291,15 +286,15 @@ impl StacksMessageCodec for StackStxOp {
             |------|--|-----------------------------|---------|
              magic  op         uSTX to lock (u128)     cycles (u8)
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
         fd.write_all(&self.stacked_ustx.to_be_bytes())
-            .map_err(|e| net_error::WriteError(e))?;
+            .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
@@ -324,32 +319,28 @@ impl StackStxOp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::*;
     use burnchains::*;
-
-    use address::AddressHashMode;
-
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
+    use chainstate::burn::operations::*;
+    use chainstate::burn::ConsensusHash;
+    use chainstate::burn::*;
+    use chainstate::stacks::StacksPublicKey;
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
-
-    use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-
-    use chainstate::burn::operations::*;
-
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::vrf::VRFPublicKey;
 
-    use chainstate::stacks::StacksAddress;
-    use chainstate::stacks::StacksPublicKey;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
 
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::*;
+    use super::*;
 
     struct OpFixture {
         txstr: String,

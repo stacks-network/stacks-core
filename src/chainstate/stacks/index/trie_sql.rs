@@ -17,54 +17,45 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::error;
-use std::fmt;
-use std::io;
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::{TryFrom, TryInto};
+use std::error;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-
-use std::fs;
+use std::os;
 use std::path::{Path, PathBuf};
 
-use std::iter::FromIterator;
-use std::os;
-
 use regex::Regex;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
-
-use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
-
-use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-
-use chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes,
-    read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, write_nodetype_bytes,
-};
-
-use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieLeaf, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
-};
-
 use rusqlite::{
     blob::Blob,
     types::{FromSql, ToSql},
     Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS,
 };
 
-use std::convert::{TryFrom, TryInto};
-
+use chainstate::stacks::index::bits::{
+    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes,
+    read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, write_nodetype_bytes,
+};
+use chainstate::stacks::index::node::{
+    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
+    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+};
+use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::Error;
-
+use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use util::db::sql_pragma;
 use util::db::tx_begin_immediate;
 use util::log;
+
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (

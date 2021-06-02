@@ -14,12 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::{
-    AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST, MAX_RETRY_DELAY,
-};
-use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, SocketAddr};
+
+use crate::types::chainstate::StacksBlockId;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
+use net::atlas::MAX_RETRY_DELAY;
 use net::connection::ConnectionOptions;
 use net::dns::*;
 use net::p2p::PeerNetwork;
@@ -34,12 +39,9 @@ use util::{get_epoch_time_ms, get_epoch_time_secs};
 use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
 
-use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::{IpAddr, SocketAddr};
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+
+use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 
 use rand::thread_rng;
 use rand::Rng;
@@ -649,7 +651,7 @@ impl BatchedDNSLookupsState {
                         Ok(url) => url,
                         Err(e) => {
                             warn!("Atlas: Unsupported URL {:?}, {}", url_str, e);
-                            state.errors.insert(url_str, e);
+                            state.errors.insert(url_str, e.into());
                             continue;
                         }
                     };
