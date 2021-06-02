@@ -3,14 +3,12 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
+use blockstack_lib::types::BlockHeaderHash;
 use blockstack_lib::{
-    chainstate::burn::BlockHeaderHash,
-    chainstate::stacks::index::storage::TrieFileStorage,
-    vm::clarity::ClarityInstance,
-    vm::database::{MarfedKV, NULL_HEADER_DB},
-    vm::types::QualifiedContractIdentifier,
+    chainstate::stacks::index::storage::TrieFileStorage, vm::clarity::ClarityInstance,
+    vm::database::NULL_HEADER_DB, vm::types::QualifiedContractIdentifier,
 };
-
 use criterion::Criterion;
 
 pub fn rollback_log_memory_test() {

@@ -16,40 +16,34 @@
 
 use std::error;
 use std::fmt;
+use std::fs;
 use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-
+use std::ops::DerefMut;
 use std::path::PathBuf;
 
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
-use std::fs;
-
-use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
-
 use chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieLeaf, TrieNode,
-    TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
-    TRIEPTR_SIZE,
+    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
+    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr, TRIEPTR_SIZE,
 };
-
 use chainstate::stacks::index::storage::{
     TrieFileStorage, TrieStorageConnection, TrieStorageTransaction,
 };
-
-use chainstate::stacks::index::{
-    proofs::TrieMerkleProof, MARFValue, MarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE,
-};
-
 use chainstate::stacks::index::trie::Trie;
-
 use chainstate::stacks::index::Error;
-use std::ops::DerefMut;
+use chainstate::stacks::index::MarfTrieId;
 use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
+
+use crate::types::chainstate::{BlockHeaderHash, MARFValue};
+use crate::types::proof::{
+    ClarityMarfTrieId, TrieHash, TrieLeaf, TrieMerkleProof, TRIEHASH_ENCODED_SIZE,
+};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -1466,23 +1460,23 @@ mod test {
 
     #![allow(unused_variables)]
     #![allow(unused_assignments)]
-    use super::*;
+
     use std::fs;
     use std::io::Cursor;
-
-    use chainstate::stacks::index::test::*;
 
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
     use chainstate::stacks::index::storage::*;
+    use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
-
-    use chainstate::stacks::StacksBlockId;
-
     use util::get_epoch_time_ms;
     use util::hash::to_hex;
+
+    use crate::types::chainstate::StacksBlockId;
+
+    use super::*;
 
     #[test]
     fn marf_insert_different_leaf_same_block_100() {

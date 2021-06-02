@@ -14,51 +14,44 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
-use std::convert::TryFrom;
-
-use net::codec::{read_next, write_next};
-use net::Error as net_error;
-use net::StacksMessageCodec;
-
+use crate::types::StacksPublicKeyBuffer;
 use burnchains::Txid;
-
 use chainstate::stacks::*;
-
 use core::*;
-
-use net::StacksPublicKeyBuffer;
-
+use net::Error as net_error;
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
 use util::retry::BoundReader;
 use util::secp256k1::MessageSignature;
 use vm::ast::build_ast;
+use vm::representations::{ClarityName, ContractName};
+use vm::types::serialization::SerializationError as clarity_serialization_error;
 use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
-use vm::representations::{ClarityName, ContractName};
-
-use vm::types::serialization::SerializationError as clarity_serialization_error;
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 
 impl StacksMessageCodec for Value {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        self.serialize_write(fd).map_err(net_error::WriteError)
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        self.serialize_write(fd).map_err(codec_error::WriteError)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
         Value::deserialize_read(fd, None).map_err(|e| match e {
-            clarity_serialization_error::IOError(e) => net_error::ReadError(e.err),
-            _ => net_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
+            clarity_serialization_error::IOError(e) => codec_error::ReadError(e.err),
+            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
         })
     }
 }
 
 impl StacksMessageCodec for TransactionContractCall {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.address)?;
         write_next(fd, &self.contract_name)?;
         write_next(fd, &self.function_name)?;
@@ -66,7 +59,7 @@ impl StacksMessageCodec for TransactionContractCall {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, codec_error> {
         let address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
@@ -78,7 +71,7 @@ impl StacksMessageCodec for TransactionContractCall {
         // function name must be valid Clarity variable
         if !StacksString::from(function_name.clone()).is_clarity_variable() {
             warn!("Invalid function name -- not a clarity variable");
-            return Err(net_error::DeserializeError(
+            return Err(codec_error::DeserializeError(
                 "Failed to parse transaction: invalid function name -- not a Clarity variable"
                     .to_string(),
             ));
@@ -119,13 +112,13 @@ impl fmt::Display for TransactionContractCall {
 }
 
 impl StacksMessageCodec for TransactionSmartContract {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.name)?;
         write_next(fd, &self.code_body)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSmartContract, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSmartContract, codec_error> {
         let name: ContractName = read_next(fd)?;
         let code_body: StacksString = read_next(fd)?;
         Ok(TransactionSmartContract { name, code_body })
@@ -133,7 +126,7 @@ impl StacksMessageCodec for TransactionSmartContract {
 }
 
 impl StacksMessageCodec for TransactionPayload {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
                 write_next(fd, &(TransactionPayloadID::TokenTransfer as u8))?;
@@ -162,7 +155,7 @@ impl StacksMessageCodec for TransactionPayload {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, codec_error> {
         let type_id: u8 = read_next(fd)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
@@ -185,14 +178,14 @@ impl StacksMessageCodec for TransactionPayload {
 
                 // must differ in some field
                 if h1 == h2 {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Failed to parse transaction -- microblock headers match".to_string(),
                     ));
                 }
 
                 // must have the same sequence number or same block parent
                 if h1.sequence != h2.sequence && h1.prev_block != h2.prev_block {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Failed to parse transaction -- microblock headers do not identify a fork"
                             .to_string(),
                     ));
@@ -205,7 +198,7 @@ impl StacksMessageCodec for TransactionPayload {
                 TransactionPayload::Coinbase(payload)
             }
             _ => {
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse transaction -- unknown payload ID {}",
                     type_id
                 )));
@@ -264,14 +257,14 @@ impl TransactionPayload {
 }
 
 impl StacksMessageCodec for AssetInfo {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.contract_address)?;
         write_next(fd, &self.contract_name)?;
         write_next(fd, &self.asset_name)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, codec_error> {
         let contract_address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
         let asset_name: ClarityName = read_next(fd)?;
@@ -284,7 +277,7 @@ impl StacksMessageCodec for AssetInfo {
 }
 
 impl StacksMessageCodec for PostConditionPrincipal {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             PostConditionPrincipal::Origin => {
                 write_next(fd, &(PostConditionPrincipalID::Origin as u8))?;
@@ -302,7 +295,7 @@ impl StacksMessageCodec for PostConditionPrincipal {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PostConditionPrincipal, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PostConditionPrincipal, codec_error> {
         let principal_id: u8 = read_next(fd)?;
         let principal = match principal_id {
             x if x == PostConditionPrincipalID::Origin as u8 => PostConditionPrincipal::Origin,
@@ -316,7 +309,7 @@ impl StacksMessageCodec for PostConditionPrincipal {
                 PostConditionPrincipal::Contract(addr, contract_name)
             }
             _ => {
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse transaction: unknown post condition principal ID {}",
                     principal_id
                 )));
@@ -327,7 +320,7 @@ impl StacksMessageCodec for PostConditionPrincipal {
 }
 
 impl StacksMessageCodec for TransactionPostCondition {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             TransactionPostCondition::STX(ref principal, ref fungible_condition, ref amount) => {
                 write_next(fd, &(AssetInfoID::STX as u8))?;
@@ -363,7 +356,7 @@ impl StacksMessageCodec for TransactionPostCondition {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPostCondition, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPostCondition, codec_error> {
         let asset_info_id: u8 = read_next(fd)?;
         let postcond = match asset_info_id {
             x if x == AssetInfoID::STX as u8 => {
@@ -372,7 +365,7 @@ impl StacksMessageCodec for TransactionPostCondition {
                 let amount: u64 = read_next(fd)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
-                    net_error::DeserializeError(format!(
+                    codec_error::DeserializeError(format!(
                     "Failed to parse transaction: Failed to parse STX fungible condition code {}",
                     condition_u8
                 )),
@@ -387,7 +380,7 @@ impl StacksMessageCodec for TransactionPostCondition {
                 let amount: u64 = read_next(fd)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
-                    net_error::DeserializeError(format!(
+                    codec_error::DeserializeError(format!(
                     "Failed to parse transaction: Failed to parse FungibleAsset condition code {}",
                     condition_u8
                 )),
@@ -402,12 +395,12 @@ impl StacksMessageCodec for TransactionPostCondition {
                 let condition_u8: u8 = read_next(fd)?;
 
                 let condition_code = NonfungibleConditionCode::from_u8(condition_u8)
-                    .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse NonfungibleAsset condition code {}", condition_u8)))?;
+                    .ok_or(codec_error::DeserializeError(format!("Failed to parse transaction: Failed to parse NonfungibleAsset condition code {}", condition_u8)))?;
 
                 TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
             }
             _ => {
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to aprse transaction: unknown asset info ID {}",
                     asset_info_id
                 )));
@@ -428,7 +421,7 @@ impl StacksTransaction {
 
     pub fn consensus_deserialize_with_len<R: Read>(
         fd: &mut R,
-    ) -> Result<(StacksTransaction, u64), net_error> {
+    ) -> Result<(StacksTransaction, u64), codec_error> {
         let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN.into());
         let fd = &mut bound_read;
 
@@ -457,7 +450,7 @@ impl StacksTransaction {
             x if x == TransactionAnchorMode::Any as u8 => TransactionAnchorMode::Any,
             _ => {
                 warn!("Invalid tx: invalid anchor mode");
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse transaction: invalid anchor mode {}",
                     anchor_mode_u8
                 )));
@@ -471,7 +464,7 @@ impl StacksTransaction {
             TransactionPayload::PoisonMicroblock(_, _) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for poison microblock");
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
                             .to_string(),
                     ));
@@ -480,7 +473,7 @@ impl StacksTransaction {
             TransactionPayload::Coinbase(_) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for coinbase");
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
                     ));
                 }
@@ -497,7 +490,7 @@ impl StacksTransaction {
             }
             _ => {
                 warn!("Invalid tx: invalid post condition mode");
-                return Err(net_error::DeserializeError(format!(
+                return Err(codec_error::DeserializeError(format!(
                     "Failed to parse transaction: invalid post-condition mode {}",
                     post_condition_mode_u8
                 )));
@@ -520,7 +513,7 @@ impl StacksTransaction {
 }
 
 impl StacksMessageCodec for StacksTransaction {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(self.version as u8))?;
         write_next(fd, &self.chain_id)?;
         write_next(fd, &self.auth)?;
@@ -531,7 +524,7 @@ impl StacksMessageCodec for StacksTransaction {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, codec_error> {
         StacksTransaction::consensus_deserialize_with_len(fd).map(|(result, _)| result)
     }
 }
@@ -1020,24 +1013,25 @@ impl StacksTransactionSigner {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::error::Error;
+
     use chainstate::stacks::test::codec_all_transactions;
+    use chainstate::stacks::StacksPublicKey as PubKey;
     use chainstate::stacks::*;
+    use chainstate::stacks::{
+        C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    };
     use net::codec::test::check_codec_and_corruption;
     use net::codec::*;
     use net::*;
-
-    use chainstate::stacks::StacksPublicKey as PubKey;
-
     use util::hash::*;
     use util::log;
     use util::retry::BoundReader;
     use util::retry::LogReader;
-
     use vm::representations::{ClarityName, ContractName};
     use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
-    use std::error::Error;
+    use super::*;
 
     fn corrupt_auth_field(
         corrupt_auth_fields: &TransactionAuth,

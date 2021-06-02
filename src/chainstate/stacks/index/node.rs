@@ -14,34 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::char::from_digit;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error;
 use std::fmt;
 use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-
-use sha2::Digest;
-
-use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use chainstate::burn::{BlockHeaderHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use sha2::Digest;
 
 use chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
-
-use chainstate::stacks::index::{
-    slice_partialeq, BlockMap, MARFValue, MarfTrieId, TrieHash, TrieHasher,
-    MARF_VALUE_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
-
 use chainstate::stacks::index::Error;
-
-use net::{codec::read_next, StacksMessageCodec};
+use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId, TrieHasher};
 use util::hash::to_hex;
 use util::log;
+
+use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use crate::types::chainstate::{BlockHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
+use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -598,24 +593,6 @@ impl<T: MarfTrieId> TrieCursor<T> {
     }
 }
 
-/// Leaf of a Trie.
-#[derive(Clone)]
-pub struct TrieLeaf {
-    pub path: Vec<u8>,   // path to be lazily expanded
-    pub data: MARFValue, // the actual data
-}
-
-impl fmt::Debug for TrieLeaf {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "TrieLeaf(path={} data={})",
-            &to_hex(&self.path),
-            &to_hex(&self.data.to_vec())
-        )
-    }
-}
-
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
         self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes())
@@ -642,12 +619,12 @@ impl TrieLeaf {
 }
 
 impl StacksMessageCodec for TrieLeaf {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.path.consensus_serialize(fd)?;
         self.data.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, codec_error> {
         let path = read_next(fd)?;
         let data = read_next(fd)?;
 
@@ -1381,17 +1358,18 @@ impl TrieNodeType {
 mod test {
     #![allow(unused_variables)]
     #![allow(unused_assignments)]
-    use super::*;
-    use std::io::Cursor;
 
-    use chainstate::stacks::index::test::*;
+    use std::io::Cursor;
 
     use chainstate::stacks::index::bits::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
     use chainstate::stacks::index::storage::*;
+    use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
+
+    use super::*;
 
     #[test]
     fn trieptr_to_bytes() {

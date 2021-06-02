@@ -18,6 +18,7 @@
 */
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
@@ -26,20 +27,24 @@ use std::mem;
 use std::net::SocketAddr;
 use std::str;
 use std::str::FromStr;
+use std::time::SystemTime;
 
+use percent_encoding::percent_decode_str;
+use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use time;
+use url::{form_urlencoded, Url};
 
 use burnchains::{Address, Txid};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
+use deps::httparse;
 use net::atlas::Attachment;
-use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
+use net::Error::ClarityError;
 use net::HttpContentType;
 use net::HttpRequestMetadata;
 use net::HttpRequestPreamble;
@@ -55,7 +60,6 @@ use net::PeerHost;
 use net::ProtocolFamily;
 use net::StacksHttpMessage;
 use net::StacksHttpPreamble;
-use net::StacksMessageCodec;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
@@ -63,15 +67,13 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use net::{MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
-
 use util::hash::hex_bytes;
 use util::hash::to_hex;
 use util::hash::Hash160;
 use util::log;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
-
+use vm::types::{StandardPrincipalData, TraitIdentifier};
 use vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
@@ -80,20 +82,11 @@ use vm::{
     ClarityName, ContractName, Value,
 };
 
-use std::convert::TryFrom;
-
-use regex::{Captures, Regex};
-
-use percent_encoding::percent_decode_str;
-use url::{form_urlencoded, Url};
-
-use deps::httparse;
-use std::time::SystemTime;
-use time;
-
-use chainstate::burn::ConsensusHash;
-use net::Error::ClarityError;
-use vm::types::{StandardPrincipalData, TraitIdentifier};
+use crate::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
+};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -708,46 +701,46 @@ impl HttpRequestPreamble {
         content_length: Option<u32>,
         content_type: Option<&HttpContentType>,
         mut write_headers: F,
-    ) -> Result<(), net_error>
+    ) -> Result<(), codec_error>
     where
-        F: FnMut(&mut W) -> Result<(), net_error>,
+        F: FnMut(&mut W) -> Result<(), codec_error>,
     {
         // "$verb $path HTTP/1.${version}\r\n"
         fd.write_all(verb.as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(" ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(path.as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         match *version {
             HttpVersion::Http10 => {
                 fd.write_all(" HTTP/1.0\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             HttpVersion::Http11 => {
                 fd.write_all(" HTTP/1.1\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
         }
 
         // "User-Agent: $agent\r\nHost: $host\r\n"
         fd.write_all("User-Agent: stacks/2.0\r\nHost: ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(format!("{}", host).as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         // content-type
         match content_type {
             Some(ref c) => {
                 fd.write_all("Content-Type: ".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all(c.as_str().as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all("\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             None => {}
         }
@@ -756,11 +749,11 @@ impl HttpRequestPreamble {
         match content_length {
             Some(l) => {
                 fd.write_all("Content-Length: ".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all(format!("{}", l).as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all("\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             None => {}
         }
@@ -769,13 +762,13 @@ impl HttpRequestPreamble {
             HttpVersion::Http10 => {
                 if keep_alive {
                     fd.write_all("Connection: keep-alive\r\n".as_bytes())
-                        .map_err(net_error::WriteError)?;
+                        .map_err(codec_error::WriteError)?;
                 }
             }
             HttpVersion::Http11 => {
                 if !keep_alive {
                     fd.write_all("Connection: close\r\n".as_bytes())
-                        .map_err(net_error::WriteError)?;
+                        .map_err(codec_error::WriteError)?;
                 }
             }
         }
@@ -785,7 +778,7 @@ impl HttpRequestPreamble {
 
         // end-of-headers
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -851,43 +844,46 @@ impl HttpRequestPreamble {
     }
 }
 
-fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), net_error> {
+fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), codec_error> {
     Ok(())
 }
 
-fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), net_error> {
+fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
     match md.client_version {
         HttpVersion::Http10 => {
             // client expects explicit keep-alive
             if md.client_keep_alive {
                 fd.write_all("Connection: keep-alive\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             } else {
                 fd.write_all("Connection: close\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
         }
         HttpVersion::Http11 => {
             // only need "connection: close" if we're explicitly _not_ doing keep-alive
             if !md.client_keep_alive {
                 fd.write_all("Connection: close\r\n".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
         }
     }
     Ok(())
 }
 
-fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), net_error> {
+fn write_headers<W: Write>(
+    fd: &mut W,
+    headers: &HashMap<String, String>,
+) -> Result<(), codec_error> {
     for (ref key, ref value) in headers.iter() {
         fd.write_all(key.as_str().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(": ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(value.as_str().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
     }
     Ok(())
 }
@@ -904,11 +900,11 @@ fn default_accept_header() -> String {
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
 /// It's gonna be important here that R does some bufferring, since this reads byte by byte.
 /// EOF if we read 0 bytes.
-fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
+fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, codec_error> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     while ret.len() < HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
         let mut b = [0u8];
-        fd.read_exact(&mut b).map_err(net_error::ReadError)?;
+        fd.read_exact(&mut b).map_err(codec_error::ReadError)?;
         ret.push(b[0]);
 
         if ret.len() > 4 {
@@ -924,7 +920,7 @@ fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
 }
 
 impl StacksMessageCodec for HttpRequestPreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         HttpRequestPreamble::new_serialized(
             fd,
             &self.version,
@@ -938,7 +934,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
         )
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, codec_error> {
         // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
         let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut req = httparse::Request::new(&mut headers);
@@ -947,11 +943,11 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
         // consume request
         match req.parse(&buf_read).map_err(|e| {
-            net_error::DeserializeError(format!("Failed to parse HTTP request: {:?}", &e))
+            codec_error::DeserializeError(format!("Failed to parse HTTP request: {:?}", &e))
         })? {
             httparse::Status::Partial => {
                 // partial
-                return Err(net_error::UnderflowError(
+                return Err(codec_error::UnderflowError(
                     "Not enough bytes to form a HTTP request preamble".to_string(),
                 ));
             }
@@ -959,12 +955,12 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 // consumed all headers.  body_offset points to the start of the request body
                 let version = match req
                     .version
-                    .ok_or(net_error::DeserializeError("No HTTP version".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP version".to_string()))?
                 {
                     0 => HttpVersion::Http10,
                     1 => HttpVersion::Http11,
                     _ => {
-                        return Err(net_error::DeserializeError(
+                        return Err(codec_error::DeserializeError(
                             "Invalid HTTP version".to_string(),
                         ));
                     }
@@ -972,11 +968,11 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
                 let verb = req
                     .method
-                    .ok_or(net_error::DeserializeError("No HTTP method".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP method".to_string()))?
                     .to_string();
                 let path = req
                     .path
-                    .ok_or(net_error::DeserializeError("No HTTP path".to_string()))?
+                    .ok_or(codec_error::DeserializeError("No HTTP path".to_string()))?
                     .to_string();
 
                 let mut peerhost = None;
@@ -992,24 +988,24 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
                 for i in 0..req.headers.len() {
                     let value = String::from_utf8(req.headers[i].value.to_vec()).map_err(|_e| {
-                        net_error::DeserializeError(
+                        codec_error::DeserializeError(
                             "Invalid HTTP header value: not utf-8".to_string(),
                         )
                     })?;
                     if !value.is_ascii() {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is not ASCII-US"
                         )));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is too big"
                         )));
                     }
 
                     let key = req.headers[i].name.to_string().to_lowercase();
                     if headers.contains_key(&key) || all_headers.contains(&key) {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: duplicate header \"{}\"",
                             key
                         )));
@@ -1038,7 +1034,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         } else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         } else {
-                            return Err(net_error::DeserializeError(
+                            return Err(codec_error::DeserializeError(
                                 "Inavlid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
@@ -1048,7 +1044,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 }
 
                 if peerhost.is_none() {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Missing Host header".to_string(),
                     ));
                 };
@@ -1091,7 +1087,7 @@ impl HttpResponsePreamble {
     pub fn ok_JSON_from_md<W: Write>(
         fd: &mut W,
         md: &HttpResponseMetadata,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), codec_error> {
         HttpResponsePreamble::new_serialized(
             fd,
             200,
@@ -1111,53 +1107,53 @@ impl HttpResponsePreamble {
         content_type: &HttpContentType,
         request_id: u32,
         mut write_headers: F,
-    ) -> Result<(), net_error>
+    ) -> Result<(), codec_error>
     where
-        F: FnMut(&mut W) -> Result<(), net_error>,
+        F: FnMut(&mut W) -> Result<(), codec_error>,
     {
         fd.write_all("HTTP/1.1 ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(format!("{} {}\r\n", status_code, reason).as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("Server: stacks/2.0\r\nDate: ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(rfc7231_now().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\nAccess-Control-Allow-Origin: *".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\nAccess-Control-Allow-Headers: origin, content-type".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\nContent-Type: ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(content_type.as_str().as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         match content_length {
             Some(len) => {
                 fd.write_all("Content-Length: ".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
                 fd.write_all(format!("{}", len).as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
             None => {
                 fd.write_all("Transfer-Encoding: chunked".as_bytes())
-                    .map_err(net_error::WriteError)?;
+                    .map_err(codec_error::WriteError)?;
             }
         }
 
         fd.write_all("\r\nX-Request-Id: ".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(format!("{}\r\n", request_id).as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         write_headers(fd)?;
 
         fd.write_all("\r\n".as_bytes())
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -1255,7 +1251,7 @@ fn rfc7231_now() -> String {
 }
 
 impl StacksMessageCodec for HttpResponsePreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         HttpResponsePreamble::new_serialized(
             fd,
             self.status_code,
@@ -1267,7 +1263,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         )
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, codec_error> {
         // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
         let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut resp = httparse::Response::new(&mut headers);
@@ -1276,11 +1272,11 @@ impl StacksMessageCodec for HttpResponsePreamble {
 
         // consume response
         match resp.parse(&buf_read).map_err(|e| {
-            net_error::DeserializeError(format!("Failed to parse HTTP response: {:?}", &e))
+            codec_error::DeserializeError(format!("Failed to parse HTTP response: {:?}", &e))
         })? {
             httparse::Status::Partial => {
                 // try again
-                return Err(net_error::UnderflowError(
+                return Err(codec_error::UnderflowError(
                     "Not enough bytes to form a HTTP response preamble".to_string(),
                 ));
             }
@@ -1288,13 +1284,13 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 // consumed all headers.  body_offset points to the start of the response body
                 let _ = resp
                     .version
-                    .ok_or(net_error::DeserializeError("No HTTP version".to_string()))?;
-                let status_code = resp.code.ok_or(net_error::DeserializeError(
+                    .ok_or(codec_error::DeserializeError("No HTTP version".to_string()))?;
+                let status_code = resp.code.ok_or(codec_error::DeserializeError(
                     "No HTTP status code".to_string(),
                 ))?;
                 let reason = resp
                     .reason
-                    .ok_or(net_error::DeserializeError(
+                    .ok_or(codec_error::DeserializeError(
                         "No HTTP status reason".to_string(),
                     ))?
                     .to_string();
@@ -1311,24 +1307,24 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 for i in 0..resp.headers.len() {
                     let value =
                         String::from_utf8(resp.headers[i].value.to_vec()).map_err(|_e| {
-                            net_error::DeserializeError(
+                            codec_error::DeserializeError(
                                 "Invalid HTTP header value: not utf-8".to_string(),
                             )
                         })?;
                     if !value.is_ascii() {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is not ASCII-US"
                         )));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: header value is too big"
                         )));
                     }
 
                     let key = resp.headers[i].name.to_string().to_lowercase();
                     if headers.contains_key(&key) || all_headers.contains(&key) {
-                        return Err(net_error::DeserializeError(format!(
+                        return Err(codec_error::DeserializeError(format!(
                             "Invalid HTTP request: duplicate header \"{}\"",
                             key
                         )));
@@ -1340,7 +1336,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         content_type = Some(ctype);
                     } else if key == "content-length" {
                         let len = value.parse::<u32>().map_err(|_e| {
-                            net_error::DeserializeError(
+                            codec_error::DeserializeError(
                                 "Invalid Content-Length header value".to_string(),
                             )
                         })?;
@@ -1359,7 +1355,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         } else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         } else {
-                            return Err(net_error::DeserializeError(
+                            return Err(codec_error::DeserializeError(
                                 "Inavlid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
@@ -1367,7 +1363,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         if value.to_lowercase() == "chunked" {
                             chunked_encoding = true;
                         } else {
-                            return Err(net_error::DeserializeError(format!(
+                            return Err(codec_error::DeserializeError(format!(
                                 "Unsupported transfer-encoding '{}'",
                                 value
                             )));
@@ -1378,14 +1374,14 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 }
 
                 if content_length.is_some() && chunked_encoding {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Invalid HTTP response: incompatible transfer-encoding and content-length"
                             .to_string(),
                     ));
                 }
 
                 if content_type.is_none() || (content_length.is_none() && !chunked_encoding) {
-                    return Err(net_error::DeserializeError(
+                    return Err(codec_error::DeserializeError(
                         "Invalid HTTP response: missing Content-Type, Content-Length".to_string(),
                     ));
                 }
@@ -1572,7 +1568,7 @@ impl HttpRequestType {
                     } else {
                         "".to_string()
                     };
-                    info!("Handle {} {}{}", verb, decoded_path, query);
+                    info!("Handle HTTPRequest"; "verb" => %verb, "peer_addr" => %protocol.peer_addr, "path" => %decoded_path, "query" => %query);
                     return Ok(request);
                 }
                 None => {
@@ -2141,13 +2137,13 @@ impl HttpRequestType {
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let tx = StacksTransaction::consensus_deserialize(fd).map_err(|e| {
-            if let net_error::DeserializeError(msg) = e {
+            if let codec_error::DeserializeError(msg) = e {
                 net_error::ClientError(ClientError::Message(format!(
                     "Failed to deserialize posted transaction: {}",
                     msg
                 )))
             } else {
-                e
+                e.into()
             }
         })?;
         Ok(HttpRequestType::PostTransaction(
@@ -2168,13 +2164,13 @@ impl HttpRequestType {
             let tx_bytes = hex_bytes(&body.tx)
                 .map_err(|_e| net_error::DeserializeError("Failed to parse tx".into()))?;
             StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
-                if let net_error::DeserializeError(msg) = e {
+                if let codec_error::DeserializeError(msg) = e {
                     net_error::ClientError(ClientError::Message(format!(
                         "Failed to deserialize posted transaction: {}",
                         msg
                     )))
                 } else {
-                    e
+                    e.into()
                 }
             })
         }?;
@@ -3310,7 +3306,7 @@ impl HttpResponseType {
             let mblock: StacksMicroblock = match read_next(&mut bound_reader) {
                 Ok(mblock) => Ok(mblock),
                 Err(e) => match e {
-                    net_error::ReadError(ref ioe) => match ioe.kind() {
+                    codec_error::ReadError(ref ioe) => match ioe.kind() {
                         io::ErrorKind::UnexpectedEof => {
                             // end of stream -- this is fine
                             break;
@@ -3526,7 +3522,7 @@ impl HttpResponseType {
         md: &HttpResponseMetadata,
         fd: &mut W,
         message: &T,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), codec_error> {
         if md.content_length.is_some() {
             // have explicit content-length, so we can send as-is
             write_next(fd, message)
@@ -3535,7 +3531,7 @@ impl HttpResponseType {
             let mut write_state = HttpChunkedTransferWriterState::new(protocol.chunk_size as usize);
             let mut encoder = HttpChunkedTransferWriter::from_writer_state(fd, &mut write_state);
             write_next(&mut encoder, message)?;
-            encoder.flush().map_err(net_error::WriteError)?;
+            encoder.flush().map_err(codec_error::WriteError)?;
             Ok(())
         }
     }
@@ -3769,14 +3765,14 @@ impl HttpResponseType {
 }
 
 impl StacksMessageCodec for StacksHttpPreamble {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
             StacksHttpPreamble::Request(ref req) => req.consensus_serialize(fd),
             StacksHttpPreamble::Response(ref res) => res.consensus_serialize(fd),
         }
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, net_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, codec_error> {
         let mut retry_fd = RetryReader::new(fd);
 
         // the byte stream can decode to a http request or a http response, but not both.
@@ -3790,16 +3786,16 @@ impl StacksMessageCodec for StacksHttpPreamble {
                     Err(e) => {
                         // underflow?
                         match (e_request, e) {
-                            (net_error::ReadError(ref ioe1), net_error::ReadError(ref ioe2)) => {
+                            (codec_error::ReadError(ref ioe1), codec_error::ReadError(ref ioe2)) => {
                                 if ioe1.kind() == io::ErrorKind::UnexpectedEof && ioe2.kind() == io::ErrorKind::UnexpectedEof {
                                     // out of bytes
-                                    Err(net_error::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
+                                    Err(codec_error::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
                                 }
                                 else {
-                                    Err(net_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
+                                    Err(codec_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
                                 }
                             },
-                            (e_req, e_res) => Err(net_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                            (e_req, e_res) => Err(codec_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
                         }
                     }
                 }
@@ -3968,6 +3964,8 @@ struct HttpReplyData {
 /// There can be at most one HTTP request in-flight (i.e. we don't do pipelining)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHttp {
+    /// Address of peer
+    peer_addr: SocketAddr,
     /// Version of client
     request_version: Option<HttpVersion>,
     /// Path we requested
@@ -3981,8 +3979,9 @@ pub struct StacksHttp {
 }
 
 impl StacksHttp {
-    pub fn new() -> StacksHttp {
+    pub fn new(peer_addr: SocketAddr) -> StacksHttp {
         StacksHttp {
+            peer_addr,
             reply: None,
             request_version: None,
             request_path: None,
@@ -4088,19 +4087,21 @@ impl StacksHttp {
     }
 
     /// Given a HTTP request, serialize it out
+    #[cfg(test)]
     pub fn serialize_request(req: &HttpRequestType) -> Result<Vec<u8>, net_error> {
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
         let mut ret = vec![];
         req.send(&mut http, &mut ret)?;
         Ok(ret)
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
+    #[cfg(test)]
     pub fn parse_response(
         request_path: &str,
         response_buf: &[u8],
     ) -> Result<StacksHttpMessage, net_error> {
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
         http.reset();
         http.begin_request(HttpVersion::Http11, request_path.to_string());
 
@@ -4378,36 +4379,36 @@ impl ProtocolFamily for StacksHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::test::*;
-    use net::RPCNeighbor;
-    use net::RPCNeighborsInfo;
     use std::error::Error;
+
+    use rand;
+    use rand::RngCore;
 
     use burnchains::Txid;
     use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksBlock;
-    use chainstate::stacks::StacksBlockHeader;
     use chainstate::stacks::StacksMicroblock;
+    use chainstate::stacks::StacksPrivateKey;
     use chainstate::stacks::StacksTransaction;
     use chainstate::stacks::TokenTransferMemo;
     use chainstate::stacks::TransactionAuth;
     use chainstate::stacks::TransactionPayload;
     use chainstate::stacks::TransactionPostConditionMode;
     use chainstate::stacks::TransactionVersion;
-
-    use chainstate::stacks::StacksPrivateKey;
-
+    use net::codec::test::check_codec_and_corruption;
+    use net::test::*;
+    use net::RPCNeighbor;
+    use net::RPCNeighborsInfo;
     use util::hash::to_hex;
     use util::hash::Hash160;
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use rand;
-    use rand::RngCore;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::StacksBlockHeader;
+
+    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {
@@ -5441,7 +5442,7 @@ mod test {
             expected_bytes.append(&mut expected_http_body.clone());
 
             let mut bytes = vec![];
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             http.write_message(&mut bytes, &StacksHttpMessage::Request(test.clone()))
                 .unwrap();
 
@@ -5458,7 +5459,7 @@ mod test {
             "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 0\r\n\r\n",
         ];
         for bad_content_length in bad_content_lengths {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let (preamble, offset) = http.read_preamble(bad_content_length.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_length.as_bytes()[offset..]);
             let estr = format!("{:?}", &e);
@@ -5477,7 +5478,7 @@ mod test {
             "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
         ];
         for bad_content_type in bad_content_types {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let (preamble, offset) = http.read_preamble(bad_content_type.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_type.as_bytes()[offset..]);
             assert!(e.is_err());
@@ -5875,7 +5876,7 @@ mod test {
                     .zip(expected_http_bodies.iter()),
             )
         {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
 
@@ -5967,7 +5968,7 @@ mod test {
                 expected_error
             );
 
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             http.begin_request(HttpVersion::Http11, request_path.to_string());
 
             let (preamble, offset) = http.read_preamble(test.as_bytes()).unwrap();
@@ -6088,7 +6089,7 @@ mod test {
         let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
         let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n29\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
 
         http.begin_request(HttpVersion::Http11, "/v2/neighbors".to_string());
         let (preamble, offset) = http

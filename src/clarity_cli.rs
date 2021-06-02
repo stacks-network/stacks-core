@@ -21,12 +21,23 @@
 #![allow(non_upper_case_globals)]
 
 extern crate blockstack_lib;
+extern crate serde_json;
 
 use blockstack_lib::{clarity, util::log};
 use std::env;
+use std::process;
 
 fn main() {
     let argv: Vec<String> = env::args().collect();
 
-    clarity::invoke_command(&argv[0], &argv[1..]);
+    let result = clarity::invoke_command(&argv[0], &argv[1..]);
+    match result {
+        (exit_code, Some(output)) => {
+            println!("{}", &serde_json::to_string(&output).unwrap());
+            process::exit(exit_code);
+        }
+        (exit_code, None) => {
+            process::exit(exit_code);
+        }
+    }
 }
