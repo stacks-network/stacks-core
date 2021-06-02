@@ -2,16 +2,21 @@
 rpc_bind = "127.0.0.1:30443"
 p2p_bind = "127.0.0.1:30444"
 bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@127.0.0.1:20444"
-miner = false
 pox_sync_sample_secs = 10
+wait_time_for_microblocks = 0
 
 [burnchain]
 chain = "bitcoin"
 mode = "krypton"
 peer_host = "127.0.0.1"
-rpc_port = 28443
+rpc_port = 18443
 peer_port = 18444
-poll_time_secs = 5
+
+# Used for sending events to a local stacks-blockchain-api service
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# retry_count = 255
+# events_keys = ["*"]
 
 [[ustx_balance]]
 # "mnemonic": "point approve language letter cargo rough similar wrap focus edge polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen tiger climb",
@@ -40,7 +45,3 @@ amount = 100000000000000
 # "btcAddress": "mkEDDqbELrKYGUmUbTAyQnmBAEz4V1MAro",
 address = "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7"
 amount = 100000000000000
-
-# [[events_observer]]
-# endpoint = "http://127.0.0.1:8080"
-# events_keys = ["*"]
