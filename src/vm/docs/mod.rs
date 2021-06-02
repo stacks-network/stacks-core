@@ -475,7 +475,12 @@ _list_ of the same type containing the _outputs_ from those function application
 no matter what kind of sequences the inputs are, the output is always a list.",
     example: "
 (map not (list true false true false)) ;; Returns (false true false true)
-(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)",
+(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)
+(define-private (a-or-b (char (string-utf8 1))) (if (is-eq char u\"a\") u\"a\" u\"b\"))
+(map a-or-b u\"aca\") ;; Returns (u\"a\" u\"b\" u\"a\")
+(define-private (zero-or-one (char (buff 1))) (if (is-eq char 0x00) 0x00 0x01))
+(map zero-or-one 0x000102) ;; Returns (0x00 0x01 0x01)
+",
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -491,7 +496,13 @@ string-utf8",
     description: "The `filter` function applies the input function `func` to each element of the
 input sequence (which is either a `buff`, `list`, `string-ascii` or `string-utf8`), and returns the
 same list with any elements removed for which the `func` returned `false`.",
-    example: "(filter not (list true false true false)) ;; Returns (false false)",
+    example: "
+(filter not (list true false true false)) ;; Returns (false false)
+(define-private (is-a (char (string-utf8 1))) (is-eq char u\"a\"))
+(filter is-a u\"acabd\") ;; Returns u\"aa\"
+(define-private (is-zero (char (buff 1))) (is-eq char 0x00))
+(filter is-zero 0x00010002) ;; Returns 0x0000
+",
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
