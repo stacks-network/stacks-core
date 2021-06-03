@@ -1235,15 +1235,13 @@ be invoked by other contracts via `contract-call?`.",
 };
 
 const DEFINE_MAP_API: DefineAPI = DefineAPI {
-    input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
+    input_type: "MapName, TypeDefinition, TypeDefinition",
     output_type: "Not Applicable",
-    signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
+    signature: "(define-map map-name key-type value-type)",
     description: "`define-map` is used to define a new datamap for use in a smart contract. Such
 maps are only modifiable by the current smart contract.
 
-Maps are defined with a key tuple type and value tuple type. These are defined using a list
-of name and type pairs, e.g., a key type might be `((id int))`, which is a tuple with a single \"id\"
-field of type `int`.
+Maps are defined with a key type and value type, often these types are tuple types.
 
 Like other kinds of definition statements, `define-map` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).",
@@ -1740,24 +1738,25 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::vm::analysis::type_check;
-
-    use super::make_all_api_reference;
-    use super::make_json_api_reference;
-    use burnchains::BurnchainHeaderHash;
-    use chainstate::burn::db::sortdb::SortitionId;
-    use chainstate::burn::{BlockHeaderHash, VRFSeed};
-    use chainstate::stacks::{index::MarfTrieId, StacksAddress, StacksBlockId};
-
     use vm::{
         ast,
         contexts::OwnedEnvironment,
-        database::{BurnStateDB, HeadersDB, MarfedKV, STXBalance},
+        database::{BurnStateDB, HeadersDB, STXBalance},
         eval_all, execute,
         types::PrincipalData,
         ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
         Value,
     };
+
+    use crate::clarity_vm::database::marf::MarfedKV;
+    use crate::types::chainstate::VRFSeed;
+    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use crate::types::proof::ClarityMarfTrieId;
+    use crate::vm::analysis::type_check;
+
+    use super::make_all_api_reference;
+    use super::make_json_api_reference;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};

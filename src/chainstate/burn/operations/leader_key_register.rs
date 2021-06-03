@@ -16,42 +16,34 @@
 
 use std::io::{Read, Write};
 
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-
-use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-
-use util::db::DBConn;
-use util::db::DBTx;
-
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::stacks::index::TrieHash;
-
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::StacksAddress;
+use crate::types::proof::TrieHash;
+use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainTransaction;
 use burnchains::PublicKey;
 use burnchains::Txid;
-
-use address::AddressHashMode;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::StacksAddress;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+};
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
-
-use net::codec::write_next;
 use net::Error as net_error;
-use net::StacksMessageCodec;
-
+use util::db::DBConn;
+use util::db::DBTx;
 use util::hash::DoubleSha256;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -207,21 +199,21 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
          magic  op consensus hash    proving public key               memo
                    (ignored)                                       (ignored)
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
         fd.write_all(&self.public_key.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
 
         let memo = match self.memo.len() {
             l if l <= 25 => self.memo[0..].to_vec(),
             _ => self.memo[0..25].to_vec(),
         };
-        fd.write_all(&memo).map_err(net_error::WriteError)?;
+        fd.write_all(&memo).map_err(codec_error::WriteError)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
@@ -261,26 +253,25 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::*;
-
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::operations::{
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    };
+    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::deserialize;
-
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-
-    use chainstate::burn::db::sortdb::*;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex};
     use util::log;
 
-    use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-    };
+    use crate::types::chainstate::SortitionId;
+
+    use super::*;
 
     pub struct OpFixture {
         pub txstr: String,

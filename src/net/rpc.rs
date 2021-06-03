@@ -17,13 +17,34 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::{convert::TryFrom, fmt};
 
+use rand::prelude::*;
+use rand::thread_rng;
+use rusqlite::{DatabaseName, NO_PARAMS};
+
+use crate::codec::StacksMessageCodec;
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use burnchains::*;
+use chainstate::burn::db::sortdb::SortitionDB;
+use chainstate::burn::ConsensusHash;
+use chainstate::stacks::db::blocks::CheckError;
+use chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
+};
+use chainstate::stacks::Error as chain_error;
+use chainstate::stacks::*;
+use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
+use monitoring;
 use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
@@ -47,7 +68,6 @@ use net::PeerHost;
 use net::ProtocolFamily;
 use net::StacksHttp;
 use net::StacksHttpMessage;
-use net::StacksMessageCodec;
 use net::StacksMessageType;
 use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
@@ -61,54 +81,35 @@ use net::{
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainView;
-
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use monitoring;
-
-use rusqlite::{DatabaseName, NO_PARAMS};
-
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
-
-use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, util::hash::Sha256Sum,
-    version_string,
-};
-
+use vm::database::clarity_store::make_contract_hash_key;
+use vm::types::TraitIdentifier;
 use vm::{
-    clarity::ClarityConnection,
+    analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
+        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
+    errors::Error::Unchecked,
     errors::InterpreterError,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
 
-use chainstate::stacks::db::blocks::CheckError;
-use rand::prelude::*;
-use rand::thread_rng;
-use vm::types::TraitIdentifier;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::{
+    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
+use crate::{
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
+    util::hash::Sha256Sum, version_string,
+};
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -206,7 +207,7 @@ impl RPCPeerInfoData {
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
         let (unconfirmed_tip, unconfirmed_seq) = match chainstate.unconfirmed_state {
             Some(ref unconfirmed) => {
-                if unconfirmed.is_readable() {
+                if unconfirmed.num_mined_txs() > 0 {
                     (
                         unconfirmed.unconfirmed_chain_tip.clone(),
                         unconfirmed.last_mblock_seq,
@@ -246,7 +247,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -379,7 +380,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -480,7 +481,7 @@ impl ConversationHttp {
         conn_opts: &ConnectionOptions,
         conn_id: usize,
     ) -> ConversationHttp {
-        let mut stacks_http = StacksHttp::new();
+        let mut stacks_http = StacksHttp::new(peer_addr.clone());
         stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
         ConversationHttp {
             network_id: network_id,
@@ -1201,22 +1202,28 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let mut cost_limit = options.read_only_call_limit.clone();
+        cost_limit.write_length = 0;
+        cost_limit.write_count = 0;
+
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(
-                            mainnet,
-                            options.read_only_call_limit.clone(),
-                            clarity_db,
-                        )
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
                 clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                    // we want to execute any function as long as no actual writes are made as
+                    // opposed to be limited to purely calling `define-read-only` functions,
+                    // so use `read_only = false`.  This broadens the number of functions that
+                    // can be called, and also circumvents limitations on `define-read-only`
+                    // functions that can not use `contrac-call?`, even when calling other
+                    // read-only functions
+                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
                 })
             });
 
@@ -1229,14 +1236,28 @@ impl ConversationHttp {
                     cause: None,
                 },
             ),
-            Ok(Some(Err(e))) => HttpResponseType::CallReadOnlyFunction(
-                response_metadata,
-                CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
-                },
-            ),
+            Ok(Some(Err(e))) => match e {
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    HttpResponseType::CallReadOnlyFunction(
+                        response_metadata,
+                        CallReadOnlyResponse {
+                            okay: false,
+                            result: None,
+                            cause: Some("NotReadOnly".to_string()),
+                        },
+                    )
+                }
+                _ => HttpResponseType::CallReadOnlyFunction(
+                    response_metadata,
+                    CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some(e.to_string()),
+                    },
+                ),
+            },
             Ok(None) | Err(_) => {
                 HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
             }
@@ -1265,8 +1286,7 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
-                    let contract_commit_key =
-                        MarfedKV::make_contract_hash_key(&contract_identifier);
+                    let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = db
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
@@ -1321,7 +1341,10 @@ impl ConversationHttp {
                             is_implemented: true,
                         })
                     } else {
-                        let trait_definition = analysis.get_defined_trait(&trait_id.name)?;
+                        let trait_defining_contract =
+                            db.load_contract_analysis(&trait_id.contract_identifier)?;
+                        let trait_definition =
+                            trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
                             .check_trait_compliance(trait_id, trait_definition)
                             .is_ok();
@@ -2828,20 +2851,14 @@ impl ConversationHttp {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
     use std::cell::RefCell;
+    use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use address::*;
     use burnchains::Burnchain;
-    use burnchains::BurnchainHeaderHash;
     use burnchains::BurnchainView;
-
     use burnchains::*;
-    use chainstate::burn::BlockHeaderHash;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::db::BlockStreamData;
@@ -2850,16 +2867,20 @@ mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::*;
-
-    use address::*;
-
+    use net::codec::*;
+    use net::http::*;
+    use net::test::*;
+    use net::*;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::pipe::*;
-
-    use std::convert::TryInto;
-
     use vm::types::*;
+
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+
+    use super::*;
 
     const TEST_CONTRACT: &'static str = "
         (define-data-var bar int 0)
@@ -2868,7 +2889,7 @@ mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (add-unit)
-          (begin 
+          (begin
             (map-set unit-map { account: tx-sender } { units: 1 } )
             (ok 1)))
         (begin

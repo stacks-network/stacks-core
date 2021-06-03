@@ -1,15 +1,14 @@
+use async_h1::client;
 use async_std::io::ReadExt;
+use async_std::net::TcpStream;
+use base64::encode;
+use http_types::{Method, Request, Url};
 use std::io::Cursor;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Instant;
-
-use async_h1::client;
-use async_std::net::TcpStream;
-use base64::encode;
-use http_types::{Method, Request, Url};
 
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -27,7 +26,6 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::BurnchainHeaderHash;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
@@ -43,13 +41,13 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::codec::StacksMessageCodec;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
 use stacks::deps::bitcoin::network::encodable::ConsensusEncodable;
 use stacks::deps::bitcoin::network::serialize::RawEncoder;
 use stacks::deps::bitcoin::util::hash::Sha256dHash;
-use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
@@ -58,6 +56,7 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -555,6 +554,7 @@ impl BitcoinRegtestController {
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
+                            confirmations: parsed_utxo.confirmations,
                         });
                     }
                 }
@@ -565,6 +565,17 @@ impl BitcoinRegtestController {
         }
 
         result_vec
+    }
+
+    /// Checks if there is a default wallet with the name of "".
+    /// If the default wallet does not exist, this function creates a wallet with name "".
+    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
+        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
+
+        if !wallets.contains(&("".to_string())) {
+            BitcoinRPCRequest::create_wallet(&self.config, "")?;
+        }
+        Ok(())
     }
 
     pub fn get_utxos(
@@ -1032,9 +1043,14 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Stop as soon as the fee_rate is 1.50 higher, stop RBF
-        if ongoing_op.fees.fee_rate > (self.config.burnchain.satoshis_per_byte * 150 / 100) {
-            warn!("RBF'd block commits reached 1.5x satoshi per byte fee rate, not resubmitting");
+        // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
+        if ongoing_op.fees.fee_rate
+            > (self.config.burnchain.satoshis_per_byte * self.config.burnchain.max_rbf / 100)
+        {
+            warn!(
+                "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",
+                self.config.burnchain.max_rbf
+            );
             self.ongoing_block_commit = Some(ongoing_op);
             return None;
         }
@@ -1157,9 +1173,18 @@ impl BitcoinRegtestController {
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
     ) -> Option<()> {
-        // spend UTXOs in decreasing order
-        utxos_set.utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
-        utxos_set.utxos.reverse();
+        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
+        // event of a tie, spend the smallest-value UTXO first.
+        utxos_set.utxos.sort_by(|u1, u2| {
+            if u1.confirmations != u2.confirmations {
+                u1.confirmations.cmp(&u2.confirmations)
+            } else {
+                // for block-commits, the smaller value is likely the UTXO-chained value, so
+                // continue to prioritize it as the first spend in order to avoid breaking the
+                // miner commit chain.
+                u1.amount.cmp(&u2.amount)
+            }
+        });
 
         let tx_size = {
             // We will be calling 2 times serialize_tx, the first time with an estimated size,
@@ -1535,6 +1560,11 @@ impl BurnchainController for BitcoinRegtestController {
                     panic!();
                 }
             }
+            info!("Creating wallet if it does not exist");
+            match self.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
         }
     }
 }
@@ -1590,12 +1620,13 @@ pub struct ParsedUTXO {
     safe: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UTXO {
     pub txid: Sha256dHash,
     pub vout: u32,
     pub script_pub_key: Script,
     pub amount: u64,
+    pub confirmations: u32,
 }
 
 impl ParsedUTXO {
@@ -1676,7 +1707,7 @@ struct BitcoinRPCRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-enum RPCError {
+pub enum RPCError {
     Network(String),
     Parsing(String),
     Bitcoind(String),
@@ -1823,6 +1854,7 @@ impl BitcoinRPCRequest {
                             vout: parsed_utxo.vout,
                             script_pub_key,
                             amount,
+                            confirmations: parsed_utxo.confirmations,
                         });
                     }
                 }
@@ -1872,6 +1904,57 @@ impl BitcoinRPCRequest {
         let payload = BitcoinRPCRequest {
             method: "importaddress".to_string(),
             params: vec![address.to_b58().into(), label.into(), rescan.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        BitcoinRPCRequest::send(&config, payload)?;
+        Ok(())
+    }
+
+    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
+    pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
+        let payload = BitcoinRPCRequest {
+            method: "listwallets".to_string(),
+            params: vec![],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let mut wallets = Vec::new();
+        match res.as_object_mut() {
+            Some(ref mut object) => match object.get_mut("result") {
+                Some(serde_json::Value::Array(entries)) => {
+                    while let Some(entry) = entries.pop() {
+                        let parsed_wallet_name: String = match serde_json::from_value(entry) {
+                            Ok(wallet_name) => wallet_name,
+                            Err(err) => {
+                                warn!("Failed parsing wallet name: {}", err);
+                                continue;
+                            }
+                        };
+
+                        wallets.push(parsed_wallet_name);
+                    }
+                }
+                _ => {
+                    warn!("Failed to get wallets");
+                }
+            },
+            _ => {
+                warn!("Failed to get wallets");
+            }
+        };
+
+        Ok(wallets)
+    }
+
+    /// Tries to create a wallet with the given name
+    pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "createwallet".to_string(),
+            params: vec![wallet_name.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };

@@ -17,68 +17,55 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-
-use net::codec::*;
-use net::*;
-
-use net::chat::ConversationP2P;
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::GetBlocksInv;
-use net::StacksMessage;
-use net::StacksP2P;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::db::*;
-
-use net::p2p::PeerNetwork;
-
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
-
-use chainstate::burn::db::sortdb::{
-    BlockHeaderCache, PoxId, SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionId,
-};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::stacks::db::StacksChainState;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-
-use std::net::SocketAddr;
-
 use std::cmp;
-
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-
+use std::convert::TryFrom;
 use std::io::Read;
 use std::io::Write;
-
-use std::convert::TryFrom;
-
-use util::hash::to_hex;
-use util::log;
+use std::net::SocketAddr;
 
 use rand;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+
+use burnchains::Burnchain;
+use burnchains::BurnchainView;
+use chainstate::burn::db::sortdb::{
+    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
+};
+use chainstate::burn::BlockSnapshot;
+use chainstate::stacks::db::StacksChainState;
+use net::asn::ASEntry4;
+use net::chat::ConversationP2P;
+use net::codec::*;
+use net::connection::ConnectionOptions;
+use net::connection::ConnectionP2P;
+use net::connection::ReplyHandleP2P;
+use net::db::PeerDB;
+use net::db::*;
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use net::p2p::PeerNetwork;
+use net::Error as net_error;
+use net::GetBlocksInv;
+use net::Neighbor;
+use net::NeighborKey;
+use net::PeerAddress;
+use net::StacksMessage;
+use net::StacksP2P;
+use net::*;
+use util::db::DBConn;
+use util::db::Error as db_error;
+use util::get_epoch_time_ms;
+use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::log;
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
+
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -89,10 +76,10 @@ pub const INV_SYNC_INTERVAL: u64 = 0;
 #[cfg(not(test))]
 pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
 #[cfg(test)]
-pub const FULL_INV_SYNC_INTERVAL: u64 = 120;
+pub const FULL_INV_SYNC_INTERVAL: u64 = 60;
 
 #[cfg(not(test))]
-pub const INV_REWARD_CYCLES: u64 = 6;
+pub const INV_REWARD_CYCLES: u64 = 3;
 #[cfg(test)]
 pub const INV_REWARD_CYCLES: u64 = 1;
 
@@ -507,6 +494,11 @@ impl PeerBlocksInv {
     /// What's the block height represented here?
     pub fn get_block_height(&self) -> u64 {
         self.first_block_height + self.num_sortitions
+    }
+
+    /// What's the number of PoX reward cycles we know about?
+    pub fn get_pox_height(&self) -> u64 {
+        self.num_reward_cycles
     }
 }
 
@@ -1475,7 +1467,7 @@ impl PeerNetwork {
         };
 
         debug!(
-            "{:?}: Send GetPoxInv to {:?} for {} rewad cycles starting at {} ({})",
+            "{:?}: Send GetPoxInv to {:?} for {} reward cycles starting at {} ({})",
             &self.local_peer,
             nk,
             num_reward_cycles,
@@ -1742,12 +1734,11 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, full_rescan: bool) -> u64 {
-        let highest_known_reward_cycle = self.pox_id.num_inventory_reward_cycles() as u64;
+    fn get_block_scan_start(&self, highest_remote_reward_cycle: u64, full_rescan: bool) -> u64 {
         if full_rescan {
             0
         } else {
-            highest_known_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
         }
     }
 
@@ -1766,7 +1757,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start = self.get_block_scan_start(full_rescan);
+                let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start);
                 stats.reset_block_scan(scan_start);
                 return Ok(());
@@ -1822,7 +1813,8 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start = self.get_block_scan_start(ibd || full_rescan);
+                let scan_start =
+                    self.get_block_scan_start(stats.inv.get_pox_height(), ibd || full_rescan);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={}, full={})",
                     &self.local_peer, nk, scan_start, ibd, full_rescan
@@ -1914,7 +1906,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(full_rescan);
+            let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2007,7 +1999,7 @@ impl PeerNetwork {
             true,
         );
 
-        debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks, {} sortitions): {:?}", 
+        debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks, {} sortitions): {:?}",
                &self.local_peer, &nk, new_blocks, new_microblocks, stats.inv.num_blocks(), stats.inv.num_microblock_streams(), stats.inv.num_sortitions, &stats.inv);
 
         if new_blocks > 0 || new_microblocks > 0 {
@@ -2260,9 +2252,10 @@ impl PeerNetwork {
                 // hint to downloader as to where to begin scanning
                 inv_state.block_sortition_start = network
                     .burnchain
-                    .reward_cycle_to_block_height(
-                        network.get_block_scan_start(inv_state.hint_do_full_rescan),
-                    )
+                    .reward_cycle_to_block_height(network.get_block_scan_start(
+                        network.pox_id.num_inventory_reward_cycles() as u64,
+                        inv_state.hint_do_full_rescan,
+                    ))
                     .saturating_sub(sortdb.first_block_height);
 
                 let was_full = inv_state.hint_do_full_rescan;
@@ -2564,13 +2557,15 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::collections::HashMap;
+
     use burnchains::PoxConstants;
     use chainstate::stacks::*;
     use net::test::*;
     use net::*;
-    use std::collections::HashMap;
     use util::test::*;
+
+    use super::*;
 
     #[test]
     fn peerblocksinv_has_ith_block() {

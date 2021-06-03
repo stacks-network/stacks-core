@@ -20,7 +20,7 @@ use rusqlite::{
     Savepoint, NO_PARAMS,
 };
 
-use chainstate::stacks::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 
 use util::db::{sql_pragma, tx_busy_handler};
 

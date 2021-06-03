@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use burnchains::BurnchainBlock;
 use burnchains::Error as burnchain_error;
 use burnchains::*;
 
-use burnchains::BurnchainBlock;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 // IPC messages between threads
 pub trait BurnHeaderIPC {

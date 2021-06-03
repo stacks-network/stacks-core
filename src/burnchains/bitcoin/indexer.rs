@@ -38,7 +38,7 @@ use burnchains::Burnchain;
 use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
 use burnchains::bitcoin::BitcoinNetworkType;
 
-use burnchains::BurnchainHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
 use burnchains::BLOCKSTACK_MAGIC_MAINNET;

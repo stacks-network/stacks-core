@@ -1,35 +1,38 @@
+use std::convert::TryInto;
+
+use rand::RngCore;
+
+use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
+use stacks::chainstate::stacks::{
+    db::StacksChainState, miner::StacksMicroblockBuilder, CoinbasePayload, StacksBlock,
+    StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks::codec::StacksMessageCodec;
+use stacks::core::CHAIN_ID_TESTNET;
+use stacks::types::chainstate::{StacksAddress, StacksMicroblockHeader};
+use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::hex_bytes;
+use stacks::util::strings::StacksString;
+use stacks::vm::database::BurnStateDB;
+use stacks::vm::types::PrincipalData;
+use stacks::vm::{ClarityName, ContractName, Value};
+use stacks::{address::AddressHashMode, util::hash::to_hex};
+
+use crate::helium::RunLoop;
+
+use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
+use super::Config;
+
 mod atlas;
 mod bitcoin_regtest;
 mod integrations;
 mod mempool;
 mod neon_integrations;
-
-use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
-use stacks::chainstate::stacks::{
-    db::StacksChainState, miner::StacksMicroblockBuilder, CoinbasePayload, StacksAddress,
-    StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use stacks::core::CHAIN_ID_TESTNET;
-use stacks::net::StacksMessageCodec;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::hex_bytes;
-use stacks::util::strings::StacksString;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::{ClarityName, ContractName, Value};
-use stacks::{address::AddressHashMode, util::hash::to_hex};
-
-use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
-use super::Config;
-use crate::helium::RunLoop;
-use rand::RngCore;
-use std::convert::TryInto;
-
-use stacks::vm::database::BurnStateDB;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })

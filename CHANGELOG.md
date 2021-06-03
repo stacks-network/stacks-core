@@ -7,6 +7,44 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## Added
+
+- lcov compatible coverage reporting in `clarity-cli` for Clarity contract testing.
+
+## [2.0.11.1.0]
+
+This software update is our monthly release. It introduces fixes and features for both developers and miners. 
+This release's chainstate directory is compatible with chainstate directories from 2.0.11.0.0.
+
+## Added
+
+- `/new_microblock` endpoint to notify event observers when a valid microblock
+  has been received (#2571).
+- Added new features to `clarity-cli` (#2597)
+- Exposing new mining-related metrics in prometheus (#2664)
+  - Miner's computed relative miner score as a percentage
+  - Miner's computed commitment, the min of their previous commitment and their median commitment
+  - Miner's current median commitment
+- Add `key-for-seed` command to the `stacks-node` binary - outputs the associated secret key hex string
+  and WIF formatted secret key for a given "seed" value (#2658).
+
+## Changed
+
+- Improved mempool walk order (#2514).
+- Renamed database `tx_tracking.db` to `tx_tracking.sqlite` (#2666).
+  
+## Fixed 
+
+- Alter the miner to prioritize spending the most recent UTXO when building a transaction, 
+  instead of the largest UTXO. In the event of a tie, it uses the smallest UTXO first (#2661).
+- Fix trait rpc lookups for implicitly implemented traits (#2602).
+- Fix `v2/pox` endpoint, broken on Mocknet (#2634).
+- Align cost limits on mocknet, testnet and mainnet (#2660). 
+- Log peer addresses in the HTTP server (#2667)
+- Mine microblocks if there are no recent unprocessed Stacks blocks
+
+## [2.0.11.0.0]
+
 The chainstate directory has been restructured in this release. It is not
 compatible with prior chainstate directories.
 
@@ -19,10 +57,12 @@ compatible with prior chainstate directories.
 - Log transactions in local db table via setting env `STACKS_TRANSACTION_LOG=1`
 - New prometheus metrics for mempool transaction processing times and
   outstanding mempool transactions
-- New RPC endpoint with path `v2/traits/contractAddr/contractName/traitContractName
+- New RPC endpoint with path `/v2/traits/contractAddr/contractName/traitContractName
   /traitContractAddr/traitName` to determine whether a given trait is implemented 
   within the specified contract (either explicitly or implicitly).
-- lcov compatible coverage reporting in `clarity-cli` for Clarity contract testing.
+- Re-activate the Atlas network for propagating and storing transaction
+  attachments. This re-enables off-chain BNS name storage.
+- Re-activate microblock mining.
 
 ## Changed
 

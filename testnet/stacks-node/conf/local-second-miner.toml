@@ -13,21 +13,32 @@ rpc_port = 28443
 peer_port = 18444
 
 [[ustx_balance]]
-# Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001
-address = "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
-amount = 10000000000000000
+# "mnemonic": "point approve language letter cargo rough similar wrap focus edge polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen tiger climb",
+# "privateKey": "539e35c740079b79f931036651ad01f76d8fe1496dbd840ba9e62c7e7b355db001",
+# "btcAddress": "n1htkoYKuLXzPbkn9avC2DJxt7X85qVNCK",
+address = "ST3EQ88S02BXXD0T5ZVT3KW947CRMQ1C6DMQY8H19"
+amount = 100000000000000
+
 [[ustx_balance]]
-# Private key: 3a4e84abb8abe0c1ba37cef4b604e73c82b1fe8d99015cb36b029a65099d373601
-address = "ST26FVX16539KKXZKJN098Q08HRX3XBAP541MFS0P"
-amount = 10000000000000000
+# "mnemonic": "laugh capital express view pull vehicle cluster embark service clerk roast glance lumber glove purity project layer lyrics limb junior reduce apple method pear",
+# "privateKey": "075754fb099a55e351fe87c68a73951836343865cd52c78ae4c0f6f48e234f3601",
+# "btcAddress": "n2ZGZ7Zau2Ca8CLHGh11YRnLw93b4ufsDR",
+address = "ST3KCNDSWZSFZCC6BE4VA9AXWXC9KEB16FBTRK36T"
+amount = 100000000000000
+
 [[ustx_balance]]
-# Private key: 052cc5b8f25b1e44a65329244066f76c8057accd5316c889f476d0ea0329632c01
-address = "ST3CECAKJ4BH08JYY7W53MC81BYDT4YDA5M7S5F53"
-amount = 10000000000000000
+# "mnemonic": "level garlic bean design maximum inhale daring alert case worry gift frequent floor utility crowd twenty burger place time fashion slow produce column prepare",
+# "privateKey": "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001",
+# "btcAddress": "mhY4cbHAFoXNYvXdt82yobvVuvR6PHeghf",
+address = "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8"
+amount = 100000000000000
+
 [[ustx_balance]]
-# Private key: 9aef533e754663a453984b69d36f109be817e9940519cc84979419e2be00864801
-address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP"
-amount = 10000000000000000
+# "mnemonic": "drop guess similar uphold alarm remove fossil riot leaf badge lobster ability mesh parent lawn today student olympic model assault syrup end scorpion lab",
+# "privateKey": "26f235698d02803955b7418842affbee600fc308936a7ca48bf5778d1ceef9df01",
+# "btcAddress": "mkEDDqbELrKYGUmUbTAyQnmBAEz4V1MAro",
+address = "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7"
+amount = 100000000000000
 
 # [[events_observer]]
 # endpoint = "http://127.0.0.1:8080"
