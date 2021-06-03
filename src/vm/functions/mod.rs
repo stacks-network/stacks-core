@@ -267,6 +267,22 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            BuffToIntLe => SpecialFunction(
+                "special_buff_to_int_le",
+                &conversions::special_buff_to_int_le,
+            ),
+            BuffToUIntLe => SpecialFunction(
+                "special_buff_to_uint_le",
+                &conversions::special_buff_to_uint_le,
+            ),
+            BuffToIntBe => SpecialFunction(
+                "special_buff_to_int_be",
+                &conversions::special_buff_to_int_be,
+            ),
+            BuffToUIntBe => SpecialFunction(
+                "special_buff_to_uint_be",
+                &conversions::special_buff_to_uint_be,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),

@@ -131,6 +131,7 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
+    ExpectedBuffer16(TypeSignature),
     ExpectedSequence(TypeSignature),
     MaxLengthOverflow,
 
@@ -369,6 +370,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
+            CheckErrors::ExpectedBuffer16(found_type) => format!("expecting expression of type '(buff 16)' - found '{}'", found_type),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::max_value()),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),

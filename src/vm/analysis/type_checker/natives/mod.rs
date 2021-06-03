@@ -32,6 +32,7 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
 mod assets;
+mod conversions;
 mod maps;
 mod options;
 mod sequences;
@@ -678,6 +679,18 @@ impl TypedNativeFunction {
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
             Map => Special(SpecialNativeFunction(&sequences::check_special_map)),
             Filter => Special(SpecialNativeFunction(&sequences::check_special_filter)),
+            BuffToIntLe => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
+            BuffToUIntLe => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_uint,
+            )),
+            BuffToIntBe => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
+            BuffToUIntBe => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_uint,
+            )),
             Fold => Special(SpecialNativeFunction(&sequences::check_special_fold)),
             Append => Special(SpecialNativeFunction(&sequences::check_special_append)),
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),

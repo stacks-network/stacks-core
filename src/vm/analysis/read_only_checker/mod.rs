@@ -238,6 +238,22 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 check_argument_count(2, args)?;
                 self.check_function_application_read_only(args)
             }
+            BuffToIntLe => {
+                check_argument_count(1, args)?;
+                self.check_function_application_read_only(args)
+            }
+            BuffToUIntLe => {
+                check_argument_count(1, args)?;
+                self.check_function_application_read_only(args)
+            }
+            BuffToIntBe => {
+                check_argument_count(1, args)?;
+                self.check_function_application_read_only(args)
+            }
+            BuffToUIntBe => {
+                check_argument_count(1, args)?;
+                self.check_function_application_read_only(args)
+            }
             Fold => {
                 check_argument_count(3, args)?;
 
