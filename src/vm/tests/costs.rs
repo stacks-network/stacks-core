@@ -218,6 +218,15 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     );
 
     owned_env
+        .execute_in_env::<_, _, ::vm::errors::Error>(p1_principal.clone().into(), None, |env| {
+            env.global_context
+                .database
+                .set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+            Ok(())
+        })
+        .unwrap();
+
+    owned_env
         .initialize_contract(trait_contract_id.clone(), contract_trait, None)
         .unwrap();
     owned_env
