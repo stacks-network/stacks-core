@@ -489,6 +489,38 @@ input list, and returns the same list with any elements removed for which the `f
     example: "(filter not (list true false true false)) ;; Returns (false false)"
 };
 
+const BUFF_TO_INT_LE_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 16)",
+    output_type: "int",
+    signature: "(buff-to-int-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_LE_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 16)",
+    output_type: "uint",
+    signature: "(buff-to-uint-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_INT_BE_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 16)",
+    output_type: "int",
+    signature: "(buff-to-int-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_BE_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 16)",
+    output_type: "uint",
+    signature: "(buff-to-uint-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
 const FOLD_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B) -> B, (list A), B",
     output_type: "B",
