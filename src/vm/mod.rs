@@ -354,8 +354,6 @@ fn eval_all(
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
- *
- *  Only used by CLI.
  */
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
@@ -374,8 +372,6 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
  *  database.
  *
  * This version of the function assumes that the ClarityVersion is Clarity1.
- *
- *  Only used by CLI.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_against_version(program, ClarityVersion::Clarity1)
@@ -384,9 +380,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
  *
- * This version of the function assumes that the ClarityVersion is Clarity1.
- *
- *  Only used by CLI.
+ * This version of the function assumes that the ClarityVersion is Clarity2.
  */
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
     execute_against_version(program, ClarityVersion::Clarity2)
