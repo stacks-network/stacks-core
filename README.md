@@ -129,7 +129,7 @@ cargo run --bin blockstack-cli generate-sk --testnet
 #  stacksAddress: "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
 # }
 ```
-This keypair is already registered in the `Stacks.toml` file, so it can be used as presented here. 
+This keypair is already registered in the `testnet-follower-conf.toml` file, so it can be used as presented here. 
 
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
@@ -178,10 +178,10 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo testnet start --config=./testnet/stacks-node/Stacks.toml
+cargo testnet start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
 ```
 
-`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
+`testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
 
 ```
 [[ustx_balance]]
