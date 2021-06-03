@@ -414,7 +414,9 @@ fn bitcoind_integration_test() {
         return;
     }
 
-    let (conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -455,6 +457,25 @@ fn bitcoind_integration_test() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
+
+    // query for prometheus metrics
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        assert!(res.contains("stacks_node_computed_miner_commitment_high 0"));
+        assert!(res.contains("stacks_node_computed_miner_commitment_low 1"));
+        assert!(res.contains("stacks_node_computed_relative_miner_score 100"));
+        assert!(res.contains("stacks_node_miner_current_median_commitment_high 0"));
+        assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
+        assert!(res.contains("stacks_node_active_miners_total 1"));
+    }
 
     channel.stop_chains_coordinator();
 }
