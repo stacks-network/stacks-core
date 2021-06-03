@@ -366,12 +366,17 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let cur_burn_block_height = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height());
+        let (cur_burn_block_height, v1_unlock_ht) =
+            clarity_tx.with_clarity_db_readonly(|ref mut db| {
+                (
+                    db.get_current_burnchain_block_height(),
+                    db.get_v1_unlock_height(),
+                )
+            });
 
         let consolidated_balance = payer_account
             .stx_balance
-            .get_available_balance_at_burn_block(cur_burn_block_height as u64);
+            .get_available_balance_at_burn_block(cur_burn_block_height as u64, v1_unlock_ht);
 
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);

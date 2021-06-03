@@ -1847,6 +1847,10 @@ mod test {
         fn get_burn_start_height(&self) -> u32 {
             0
         }
+
+        fn get_v1_unlock_height(&self) -> u32 {
+            u32::max_value()
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {

@@ -29,10 +29,10 @@ use vm::database::{
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
-use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
+use crate::{burnchains::PoxConstants, types::chainstate::StacksBlockId};
 
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 
@@ -64,6 +64,7 @@ fn test_burnstatedb_epoch(
 
 #[test]
 fn test_vm_epoch_switch() {
+    use burnchains::PoxConstants;
     use chainstate::burn::db::sortdb::tests::test_append_snapshot;
 
     let mut rng = rand::thread_rng();
@@ -93,6 +94,7 @@ fn test_vm_epoch_switch() {
                 end_height: STACKS_EPOCH_MAX,
             },
         ],
+        PoxConstants::test_default(),
         true,
     )
     .unwrap();

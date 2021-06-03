@@ -24,8 +24,6 @@ use vm::database::ClarityDatabase;
 use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE};
 
-pub const STACKS_2_1_EARLY_UNLOCK_HEIGHT: u64 = 1_000_000;
-
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
 }
@@ -322,24 +320,28 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     pub fn get_available_balance(&self) -> u128 {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         self.balance
-            .get_available_balance_at_burn_block(self.burn_block_height)
+            .get_available_balance_at_burn_block(self.burn_block_height, v1_unlock_height)
     }
 
     pub fn canonical_balance_repr(&self) -> STXBalance {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         self.balance
-            .canonical_repr_at_block(self.burn_block_height)
+            .canonical_repr_at_block(self.burn_block_height, v1_unlock_height)
             .0
     }
 
     pub fn has_locked_tokens(&self) -> bool {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         self.balance
-            .has_locked_tokens_at_burn_block(self.burn_block_height)
+            .has_locked_tokens_at_burn_block(self.burn_block_height, v1_unlock_height)
     }
 
     pub fn has_unlockable_tokens(&self) -> bool {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         self.balance
-            .has_unlockable_tokens_at_burn_block(self.burn_block_height)
+            .has_unlockable_tokens_at_burn_block(self.burn_block_height, v1_unlock_height)
     }
 
     pub fn can_transfer(&self, amount: u128) -> bool {
@@ -408,7 +410,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     /// Unlock any tokens that are unlockable at the current
     ///  burn block height, and return the amount newly unlocked
     fn unlock_available_tokens_if_any(&mut self) -> u128 {
-        let (new_balance, unlocked) = self.balance.canonical_repr_at_block(self.burn_block_height);
+        let (new_balance, unlocked) = self
+            .balance
+            .canonical_repr_at_block(self.burn_block_height, self.db_ref.get_v1_unlock_height());
         self.balance = new_balance;
         unlocked
     }
@@ -442,12 +446,12 @@ impl STXBalance {
     ///  *while* factoring in the PoX 2 early unlock for PoX 1.
     /// This value is still lazy: this unlock height may be less than the current
     ///  burn block height, if so it will be updated in a canonicalized view.
-    pub fn effective_unlock_height(&self) -> u64 {
+    pub fn effective_unlock_height(&self, v1_unlock_height: u32) -> u64 {
         match self {
             STXBalance::Unlocked { .. } => 0,
             STXBalance::LockedPoxOne { unlock_height, .. } => {
-                if *unlock_height >= STACKS_2_1_EARLY_UNLOCK_HEIGHT {
-                    STACKS_2_1_EARLY_UNLOCK_HEIGHT
+                if *unlock_height >= (v1_unlock_height as u64) {
+                    v1_unlock_height as u64
                 } else {
                     *unlock_height
                 }
@@ -545,8 +549,12 @@ impl STXBalance {
     /// (i.e., if burn_block_height >= unlock_height, then return struct where
     ///   amount_unlocked = 0, unlock_height = 0), and the amount of tokens which
     ///   are "unlocked" by the canonicalization
-    pub fn canonical_repr_at_block(&self, burn_block_height: u64) -> (STXBalance, u128) {
-        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+    pub fn canonical_repr_at_block(
+        &self,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> (STXBalance, u128) {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height, v1_unlock_height) {
             (
                 STXBalance::Unlocked {
                     amount: self.get_total_balance(),
@@ -558,8 +566,12 @@ impl STXBalance {
         }
     }
 
-    pub fn get_available_balance_at_burn_block(&self, burn_block_height: u64) -> u128 {
-        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+    pub fn get_available_balance_at_burn_block(
+        &self,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> u128 {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height, v1_unlock_height) {
             self.get_total_balance()
         } else {
             match self {
@@ -574,8 +586,12 @@ impl STXBalance {
         }
     }
 
-    pub fn get_locked_balance_at_burn_block(&self, burn_block_height: u64) -> (u128, u64) {
-        if self.has_unlockable_tokens_at_burn_block(burn_block_height) {
+    pub fn get_locked_balance_at_burn_block(
+        &self,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> (u128, u64) {
+        if self.has_unlockable_tokens_at_burn_block(burn_block_height, v1_unlock_height) {
             (0, 0)
         } else {
             match self {
@@ -611,7 +627,11 @@ impl STXBalance {
         unlocked.checked_add(locked).expect("STX overflow")
     }
 
-    pub fn has_locked_tokens_at_burn_block(&self, burn_block_height: u64) -> bool {
+    pub fn has_locked_tokens_at_burn_block(
+        &self,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> bool {
         match self {
             STXBalance::Unlocked { .. } => false,
             STXBalance::LockedPoxOne {
@@ -627,7 +647,7 @@ impl STXBalance {
                     return false;
                 }
                 // if unlockable due to Stacks 2.1 early unlock
-                if STACKS_2_1_EARLY_UNLOCK_HEIGHT <= burn_block_height {
+                if v1_unlock_height as u64 <= burn_block_height {
                     return false;
                 }
                 true
@@ -640,7 +660,11 @@ impl STXBalance {
         }
     }
 
-    pub fn has_unlockable_tokens_at_burn_block(&self, burn_block_height: u64) -> bool {
+    pub fn has_unlockable_tokens_at_burn_block(
+        &self,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> bool {
         match self {
             STXBalance::Unlocked { .. } => false,
             STXBalance::LockedPoxOne {
@@ -656,7 +680,7 @@ impl STXBalance {
                     return true;
                 }
                 // if unlockable due to Stacks 2.1 early unlock
-                if STACKS_2_1_EARLY_UNLOCK_HEIGHT <= burn_block_height {
+                if v1_unlock_height as u64 <= burn_block_height {
                     return true;
                 }
                 false
@@ -669,7 +693,12 @@ impl STXBalance {
         }
     }
 
-    pub fn can_transfer_at_burn_block(&self, amount: u128, burn_block_height: u64) -> bool {
-        self.get_available_balance_at_burn_block(burn_block_height) >= amount
+    pub fn can_transfer_at_burn_block(
+        &self,
+        amount: u128,
+        burn_block_height: u64,
+        v1_unlock_height: u32,
+    ) -> bool {
+        self.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height) >= amount
     }
 }

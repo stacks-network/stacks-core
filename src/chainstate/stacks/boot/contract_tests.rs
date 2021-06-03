@@ -36,7 +36,10 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::{clarity_vm::clarity::ClarityBlockConnection, util::boot::boot_code_id};
+use crate::{
+    clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
+    util::boot::boot_code_id,
+};
 use crate::{
     core::StacksEpoch,
     types::proof::{ClarityMarfTrieId, TrieMerkleProof},
@@ -158,7 +161,7 @@ impl ClarityTestSim {
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
         let r = {
-            let store = self.marf.begin(
+            let mut store = self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
             );
@@ -169,6 +172,9 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
             };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
             let mut block_conn =
                 ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db);
             let r = f(&mut block_conn);
@@ -197,6 +203,9 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
             };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
             let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
             f(&mut owned_env)
         };
@@ -205,6 +214,26 @@ impl ClarityTestSim {
         self.height += 1;
 
         r
+    }
+
+    fn check_and_bump_epoch(
+        store: &mut WritableMarfStore,
+        headers_db: &TestSimHeadersDB,
+        burn_db: &dyn BurnStateDB,
+    ) {
+        let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
+        clarity_db.begin();
+        let parent_epoch = clarity_db.get_clarity_epoch_version();
+        let sortition_epoch = clarity_db
+            .get_stacks_epoch(headers_db.height as u32)
+            .unwrap()
+            .epoch_id;
+
+        if parent_epoch != sortition_epoch {
+            clarity_db.set_clarity_epoch_version(sortition_epoch);
+        }
+
+        clarity_db.commit();
     }
 
     pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
@@ -220,8 +249,12 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: parent_height + 1,
             };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
+
             let mut owned_env =
                 OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+
             f(&mut owned_env)
         };
 
@@ -301,6 +334,10 @@ impl BurnStateDB for TestSimBurnStateDB {
 
     fn get_burn_start_height(&self) -> u32 {
         0
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
     }
 }
 

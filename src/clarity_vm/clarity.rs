@@ -632,6 +632,13 @@ impl<'a> ClarityBlockConnection<'a> {
     pub fn initialize_epoch_2_1(&mut self) -> Result<(), Error> {
         let mainnet = self.mainnet;
         self.as_transaction(|tx_conn| {
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                    Ok(())
+                })
+                .unwrap();
+
             let pox_2_code = if mainnet {
                 &*BOOT_CODE_POX_MAINNET
             } else {
@@ -650,12 +657,7 @@ impl<'a> ClarityBlockConnection<'a> {
                     |_, _| false,
                 )
                 .unwrap();
-
-            tx_conn.with_clarity_db(|db| {
-                db.set_clarity_epoch_version(StacksEpochId::Epoch21);
-                Ok(())
-            })
-        })?;
+        });
         Ok(())
     }
 
@@ -787,10 +789,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
-        let epoch_id = self
-            .with_clarity_db_readonly(|db| db.get_current_stacks_epoch())
-            .expect("Failed to load current epoch")
-            .epoch_id;
+        let epoch_id = self.with_clarity_db_readonly(|db| db.get_clarity_epoch_version());
 
         // ClarityVersionPragmaTodo: need to use contract's declared version or default
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);

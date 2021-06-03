@@ -1077,6 +1077,7 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                    let v1_unlock_height = clarity_db.get_v1_unlock_height();
                     let (balance, balance_proof) = clarity_db
                         .get_with_proof::<STXBalance>(&key)
                         .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
@@ -1093,9 +1094,10 @@ impl ConversationHttp {
                         .unwrap_or_else(|| (0, "".into()));
                     let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
-                    let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
-                    let (locked, unlock_height) =
-                        balance.get_locked_balance_at_burn_block(burn_block_height);
+                    let unlocked = balance
+                        .get_available_balance_at_burn_block(burn_block_height, v1_unlock_height);
+                    let (locked, unlock_height) = balance
+                        .get_locked_balance_at_burn_block(burn_block_height, v1_unlock_height);
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                     let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));

@@ -8675,6 +8675,7 @@ pub mod test {
             &BurnchainHeaderHash([1; 32]),
             1,
             &StacksEpoch::unit_test(0),
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();

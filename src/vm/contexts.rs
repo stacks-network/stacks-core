@@ -1035,13 +1035,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.add_memory(memory_use)?;
 
             let version = ClarityVersion::default_for_epoch(
-                match self.global_context.database.get_current_stacks_epoch() {
-                    Some(x) => x.epoch_id,
-                    None => {
-                        warn!("Failed to get current stacks epoch, defaulting to 2.0");
-                        StacksEpochId::Epoch20
-                    }
-                },
+                self.global_context.database.get_clarity_epoch_version(),
             );
 
             let result = Contract::initialize_from_ast(

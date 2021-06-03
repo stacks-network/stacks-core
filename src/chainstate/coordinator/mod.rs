@@ -263,7 +263,12 @@ impl<'a, T: BlockEventDispatcher>
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
         let sortitions_processed = comms.sortitions_processed.clone();
 
-        let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
+        let sortition_db = SortitionDB::open(
+            &burnchain.get_db_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
 
@@ -328,7 +333,12 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
 
-        let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
+        let sortition_db = SortitionDB::open(
+            &burnchain.get_db_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
         let (chain_state_db, _) = StacksChainState::open_and_exec(
