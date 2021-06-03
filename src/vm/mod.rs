@@ -357,7 +357,7 @@ fn eval_all(
  *
  *  Only used by CLI.
  */
-pub fn execute_against_version(program: &str, version:ClarityVersion) -> Result<Option<Value>> {
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
@@ -371,7 +371,7 @@ pub fn execute_against_version(program: &str, version:ClarityVersion) -> Result<
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
- * 
+ *
  * This version of the function assumes that the ClarityVersion is Clarity1.
  *
  *  Only used by CLI.
@@ -382,7 +382,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
- * 
+ *
  * This version of the function assumes that the ClarityVersion is Clarity1.
  *
  *  Only used by CLI.

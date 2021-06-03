@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::execute_v2;
 use vm::types::BufferLength;
-use vm::types::SequenceSubtype::StringType;
 use vm::types::SequenceSubtype::BufferType;
+use vm::types::SequenceSubtype::StringType;
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
 use vm::types::Value;
