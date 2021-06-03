@@ -33,7 +33,7 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, SequenceSubtype, TupleTypeSignature, TypeSignature, Value,
 };
 use vm::variables::NativeVariables;
 

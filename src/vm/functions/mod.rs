@@ -272,21 +272,26 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
-            BuffToIntLe => SpecialFunction(
-                "special_buff_to_int_le",
-                &conversions::special_buff_to_int_le,
+            BuffToIntLe => NativeFunction(
+                "native_buff_to_int_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
+                // TODO: Create a dedicated cost fn for all BuffToInt-type functions.
+                ClarityCostFunction::Mul,
             ),
-            BuffToUIntLe => SpecialFunction(
-                "special_buff_to_uint_le",
-                &conversions::special_buff_to_uint_le,
+            BuffToUIntLe => NativeFunction(
+                "native_buff_to_uint_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                ClarityCostFunction::Mul,
             ),
-            BuffToIntBe => SpecialFunction(
-                "special_buff_to_int_be",
-                &conversions::special_buff_to_int_be,
+            BuffToIntBe => NativeFunction(
+                "native_buff_to_int_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                ClarityCostFunction::Mul,
             ),
-            BuffToUIntBe => SpecialFunction(
-                "special_buff_to_uint_be",
-                &conversions::special_buff_to_uint_be,
+            BuffToUIntBe => NativeFunction(
+                "native_buff_to_uint_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                ClarityCostFunction::Mul,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),

@@ -22,17 +22,19 @@ use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
 use vm::types::{
-    BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
+    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
+    SequenceSubtype,
     TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
     MAX_VALUE_SIZE,
 };
-use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::types::TypeSignature::SequenceType;
+use vm::types::SequenceSubtype::{BufferType, StringType};
 
+use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
 mod assets;
-mod conversions;
 mod maps;
 mod options;
 mod sequences;
@@ -569,6 +571,16 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
+            BuffToIntLe | BuffToIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16)))],
+                TypeSignature::IntType,
+            ))),
+            BuffToUIntLe | BuffToUIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16)))],
+                TypeSignature::IntType,
+            ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
@@ -679,18 +691,6 @@ impl TypedNativeFunction {
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
             Map => Special(SpecialNativeFunction(&sequences::check_special_map)),
             Filter => Special(SpecialNativeFunction(&sequences::check_special_filter)),
-            BuffToIntLe => Special(SpecialNativeFunction(
-                &conversions::check_special_buff_to_int,
-            )),
-            BuffToUIntLe => Special(SpecialNativeFunction(
-                &conversions::check_special_buff_to_uint,
-            )),
-            BuffToIntBe => Special(SpecialNativeFunction(
-                &conversions::check_special_buff_to_int,
-            )),
-            BuffToUIntBe => Special(SpecialNativeFunction(
-                &conversions::check_special_buff_to_uint,
-            )),
             Fold => Special(SpecialNativeFunction(&sequences::check_special_fold)),
             Append => Special(SpecialNativeFunction(&sequences::check_special_append)),
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),

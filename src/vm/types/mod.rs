@@ -963,7 +963,6 @@ impl BuffData {
         self.data.len().try_into().unwrap()
     }
 
-    // Note: Should we add this? What else could we do?
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
     }
