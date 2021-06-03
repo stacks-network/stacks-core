@@ -160,6 +160,9 @@
 (define-read-only (cost_filter (n uint))
     (runtime u1000))
 
+(define-read-only (cost_buff_to_int (n uint))
+    (runtime u1000))
+
 (define-read-only (cost_len (n uint))
     (runtime u1000))
 

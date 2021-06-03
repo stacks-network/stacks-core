@@ -963,6 +963,11 @@ impl BuffData {
         self.data.len().try_into().unwrap()
     }
 
+    // Note: Should we add this? What else could we do?
+    pub fn as_slice(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+
     fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
