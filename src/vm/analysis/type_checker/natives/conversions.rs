@@ -21,8 +21,8 @@ use vm::types::TypeSignature;
 use vm::analysis::type_checker::{
     check_argument_count, CheckErrors, TypeChecker, TypeResult, TypingContext,
 };
-use vm::costs::runtime_cost;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::runtime_cost;
 
 pub fn check_special_buff_to_int(
     checker: &mut TypeChecker,
@@ -34,7 +34,9 @@ pub fn check_special_buff_to_int(
 
     let collection_type = checker.type_check(&args[0], context)?;
     match collection_type {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(u16)) => return Ok(TypeSignature::IntType),
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(u16)) => {
+            return Ok(TypeSignature::IntType)
+        }
         _ => return Err(CheckErrors::ExpectedBuffer16(collection_type).into()),
     };
 }
@@ -49,7 +51,9 @@ pub fn check_special_buff_to_uint(
 
     let collection_type = checker.type_check(&args[0], context)?;
     match collection_type {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(u16)) => return Ok(TypeSignature::UIntType),
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(u16)) => {
+            return Ok(TypeSignature::UIntType)
+        }
         _ => return Err(CheckErrors::ExpectedBuffer16(collection_type).into()),
     };
 }
