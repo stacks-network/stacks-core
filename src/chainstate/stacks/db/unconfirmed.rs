@@ -365,6 +365,11 @@ impl UnconfirmedState {
         self.last_mblock.is_some()
     }
 
+    /// Does the unconfirmed microblock state represent any transactions?
+    pub fn num_mined_txs(&self) -> usize {
+        self.mined_txs.len()
+    }
+
     /// Get information about an unconfirmed transaction
     pub fn get_unconfirmed_transaction(
         &self,

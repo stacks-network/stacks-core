@@ -64,6 +64,7 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -435,9 +436,13 @@ fn try_mine_microblock(
             if microblock_miner.last_mined + (microblock_miner.frequency as u128)
                 < get_epoch_time_ms()
             {
-                // opportunistically try and mine, but only if there's no attachable blocks
-                let num_attachable =
-                    StacksChainState::count_attachable_staging_blocks(chainstate.db(), 1, 0)?;
+                // opportunistically try and mine, but only if there are no attachable blocks in
+                // recent history (i.e. in the last 10 minutes)
+                let num_attachable = StacksChainState::count_attachable_staging_blocks(
+                    chainstate.db(),
+                    1,
+                    get_epoch_time_secs() - 600,
+                )?;
                 if num_attachable == 0 {
                     match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool)
                     {
@@ -452,6 +457,8 @@ fn try_mine_microblock(
                             warn!("Failed to mine one microblock: {:?}", &e);
                         }
                     }
+                } else {
+                    debug!("Will not mine microblocks yet -- have {} attachable blocks that arrived in the last 10 minutes", num_attachable);
                 }
             }
             microblock_miner.last_mined = get_epoch_time_ms();
@@ -1239,6 +1246,13 @@ impl InitializedNeonNode {
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
         let burnchain_signer = keychain.get_burnchain_signer();
+        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
+            Err(e) => {
+                warn!("Failed to set global burnchain signer: {:?}", &e);
+            }
+            _ => {}
+        }
+
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 

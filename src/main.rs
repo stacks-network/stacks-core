@@ -716,7 +716,7 @@ simulating a miner.
             StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
         let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
 
-        // initial argon balances -- see testnet/stacks-node/conf/argon-follower-conf.toml
+        // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
         let initial_balances = vec![
             (
                 StacksAddress::from_string("STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6")
@@ -773,6 +773,7 @@ simulating a miner.
             first_burnchain_block_hash,
             first_burnchain_block_height: first_burnchain_block_height as u32,
             first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::regtest_default(),
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_namespaces: None,
