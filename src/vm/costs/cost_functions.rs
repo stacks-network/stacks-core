@@ -76,6 +76,7 @@ define_named_enum!(ClarityCostFunction {
     Not("cost_not"),
     Eq("cost_eq"),
     BuffToInt("cost_buff_to_int"),
+    StringToInt("cost_string_to_int"),
     Begin("cost_begin"),
     Hash160("cost_hash160"),
     Sha256("cost_sha256"),

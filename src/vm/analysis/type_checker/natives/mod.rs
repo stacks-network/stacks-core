@@ -691,6 +691,18 @@ impl TypedNativeFunction {
             BuffToUIntBe => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_uint,
             )),
+            AsciiToInt => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
+            AsciiToUInt => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
+            Utf8ToInt => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
+            Utf8ToUInt => Special(SpecialNativeFunction(
+                &conversions::check_special_buff_to_int,
+            )),
             Fold => Special(SpecialNativeFunction(&sequences::check_special_fold)),
             Append => Special(SpecialNativeFunction(&sequences::check_special_append)),
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),
