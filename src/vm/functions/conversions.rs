@@ -144,10 +144,10 @@ pub fn special_string_to_uint(
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
 
             let as_string = String::from_utf8(data).unwrap();
-            let possible_int = as_string.parse::<i128>();
+            let possible_int = as_string.parse::<u128>();
             match possible_int {
-                Ok(val) => return Ok(Value::Int(val)),
-                Err(error) => return Err(CheckErrors::ValueError("int".to_string(), as_string).into()),
+                Ok(val) => return Ok(Value::UInt(val)),
+                Err(error) => return Err(CheckErrors::ValueError("uint".to_string(), as_string).into()),
             }
         }
         _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),

@@ -163,3 +163,19 @@ fn test_simple_buff_to_uint_be() {
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
     );
 }
+
+#[test]
+fn test_simple_string_to_int() {
+    // For big-endian, 01 at the end should be interpreted as least significant bit.
+    let good1_test = r#"(string-to-int "1")"#;
+    let good1_expected = Value::Int(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_string_to_uint() {
+    // For big-endian, 01 at the end should be interpreted as least significant bit.
+    let good1_test = r#"(string-to-uint "1")"#;
+    let good1_expected = Value::UInt(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+}
