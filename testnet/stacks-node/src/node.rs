@@ -6,10 +6,6 @@ use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
-use stacks::chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
@@ -40,6 +36,13 @@ use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::{
+    burnchains::PoxConstants,
+    chainstate::burn::operations::{
+        leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    },
+};
 use stacks::{
     burnchains::{Burnchain, Txid},
     chainstate::stacks::db::{
@@ -159,6 +162,7 @@ fn spawn_peer(
     rpc_sock: &SocketAddr,
     burn_db_path: String,
     stacks_chainstate_path: String,
+    pox_consts: PoxConstants,
     event_dispatcher: EventDispatcher,
     exit_at_block_height: Option<u64>,
     genesis_chainstate_hash: Sha256Sum,
@@ -174,7 +178,7 @@ fn spawn_peer(
         };
 
         loop {
-            let sortdb = match SortitionDB::open(&burn_db_path, false) {
+            let sortdb = match SortitionDB::open(&burn_db_path, false, pox_consts.clone()) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting burnchain db in peer loop: {}", e);
@@ -377,9 +381,10 @@ impl Node {
 
         node.spawn_peer_server(attachments_rx);
 
+        let pox_constants = burnchain_controller.sortdb_ref().pox_constants.clone();
         loop {
-            let sortdb =
-                SortitionDB::open(&sortdb_path, false).expect("BUG: failed to open burn database");
+            let sortdb = SortitionDB::open(&sortdb_path, false, pox_constants.clone())
+                .expect("BUG: failed to open burn database");
             if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&sortdb) {
                 if chain_tip.consensus_hash == burnchain_tip.block_snapshot.consensus_hash {
                     info!("Syncing Stacks blocks - completed");
@@ -401,10 +406,14 @@ impl Node {
     pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
-            .expect("Error while instantiating burnchain db");
-
         let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+
+        let sortdb = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while instantiating burnchain db");
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -493,7 +502,7 @@ impl Node {
             atlasdb,
             local_peer,
             self.config.burnchain.peer_version,
-            burnchain,
+            burnchain.clone(),
             view,
             self.config.connection_options.clone(),
         );
@@ -505,6 +514,7 @@ impl Node {
             &rpc_sock,
             self.config.get_burn_db_file_path(),
             self.config.get_chainstate_path_str(),
+            burnchain.pox_constants,
             event_dispatcher,
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),

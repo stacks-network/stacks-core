@@ -11,8 +11,8 @@ use std::sync::{
 };
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::BurnchainSigner;
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{BurnchainSigner, PoxConstants};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -577,6 +577,7 @@ fn spawn_peer(
     p2p_sock: &SocketAddr,
     rpc_sock: &SocketAddr,
     config: Config,
+    pox_constants: PoxConstants,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
     mut sync_comms: PoxSyncWatchdogComms,
@@ -592,7 +593,8 @@ fn spawn_peer(
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
-    let sortdb = SortitionDB::open(&burn_db_path, false).map_err(NetError::DBError)?;
+    let sortdb =
+        SortitionDB::open(&burn_db_path, false, pox_constants).map_err(NetError::DBError)?;
 
     let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         is_mainnet,
@@ -777,7 +779,8 @@ fn spawn_miner_relayer(
     // the relayer _should not_ be modifying the sortdb,
     //   however, it needs a mut reference to create read TXs.
     //   should address via #1449
-    let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
+    let mut sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone())
+        .map_err(NetError::DBError)?;
 
     let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         is_mainnet,
@@ -1095,8 +1098,12 @@ impl InitializedNeonNode {
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
-            .expect("Error while instantiating sortition db");
+        let sortdb = SortitionDB::open(
+            &config.get_burn_db_file_path(),
+            false,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while instantiating sortition db");
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -1260,7 +1267,7 @@ impl InitializedNeonNode {
             event_dispatcher.clone(),
             blocks_processed.clone(),
             microblocks_processed.clone(),
-            burnchain,
+            burnchain.clone(),
             coord_comms,
             shared_unconfirmed_txs.clone(),
         )
@@ -1272,6 +1279,7 @@ impl InitializedNeonNode {
             &p2p_sock,
             &rpc_sock,
             config.clone(),
+            burnchain.pox_constants,
             5000,
             relay_send.clone(),
             sync_comms,
