@@ -484,10 +484,10 @@ no matter what kind of sequences the inputs are, the output is always a list.",
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    input_type: "Function((buff 1)) -> bool, buff
+    input_type: "Function(buff 1) -> bool, buff
 Function(A) -> bool, (list A)
-Function((string-ascii 1)) -> bool, string-ascii
-Function((string-utf8 1)) -> bool, string-utf8",
+Function(string-ascii 1) -> bool, string-ascii
+Function(string-utf8 1) -> bool, string-utf8",
     output_type: "buff
 (list A)
 string-ascii
@@ -513,7 +513,8 @@ Function((string-utf8 1), B) -> B, string-utf8, B",
     output_type: "B",
     signature: "(fold func sequence initial-value)",
     description: "The `fold` function applies the input function `func` to each element of the
-input sequence (where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`) _and_ the output of the previous application of the `fold` function. When invoked on
+input sequence (where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`)
+_and_ the output of the previous application of the `fold` function. When invoked on
 the first list element, it uses the `initial-value` as the second input. `fold` returns the last
 value returned by the successive applications. Note that the first argument is not evaluated thus
 has to be a literal function name.",
@@ -538,7 +539,8 @@ string-ascii, string-ascii
 string-utf8, string-utf8",
     output_type: "buff|list|string-ascii|string-utf8",
     signature: "(concat sequence-a sequence-b)",
-    description: "The `concat` function takes two sequences (where each sequence is either `buff`, `list`, `string-ascii` or `string-utf8`) with the same entry type,
+    description: "The `concat` function takes two sequences (where each sequence is either
+`buff`, `list`, `string-ascii` or `string-utf8`) with the same entry type,
 and returns a concatenated sequence of the same type, with seq_len = seq_len_a + seq_len_b.",
     example: r#"
 (concat "hello " "world") ;; Returns "hello world"
@@ -590,7 +592,8 @@ const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     output_type: "(optional (buff 1)|A|(string-ascii 1)|(string-utf8 1))",
     signature: "(element-at sequence index)",
     description:
-        "The `element-at` function returns the element at `index` in the provided sequence (where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`).
+        "The `element-at` function returns the element at `index` in the provided sequence
+(where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`).
 If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
 For strings or buffers, this function will return 1-length strings or buffers.",
     example: r#"
@@ -610,8 +613,9 @@ string-utf8 (string-utf8 1)",
     output_type: "(optional uint)",
     signature: "(index-of sequence item)",
     description: "The `index-of` function returns the first index at which `item` can be
-found, using `is-eq` checks, in the provided sequence (where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`).
-If this item is not found in the sequence (or an empty string/buffer is supplied), this
+found, using `is-eq` checks, in the provided sequence (where a sequence is
+either `buff`, `list`, `string-ascii` or `string-utf8`).  If this item is not
+found in the sequence (or an empty string/buffer is supplied), this
 function returns `none`.",
     example: r#"
 (index-of "blockstack" "b") ;; Returns (some u0)
