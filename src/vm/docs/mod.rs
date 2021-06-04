@@ -545,7 +545,7 @@ and returns a concatenated sequence of the same type, with seq_len = seq_len_a +
     example: r#"
 (concat "hello " "world") ;; Returns "hello world"
 (concat 0x0102 0x0304) ;; Returns 0x01020304
-"#
+"#,
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -570,7 +570,7 @@ or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it r
     example: r#"
 (as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
 (as-max-len? (list 1 2 3) u2) ;; Returns none
-(as-max-len? \"hello\" u10) ;; Returns (some \"hello\")
+(as-max-len? "hello" u10) ;; Returns (some "hello")
 (as-max-len? 0x010203 u10) ;; Returns (some 0x010203)
 "#
 };
@@ -591,8 +591,7 @@ const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list|string-ascii|string-utf8 A, uint",
     output_type: "(optional (buff 1)|A|(string-ascii 1)|(string-utf8 1))",
     signature: "(element-at sequence index)",
-    description:
-        "The `element-at` function returns the element at `index` in the provided sequence
+    description: "The `element-at` function returns the element at `index` in the provided sequence
 (where a sequence is either `buff`, `list`, `string-ascii` or `string-utf8`).
 If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
 For strings or buffers, this function will return 1-length strings or buffers.",
