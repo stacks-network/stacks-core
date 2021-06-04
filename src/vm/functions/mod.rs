@@ -86,6 +86,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
+    StringToInt("string-to-int", ClarityVersion::Clarity2),
+    StringToUInt("string-to-uint", ClarityVersion::Clarity2),
+    IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
+    IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -287,6 +291,22 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BuffToUIntBe => SpecialFunction(
                 "special_buff_to_uint_be",
                 &conversions::special_buff_to_uint_be,
+            ),
+            StringToInt => SpecialFunction(
+                "special_string_to_int",
+                &conversions::special_string_to_int,
+            ),
+            StringToUInt => SpecialFunction(
+                "special_string_to_uint",
+                &conversions::special_string_to_uint,
+            ),
+            IntToAscii => SpecialFunction(
+                "special_int_to_ascii",
+                &conversions::special_int_to_ascii,
+            ),
+            IntToUtf8 => SpecialFunction(
+                "special_int_to_utf8",
+                &conversions::special_int_to_utf8,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),

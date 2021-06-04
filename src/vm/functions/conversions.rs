@@ -131,3 +131,69 @@ pub fn special_string_to_int(
         _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
     };
 }
+
+pub fn special_string_to_uint(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::BuffToInt, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+
+            let as_string = String::from_utf8(data).unwrap();
+            let possible_int = as_string.parse::<i128>();
+            match possible_int {
+                Ok(val) => return Ok(Value::Int(val)),
+                Err(error) => return Err(CheckErrors::ValueError("int".to_string(), as_string).into()),
+            }
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
+}
+
+pub fn special_int_to_ascii(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::BuffToInt, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+
+            let as_string = String::from_utf8(data).unwrap();
+            let possible_int = as_string.parse::<i128>();
+            match possible_int {
+                Ok(val) => return Ok(Value::Int(val)),
+                Err(error) => return Err(CheckErrors::ValueError("int".to_string(), as_string).into()),
+            }
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
+}
+
+pub fn special_int_to_utf8(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::BuffToInt, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+
+            let as_string = String::from_utf8(data).unwrap();
+            let possible_int = as_string.parse::<i128>();
+            match possible_int {
+                Ok(val) => return Ok(Value::Int(val)),
+                Err(error) => return Err(CheckErrors::ValueError("int".to_string(), as_string).into()),
+            }
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
+}

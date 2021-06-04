@@ -521,6 +521,38 @@ const BUFF_TO_UINT_BE_API: SpecialAPI = SpecialAPI {
     example: "",
 };
 
+const STRING_TO_INT_API: SpecialAPI = SpecialAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const STRING_TO_UINT_API: SpecialAPI = SpecialAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const INT_TO_ASCII_API: SpecialAPI = SpecialAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const INT_TO_UTF8_API: SpecialAPI = SpecialAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: "",
+};
+
 const FOLD_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B) -> B, (list A), B",
     output_type: "B",
@@ -1639,6 +1671,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_special(&BUFF_TO_UINT_LE_API, name),
         BuffToIntBe => make_for_special(&BUFF_TO_INT_BE_API, name),
         BuffToUIntBe => make_for_special(&BUFF_TO_UINT_BE_API, name),
+        StringToInt => make_for_special(&STRING_TO_INT_API, name),
+        StringToUInt => make_for_special(&STRING_TO_UINT_API, name),
+        IntToAscii => make_for_special(&INT_TO_ASCII_API, name),
+        IntToUtf8 => make_for_special(&INT_TO_UTF8_API, name),
         Fold => make_for_special(&FOLD_API, name),
         Append => make_for_special(&APPEND_API, name),
         Concat => make_for_special(&CONCAT_API, name),

@@ -691,16 +691,16 @@ impl TypedNativeFunction {
             BuffToUIntBe => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_uint,
             )),
-            AsciiToInt => Special(SpecialNativeFunction(
+            StringToInt => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_int,
             )),
-            AsciiToUInt => Special(SpecialNativeFunction(
+            StringToUInt => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_int,
             )),
-            Utf8ToInt => Special(SpecialNativeFunction(
+            IntToAscii => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_int,
             )),
-            Utf8ToUInt => Special(SpecialNativeFunction(
+            IntToUtf8 => Special(SpecialNativeFunction(
                 &conversions::check_special_buff_to_int,
             )),
             Fold => Special(SpecialNativeFunction(&sequences::check_special_fold)),
