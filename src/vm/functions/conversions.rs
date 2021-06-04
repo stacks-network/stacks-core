@@ -18,6 +18,8 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
+use vm::types::ASCIIData;
+use vm::types::CharType;
 use vm::types::{SequenceData, TypeSignature, Value};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
 
@@ -106,4 +108,26 @@ pub fn special_buff_to_uint_be(
         return Value::UInt(value);
     }
     return buff_to_int_generic(args, env, context, convert_to_uint_be);
+}
+
+pub fn special_string_to_int(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::BuffToInt, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+
+            let as_string = String::from_utf8(data).unwrap();
+            let possible_int = as_string.parse::<i128>();
+            match possible_int {
+                Ok(val) => return Ok(Value::Int(val)),
+                Err(error) => return Err(CheckErrors::ValueError("int".to_string(), as_string).into()),
+            }
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
 }
