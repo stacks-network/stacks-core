@@ -124,6 +124,11 @@ pub fn special_string_to_int_generic(
             let as_string = String::from_utf8(data).unwrap();
             return conversion_fn(as_string);
         }
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
+            let flat = data.into_iter().flatten().collect();
+            let as_string = String::from_utf8(flat).unwrap();
+            return conversion_fn(as_string);
+        }
         _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
     };
 }
