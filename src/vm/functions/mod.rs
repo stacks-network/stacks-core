@@ -292,22 +292,17 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "special_buff_to_uint_be",
                 &conversions::special_buff_to_uint_be,
             ),
-            StringToInt => SpecialFunction(
-                "special_string_to_int",
-                &conversions::special_string_to_int,
-            ),
+            StringToInt => {
+                SpecialFunction("special_string_to_int", &conversions::special_string_to_int)
+            }
             StringToUInt => SpecialFunction(
                 "special_string_to_uint",
                 &conversions::special_string_to_uint,
             ),
-            IntToAscii => SpecialFunction(
-                "special_int_to_ascii",
-                &conversions::special_int_to_ascii,
-            ),
-            IntToUtf8 => SpecialFunction(
-                "special_int_to_utf8",
-                &conversions::special_int_to_utf8,
-            ),
+            IntToAscii => {
+                SpecialFunction("special_int_to_ascii", &conversions::special_int_to_ascii)
+            }
+            IntToUtf8 => SpecialFunction("special_int_to_utf8", &conversions::special_int_to_utf8),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
