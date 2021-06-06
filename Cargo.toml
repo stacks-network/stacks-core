@@ -43,7 +43,7 @@ name = "block_limits"
 harness = false
 
 [dependencies]
-tini = "0.2"
+tini = "1.2"
 rand = "=0.7.2"
 rand_chacha = "=0.2.2"
 serde = "1"
