@@ -175,17 +175,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         use vm::functions::NativeFunctions::*;
 
         match function {
-            Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
-            | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Hash160 | Sha256
-            | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
-            | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
-            | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
-            | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
-            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf => {
-                self.check_all_read_only(args)
-            }
+            Add | Subtract | Divide | Multiply | BuffToIntLe | BuffToUIntLe | BuffToIntBe
+            | BuffToUIntBe | CmpGeq | CmpLeq | CmpLess | CmpGreater | Modulo | Power | Sqrti
+            | Log2 | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If
+            | Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | ConsSome
+            | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay | IsNone
+            | Asserts | Unwrap | UnwrapErr | Match | IsErr | IsSome | TryRet | ToUInt | ToInt
+            | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo
+            | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
+            | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
+            | ElementAt | IndexOf => self.check_all_read_only(args),
             AtBlock => {
                 check_argument_count(2, args)?;
 
@@ -236,22 +235,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             Filter => {
                 check_argument_count(2, args)?;
-                self.check_function_application_read_only(args)
-            }
-            BuffToIntLe => {
-                check_argument_count(1, args)?;
-                self.check_function_application_read_only(args)
-            }
-            BuffToUIntLe => {
-                check_argument_count(1, args)?;
-                self.check_function_application_read_only(args)
-            }
-            BuffToIntBe => {
-                check_argument_count(1, args)?;
-                self.check_function_application_read_only(args)
-            }
-            BuffToUIntBe => {
-                check_argument_count(1, args)?;
                 self.check_function_application_read_only(args)
             }
             Fold => {
