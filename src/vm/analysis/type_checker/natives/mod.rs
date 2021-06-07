@@ -580,7 +580,7 @@ impl TypedNativeFunction {
                 vec![TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength(16),
                 ))],
-                TypeSignature::IntType,
+                TypeSignature::UIntType,
             ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(

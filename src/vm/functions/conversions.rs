@@ -52,21 +52,12 @@ pub fn buff_to_int_generic(
             } else {
                 let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let mut original_slice = sequence_data.as_slice().to_vec();
-                if direction == EndianDirection::BigEndian {
-                    original_slice.reverse();
-                }
-
                 // 'conversion_fn' expects that the encoding is little-endian. So, if the input has a big-endian
                 // encoding, reverse it. This means that we can start filling 'buf' from the beginning,
                 // and any unused bytes at the end are considered padding.
-                // let iterator: std::slice::Iter<'_, u8> = if direction == EndianDirection::BigEndian {
-                //      original_slice.iter().rev()
-                //  } else {
-                //      original_slice.iter()
-                //  };
-                // let iterator = original_slice.iter().enumerate();
-                // iterator.not_app();
-                // for (index, value) in iterator.enumerate() {
+                if direction == EndianDirection::BigEndian {
+                    original_slice.reverse();
+                }
                 for (index, value) in original_slice.iter().enumerate() {
                     buf[index] = *value;
                 }
