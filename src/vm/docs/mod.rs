@@ -551,7 +551,8 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
     output_type: "sequence_A",
     signature: "(as-max-len? sequence u10)",
-    description: "The `as-max-len?` function takes a length N (must be a literal) and a sequence argument.
+    description:
+        "The `as-max-len?` function takes a length N (must be a literal) and a sequence argument.
 This function returns an optional type. If the input sequence is less than
 or equal to the supplied max-len, it returns `(some sequence_A)`, otherwise it returns `none`.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
@@ -561,7 +562,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 (as-max-len? (list 1 2 3) u2) ;; Returns none
 (as-max-len? "hello" u10) ;; Returns (some "hello")
 (as-max-len? 0x010203 u10) ;; Returns (some 0x010203)
-"#
+"#,
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
