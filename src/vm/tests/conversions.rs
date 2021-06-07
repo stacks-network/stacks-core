@@ -166,16 +166,34 @@ fn test_simple_buff_to_uint_be() {
 
 #[test]
 fn test_simple_string_to_int() {
-    // For big-endian, 01 at the end should be interpreted as least significant bit.
-    let good1_test = r#"(string-to-int "1")"#;
-    let good1_expected = Value::Int(1);
+    let good1_test = r#"(string-to-int "-1")"#;
+    let good1_expected = Value::Int(-1);
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+
+    let good2_test = r#"(string-to-int "-1")"#;
+    let good2_expected = Value::Int(-1);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
+
+    let bad_value_error_test = r#"(string-to-int "a")"#;
+    assert_eq!(
+        execute_v2(bad_value_error_test).unwrap_err(),
+        CheckErrors::ValueError("int".to_string(), "a".to_string()).into()
+    );
 }
 
 #[test]
 fn test_simple_string_to_uint() {
-    // For big-endian, 01 at the end should be interpreted as least significant bit.
-    let good1_test = r#"(string-to-uint "1")"#;
+    let good1_test = r#"(string-to-uint u"1")"#;
     let good1_expected = Value::UInt(1);
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+
+    let good2_test = r#"(string-to-uint u"1")"#;
+    let good2_expected = Value::UInt(1);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
+
+    let bad_value_error_test = r#"(string-to-int "-1")"#;
+    assert_eq!(
+        execute_v2(bad_value_error_test).unwrap_err(),
+        CheckErrors::ValueError("int".to_string(), "a".to_string()).into()
+    );
 }
