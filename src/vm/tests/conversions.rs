@@ -17,9 +17,9 @@
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::execute_v2;
 use vm::types::BufferLength;
-use vm::types::TypeSignature::SequenceType;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
+use vm::types::TypeSignature::SequenceType;
 use vm::types::Value;
 use vm::ClarityVersion;
 
@@ -79,7 +79,6 @@ fn test_simple_buff_to_uint_le() {
     let good3_test = "(buff-to-uint-le 0x0001)";
     let good3_expected = Value::UInt(256);
     assert_eq!(good3_expected, execute_v2(good3_test).unwrap().unwrap());
-
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
