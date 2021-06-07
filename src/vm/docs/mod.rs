@@ -551,7 +551,7 @@ and outputs a list of the same type with max_len += 1.",
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
     output_type: "sequence_A",
-    signature: "(as-max-len? sequence_A u10)",
+    signature: "(as-max-len? sequence_A size)",
     description:
         "The `as-max-len?` function takes a length N (must be a literal) and a sequence argument.
 This function returns an optional type. If the input sequence is less than
