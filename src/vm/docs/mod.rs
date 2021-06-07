@@ -484,7 +484,7 @@ Note that, no matter what kind of sequences the inputs are, the output is always
 const FILTER_API: SpecialAPI = SpecialAPI {
     input_type: "Function(item_A) -> bool, sequence_A",
     output_type: "sequence_A",
-    signature: "(filter func sequence)",
+    signature: "(filter func sequence_A)",
     description: "The `filter` function applies the input function `func` to each element of the
 input sequence, and returns the same sequence with any elements removed for which the `func` returned `false`.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
@@ -525,11 +525,12 @@ has to be a literal function name.",
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence_A, sequence_A",
+    input_type: "sequence1_A, sequence2_A",
     output_type: "sequence_A",
-    signature: "(concat sequence_A sequence_B)",
+    signature: "(concat sequence1_A sequence2_A)",
     description: "The `concat` function takes two sequences of the same type,
-and returns a concatenated sequence of the same type, with seq_len = seq_len_a + seq_len_b.
+and returns a concatenated sequence of the same type, with the resulting
+seq_len = seq1_len + seq2_len.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
 ",
     example: r#"
@@ -550,7 +551,7 @@ and outputs a list of the same type with max_len += 1.",
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
     output_type: "sequence_A",
-    signature: "(as-max-len? sequence u10)",
+    signature: "(as-max-len? sequence_A u10)",
     description:
         "The `as-max-len?` function takes a length N (must be a literal) and a sequence argument.
 This function returns an optional type. If the input sequence is less than
@@ -582,7 +583,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
     output_type: "item_A",
-    signature: "(element-at sequence index)",
+    signature: "(element-at sequence_A index)",
     description: "The `element-at` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
