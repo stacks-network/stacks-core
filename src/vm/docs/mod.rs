@@ -173,6 +173,34 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(to-int u238) ;; Returns 238"
 };
 
+const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -487,34 +515,6 @@ const FILTER_API: SpecialAPI = SpecialAPI {
     description: "The `filter` function applies the input function `func` to each element of the
 input list, and returns the same list with any elements removed for which the `func` returned `false`.",
     example: "(filter not (list true false true false)) ;; Returns (false false)"
-};
-
-const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(buff-to-int-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(buff-to-int-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(buff-to-uint-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
