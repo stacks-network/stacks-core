@@ -463,14 +463,15 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(item_A, item_B, ..., item_N) -> X, sequence_A, sequence_B, ..., sequence_N",
+    input_type: "Function(A, B, ..., N) -> X, sequence_A, sequence_B, ..., sequence_N",
     output_type: "sequence_X",
     signature: "(map func sequence_A sequence_B ... sequence_N)",
-    description: "The `map` function applies the function `func` to each element of the input sequences,
-and outputs a _list_ of the same type containing the _outputs_ from those function applications.
+    description: "The `map` function applies the function `func` to each corresponding element of the input sequences,
+and outputs a _list_ of the same type containing the outputs from those function applications.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
-Note that, no matter what kind of sequences the inputs are, the output is always a list.",
+for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
+Also, note that, no matter what kind of sequences the inputs are, the output is always a list.",
     example: r#"
 (map not (list true false true false)) ;; Returns (false true false true)
 (map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)
@@ -482,13 +483,14 @@ Note that, no matter what kind of sequences the inputs are, the output is always
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(item_A) -> bool, sequence_A",
+    input_type: "Function(A) -> bool, sequence_A",
     output_type: "sequence_A",
-    signature: "(filter func sequence_A)",
+    signature: "(filter func sequence)",
     description: "The `filter` function applies the input function `func` to each element of the
-input sequence, and returns the same sequence with any elements removed for which the `func` returned `false`.
+input sequence, and returns the same sequence with any elements removed for which `func` returned `false`.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
 ",
     example: r#"
 (filter not (list true false true false)) ;; Returns (false false)
@@ -500,17 +502,23 @@ for which the corresponding item element types are, repsectively, `A`, `(buff 1)
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(item_A, B) -> B, sequence_A, B",
+    input_type: "Function(A, B) -> B, sequence_A, B",
     output_type: "B",
-    signature: "(fold func sequence_A initial_value)",
-    description: "The `fold` function applies the input function `func` to each element of the
-input sequence _and_ the output of the previous application of the `fold` function.
+    signature: "(fold func sequence_A initial_B)",
+    description: "The `fold` function condenses `sequence_A` into a value of type
+`B` by recursively applies the function `func` to each element of the
+input sequence _and_ the output of a previous application of `func`.
+
+`fold` uses `initial_B` in the initial application of `func`, along with the
+first element of `sequence_A`. The resulting value of type `B` is used for the
+next application of `func`, along with the next element of `sequence_A` and so
+on. `fold` returns the last value of type `B` returned by these successive
+applications `func`.
+
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
-When invoked on
-the first list element, it uses the `initial_value` as the second input. `fold` returns the last
-value returned by the successive applications. Note that the first argument is not evaluated thus
-has to be a literal function name.",
+for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
+",
     example: r#"
 (fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
@@ -525,15 +533,16 @@ has to be a literal function name.",
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence1_A, sequence2_A",
+    input_type: "sequence_A, sequence_A",
     output_type: "sequence_A",
-    signature: "(concat sequence1_A sequence2_A)",
+    signature: "(concat sequence1 sequence2)",
     description: "The `concat` function takes two sequences of the same type,
 and returns a concatenated sequence of the same type, with the resulting
-seq_len = seq1_len + seq2_len.
+sequence_len = sequence1_len + sequence2_len.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
 ",
     example: r#"
+(concat (list 1 2) (list 3 4)) ;; Returns (list 1 2 3 4)
 (concat "hello " "world") ;; Returns "hello world"
 (concat 0x0102 0x0304) ;; Returns 0x01020304
 "#,
@@ -551,11 +560,11 @@ and outputs a list of the same type with max_len += 1.",
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
     output_type: "sequence_A",
-    signature: "(as-max-len? sequence_A size)",
+    signature: "(as-max-len? sequence max_length)",
     description:
-        "The `as-max-len?` function takes a length N (must be a literal) and a sequence argument.
-This function returns an optional type. If the input sequence is less than
-or equal to the supplied max-len, it returns `(some sequence_A)`, otherwise it returns `none`.
+        "The `as-max-len?` function takes a sequence argument and a uint-valued, literal length argument.
+The function returns an optional type. If the input sequence length is less than
+or equal to the supplied max_length, this returns `(some sequence)`, otherwise it returns `none`.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
 ",
     example: r#"
@@ -567,7 +576,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence",
+    input_type: "sequence_A",
     output_type: "uint",
     signature: "(len sequence)",
     description: "The `len` function returns the length of a given sequence.
@@ -582,11 +591,11 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
-    output_type: "item_A",
-    signature: "(element-at sequence_A index)",
+    output_type: "A",
+    signature: "(element-at sequence index)",
     description: "The `element-at` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 ",
     example: r#"
 (element-at "blockstack" u5) ;; Returns (some "s")
@@ -598,15 +607,15 @@ for which the corresponding item element types are, repsectively, `A`, `(buff 1)
 };
 
 const INDEX_OF_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence_A, item_A",
+    input_type: "sequence_A, A",
     output_type: "(optional uint)",
-    signature: "(index-of sequence_A item_A)",
+    signature: "(index-of sequence item)",
     description: "The `index-of` function returns the first index at which `item` can be
-found, using `is-eq` checks, in the provided sequence.  If this item is not
-found in the sequence (or an empty string/buffer is supplied), this
-function returns `none`.
+found, using `is-eq` checks, in the provided sequence. 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding item element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+If the target item is not found in the sequence (or if an empty string or buffer is
+supplied), this function returns `none`.
 ",
     example: r#"
 (index-of "blockstack" "b") ;; Returns (some u0)
