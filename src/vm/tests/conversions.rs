@@ -35,7 +35,7 @@ fn test_simple_buff_to_int_le() {
     let good2_expected = Value::Int(-1);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
-    // For little endian, a partially filled buffer should behave as though 00's are padded on the right.
+    // For little-endian, a partially filled buffer should behave as though 00's are padded on the right.
     let good3_test = "(buff-to-int-le 0x0001)";
     let good3_expected = Value::Int(256);
     assert_eq!(good3_expected, execute_v2(good3_test).unwrap().unwrap());
@@ -54,6 +54,13 @@ fn test_simple_buff_to_int_le() {
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
+
+    // Right number of arguments but buffer is too large.
+    let bad_too_large_test = "(buff-to-int-le 0x000102030405060708090a0b0c0d0e0f00)";
+    assert_eq!(
+        execute_v2(bad_too_large_test).unwrap_err(),
+        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+    );
 }
 
 #[test]
@@ -67,6 +74,12 @@ fn test_simple_buff_to_uint_le() {
     let good2_test = "(buff-to-uint-le 0xffffffffffffffffffffffffffffffff)";
     let good2_expected = Value::UInt(u128::MAX);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
+
+    // For little-endian, a partially filled buffer should behave as though 00's are padded on the right.
+    let good3_test = "(buff-to-uint-le 0x0001)";
+    let good3_expected = Value::UInt(256);
+    assert_eq!(good3_expected, execute_v2(good3_test).unwrap().unwrap());
+
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
@@ -83,12 +96,12 @@ fn test_simple_buff_to_uint_le() {
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
-    // // Right number of arguments but wrong buffer size.
-    // let bad_wrong_number_test = "(buff-to-int-le 0x01)";
-    // assert_eq!(
-    //     execute_v2(bad_wrong_number_test).unwrap_err(),
-    //     CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
-    // );
+    // Right number of arguments but buffer is too large.
+    let bad_too_large_test = "(buff-to-uint-le 0x000102030405060708090a0b0c0d0e0f00)";
+    assert_eq!(
+        execute_v2(bad_too_large_test).unwrap_err(),
+        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+    );
 }
 
 #[test]
@@ -102,6 +115,11 @@ fn test_simple_buff_to_int_be() {
     let good2_test = "(buff-to-int-be 0xffffffffffffffffffffffffffffffff)";
     let good2_expected = Value::Int(-1);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
+
+    // For big-endian, a partially filled buffer should behave as though 00's are padded on the left.
+    let good3_test = "(buff-to-int-be 0x0100)";
+    let good3_expected = Value::Int(256);
+    assert_eq!(good3_expected, execute_v2(good3_test).unwrap().unwrap());
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
@@ -118,10 +136,10 @@ fn test_simple_buff_to_int_be() {
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
-    // Right number of arguments but wrong buffer size.
-    let bad_wrong_number_test = "(buff-to-int-le 0x000102030405060708090a0b0c0d0e0f00)";
+    // Right number of arguments but buffer is too large.
+    let bad_too_large_test = "(buff-to-int-be 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
-        execute_v2(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
     );
 }
@@ -138,6 +156,11 @@ fn test_simple_buff_to_uint_be() {
     let good2_expected = Value::UInt(u128::MAX);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
+    // For big-endian, a partially filled buffer should behave as though 00's are padded on the left.
+    let good3_test = "(buff-to-uint-be 0x0100)";
+    let good3_expected = Value::UInt(256);
+    assert_eq!(good3_expected, execute_v2(good3_test).unwrap().unwrap());
+
     // Wrong number of arguments.
     let bad_wrong_number_test =
         "(buff-to-uint-be \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
@@ -153,10 +176,10 @@ fn test_simple_buff_to_uint_be() {
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
-    // // Right number of arguments but wrong buffer size.
-    // let bad_wrong_number_test = "(buff-to-int-le 0x01)";
-    // assert_eq!(
-    //     execute_v2(bad_wrong_number_test).unwrap_err(),
-    //     CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
-    // );
+    // Right number of arguments but buffer is too large.
+    let bad_too_large_test = "(buff-to-uint-be 0x000102030405060708090a0b0c0d0e0f00)";
+    assert_eq!(
+        execute_v2(bad_too_large_test).unwrap_err(),
+        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+    );
 }
