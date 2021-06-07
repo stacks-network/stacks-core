@@ -489,33 +489,29 @@ input list, and returns the same list with any elements removed for which the `f
     example: "(filter not (list true false true false)) ;; Returns (false false)"
 };
 
-const BUFF_TO_INT_LE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "int",
+const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
     signature: "(buff-to-int-le (buff 16))",
     description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
     example: "",
 };
 
-const BUFF_TO_UINT_LE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "uint",
+const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
     signature: "(buff-to-uint-le (buff 16))",
     description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
     example: "",
 };
 
-const BUFF_TO_INT_BE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "int",
+const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
     signature: "(buff-to-int-be (buff 16))",
     description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
     example: "",
 };
 
-const BUFF_TO_UINT_BE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "uint",
+const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
     signature: "(buff-to-uint-be (buff 16))",
     description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
     example: "",
@@ -1616,6 +1612,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &BuffToIntLe, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
@@ -1635,10 +1635,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         SetVar => make_for_special(&SET_VAR_API, name),
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
-        BuffToIntLe => make_for_special(&BUFF_TO_INT_LE_API, name),
-        BuffToUIntLe => make_for_special(&BUFF_TO_UINT_LE_API, name),
-        BuffToIntBe => make_for_special(&BUFF_TO_INT_BE_API, name),
-        BuffToUIntBe => make_for_special(&BUFF_TO_UINT_BE_API, name),
         Fold => make_for_special(&FOLD_API, name),
         Append => make_for_special(&APPEND_API, name),
         Concat => make_for_special(&CONCAT_API, name),
