@@ -21,18 +21,18 @@ use std::convert::TryFrom;
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
-use vm::types::{
-    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    SequenceSubtype,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
-};
-use vm::types::TypeSignature::SequenceType;
 use vm::types::SequenceSubtype::{BufferType, StringType};
+use vm::types::StringSubtype::{ASCII, UTF8};
+use vm::types::TypeSignature::SequenceType;
+use vm::types::{
+    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    PrincipalData, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature, Value,
+    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+};
 
-use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
+use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
 mod assets;
 mod maps;
@@ -572,14 +572,38 @@ impl TypedNativeFunction {
                 returns: TypeSignature::IntType,
             }))),
             BuffToIntLe | BuffToIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16)))],
+                vec![TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    BufferLength(16),
+                ))],
                 TypeSignature::IntType,
             ))),
             BuffToUIntLe | BuffToUIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    BufferLength(16),
+                ))],
+                TypeSignature::UIntType,
+            ))),
+            StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16)))],
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
                 TypeSignature::IntType,
+            ))),
+            StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::UIntType,
+            ))),
+            IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::max_string_ascii(),
+            ))),
+            IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::max_string_utf8(),
             ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
