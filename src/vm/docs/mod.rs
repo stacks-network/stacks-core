@@ -173,6 +173,62 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(to-int u238) ;; Returns 238"
 };
 
+const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-le (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-be (buff 16))",
+    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
+    example: "",
+};
+
+const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-int (string-ascii|string-utf8))",
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to a signed integer.",
+    example: "",
+};
+
+const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-uint (string-ascii|string-utf8))",
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to a unsigned integer.",
+    example: "",
+};
+
+const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-ascii (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-ascii` string value.",
+    example: "",
+};
+
+const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-utf8 (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-utf8` string value.",
+    example: "",
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -487,38 +543,6 @@ const FILTER_API: SpecialAPI = SpecialAPI {
     description: "The `filter` function applies the input function `func` to each element of the
 input list, and returns the same list with any elements removed for which the `func` returned `false`.",
     example: "(filter not (list true false true false)) ;; Returns (false false)"
-};
-
-const BUFF_TO_INT_LE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "int",
-    signature: "(buff-to-int-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_UINT_LE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "uint",
-    signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_INT_BE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "int",
-    signature: "(buff-to-int-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
-};
-
-const BUFF_TO_UINT_BE_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 16)",
-    output_type: "uint",
-    signature: "(buff-to-uint-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
@@ -1616,6 +1640,14 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &BuffToIntLe, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &IntToUtf8, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
@@ -1635,10 +1667,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         SetVar => make_for_special(&SET_VAR_API, name),
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
-        BuffToIntLe => make_for_special(&BUFF_TO_INT_LE_API, name),
-        BuffToUIntLe => make_for_special(&BUFF_TO_UINT_LE_API, name),
-        BuffToIntBe => make_for_special(&BUFF_TO_INT_BE_API, name),
-        BuffToUIntBe => make_for_special(&BUFF_TO_UINT_BE_API, name),
         Fold => make_for_special(&FOLD_API, name),
         Append => make_for_special(&APPEND_API, name),
         Concat => make_for_special(&CONCAT_API, name),
