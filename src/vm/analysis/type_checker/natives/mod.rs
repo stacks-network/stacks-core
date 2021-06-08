@@ -579,7 +579,7 @@ impl TypedNativeFunction {
                     )],
                     returns: TypeSignature::IntType,
                 })))
-            }
+            },
             BuffToUIntLe | BuffToUIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
@@ -589,7 +589,7 @@ impl TypedNativeFunction {
                     )],
                     returns: TypeSignature::UIntType,
                 })))
-            }
+            },
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
