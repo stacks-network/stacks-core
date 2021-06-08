@@ -190,7 +190,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
             | BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe
-            | StringToInt | StringToUInt | IntToAscii | IntToUtf8 | Len | Begin
+            | StringToInt | StringToUInt | IntToAscii | IntToUtf8 |
+            Len | Begin
             | TupleMerge => self.check_all(args),
             // we need to treat all the remaining functions specially, because these
             //   do not eval all of their arguments (rather, one or more of their arguments
