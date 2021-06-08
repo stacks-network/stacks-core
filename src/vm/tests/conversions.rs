@@ -65,12 +65,12 @@ fn test_simple_buff_to_int_le() {
 
 #[test]
 fn test_simple_buff_to_uint_le() {
-    // For little endian, 01 at the end should be interpreted as the least significant bit.
+    // For little endian, 0001 at the beginning should be interpreted as the least significant bit.
     let good1_test = "(buff-to-uint-le 0x00010000000000000000000000000000)";
     let good1_expected = Value::UInt(256);
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For unsigned conversion, all ff's should be large positive.
+    // For unsigned conversion, all ff's should be max positive.
     let good2_test = "(buff-to-uint-le 0xffffffffffffffffffffffffffffffff)";
     let good2_expected = Value::UInt(u128::MAX);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
@@ -105,9 +105,9 @@ fn test_simple_buff_to_uint_le() {
 
 #[test]
 fn test_simple_buff_to_int_be() {
-    // For big-endian, 01 at the end should be interpreted as least significant bit.
-    let good1_test = "(buff-to-int-be 0x00000000000000000000000000000100)";
-    let good1_expected = Value::Int(256);
+    // For big-endian, 0100 at the end should be interpreted as least significant bits.
+    let good1_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
+    let good1_expected = Value::UInt(256);
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
     // For signed conversion, all ff's should be negative.
@@ -145,12 +145,12 @@ fn test_simple_buff_to_int_be() {
 
 #[test]
 fn test_simple_buff_to_uint_be() {
-    // For big-endian, 01 at the end should be interpreted as least significant bit.
-    let good1_test = "(buff-to-uint-be 0x00000000000000000000000000000001)";
-    let good1_expected = Value::UInt(1);
+    // For big-endian, 0100 at the end should be interpreted as least significant bits.
+    let good1_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
+    let good1_expected = Value::UInt(256);
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For unsigned conversion, all ff's should be large positive.
+    // For unsigned conversion, all ff's should be max positive.
     let good2_test = "(buff-to-uint-be 0xffffffffffffffffffffffffffffffff)";
     let good2_expected = Value::UInt(u128::MAX);
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
