@@ -2153,6 +2153,7 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
+        pub epochs: Option<Vec<StacksEpoch>>,
     }
 
     impl TestPeerConfig {
@@ -2207,6 +2208,7 @@ pub mod test {
                 initial_lockups: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
+                epochs: None,
             }
         }
 
@@ -2325,13 +2327,18 @@ pub mod test {
 
             config.burnchain = burnchain.clone();
 
+            let epochs = config
+                .epochs
+                .clone()
+                .unwrap_or_else(|| StacksEpoch::unit_test(config.burnchain.first_block_height));
+
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
                 config.burnchain.first_block_height,
                 &config.burnchain.first_block_hash,
                 0,
-                &StacksEpoch::unit_test(config.burnchain.first_block_height),
-                PoxConstants::test_default(),
+                &epochs,
+                burnchain.pox_constants.clone(),
                 true,
             )
             .unwrap();

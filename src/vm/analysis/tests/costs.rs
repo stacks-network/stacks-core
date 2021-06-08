@@ -115,6 +115,15 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB_2_1,
         );
+
+        conn.as_transaction(|conn| {
+            conn.with_clarity_db(|db| {
+                db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+                Ok(())
+            })
+        })
+        .unwrap();
+
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&other_contract_id, contract_other)

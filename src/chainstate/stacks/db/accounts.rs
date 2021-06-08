@@ -269,7 +269,7 @@ impl StacksChainState {
     }
 
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
-    pub fn pox_lock(
+    pub fn pox_lock_v1(
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
         lock_amount: u128,
@@ -279,6 +279,11 @@ impl StacksChainState {
         assert!(lock_amount > 0);
 
         let mut snapshot = db.get_stx_balance_snapshot(principal);
+        if snapshot.balance().was_locked_by_v2() {
+            warn!("PoX Lock attempted on an account locked by v2");
+            return Err(Error::DefunctPoxContract);
+        }
+
         if snapshot.has_locked_tokens() {
             return Err(Error::PoxAlreadyLocked);
         }

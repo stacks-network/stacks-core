@@ -627,6 +627,14 @@ impl STXBalance {
         unlocked.checked_add(locked).expect("STX overflow")
     }
 
+    pub fn was_locked_by_v2(&self) -> bool {
+        if let STXBalance::LockedPoxTwo { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn has_locked_tokens_at_burn_block(
         &self,
         burn_block_height: u64,

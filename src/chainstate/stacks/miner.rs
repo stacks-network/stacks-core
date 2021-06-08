@@ -1122,6 +1122,8 @@ impl StacksBlockBuilder {
         );
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
+        let burn_tip_height =
+            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
         let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
         let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
@@ -1181,6 +1183,8 @@ impl StacksBlockBuilder {
             parent_microblocks.len(),
             t2.saturating_sub(t1)
         );
+
+        StacksChainState::process_epoch_transition(&mut tx, burn_tip_height + 1)?;
 
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
         StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);

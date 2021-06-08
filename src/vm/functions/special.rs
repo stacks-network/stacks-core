@@ -32,6 +32,7 @@ use crate::types::chainstate::StacksMicroblockHeader;
 use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use chainstate::stacks::Error as ChainstateError;
 
 use util::hash::Hash160;
 
@@ -71,7 +72,7 @@ fn parse_pox_stacking_result(
 }
 
 /// Handle special cases when calling into the PoX API contract
-fn handle_pox_api_contract_call(
+fn handle_pox_v1_api_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
     function_name: &str,
@@ -96,7 +97,7 @@ fn handle_pox_api_contract_call(
             Ok((stacker, locked_amount, unlock_height)) => {
                 // if this fails, then there's a bug in the contract (since it already does
                 // the necessary checks)
-                match StacksChainState::pox_lock(
+                match StacksChainState::pox_lock_v1(
                     &mut global_context.database,
                     &stacker,
                     locked_amount,
@@ -112,6 +113,9 @@ fn handle_pox_api_contract_call(
                                 }),
                             ));
                         }
+                    }
+                    Err(ChainstateError::DefunctPoxContract) => {
+                        return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
                     }
                     Err(e) => {
                         panic!(
@@ -143,7 +147,16 @@ pub fn handle_contract_call_special_cases(
     result: &Value,
 ) -> Result<()> {
     if *contract_id == boot_code_id("pox", global_context.mainnet) {
-        return handle_pox_api_contract_call(global_context, sender, function_name, result);
+        if global_context.database.get_v1_unlock_height()
+            <= global_context.database.get_current_burnchain_block_height()
+        {
+            warn!("PoX-1 Lock attempted on an account after v1 unlock height";
+                  "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+            );
+            return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
+        }
+        return handle_pox_v1_api_contract_call(global_context, sender, function_name, result);
     }
     // TODO: insert more special cases here, as needed
     Ok(())

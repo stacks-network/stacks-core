@@ -56,31 +56,31 @@ use clarity_vm::clarity::Error as ClarityError;
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
 lazy_static! {
-    static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
+    pub static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH
     );
-    static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
-    static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
+    pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
+    pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
-    static ref USER_KEYS: Vec<StacksPrivateKey> =
+    pub static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
-    static ref POX_ADDRS: Vec<Value> = (0..50u64)
+    pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
         .map(|ix| execute(&format!(
             "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
-    static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
-    static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
+    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    pub static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
         &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
     )
     .unwrap();
-    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
+    pub static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
+    pub static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {
@@ -108,18 +108,18 @@ impl From<&StacksPrivateKey> for Value {
     }
 }
 
-struct ClarityTestSim {
+pub struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
     epoch_bounds: Vec<u64>,
 }
 
-struct TestSimHeadersDB {
+pub struct TestSimHeadersDB {
     height: u64,
 }
 
-struct TestSimBurnStateDB {
+pub struct TestSimBurnStateDB {
     epoch_bounds: Vec<u64>,
 }
 

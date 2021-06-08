@@ -427,7 +427,9 @@ impl StacksChainState {
 }
 
 #[cfg(test)]
-mod contract_tests;
+pub mod contract_tests;
+#[cfg(test)]
+pub mod pox_2_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -576,7 +578,7 @@ pub mod test {
         key_to_stacks_addr(&StacksPrivateKey::new())
     }
 
-    fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
+    pub fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
         StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -586,13 +588,23 @@ pub mod test {
         .unwrap()
     }
 
-    fn instantiate_pox_peer<'a>(
+    pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
         port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None)
+    }
+
+    pub fn instantiate_pox_peer_with_epoch<'a>(
+        burnchain: &Burnchain,
+        test_name: &str,
+        port: u16,
+        epochs: Option<Vec<StacksEpoch>>,
+    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
+        peer_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
@@ -636,7 +648,7 @@ pub mod test {
         (peer, keys.to_vec())
     }
 
-    fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
+    pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -680,7 +692,7 @@ pub mod test {
         value
     }
 
-    fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
+    pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
@@ -689,7 +701,7 @@ pub mod test {
         }
     }
 
-    fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
+    pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
         let value = eval_at_tip(
             peer,
             "pox",
@@ -702,7 +714,7 @@ pub mod test {
         }
     }
 
-    fn get_stacker_info(
+    pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
     ) -> Option<(u128, (AddressHashMode, Hash160), u128, u128)> {
@@ -730,7 +742,7 @@ pub mod test {
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
-    fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
+    pub fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
     where
         F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
     {
@@ -740,7 +752,7 @@ pub mod test {
         r
     }
 
-    fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+    pub fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -788,7 +800,7 @@ pub mod test {
         )
     }
 
-    fn make_pox_lockup(
+    pub fn make_pox_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
@@ -832,7 +844,7 @@ pub mod test {
         tx_signer.get_tx().unwrap()
     }
 
-    fn make_pox_contract_call(
+    pub fn make_pox_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
         function_name: &str,
@@ -1023,7 +1035,7 @@ pub mod test {
         make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
-    fn get_reward_addresses_with_par_tip(
+    pub fn get_reward_addresses_with_par_tip(
         state: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -1038,7 +1050,7 @@ pub mod test {
             })
     }
 
-    fn get_parent_tip(
+    pub fn get_parent_tip(
         parent_opt: &Option<&StacksBlock>,
         chainstate: &StacksChainState,
         sortdb: &SortitionDB,
@@ -1451,7 +1463,10 @@ pub mod test {
         }
     }
 
-    fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
+    pub fn get_par_burn_block_height(
+        state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) -> u64 {
         let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();

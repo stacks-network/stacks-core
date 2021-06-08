@@ -650,7 +650,7 @@ impl<'a> ClarityBlockConnection<'a> {
                 .unwrap();
             tx_conn
                 .initialize_smart_contract(
-                    &boot_code_id("pox", mainnet),
+                    &boot_code_id("pox-2", mainnet),
                     &ast,
                     pox_2_code,
                     None,
