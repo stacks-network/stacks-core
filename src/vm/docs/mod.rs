@@ -201,28 +201,28 @@ const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "",
 };
 
-const STRING_TO_INT_API: SpecialAPI = SpecialAPI {
+const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 name: None,
     signature: "",
     description: "",
     example: "",
 };
 
-const STRING_TO_UINT_API: SpecialAPI = SpecialAPI {
+const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 name: None,
     signature: "",
     description: "",
     example: "",
 };
 
-const INT_TO_ASCII_API: SpecialAPI = SpecialAPI {
+const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
 name: None,
     signature: "",
     description: "",
     example: "",
 };
 
-const INT_TO_UTF8_API: SpecialAPI = SpecialAPI {
+const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
 name: None,
     signature: "",
     description: "",
