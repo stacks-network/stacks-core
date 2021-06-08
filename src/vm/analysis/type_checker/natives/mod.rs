@@ -570,18 +570,26 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
-            BuffToIntLe | BuffToIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                    BufferLength(16),
-                ))],
-                TypeSignature::IntType,
-            ))),
-            BuffToUIntLe | BuffToUIntBe => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                    BufferLength(16),
-                ))],
-                TypeSignature::UIntType,
-            ))),
+            BuffToIntLe | BuffToIntBe => {
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        ClarityName::try_from("value".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    )],
+                    returns: TypeSignature::IntType,
+                })))
+            }
+            BuffToUIntLe | BuffToUIntBe => {
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        ClarityName::try_from("value".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    )],
+                    returns: TypeSignature::UIntType,
+                })))
+            }
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
