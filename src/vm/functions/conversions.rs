@@ -95,3 +95,120 @@ pub fn native_buff_to_int_be(value: Value) -> Result<Value> {
 pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
     return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint);
 }
+
+pub fn special_string_to_int_generic(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+    conversion_fn: fn(String) -> Result<Value>,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::BuffToInt, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+            let as_string = String::from_utf8(data).unwrap();
+            return conversion_fn(as_string);
+        }
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
+            let flat = data.into_iter().flatten().collect();
+            let as_string = String::from_utf8(flat).unwrap();
+            return conversion_fn(as_string);
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
+}
+
+pub fn special_string_to_int(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    fn convert_to_int(raw_string: String) -> Result<Value> {
+        let possible_int = raw_string.parse::<i128>();
+        match possible_int {
+            Ok(val) => return Ok(Value::Int(val)),
+            Err(error) => return Err(CheckErrors::ValueError("int".to_string(), raw_string).into()),
+        }
+    }
+    return special_string_to_int_generic(args, env, context, convert_to_int);
+}
+
+pub fn special_string_to_uint(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    fn convert_to_uint(raw_string: String) -> Result<Value> {
+        let possible_int = raw_string.parse::<u128>();
+        match possible_int {
+            Ok(val) => return Ok(Value::UInt(val)),
+            Err(error) => {
+                return Err(CheckErrors::ValueError("uint".to_string(), raw_string).into())
+            }
+        }
+    }
+    return special_string_to_int_generic(args, env, context, convert_to_uint);
+}
+
+pub fn special_int_to_string_generic(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+    conversion_fn: fn(String) -> Value,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::IntToString, env, 0)?;
+    let mut sequence = eval(&args[0], env, context)?;
+    match sequence {
+        Value::Int(ref int_value) => {
+            let as_string = int_value.to_string();
+            let value = conversion_fn(as_string);
+            return Ok(value);
+        }
+        Value::UInt(ref uint_value) => {
+            let as_string = uint_value.to_string();
+            let value = conversion_fn(as_string);
+            return Ok(value);
+        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&sequence)).into()),
+    };
+}
+
+pub fn special_int_to_ascii(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // Given a string representing an integer, convert this to Clarity ASCII value.
+    fn convert_to_ascii(raw_string: String) -> Value {
+        let data_vec = raw_string.as_bytes().to_vec();
+        return Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+            data: data_vec,
+        })));
+    }
+    return special_int_to_string_generic(args, env, context, convert_to_ascii);
+}
+
+pub fn special_int_to_utf8(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // Given a string representing an integer, convert this to Clarity UTF8 value.
+    // The conversion of an integer into a string is going to be ASCII-compliant, therefor, we just need
+    // to wrap each individual character in another vector.
+    fn convert_to_utf8(raw_string: String) -> Value {
+        let data_vec = raw_string.as_bytes().to_vec();
+        let mut wrapped_vec = Vec::new();
+        for i in data_vec {
+            let mut inner_vec = Vec::new();
+            inner_vec.push(i);
+            wrapped_vec.push(inner_vec);
+        }
+        return Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+            data: wrapped_vec,
+        })));
+    }
+    return special_int_to_string_generic(args, env, context, convert_to_utf8);
+}

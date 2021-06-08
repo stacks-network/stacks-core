@@ -201,6 +201,34 @@ const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "",
 };
 
+const STRING_TO_INT_API: SpecialAPI = SpecialAPI {
+name: None,
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const STRING_TO_UINT_API: SpecialAPI = SpecialAPI {
+name: None,
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const INT_TO_ASCII_API: SpecialAPI = SpecialAPI {
+name: None,
+    signature: "",
+    description: "",
+    example: "",
+};
+
+const INT_TO_UTF8_API: SpecialAPI = SpecialAPI {
+name: None,
+    signature: "",
+    description: "",
+    example: "",
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -1616,6 +1644,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &IntToUtf8, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
