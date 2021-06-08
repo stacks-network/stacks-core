@@ -464,7 +464,7 @@ inputted value.",
 
 const MAP_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B, ..., N) -> X, sequence_A, sequence_B, ..., sequence_N",
-    output_type: "sequence_X",
+    output_type: "(list X)",
     signature: "(map func sequence_A sequence_B ... sequence_N)",
     description: "The `map` function applies the function `func` to each corresponding element of the input sequences,
 and outputs a _list_ of the same type containing the outputs from those function applications.
@@ -591,7 +591,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
-    output_type: "A",
+    output_type: "(optional A)",
     signature: "(element-at sequence index)",
     description: "The `element-at` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
