@@ -16,18 +16,13 @@
 
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::execute_v2;
-use vm::types::ASCIIData;
-use vm::types::BufferLength;
-use vm::types::CharType;
-use vm::types::SequenceData;
 use vm::types::SequenceSubtype::{BufferType, StringType};
-use vm::types::StringSubtype;
 use vm::types::StringSubtype::{ASCII, UTF8};
-use vm::types::StringUTF8Length;
-use vm::types::TypeSignature;
 use vm::types::TypeSignature::SequenceType;
-use vm::types::UTF8Data;
-use vm::types::Value;
+use vm::types::{
+    ASCIIData, BufferLength, CharType, SequenceData, StringSubtype, StringUTF8Length,
+    TypeSignature, UTF8Data, Value,
+};
 use vm::ClarityVersion;
 
 #[test]

@@ -18,13 +18,10 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::types::BufferLength;
-use vm::types::CharType;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
-use vm::types::{ASCIIData, UTF8Data};
-use vm::types::{SequenceData, TypeSignature, Value};
+use vm::types::{ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,7 +110,7 @@ pub fn native_string_to_int_generic(
             return conversion_fn(as_string);
         }
         _ => {
-            return return Err(CheckErrors::UnionTypeError(
+            return Err(CheckErrors::UnionTypeError(
                 vec![
                     TypeSignature::max_string_ascii(),
                     TypeSignature::max_string_utf8(),
