@@ -16,17 +16,18 @@
 
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::execute_v2;
+use vm::types::ASCIIData;
 use vm::types::BufferLength;
+use vm::types::CharType;
+use vm::types::SequenceData;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype;
-use vm::types::StringUTF8Length;
 use vm::types::StringSubtype::{ASCII, UTF8};
-use vm::types::TypeSignature::SequenceType;
+use vm::types::StringUTF8Length;
 use vm::types::TypeSignature;
+use vm::types::TypeSignature::SequenceType;
+use vm::types::UTF8Data;
 use vm::types::Value;
-use vm::types::SequenceData;
-use vm::types::CharType;
-use vm::types::ASCIIData;
 use vm::ClarityVersion;
 
 #[test]
@@ -212,8 +213,8 @@ fn test_simple_string_to_int() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeError(
             vec![
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
             ],
             TypeSignature::IntType
         )
@@ -246,8 +247,8 @@ fn test_simple_string_to_uint() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeError(
             vec![
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
             ],
             TypeSignature::IntType
         )
@@ -255,11 +256,52 @@ fn test_simple_string_to_uint() {
     );
 }
 
-
 #[test]
 fn test_simple_int_to_ascii() {
     let good1_test = r#"(int-to-ascii -1)"#;
-    let good1_expected = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {data:"-1".as_bytes().to_vec()})));
-    // let good1_expected = Value::Sequence(SequenceData::String(CharType::ASCII("-1")));
+    let good1_expected = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: "-1".as_bytes().to_vec(),
+    })));
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+
+    let no_args_test = r#"(int-to-ascii)"#;
+    assert_eq!(
+        execute_v2(no_args_test).unwrap_err(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into()
+    );
+
+    let wrong_type_error_test = r#"(int-to-ascii "1")"#;
+    assert_eq!(
+        execute_v2(wrong_type_error_test).unwrap_err(),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            SequenceType(StringType(ASCII(BufferLength(1))))
+        )
+        .into()
+    );
+}
+
+#[test]
+fn test_simple_int_to_utf8() {
+    let good1_test = r#"(int-to-utf8 1)"#;
+    let good1_expected = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+        data: vec!["1".as_bytes().to_vec()],
+    })));
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
+
+    let no_args_test = r#"(int-to-utf8)"#;
+    assert_eq!(
+        execute_v2(no_args_test).unwrap_err(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into()
+    );
+
+    let wrong_type_error_test = r#"(int-to-utf8 "1")"#;
+    assert_eq!(
+        execute_v2(wrong_type_error_test).unwrap_err(),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            SequenceType(StringType(ASCII(BufferLength(1))))
+        )
+        .into()
+    );
 }
