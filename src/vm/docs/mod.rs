@@ -202,28 +202,28 @@ const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-name: None,
+    name: None,
     signature: "",
     description: "",
     example: "",
 };
 
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-name: None,
+    name: None,
     signature: "",
     description: "",
     example: "",
 };
 
 const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
-name: None,
+    name: None,
     signature: "",
     description: "",
     example: "",
 };
 
 const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
-name: None,
+    name: None,
     signature: "",
     description: "",
     example: "",

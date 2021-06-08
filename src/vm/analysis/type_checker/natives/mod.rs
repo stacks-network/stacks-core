@@ -22,9 +22,9 @@ use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
 use vm::types::SequenceSubtype::{BufferType, StringType};
+use vm::types::StringSubtype;
 use vm::types::StringSubtype::{ASCII, UTF8};
 use vm::types::TypeSignature::SequenceType;
-use vm::types::StringSubtype;
 use vm::types::{
     BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
     PrincipalData, SequenceSubtype, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32,
@@ -599,17 +599,11 @@ impl TypedNativeFunction {
                 TypeSignature::UIntType,
             ))),
             IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                ],
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
                 TypeSignature::max_string_ascii(),
             ))),
             IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                ],
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
                 TypeSignature::max_string_utf8(),
             ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {

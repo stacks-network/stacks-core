@@ -19,13 +19,13 @@ use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::types::BufferLength;
+use vm::types::CharType;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
+use vm::types::{ASCIIData, UTF8Data};
 use vm::types::{SequenceData, TypeSignature, Value};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
-use vm::types::CharType;
-use vm::types::{ASCIIData, UTF8Data};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {
@@ -98,7 +98,10 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
     return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint);
 }
 
-pub fn native_string_to_int_generic(value: Value, conversion_fn: fn(String) -> Result<Value>) -> Result<Value> {
+pub fn native_string_to_int_generic(
+    value: Value,
+    conversion_fn: fn(String) -> Result<Value>,
+) -> Result<Value> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             let as_string = String::from_utf8(data).unwrap();
@@ -129,15 +132,16 @@ pub fn native_string_to_uint(value: Value) -> Result<Value> {
         let possible_int = raw_string.parse::<u128>();
         match possible_int {
             Ok(val) => return Ok(Value::UInt(val)),
-            Err(error) => {
-                return Err(CheckErrors::InvalidCharactersDetected.into())
-            }
+            Err(error) => return Err(CheckErrors::InvalidCharactersDetected.into()),
         }
     }
     return native_string_to_int_generic(value, convert_to_uint);
 }
 
-pub fn native_int_to_string_generic(value: Value, conversion_fn: fn(String) -> Value) -> Result<Value> {
+pub fn native_int_to_string_generic(
+    value: Value,
+    conversion_fn: fn(String) -> Value,
+) -> Result<Value> {
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();

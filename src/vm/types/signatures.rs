@@ -640,16 +640,19 @@ impl TypeSignature {
     pub fn max_string_ascii() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
             BufferLength(
-            u32::try_from(MAX_VALUE_SIZE)
-                .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type"))
+                u32::try_from(MAX_VALUE_SIZE)
+                    .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type"),
+            ),
         )))
     }
 
     pub fn max_string_utf8() -> TypeSignature {
-        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(StringUTF8Length(
-            u32::try_from(MAX_VALUE_SIZE)
-                .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type")
-        ))))
+        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            StringUTF8Length(
+                u32::try_from(MAX_VALUE_SIZE)
+                    .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type"),
+            ),
+        )))
     }
 
     pub fn max_buffer() -> TypeSignature {
