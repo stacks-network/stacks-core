@@ -67,9 +67,7 @@ pub fn buff_to_int_generic(
                 return Ok(value);
             }
         }
-        _ => {
-            return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into())
-        }
+        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into()),
     };
 }
 
