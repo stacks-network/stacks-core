@@ -68,11 +68,7 @@ pub fn buff_to_int_generic(
             }
         }
         _ => {
-            return Err(CheckErrors::UnionTypeError(
-                vec![TypeSignature::IntType, TypeSignature::UIntType],
-                TypeSignature::type_of(&value),
-            )
-            .into())
+            return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into())
         }
     };
 }
