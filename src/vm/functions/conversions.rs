@@ -67,7 +67,13 @@ pub fn buff_to_int_generic(
                 return Ok(value);
             }
         }
-        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into()),
+        _ => {
+            return Err(CheckErrors::UnionTypeError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::type_of(&value),
+            )
+            .into())
+        }
     };
 }
 
@@ -112,7 +118,16 @@ pub fn native_string_to_int_generic(
             let as_string = String::from_utf8(flat).unwrap();
             return conversion_fn(as_string);
         }
-        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into()),
+        _ => {
+            return return Err(CheckErrors::UnionTypeError(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::type_of(&value),
+            )
+            .into())
+        }
     };
 }
 
@@ -153,7 +168,13 @@ pub fn native_int_to_string_generic(
             let value = conversion_fn(as_string);
             return Ok(value);
         }
-        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into()),
+        _ => {
+            return Err(CheckErrors::UnionTypeError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::type_of(&value),
+            )
+            .into())
+        }
     };
 }
 
