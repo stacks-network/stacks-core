@@ -1024,10 +1024,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                             println!("Aborted: {}", data.data);
                         }
                     } else {
-                        panic!(format!(
+                        panic!(
                             "Expected a ResponseType result from transaction. Found: {}",
                             x
-                        ));
+                        );
                     }
                 }
                 Err(error) => {
