@@ -52,14 +52,22 @@ fn test_simple_buff_to_int_le() {
     let bad_wrong_type_test = "(buff-to-int-le \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(10))))
+        )
+        .into()
     );
 
     // Right number of arguments but buffer is too large.
     let bad_too_large_test = "(buff-to-int-le 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17)))
+        )
+        .into()
     );
 }
 
@@ -92,14 +100,22 @@ fn test_simple_buff_to_uint_le() {
     let bad_wrong_type_test = "(buff-to-uint-le \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(10))))
+        )
+        .into()
     );
 
     // Right number of arguments but buffer is too large.
     let bad_too_large_test = "(buff-to-uint-le 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17)))
+        )
+        .into()
     );
 }
 
@@ -132,14 +148,22 @@ fn test_simple_buff_to_int_be() {
     let bad_wrong_type_test = "(buff-to-int-be \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(10))))
+        )
+        .into()
     );
 
     // Right number of arguments but buffer is too large.
     let bad_too_large_test = "(buff-to-int-be 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17)))
+        )
+        .into()
     );
 }
 
@@ -172,13 +196,21 @@ fn test_simple_buff_to_uint_be() {
     let bad_wrong_type_test = "(buff-to-uint-be \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(10))))
+        )
+        .into()
     );
 
     // Right number of arguments but buffer is too large.
     let bad_too_large_test = "(buff-to-uint-be 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(17)))).into()
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17)))
+        )
+        .into()
     );
 }

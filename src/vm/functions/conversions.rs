@@ -48,7 +48,11 @@ pub fn buff_to_int_generic(
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len() > BufferLength(16) {
-                return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into());
+                return Err(CheckErrors::TypeError(
+                    SequenceType(BufferType(BufferLength(16))),
+                    TypeSignature::type_of(&value),
+                )
+                .into());
             } else {
                 let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let mut original_slice = sequence_data.as_slice().to_vec();
@@ -65,7 +69,13 @@ pub fn buff_to_int_generic(
                 return Ok(value);
             }
         }
-        _ => return Err(CheckErrors::ExpectedBuffer16(TypeSignature::type_of(&value)).into()),
+        _ => {
+            return Err(CheckErrors::TypeError(
+                SequenceType(BufferType(BufferLength(16))),
+                TypeSignature::type_of(&value),
+            )
+            .into())
+        }
     };
 }
 
