@@ -146,6 +146,11 @@ impl RunLoop {
             .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
+            match burnchain.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
+
             let utxos =
                 burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
             if utxos.is_none() {
