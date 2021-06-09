@@ -176,29 +176,49 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-int-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
+    description: "Converts a byte buffer to a signed integer use a little-endian encoding.",
+    example: r#"
+(buff-to-int-le 0x01) ;; Returns 1
+(buff-to-int-le 0x01000000000000000000000000000000) ;; Returns 1
+(buff-to-int-le 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-le 0x) ;; Returns 0
+"#,
 };
 
 const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.",
+    example: r#"
+(buff-to-uint-le 0x01) ;; Returns u1
+(buff-to-uint-le 0x01000000000000000000000000000000) ;; Returns u1
+(buff-to-uint-le 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-int-le 0x) ;; Returns 0
+"#,
 };
 
 const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-int-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
+    description: "Converts a byte buffer to a signed integer use a big-endian encoding.",
+    example: r#"
+(buff-to-int-be 0x01) ;; Returns 1
+(buff-to-int-be 0x00000000000000000000000000000001) ;; Returns 1
+(buff-to-int-be 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-le 0x) ;; Returns 0
+"#,
 };
 
 const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-uint-be (buff 16))",
-    description: "Converts a 16-byte buffer to a signed integer use a little-endian encoding.",
-    example: "",
+    description: "Converts a byte buffer to an unsigned integer use a big-endian encoding.",
+    example: r#"
+(buff-to-uint-be 0x01) ;; Returns u1
+(buff-to-uint-be 0x00000000000000000000000000000001) ;; Returns u1
+(buff-to-uint-be 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-int-le 0x) ;; Returns 0
+"#,
 };
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -1918,7 +1938,7 @@ mod test {
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context =
-            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity1);
+            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity2);
         let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
 
         global_context
