@@ -352,10 +352,23 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
-        let cur_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
-        let next_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
+        let cur_cycle_pox_contract =
+            pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
+        let next_cycle_pox_contract = pox_consts
+            .active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id + 1));
+
+        let cur_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
+            &sortdb,
+            tip,
+            reward_cycle_id as u128,
+            cur_cycle_pox_contract,
+        )?;
+        let next_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
+            &sortdb,
+            tip,
+            reward_cycle_id as u128 + 1,
+            next_cycle_pox_contract,
+        )?;
 
         let reward_slots = pox_consts.reward_slots() as u64;
 

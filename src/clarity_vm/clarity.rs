@@ -43,12 +43,15 @@ use vm::types::{
     TypeSignature, Value,
 };
 
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
+use crate::{
+    burnchains::Burnchain,
+    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
+};
 use crate::{
     clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
 };
@@ -631,6 +634,11 @@ impl<'a> ClarityBlockConnection<'a> {
 
     pub fn initialize_epoch_2_1(&mut self) -> Result<(), Error> {
         let mainnet = self.mainnet;
+        let first_block_height = self.burn_state_db.get_burn_start_height();
+        let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+        let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+        let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+
         self.as_transaction(|tx_conn| {
             tx_conn
                 .with_clarity_db(|db| {
@@ -645,18 +653,31 @@ impl<'a> ClarityBlockConnection<'a> {
                 &*BOOT_CODE_POX_TESTNET
             };
 
+            let pox_2_contract_id = boot_code_id("pox-2", mainnet);
             let (ast, _) = tx_conn
-                .analyze_smart_contract(&boot_code_id("pox-2", mainnet), pox_2_code)
+                .analyze_smart_contract(&pox_2_contract_id, pox_2_code)
                 .unwrap();
             tx_conn
-                .initialize_smart_contract(
-                    &boot_code_id("pox-2", mainnet),
-                    &ast,
-                    pox_2_code,
+                .initialize_smart_contract(&pox_2_contract_id, &ast, pox_2_code, None, |_, _| false)
+                .unwrap();
+
+            let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
+            let params = vec![
+                Value::UInt(first_block_height as u128),
+                Value::UInt(pox_prepare_length as u128),
+                Value::UInt(pox_reward_cycle_length as u128),
+                Value::UInt(pox_rejection_fraction as u128),
+            ];
+            tx_conn
+                .run_contract_call(
+                    &consts_setter,
                     None,
+                    &pox_2_contract_id,
+                    "set-burnchain-parameters",
+                    &params,
                     |_, _| false,
                 )
-                .unwrap();
+                .expect("Failed to set burnchain parameters in PoX-2 contract");
         });
         Ok(())
     }

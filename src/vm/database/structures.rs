@@ -407,6 +407,41 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    pub fn lock_tokens_v2(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        // caller needs to have checked this
+        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            panic!("FATAL: cannot set a lock with expired unlock burn height");
+        }
+
+        if self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account already has locked tokens");
+        }
+
+        // from `unlock_available_tokens_if_any` call above, `self.balance` should
+        //  be canonicalized already
+
+        let new_amount_unlocked = self
+            .balance
+            .get_total_balance()
+            .checked_sub(amount_to_lock)
+            .expect("STX underflow");
+
+        self.balance = STXBalance::LockedPoxTwo {
+            amount_unlocked: new_amount_unlocked,
+            amount_locked: amount_to_lock,
+            unlock_height: unlock_burn_height,
+        };
+    }
+
     /// Unlock any tokens that are unlockable at the current
     ///  burn block height, and return the amount newly unlocked
     fn unlock_available_tokens_if_any(&mut self) -> u128 {

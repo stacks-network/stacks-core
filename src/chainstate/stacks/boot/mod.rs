@@ -196,10 +196,11 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         tip: &StacksBlockId,
         reward_cycle: u128,
+        pox_contract: &str,
     ) -> Result<u128, Error> {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = boot::boot_code_id(pox_contract, mainnet);
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
@@ -241,11 +242,12 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
+        pox_contract: &str,
     ) -> Result<bool, Error> {
         self.eval_boot_code_read_only(
             sortdb,
             stacks_block_id,
-            "pox",
+            pox_contract,
             &format!("(is-pox-active u{})", reward_cycle),
         )
         .map(|value| value.expect_bool())
@@ -354,7 +356,13 @@ impl StacksChainState {
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
 
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128)? {
+        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(reward_cycle_start_height);
+
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, pox_contract_name)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -362,17 +370,19 @@ impl StacksChainState {
             return Ok(vec![]);
         }
 
+        info!("Using pox_contract = {}", pox_contract_name);
+
         // how many in this cycle?
         let num_addrs = self
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
-                "pox",
+                pox_contract_name,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
 
-        debug!(
+        info!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
             block_id, reward_cycle, num_addrs
         );
@@ -385,7 +395,7 @@ impl StacksChainState {
                 .eval_boot_code_read_only(
                     sortdb,
                     block_id,
-                    "pox",
+                    pox_contract_name,
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
@@ -414,8 +424,8 @@ impl StacksChainState {
                 false => hash_mode.to_version_testnet(),
             };
 
-            test_debug!(
-                "PoX reward address (for {} ustx): {:?}",
+            info!(
+                "PoX reward address (for {} ustx): {}",
                 total_ustx,
                 &StacksAddress::new(version, hash)
             );
@@ -823,6 +833,34 @@ pub mod test {
                 Value::UInt(lock_period),
             ],
         )
+    }
+
+    pub fn make_pox_2_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr_version: AddressHashMode,
+        addr_bytes: Hash160,
+        lock_period: u128,
+        burn_ht: u64,
+    ) -> StacksTransaction {
+        // (define-public (stack-stx (amount-ustx uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        //                           (lock-period uint))
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox-2",
+            "stack-stx",
+            vec![
+                Value::UInt(amount),
+                make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(burn_ht as u128),
+                Value::UInt(lock_period),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
     }
 
     fn make_tx(

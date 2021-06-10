@@ -37,6 +37,7 @@ use vm::types::{
 };
 
 use crate::{
+    burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     util::boot::boot_code_id,
 };
@@ -121,6 +122,7 @@ pub struct TestSimHeadersDB {
 
 pub struct TestSimBurnStateDB {
     epoch_bounds: Vec<u64>,
+    pox_constants: PoxConstants,
 }
 
 impl ClarityTestSim {
@@ -171,6 +173,7 @@ impl ClarityTestSim {
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
             };
 
             Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -202,6 +205,7 @@ impl ClarityTestSim {
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
             };
 
             Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -338,6 +342,18 @@ impl BurnStateDB for TestSimBurnStateDB {
 
     fn get_v1_unlock_height(&self) -> u32 {
         u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.pox_constants.prepare_length
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.pox_constants.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.pox_constants.pox_rejection_fraction
     }
 }
 

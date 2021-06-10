@@ -319,7 +319,9 @@ pub struct PoxConstants {
     pub sunset_end: u64,
     /// first block height of sunset phase
     pub sunset_start: u64,
-    /// the auto unlock height for PoX v1 lockups before transition to PoX v2
+    /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
+    /// also defines the burn height at which PoX reward sets are calculated using
+    /// PoX v2 rather than v1
     pub v1_unlock_height: u32,
     _shadow: PhantomData<()>,
 }
@@ -355,6 +357,15 @@ impl PoxConstants {
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
         PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
+    }
+
+    /// Returns the PoX contract that is "active" at the given burn block height
+    pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
+        if burn_height >= (self.v1_unlock_height as u64) {
+            "pox-2"
+        } else {
+            "pox"
+        }
     }
 
     pub fn reward_slots(&self) -> u32 {

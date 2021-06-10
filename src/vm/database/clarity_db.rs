@@ -98,6 +98,9 @@ pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
     fn get_burn_start_height(&self) -> u32;
+    fn get_pox_prepare_length(&self) -> u32;
+    fn get_pox_reward_cycle_length(&self) -> u32;
+    fn get_pox_rejection_fraction(&self) -> u64;
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -153,6 +156,18 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch(height)
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        (*self).get_pox_prepare_length()
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        (*self).get_pox_reward_cycle_length()
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        (*self).get_pox_rejection_fraction()
     }
 }
 
@@ -261,6 +276,18 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_v1_unlock_height(&self) -> u32 {
         u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        panic!("NullBurnStateDB should not return PoX info");
     }
 }
 
