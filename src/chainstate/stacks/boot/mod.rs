@@ -370,7 +370,7 @@ impl StacksChainState {
             return Ok(vec![]);
         }
 
-        info!("Using pox_contract = {}", pox_contract_name);
+        debug!("Using pox_contract = {}", pox_contract_name);
 
         // how many in this cycle?
         let num_addrs = self
@@ -382,7 +382,7 @@ impl StacksChainState {
             )?
             .expect_u128();
 
-        info!(
+        debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
             block_id, reward_cycle, num_addrs
         );
@@ -424,7 +424,7 @@ impl StacksChainState {
                 false => hash_mode.to_version_testnet(),
             };
 
-            info!(
+            debug!(
                 "PoX reward address (for {} ustx): {}",
                 total_ustx,
                 &StacksAddress::new(version, hash)

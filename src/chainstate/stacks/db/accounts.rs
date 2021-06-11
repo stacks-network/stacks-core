@@ -288,7 +288,7 @@ impl StacksChainState {
         }
         snapshot.lock_tokens_v2(lock_amount, unlock_burn_height);
 
-        info!(
+        debug!(
             "PoX v2 lock applied";
             "pox_locked_ustx" => snapshot.balance().amount_locked(),
             "available_ustx" => snapshot.balance().amount_unlocked(),
@@ -311,9 +311,9 @@ impl StacksChainState {
         assert!(lock_amount > 0);
 
         let mut snapshot = db.get_stx_balance_snapshot(principal);
-        info!("{:?}", snapshot.balance());
+
         if snapshot.balance().was_locked_by_v2() {
-            warn!("PoX Lock attempted on an account locked by v2");
+            debug!("PoX Lock attempted on an account locked by v2");
             return Err(Error::DefunctPoxContract);
         }
 
@@ -326,7 +326,7 @@ impl StacksChainState {
         snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
 
         debug!(
-            "PoX lock applied";
+            "PoX v1 lock applied";
             "pox_locked_ustx" => snapshot.balance().amount_locked(),
             "available_ustx" => snapshot.balance().amount_unlocked(),
             "unlock_burn_height" => unlock_burn_height,
