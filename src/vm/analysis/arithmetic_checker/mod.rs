@@ -160,7 +160,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<Result<(), Error>> {
-        NativeFunctions::lookup_by_name_before_version(function, self.clarity_version)
+        NativeFunctions::lookup_by_name_at_version(function, self.clarity_version)
             .map(|function| self.check_native_function(function, args))
     }
 

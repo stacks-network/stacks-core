@@ -359,7 +359,9 @@ fn eval_all(
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity1);
+    let version = ClarityVersion::Clarity1;
+    info!("Executing program using Clarity version = {}", version);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
