@@ -3303,7 +3303,6 @@ impl SortitionDB {
             &u64_to_sql(burn_block_height)?,
             &u64_to_sql(burn_block_height)?,
         ];
-        info!("get_stacks_epoch({})", burn_block_height);
         query_row(conn, sql, args)
     }
 }
