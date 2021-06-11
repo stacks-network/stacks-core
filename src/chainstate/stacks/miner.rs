@@ -20,6 +20,7 @@ use std::convert::From;
 use std::fs;
 use std::mem;
 
+use crate::types::StacksPublicKeyBuffer;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
@@ -35,10 +36,7 @@ use chainstate::stacks::*;
 use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use core::*;
-use net::codec::{read_next, write_next};
 use net::Error as net_error;
-use net::StacksMessageCodec;
-use net::StacksPublicKeyBuffer;
 use util::get_epoch_time_ms;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -46,6 +44,7 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
+use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
@@ -832,7 +831,7 @@ impl StacksBlockBuilder {
     ) -> Result<(), Error> {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes)
-            .map_err(Error::NetError)?;
+            .map_err(Error::CodecError)?;
         let tx_len = tx_bytes.len() as u64;
 
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
