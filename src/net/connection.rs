@@ -34,6 +34,8 @@ use std::sync::mpsc::TrySendError;
 use mio;
 use mio::net as mio_net;
 
+use crate::codec::StacksMessageCodec;
+use crate::codec::MAX_MESSAGE_LEN;
 use net::codec::*;
 use net::Error as net_error;
 use net::HttpRequestPreamble;
@@ -44,9 +46,7 @@ use net::Preamble;
 use net::ProtocolFamily;
 use net::RelayData;
 use net::StacksHttp;
-use net::StacksMessageCodec;
 use net::StacksP2P;
-use net::MAX_MESSAGE_LEN;
 
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
 use net::inv::{FULL_INV_SYNC_INTERVAL, INV_REWARD_CYCLES, INV_SYNC_INTERVAL};

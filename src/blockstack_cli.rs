@@ -39,8 +39,9 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
+use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::util::{
     hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
@@ -213,6 +214,12 @@ impl From<ClarityError> for CliError {
 impl From<NetError> for CliError {
     fn from(value: NetError) -> Self {
         CliError::Message(format!("Stacks NetError: {}", value))
+    }
+}
+
+impl From<CodecError> for CliError {
+    fn from(value: CodecError) -> Self {
+        CliError::Message(format!("Stacks CodecError: {}", value))
     }
 }
 
