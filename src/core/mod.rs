@@ -70,8 +70,7 @@ pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
 pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
     "9653c92b1ad726e2dc17862a3786f7438ab9239c16dd8e7aaba8b0b5c34b52af";
 
-// first burnchain block hash
-// TODO: update once we know the true first burnchain block
+/// This is the "dummy" parent to the actual first burnchain block that we process.
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 
 // TODO: TO BE SET BY STACKS_V1_MINER_THRESHOLD
