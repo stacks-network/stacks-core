@@ -162,6 +162,9 @@ pub struct StacksEpochReceipt {
     pub matured_rewards_info: Option<MinerRewardInfo>,
     pub parent_microblocks_cost: ExecutionCost,
     pub anchored_block_cost: ExecutionCost,
+    pub parent_burn_block_hash: BurnchainHeaderHash,
+    pub parent_burn_block_height: u32,
+    pub parent_burn_block_timestamp: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
