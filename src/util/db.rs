@@ -203,6 +203,13 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
     }
 }
 
+impl FromRow<bool> for bool {
+    fn from_row<'a>(row: &'a Row) -> Result<bool, Error> {
+        let x: bool = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     if x > (i64::max_value() as u64) {
         return Err(Error::ParseError);
