@@ -611,7 +611,7 @@ const INDEX_OF_API: SpecialAPI = SpecialAPI {
     output_type: "(optional uint)",
     signature: "(index-of sequence item)",
     description: "The `index-of` function returns the first index at which `item` can be
-found, using `is-eq` checks, in the provided sequence. 
+found, using `is-eq` checks, in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 If the target item is not found in the sequence (or if an empty string or buffer is
