@@ -198,6 +198,27 @@ impl StacksEpoch {
         ]
     }
 
+    #[cfg(test)]
+    pub fn unit_test_2_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: first_burnchain_height,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: first_burnchain_height,
+                end_height: STACKS_EPOCH_MAX,
+            },
+        ]
+    }
+
     pub fn all(first_burnchain_height: u64, epoch_2_1_block_height: u64) -> Vec<StacksEpoch> {
         vec![
             StacksEpoch {
@@ -281,31 +302,3 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
     },
 ];
 
-/// Synchronize burn transactions from the Bitcoin blockchain
-pub fn sync_burnchain_bitcoin(
-    working_dir: &String,
-    network_name: &String,
-) -> Result<u64, burnchain_error> {
-    use burnchains::bitcoin::indexer::BitcoinIndexer;
-    let channels = CoordinatorCommunication::instantiate();
-
-    let mut burnchain =
-        Burnchain::new(working_dir, &"bitcoin".to_string(), network_name).map_err(|e| {
-            error!(
-                "Failed to instantiate burn chain driver for {}: {:?}",
-                network_name, e
-            );
-            e
-        })?;
-
-    let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1, None, None);
-    let new_height = new_height_res.map_err(|e| {
-        error!(
-            "Failed to synchronize Bitcoin chain state for {} in {}",
-            network_name, working_dir
-        );
-        e
-    })?;
-
-    Ok(new_height)
-}
