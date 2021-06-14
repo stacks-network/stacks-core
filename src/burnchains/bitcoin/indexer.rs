@@ -44,7 +44,7 @@ use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use deps::bitcoin::blockdata::block::LoneBlockHeader;
 use deps::bitcoin::network::message::NetworkMessage;
 use deps::bitcoin::network::serialize::BitcoinHash;
-
+use deps::bitcoin::network::serialize::Error as btc_serialization_err;
 use util::log;
 
 pub const USER_AGENT: &'static str = "Stacks/2.0";
@@ -323,6 +323,11 @@ impl BitcoinIndexer {
                 }
                 Err(btc_error::ConnectionBroken) => {
                     do_handshake = true;
+                }
+                Err(btc_error::SerializationError(
+                    btc_serialization_err::UnrecognizedNetworkCommand(s),
+                )) => {
+                    debug!("Received unrecognized network command while receiving a message: {}, ignoring", s);
                 }
                 Err(e) => {
                     warn!("Unhandled error while receiving a message: {:?}", e);
