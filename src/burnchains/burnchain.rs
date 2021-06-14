@@ -525,12 +525,17 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        let mut ret = Burnchain::new(
-            &"/unit-tests".to_string(),
-            &"bitcoin".to_string(),
-            &"mainnet".to_string(),
-        )
-        .unwrap();
+        use rand::rngs::ThreadRng;
+        use rand::thread_rng;
+        use rand::RngCore;
+
+        let mut rng = thread_rng();
+        let mut byte_tail = [0u8; 16];
+        rng.fill_bytes(&mut byte_tail);
+
+        let tmp_path = format!("/tmp/unit-tests-{}", &to_hex(&byte_tail));
+        let mut ret =
+            Burnchain::new(&tmp_path, &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();

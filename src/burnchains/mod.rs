@@ -1134,7 +1134,8 @@ pub mod test {
 
             let blockstack_txs = self.txs.clone();
 
-            let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
+            let burnchain_db =
+                BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
 
             let new_snapshot = sortition_db_handle
                 .process_block_txs(

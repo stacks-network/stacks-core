@@ -310,4 +310,3 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
         end_height: STACKS_EPOCH_MAX,
     },
 ];
-

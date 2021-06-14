@@ -17,7 +17,7 @@
 use std::fmt;
 
 use std::collections::{HashMap, HashSet};
-use std::{cmp, fs, io};
+use std::{cmp, fs, io, path::Path};
 
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
@@ -927,6 +927,13 @@ impl BurnchainDB {
                     // need to create
                     if readwrite {
                         create_flag = true;
+                        let ppath = Path::new(path);
+                        let pparent_path = ppath
+                            .parent()
+                            .expect(&format!("BUG: no parent of '{}'", path));
+                        fs::create_dir_all(&pparent_path)
+                            .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
+
                         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
                     } else {
                         return Err(BurnchainError::from(DBError::NoDBError));
