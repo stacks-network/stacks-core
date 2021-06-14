@@ -3880,7 +3880,6 @@ impl StacksChainState {
                     StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
-                // TODO: also keep track of a real tx_index here and add to receipt
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
