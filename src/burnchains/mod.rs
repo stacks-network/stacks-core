@@ -54,6 +54,7 @@ use self::bitcoin::{
 };
 
 /// This module contains drivers and types for all burn chains we support.
+pub mod affirmation;
 pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
@@ -402,6 +403,44 @@ impl PoxConstants {
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
     }
+
+    pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
+        let effective_height = burn_height - first_block_height;
+        // first block of the new reward cycle
+        (effective_height % (self.reward_cycle_length as u64)) == 1
+    }
+
+    pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
+        // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
+        // mod 0.
+        first_block_height + reward_cycle * (self.reward_cycle_length as u64) + 1
+    }
+
+    pub fn block_height_to_reward_cycle(
+        &self,
+        first_block_height: u64,
+        block_height: u64,
+    ) -> Option<u64> {
+        if block_height < first_block_height {
+            return None;
+        }
+        Some((block_height - first_block_height) / (self.reward_cycle_length as u64))
+    }
+
+    pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
+        if block_height <= first_block_height {
+            // not a reward cycle start if we're the first block after genesis.
+            false
+        } else {
+            let effective_height = block_height - first_block_height;
+            let reward_index = effective_height % (self.reward_cycle_length as u64);
+
+            // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
+            // prepare phase.
+            reward_index == 0
+                || reward_index > ((self.reward_cycle_length - self.prepare_length) as u64)
+        }
+    }
 }
 
 /// Structure for encoding our view of the network
@@ -569,6 +608,7 @@ pub mod test {
     use std::collections::HashMap;
 
     use address::*;
+    use burnchains::bitcoin::indexer::BitcoinIndexer;
     use burnchains::db::*;
     use burnchains::Burnchain;
     use burnchains::*;
@@ -1079,8 +1119,6 @@ pub mod test {
             );
             let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
 
-            // this is basically lifted verbatum from Burnchain::process_block_ops()
-
             test_debug!(
                 "Process block {} {}",
                 block.block_height(),
@@ -1097,6 +1135,8 @@ pub mod test {
                 .expect("FATAL: failed to get burnchain linkage info");
 
             let blockstack_txs = self.txs.clone();
+
+            let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
 
             let new_snapshot = sortition_db_handle
                 .process_block_txs(
@@ -1147,11 +1187,12 @@ pub mod test {
             );
 
             let header = block.header();
+            let indexer: BitcoinIndexer = burnchain.make_indexer().unwrap();
 
             let mut burnchain_db =
                 BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
             burnchain_db
-                .raw_store_burnchain_block(header.clone(), self.txs.clone())
+                .raw_store_burnchain_block(burnchain, &indexer, header.clone(), self.txs.clone())
                 .unwrap();
 
             coord.handle_new_burnchain_block().unwrap();
