@@ -758,14 +758,8 @@ simulating a miner.
         let indexer: BitcoinIndexer = burnchain.make_indexer().unwrap();
         let (mut new_sortition_db, _) = burnchain.connect_db(&indexer, true).unwrap();
 
-        let old_burnchaindb = BurnchainDB::connect(
-            &old_burnchaindb_path,
-            first_burnchain_block_height,
-            &first_burnchain_block_hash,
-            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-            true,
-        )
-        .unwrap();
+        let old_burnchaindb =
+            BurnchainDB::connect(&old_burnchaindb_path, &burnchain, true).unwrap();
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -864,9 +858,11 @@ simulating a miner.
             let BurnchainBlockData {
                 header: burn_block_header,
                 ops: blockstack_txs,
-            } = old_burnchaindb
-                .get_burnchain_block(&old_snapshot.burn_header_hash)
-                .unwrap();
+            } = BurnchainDB::get_burnchain_block(
+                &old_burnchaindb.conn(),
+                &old_snapshot.burn_header_hash,
+            )
+            .unwrap();
             if old_snapshot.parent_burn_header_hash == BurnchainHeaderHash::sentinel() {
                 // skip initial snapshot -- it's a placeholder
                 continue;
