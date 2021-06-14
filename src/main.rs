@@ -44,7 +44,7 @@ use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::*;
-use blockstack_lib::net::StacksMessageCodec;
+use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
 use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
 use blockstack_lib::types::proof::ClarityMarfTrieId;

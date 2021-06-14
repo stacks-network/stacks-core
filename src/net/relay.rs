@@ -54,6 +54,7 @@ use vm::costs::ExecutionCost;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::types::chainstate::{PoxId, SortitionId};
 use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use codec::MAX_PAYLOAD_LEN;
 use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;

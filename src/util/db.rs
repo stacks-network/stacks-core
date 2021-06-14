@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use util::hash::to_hex;
 use util::sleep_ms;
 
-use crate::types::chainstate::BlockHeaderHash;
+use types::chainstate::BlockHeaderHash;
 use vm::types::QualifiedContractIdentifier;
 
 use rusqlite::types::{

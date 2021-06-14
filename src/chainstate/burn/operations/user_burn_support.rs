@@ -17,6 +17,7 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::proof::TrieHash;
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -32,9 +33,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
-use net::codec::write_next;
 use net::Error as net_error;
-use net::StacksMessageCodec;
 use util::db::DBConn;
 use util::db::DBTx;
 use util::hash::Hash160;
@@ -190,20 +189,20 @@ impl StacksMessageCodec for UserBurnSupportOp {
          magic  op consensus hash   proving public key       block hash 160   key blk  key
                 (truncated by 1)                                                        vtxindex
     */
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::UserBurnSupport as u8))?;
         let truncated_consensus = self.consensus_hash.to_bytes();
         fd.write_all(&truncated_consensus[0..19])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(&self.public_key.as_bytes()[..])
-            .map_err(net_error::WriteError)?;
+            .map_err(codec_error::WriteError)?;
         write_next(fd, &self.block_header_hash_160)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportOp, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportOp, codec_error> {
         // Op deserialized through burchain indexer
         unimplemented!();
     }
