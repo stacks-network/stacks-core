@@ -469,7 +469,7 @@ const MAP_API: SpecialAPI = SpecialAPI {
     description: "The `map` function applies the function `func` to each corresponding element of the input sequences,
 and outputs a _list_ of the same type containing the outputs from those function applications.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 The `func` argument must be a literal function name.
 Also, note that, no matter what kind of sequences the inputs are, the output is always a list.",
     example: r#"
@@ -489,7 +489,7 @@ const FILTER_API: SpecialAPI = SpecialAPI {
     description: "The `filter` function applies the input function `func` to each element of the
 input sequence, and returns the same sequence with any elements removed for which `func` returned `false`.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 The `func` argument must be a literal function name.
 ",
     example: r#"
@@ -516,7 +516,7 @@ on. `fold` returns the last value of type `B` returned by these successive
 applications `func`.
 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 The `func` argument must be a literal function name.
 ",
     example: r#"
@@ -595,7 +595,7 @@ const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     signature: "(element-at sequence index)",
     description: "The `element-at` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 ",
     example: r#"
 (element-at "blockstack" u5) ;; Returns (some "s")
@@ -613,7 +613,7 @@ const INDEX_OF_API: SpecialAPI = SpecialAPI {
     description: "The `index-of` function returns the first index at which `item` can be
 found, using `is-eq` checks, in the provided sequence. 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
-for which the corresponding element types are, repsectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 If the target item is not found in the sequence (or if an empty string or buffer is
 supplied), this function returns `none`.
 ",
