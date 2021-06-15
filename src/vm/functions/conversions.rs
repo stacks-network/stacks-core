@@ -48,9 +48,9 @@ pub fn buff_to_int_generic(
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len() > BufferLength(16) {
-                return Err(CheckErrors::TypeError(
+                return Err(CheckErrors::TypeValueError(
                     SequenceType(BufferType(BufferLength(16))),
-                    TypeSignature::type_of(&value),
+                    value,
                 )
                 .into());
             } else {
@@ -70,9 +70,9 @@ pub fn buff_to_int_generic(
             }
         }
         _ => {
-            return Err(CheckErrors::TypeError(
+            return Err(CheckErrors::TypeValueError(
                 SequenceType(BufferType(BufferLength(16))),
-                TypeSignature::type_of(&value),
+                value,
             )
             .into())
         }
