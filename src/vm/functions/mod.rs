@@ -48,6 +48,7 @@ mod crypto;
 mod database;
 pub mod define;
 mod options;
+mod principals;
 mod sequences;
 mod special;
 pub mod tuples;
