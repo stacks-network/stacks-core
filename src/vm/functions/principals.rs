@@ -13,7 +13,7 @@ use vm::{eval, Environment, LocalContext};
 use vm::database::ClarityDatabase;
 use vm::database::STXBalance;
 
-pub fn special_stx_transfer(
+pub fn special_principal_matches(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,

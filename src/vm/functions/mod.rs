@@ -87,6 +87,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
+    PrincipalMatches("principal-matches", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -297,6 +298,8 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
+            PrincipalMatches => SpecialFunction(
+                "special_principal_matches", &principals::special_principal_matches),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
