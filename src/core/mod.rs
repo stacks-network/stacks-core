@@ -144,32 +144,3 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 
     env::var(fault_name) == Ok("1".to_string())
 }
-
-/// Synchronize burn transactions from the Bitcoin blockchain
-pub fn sync_burnchain_bitcoin(
-    working_dir: &String,
-    network_name: &String,
-) -> Result<u64, burnchain_error> {
-    use burnchains::bitcoin::indexer::BitcoinIndexer;
-    let channels = CoordinatorCommunication::instantiate();
-
-    let mut burnchain =
-        Burnchain::new(working_dir, &"bitcoin".to_string(), network_name).map_err(|e| {
-            error!(
-                "Failed to instantiate burn chain driver for {}: {:?}",
-                network_name, e
-            );
-            e
-        })?;
-
-    let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1, None, None);
-    let new_height = new_height_res.map_err(|e| {
-        error!(
-            "Failed to synchronize Bitcoin chain state for {} in {}",
-            network_name, working_dir
-        );
-        e
-    })?;
-
-    Ok(new_height)
-}
