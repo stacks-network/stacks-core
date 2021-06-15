@@ -181,6 +181,9 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe  => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
             | Keccak256 => {
                 return Err(Error::FunctionNotPermitted(function));
@@ -189,7 +192,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | Len | Begin
+            | Len | Begin
             | TupleMerge => {
                 // Check all arguments.
                 self.check_all(args)

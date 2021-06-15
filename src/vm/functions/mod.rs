@@ -275,22 +275,25 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BuffToIntLe => NativeFunction(
                 "native_buff_to_int_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
-                // TODO: Create a dedicated cost fn for all BuffToInt-type functions.
+                // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
             BuffToUIntLe => NativeFunction(
                 "native_buff_to_uint_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
             BuffToIntBe => NativeFunction(
                 "native_buff_to_int_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
             BuffToUIntBe => NativeFunction(
                 "native_buff_to_uint_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),

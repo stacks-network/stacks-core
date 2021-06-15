@@ -176,7 +176,10 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-int-le (buff 16))",
-    description: "Converts a byte buffer to a signed integer use a little-endian encoding.",
+    description: "Converts a byte buffer to a signed integer use a little-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.",
     example: r#"
 (buff-to-int-le 0x01) ;; Returns 1
 (buff-to-int-le 0x01000000000000000000000000000000) ;; Returns 1
@@ -188,7 +191,10 @@ const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.",
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.",
     example: r#"
 (buff-to-uint-le 0x01) ;; Returns u1
 (buff-to-uint-le 0x01000000000000000000000000000000) ;; Returns u1
@@ -200,7 +206,10 @@ const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-int-be (buff 16))",
-    description: "Converts a byte buffer to a signed integer use a big-endian encoding.",
+    description: "Converts a byte buffer to a signed integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.",
     example: r#"
 (buff-to-int-be 0x01) ;; Returns 1
 (buff-to-int-be 0x00000000000000000000000000000001) ;; Returns 1
@@ -212,7 +221,10 @@ const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(buff-to-uint-be (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a big-endian encoding.",
+    description: "Converts a byte buffer to an unsigned integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.",
     example: r#"
 (buff-to-uint-be 0x01) ;; Returns u1
 (buff-to-uint-be 0x00000000000000000000000000000001) ;; Returns u1
