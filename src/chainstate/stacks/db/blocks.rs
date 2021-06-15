@@ -709,9 +709,10 @@ impl StacksChainState {
             StacksChainState::get_staging_block_status(blocks_db, consensus_hash, block_hash)?
                 .map(|processed| !processed);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         match staging_status_opt {
             Some(staging_status) => {
+                let index_block_hash =
+                    StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
                 if staging_status {
                     // not processed yet
                     test_debug!(
@@ -728,7 +729,7 @@ impl StacksChainState {
                 }
             }
             None => {
-                // no row in the DB, so not processet at all.
+                // no row in the DB, so not processed at all.
                 Ok(false)
             }
         }
@@ -2203,8 +2204,6 @@ impl StacksChainState {
             consensus_hash,
             anchored_block_hash,
         )?;
-        let _block_path =
-            StacksChainState::make_block_dir(blocks_path, consensus_hash, anchored_block_hash)?;
 
         let rows = query_rows::<StagingBlock, _>(tx, &sql, args).map_err(Error::DBError)?;
         let block = match rows.len() {
@@ -4906,7 +4905,13 @@ impl StacksChainState {
         let block_size = next_staging_block.block_data.len() as u64;
 
         // sanity check -- don't process this block again if we already did so
-        if StacksChainState::has_stored_block(
+        if StacksChainState::has_stacks_block(
+            chainstate_tx.tx.deref().deref(),
+            &StacksBlockHeader::make_index_block_hash(
+                &next_staging_block.consensus_hash,
+                &next_staging_block.anchored_block_hash,
+            ),
+        )? || StacksChainState::has_stored_block(
             chainstate_tx.tx.deref().deref(),
             &blocks_path,
             &next_staging_block.consensus_hash,
@@ -6264,7 +6269,9 @@ pub mod test {
         )
         .unwrap();
         assert!(fs::metadata(&path).is_ok());
-        assert!(StacksChainState::has_stored_block(
+
+        // empty block is considered _not_ stored
+        assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
@@ -6282,7 +6289,8 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -6309,9 +6317,30 @@ pub mod test {
         )
         .unwrap());
 
-        StacksChainState::store_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block)
-            .unwrap();
-        assert!(fs::metadata(&path).is_ok());
+        assert!(!StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
+        store_staging_block(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block,
+            &ConsensusHash([2u8; 20]),
+            1,
+            2,
+        );
+
+        set_block_processed(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+            true,
+        );
+
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -6319,6 +6348,7 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
+
         assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
@@ -6353,6 +6383,7 @@ pub mod test {
             &block.header,
         );
 
+        // database determines that it's still there
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -6360,6 +6391,48 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
+        assert!(StacksChainState::load_block(
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap()
+        .is_none());
+
+        set_block_processed(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+            false,
+        );
+
+        // still technically stored -- we processed it
+        assert!(StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
+        let mut dbtx = chainstate.db_tx_begin().unwrap();
+        StacksChainState::forget_orphaned_epoch_data(
+            &mut dbtx,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+        )
+        .unwrap();
+        dbtx.commit().unwrap();
+
+        // *now* it's not there
+        assert!(!StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
         assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),

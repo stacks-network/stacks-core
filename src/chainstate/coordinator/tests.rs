@@ -3365,14 +3365,11 @@ fn test_pox_affirmation_fork_duel() {
     let mut fork_start = 0;
     let mut sortition_fork_start = 0;
 
-    // setup:
-    // sort:1                   6                     11                      16                       21
-    //      |----- rc 0 --------|------- rc 1 --------|----- rc 2 ------------|-------- rc 3 ----------|----- rc 4
-    // ix:  X - 0 - 1 - 2 - 3 - 4 ------------------- 10 - 11 - 12 - 13 - 14 ------------------------- 20 - 21
-    //           \________________ 5 _ 6 _ 7 _ 8 _ 9 ________________________ 15 _ 16 _ 17 _ 18 _ 19
+    // setup (sortitions block height, with Stacks blocks):
     //
-    // 2 - 3 - 4 ------------------- 10 - 11 - 12 - 13 - 14 - 15 ------------------------ 21 - 22 - 23 - 24 - 25
-    //  \________ 5 _ 6 _ 7 _ 8 _ 9 _____________________________ 16 _ 17 _ 18 _ 19 _ 20 ________________________ 26 _ 27 _ 28 _ 29
+    // not blind: 2 - 3 - 4 ------------------- 10 - 11 - 12 - 13 - 14 - 15 ------------------------ 21 - 22 - 23 - 24 - 25
+    // blind:      \________ 5 _ 6 _ 7 _ 8 _ 9 _____________________________ 16 _ 17 _ 18 _ 19 _ 20 ________________________ 26 _ 27 _ 28 _ 29
+    //
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let burnchain_blind = get_burnchain_db(path_blinded, pox_consts.clone());
