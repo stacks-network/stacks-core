@@ -27,6 +27,7 @@ use std::ops::DerefMut;
 use rusqlite::Error as RusqliteError;
 use sha2::{Digest, Sha512Trunc256};
 
+use crate::codec::MAX_MESSAGE_LEN;
 use address::AddressHashMode;
 use burnchains::Txid;
 use chainstate::burn::operations::LeaderBlockCommitOp;
@@ -36,9 +37,7 @@ use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::index::Error as marf_error;
 use clarity_vm::clarity::Error as clarity_error;
-use net::codec::{read_next, write_next};
 use net::Error as net_error;
-use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::hash::Hash160;
@@ -55,6 +54,7 @@ use vm::errors::Error as clarity_interpreter_error;
 use vm::representations::{ClarityName, ContractName};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
 };
@@ -158,6 +158,7 @@ pub enum Error {
     ClarityError(clarity_error),
     DBError(db_error),
     NetError(net_error),
+    CodecError(codec_error),
     MARFError(marf_error),
     ReadError(io::Error),
     WriteError(io::Error),
@@ -182,6 +183,12 @@ impl From<clarity_error> for Error {
 impl From<net_error> for Error {
     fn from(e: net_error) -> Error {
         Error::NetError(e)
+    }
+}
+
+impl From<codec_error> for Error {
+    fn from(e: codec_error) -> Error {
+        Error::CodecError(e)
     }
 }
 
@@ -213,6 +220,7 @@ impl fmt::Display for Error {
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
+            Error::CodecError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ReadError(ref e) => fmt::Display::fmt(e, f),
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
@@ -244,6 +252,7 @@ impl error::Error for Error {
             Error::ClarityError(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
+            Error::CodecError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
             Error::ReadError(ref e) => Some(e),
             Error::WriteError(ref e) => Some(e),
@@ -275,6 +284,7 @@ impl Error {
             Error::ClarityError(ref _e) => "ClarityError",
             Error::DBError(ref _e) => "DBError",
             Error::NetError(ref _e) => "NetError",
+            Error::CodecError(ref _e) => "CodecError",
             Error::MARFError(ref _e) => "MARFError",
             Error::ReadError(ref _e) => "ReadError",
             Error::WriteError(ref _e) => "WriteError",

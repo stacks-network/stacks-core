@@ -8,9 +8,10 @@ use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
-use stacks::net::{GetIsTraitImplementedResponse, StacksMessageCodec};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
 use stacks::vm::{

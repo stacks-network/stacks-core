@@ -14,6 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::borrow::Borrow;
+use std::collections::HashMap;
+use std::convert::{TryFrom, TryInto};
+use std::io::{Read, Write};
+use std::{error, fmt, str};
+
+use serde_json::Value as JSONValue;
+
+use util::hash::{hex_bytes, to_hex};
+use util::retry::BoundReader;
 use vm::database::{ClarityDeserializable, ClaritySerializable};
 use vm::errors::{
     CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
@@ -26,17 +36,7 @@ use vm::types::{
     TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
 };
 
-use net::{Error as NetError, StacksMessageCodec};
-
-use serde_json::Value as JSONValue;
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
-use util::hash::{hex_bytes, to_hex};
-use util::retry::BoundReader;
-
-use std::io::{Read, Write};
-use std::{error, fmt, str};
+use crate::codec::{Error as codec_error, StacksMessageCodec};
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -261,14 +261,14 @@ impl PrincipalData {
 }
 
 impl StacksMessageCodec for PrincipalData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.inner_consensus_serialize(fd)
-            .map_err(NetError::WriteError)
+            .map_err(codec_error::WriteError)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, NetError> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, codec_error> {
         PrincipalData::inner_consensus_deserialize(fd)
-            .map_err(|e| NetError::DeserializeError(e.to_string()))
+            .map_err(|e| codec_error::DeserializeError(e.to_string()))
     }
 }
 
@@ -665,12 +665,14 @@ impl ClarityDeserializable<Value> for Value {
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
-    use super::SerializationError;
     use std::io::Write;
+
     use vm::database::ClaritySerializable;
     use vm::errors::Error;
     use vm::types::TypeSignature::{BoolType, IntType};
+
+    use super::super::*;
+    use super::SerializationError;
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
