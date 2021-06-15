@@ -132,6 +132,7 @@ define_named_enum!(NativeFunctions {
     GetStxBalance("stx-get-balance"),
     StxTransfer("stx-transfer?"),
     StxBurn("stx-burn?"),
+    NoOp("no-op"),
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
@@ -397,6 +398,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
+            NoOp => SpecialFunction("special_no_op", &boolean::special_no_op),
         };
         Some(callable)
     } else {
