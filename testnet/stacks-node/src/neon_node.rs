@@ -499,6 +499,7 @@ fn run_microblock_tenure(
     relayer: &mut Relayer,
     miner_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
     microblocks_processed: BlocksProcessedCounter,
+    event_dispatcher: &EventDispatcher,
 ) {
     // TODO: this is sensitive to poll latency -- can we call this on a fixed
     // schedule, regardless of network activity?
@@ -531,7 +532,7 @@ fn run_microblock_tenure(
         // apply it
         let microblock_hash = next_microblock.block_hash();
 
-        Relayer::refresh_unconfirmed(chainstate, sortdb);
+        let processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         let num_mblocks = chainstate
             .unconfirmed_state
             .as_ref()
@@ -543,6 +544,11 @@ fn run_microblock_tenure(
             &microblock_hash, num_mblocks
         );
         set_processed_counter(&microblocks_processed, num_mblocks);
+
+        let parent_index_block_hash =
+            StacksBlockHeader::make_index_block_hash(parent_consensus_hash, parent_block_hash);
+        event_dispatcher
+            .process_new_microblocks(parent_index_block_hash, processed_unconfirmed_state);
 
         // send it off
         if let Err(e) =
@@ -1075,7 +1081,8 @@ fn spawn_miner_relayer(
                             &mem_pool,
                             &mut relayer,
                             (ch, bh, mblock_pkey),
-                            microblocks_processed.clone()
+                            microblocks_processed.clone(),
+                            &event_dispatcher
                         );
 
                         // synchronize unconfirmed tx index to p2p thread

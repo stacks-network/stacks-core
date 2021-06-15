@@ -769,6 +769,31 @@ impl Node {
 
             parent_consensus_hash
         };
+
+        // get previous burn block stats
+        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
+            if anchored_block.is_first_mined() {
+                (BurnchainHeaderHash([0; 32]), 0, 0)
+            } else {
+                match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
+                    .unwrap()
+                {
+                    Some(sn) => (
+                        sn.burn_header_hash,
+                        sn.block_height as u32,
+                        sn.burn_header_timestamp,
+                    ),
+                    None => {
+                        // shouldn't happen
+                        warn!(
+                            "CORRUPTION: block {}/{} does not correspond to a burn block",
+                            &parent_consensus_hash, &anchored_block.header.parent_block
+                        );
+                        (BurnchainHeaderHash([0; 32]), 0, 0)
+                    }
+                }
+            };
+
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
@@ -841,6 +866,9 @@ impl Node {
             Txid([0; 32]),
             vec![],
             None,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
         );
 
         self.chain_tip = Some(chain_tip.clone());
