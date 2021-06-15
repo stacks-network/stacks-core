@@ -947,14 +947,7 @@ impl Node {
         burnchain_tip: &BurnchainTip,
         vrf_seed: VRFSeed,
     ) -> BlockstackOperationType {
-        let winning_tx_vtindex = match (
-            burnchain_tip.get_winning_tx_index(),
-            burnchain_tip.block_snapshot.total_burn,
-        ) {
-            (Some(winning_tx_id), _) => winning_tx_id,
-            (None, 0) => 0,
-            _ => unreachable!(),
-        };
+        let winning_tx_vtindex = burnchain_tip.get_winning_tx_index().unwrap_or(0);
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
