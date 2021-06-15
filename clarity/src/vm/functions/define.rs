@@ -30,10 +30,14 @@ use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TupleTypeSignature, TypeSignature, Value,
 };
+use rand::distributions::{Alphanumeric, Distribution};
+use rand::{thread_rng, Rng};
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryFrom;
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
+    ConstantBench("define-constant-bench"),
     PrivateFunction("define-private"),
     PublicFunction("define-public"),
     ReadOnlyFunction("define-read-only"),
@@ -48,6 +52,10 @@ define_named_enum!(DefineFunctions {
 
 pub enum DefineFunctionsParsed<'a> {
     Constant {
+        name: &'a ClarityName,
+        value: &'a SymbolicExpression,
+    },
+    ConstantBench {
         name: &'a ClarityName,
         value: &'a SymbolicExpression,
     },
@@ -118,6 +126,27 @@ fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<
     }
 }
 
+#[derive(Debug)]
+pub struct Alphabetic;
+
+impl Distribution<char> for Alphabetic {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> char {
+        const RANGE: u32 = 26 + 26;
+        const GEN_ASCII_STR_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                abcdefghijklmnopqrstuvwxyz";
+        // We can pick from 52 characters. This is so close to a power of 2, 64,
+        // that we can do better than `Uniform`. Use a simple bitshift and
+        // rejection sampling. We do not use a bitmask, because for small RNGs
+        // the most significant bits are usually of higher quality.
+        loop {
+            let var = rng.next_u32() >> (32 - 6);
+            if var < RANGE {
+                return GEN_ASCII_STR_CHARSET[var as usize] as char;
+            }
+        }
+    }
+}
+
 fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
@@ -128,6 +157,26 @@ fn handle_define_variable(
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
+}
+
+fn handle_define_variable_bench(
+    variable: &ClarityName,
+    expression: &SymbolicExpression,
+    env: &mut Environment,
+) -> Result<DefineResult> {
+    let rand_string: String = thread_rng()
+        .sample_iter(&Alphabetic)
+        .take(variable.len() as usize)
+        .map(char::from)
+        .collect();
+
+    let clarity_name = ClarityName::try_from(rand_string).unwrap();
+
+    // is the variable name legal?
+    check_legal_define(&*clarity_name, &env.contract_context)?;
+    let context = LocalContext::new();
+    let value = eval(expression, env, &context)?;
+    Ok(DefineResult::Variable(clarity_name, value))
 }
 
 fn handle_define_function(
@@ -296,6 +345,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                     value: &args[1],
                 }
             }
+            DefineFunctions::ConstantBench => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::ConstantBench {
+                    name,
+                    value: &args[1],
+                }
+            }
             DefineFunctions::PrivateFunction => {
                 check_argument_count(2, args)?;
                 let signature = args[0]
@@ -406,6 +463,9 @@ pub fn evaluate_define(
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {
                 handle_define_variable(name, value, env)
+            }
+            DefineFunctionsParsed::ConstantBench { name, value } => {
+                handle_define_variable_bench(name, value, env)
             }
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
                 handle_define_function(signature, body, env, DefineType::Private)

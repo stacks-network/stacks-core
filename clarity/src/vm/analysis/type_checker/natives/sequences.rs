@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
@@ -33,7 +33,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 use crate::vm::ClarityVersion;
 
-fn get_simple_native_or_user_define(
+pub fn get_simple_native_or_user_define(
     function_name: &str,
     checker: &mut TypeChecker,
 ) -> CheckResult<FunctionType> {
@@ -106,6 +106,43 @@ pub fn check_special_map(
     }
 
     let mapped_type = function_type.check_args(checker, &func_args, checker.clarity_version)?;
+    TypeSignature::list_of(mapped_type, min_args)
+        .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+}
+
+pub fn bench_analysis_iterable_function_helper(
+    checker: &mut TypeChecker,
+    arg_types: &[TypeSignature],
+    context: &TypingContext,
+) -> TypeResult {
+    let function_type = FunctionType::RandomVariadic;
+
+    let mut func_args = vec![];
+    let mut min_args = u32::MAX;
+    for argument_type in arg_types.iter() {
+        let entry_type = match argument_type {
+            TypeSignature::SequenceType(sequence) => {
+                let (entry_type, len) = match sequence {
+                    ListType(list_data) => unimplemented!(),
+                    BufferType(buffer_data) => (TypeSignature::min_buffer(), buffer_data.into()),
+                    StringType(ASCII(ascii_data)) => {
+                        (TypeSignature::min_string_ascii(), ascii_data.into())
+                    }
+                    StringType(UTF8(utf8_data)) => {
+                        (TypeSignature::min_string_utf8(), utf8_data.into())
+                    }
+                };
+                min_args = min_args.min(len);
+                entry_type
+            }
+            _ => {
+                return Err(CheckErrors::ExpectedSequence(argument_type.clone()).into());
+            }
+        };
+        func_args.push(entry_type);
+    }
+
+    let mapped_type = function_type.check_args(checker, &func_args, ClarityVersion::latest())?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }

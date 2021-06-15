@@ -618,6 +618,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         }
+        FunctionType::RandomVariadic => "int, ... | uint, ...".to_string(),
     }
 }
 
@@ -628,7 +629,8 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
-        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        | FunctionType::ArithmeticBinary
+        | FunctionType::RandomVariadic => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
     }
 }
@@ -2126,7 +2128,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
         Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
         Print => make_for_special(&PRINT_API, name),
-        ContractCall => make_for_special(&CONTRACT_CALL_API, name),
+        ContractCall | ContractCallBench => make_for_special(&CONTRACT_CALL_API, name),
         ContractOf => make_for_special(&CONTRACT_OF_API, name),
         PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
@@ -2164,6 +2166,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, name),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, name),
+        NoOp => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }
 
@@ -2211,6 +2214,7 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     let name = define_type.get_name();
     match define_type {
         Constant => make_for_define(&DEFINE_CONSTANT_API, name),
+        ConstantBench => make_for_define(&DEFINE_CONSTANT_API, name),
         PrivateFunction => make_for_define(&DEFINE_PRIVATE_API, name),
         PublicFunction => make_for_define(&DEFINE_PUBLIC_API, name),
         Map => make_for_define(&DEFINE_MAP_API, name),

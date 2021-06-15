@@ -137,6 +137,25 @@ fn test_index_of() {
 }
 
 #[test]
+fn test_no_op() {
+    let good = [
+        "(no-op (list 1 2 3 4 5) u100)",
+        "(no-op \"abcd\")",
+        "(no-op)",
+        "(no-op none true u\"abcd\" u100)",
+    ];
+
+    let expected = ["true", "true", "true", "true"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", execute(&good_test).unwrap().unwrap())
+        );
+    }
+}
+
+#[test]
 fn test_element_at() {
     let good = [
         "(element-at (list 1 2 3 4 5) u100)",

@@ -207,6 +207,53 @@ impl DefinedFunction {
         }
     }
 
+    pub fn bench_execute_apply(&self, args: &[Value]) -> Result<()> {
+        let mut context = LocalContext::new();
+        if args.len() != self.arguments.len() {
+            Err(CheckErrors::IncorrectArgumentCount(
+                self.arguments.len(),
+                args.len(),
+            ))?
+        }
+
+        let mut arg_iterator: Vec<_> = self
+            .arguments
+            .iter()
+            .zip(self.arg_types.iter())
+            .zip(args.iter())
+            .collect();
+
+        for arg in arg_iterator.drain(..) {
+            let ((name, type_sig), value) = arg;
+
+            match (type_sig, value) {
+                (
+                    TypeSignature::TraitReferenceType(trait_identifier),
+                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                ) => {
+                    // Argument is a trait reference, probably leading to a dynamic contract call
+                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                    // The code fetching and checking the trait is implemented in the contract_call eval function.
+                    context.callable_contracts.insert(
+                        name.clone(),
+                        (callee_contract_id.clone(), trait_identifier.clone()),
+                    );
+                }
+                _ => {
+                    if !type_sig.admits(value) {
+                        return Err(
+                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
+                        );
+                    }
+                    if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
+                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn check_trait_expectations(
         &self,
         contract_defining_trait: &ContractContext,

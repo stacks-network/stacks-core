@@ -149,6 +149,7 @@ impl TraitsResolver {
                     self.probe_for_generics(args, &mut referenced_traits, true)?;
                 }
                 DefineFunctions::Constant
+                | DefineFunctions::ConstantBench
                 | DefineFunctions::Map
                 | DefineFunctions::PersistedVariable
                 | DefineFunctions::FungibleToken
