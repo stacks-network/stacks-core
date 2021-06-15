@@ -684,6 +684,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         }
+        FunctionType::RandomVariadic => "int, ... | uint, ...".to_string(),
     }
 }
 
@@ -694,7 +695,8 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
-        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        | FunctionType::ArithmeticBinary
+        | FunctionType::RandomVariadic => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
     }
 }
@@ -2354,6 +2356,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
+        NoOp => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        ContractCallBench => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }
 
@@ -2413,6 +2417,7 @@ pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     let name = define_type.get_name();
     match define_type {
         Constant => make_for_define(&DEFINE_CONSTANT_API, name),
+        ConstantBench => make_for_define(&DEFINE_CONSTANT_API, name),
         PrivateFunction => make_for_define(&DEFINE_PRIVATE_API, name),
         PublicFunction => make_for_define(&DEFINE_PUBLIC_API, name),
         Map => make_for_define(&DEFINE_MAP_API, name),

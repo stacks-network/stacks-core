@@ -35,16 +35,20 @@ use crate::vm::ClarityVersion;
 mod tests;
 
 pub struct DefinitionSorter {
-    graph: Graph,
+    pub graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
 }
 
 impl<'a> DefinitionSorter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             top_level_expressions_map: HashMap::new(),
             graph: Graph::new(),
         }
+    }
+
+    pub fn clear_graph(&mut self) {
+        self.graph = Graph::new();
     }
 
     pub fn run_pass<T: CostTracker>(
@@ -149,7 +153,7 @@ impl<'a> DefinitionSorter {
                             DefineFunctions::lookup_by_name(function_name)
                         {
                             match define_function {
-                                DefineFunctions::PersistedVariable | DefineFunctions::Constant => {
+                                DefineFunctions::PersistedVariable | DefineFunctions::Constant | DefineFunctions::ConstantBench => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
                                     if function_args.len() > 1 {
                                         for expr in
@@ -238,7 +242,7 @@ impl<'a> DefinitionSorter {
                             NativeFunctions::lookup_by_name_at_version(function_name, &version)
                         {
                             match native_function {
-                                NativeFunctions::ContractCall => {
+                                NativeFunctions::ContractCall | NativeFunctions::ContractCallBench => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
                                     if function_args.len() > 2 {
                                         for expr in function_args[2..].iter() {
@@ -405,7 +409,7 @@ pub struct TopLevelExpressionIndex {
     atom_index: u64,
 }
 
-struct Graph {
+pub struct Graph {
     adjacency_list: Vec<Vec<usize>>,
 }
 
@@ -437,7 +441,7 @@ impl Graph {
         self.adjacency_list.len()
     }
 
-    fn edges_count(&self) -> ParseResult<u64> {
+    pub fn edges_count(&self) -> ParseResult<u64> {
         let mut total: u64 = 0;
         for node in self.adjacency_list.iter() {
             total = total

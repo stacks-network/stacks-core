@@ -108,7 +108,8 @@ impl CoverageReporter {
                 if let Some(define_expr) = DefineFunctionsParsed::try_parse(cur_expr).ok().flatten()
                 {
                     match define_expr {
-                        DefineFunctionsParsed::Constant { name: _, value } => {
+                        DefineFunctionsParsed::Constant { name: _, value }
+                        | DefineFunctionsParsed::ConstantBench { name: _, value } => {
                             frontier.push(value);
                         }
                         DefineFunctionsParsed::PrivateFunction { signature: _, body }

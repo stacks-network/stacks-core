@@ -1986,14 +1986,24 @@ fn test_buffer_to_ints() {
             SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
     ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+    }
+}
+
+fn test_no_op() {
+    let good = [
+        "(no-op 67)",
+        "(no-op 0x0001)",
+        "(no-op true false (list 4 5))",
+        "(no-op)",
+    ];
+
+    let expected = ["bool", "bool", "bool", "bool"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
         assert_eq!(expected, &type_sig.to_string());
-    }
-
-    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
     }
 }
 

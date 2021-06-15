@@ -173,6 +173,10 @@ impl TypeMap {
     pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
         self.map.get(&expr.id)
     }
+
+    pub fn delete_all(&mut self) {
+        self.map.clear()
+    }
 }
 
 impl ContractContext {
@@ -280,6 +284,10 @@ impl ContractContext {
         self.check_name_used(&const_name)?;
         self.variable_types.insert(const_name, var_type);
         Ok(())
+    }
+
+    pub fn clear_variable_types(&mut self) {
+        self.variable_types.clear();
     }
 
     pub fn add_persisted_variable_type(

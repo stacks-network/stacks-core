@@ -1189,6 +1189,24 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         })
     }
 
+    pub fn load_contract_for_bench(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<()> {
+        let contract_size = self
+            .global_context
+            .database
+            .get_contract_size(contract_identifier)?;
+
+        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
+        self.global_context.add_memory(contract_size)?;
+        self.global_context
+            .database
+            .get_contract(contract_identifier)?;
+
+        Ok(())
+    }
+
     pub fn execute_function_as_transaction(
         &mut self,
         function: &DefinedFunction,

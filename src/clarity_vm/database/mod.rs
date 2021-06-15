@@ -206,7 +206,7 @@ fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentS
     .expect("Unexpected SQL failure querying payment table")
 }
 
-fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
+pub fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
     let parent_id_bhh = conn
         .query_row(
             "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?",
@@ -539,7 +539,8 @@ impl MemoryBackingStore {
 
 impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        // Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        Ok(bhh)
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
@@ -557,6 +558,13 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
             Some(StacksBlockId::sentinel())
+        } else if height == 5 {
+            Some(
+                StacksBlockId::from_hex(
+                    "a731334e4a306e07a26d1b81f853692a96b22fabba3e69551afadeab61ad44b3",
+                )
+                .unwrap(),
+            )
         } else {
             None
         }
