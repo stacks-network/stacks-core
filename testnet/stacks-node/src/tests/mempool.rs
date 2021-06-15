@@ -8,9 +8,10 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::CHAIN_ID_TESTNET;
-use stacks::net::{Error as NetError, StacksMessageCodec};
+use stacks::net::Error as NetError;
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
 };

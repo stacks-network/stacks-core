@@ -1,9 +1,19 @@
-use crate::core::StacksEpochId;
+use core::StacksEpochId;
+use std::fmt;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
+}
+
+impl fmt::Display for ClarityVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClarityVersion::Clarity1 => write!(f, "Clarity 1"),
+            ClarityVersion::Clarity2 => write!(f, "Clarity 2"),
+        }
+    }
 }
 
 impl ClarityVersion {

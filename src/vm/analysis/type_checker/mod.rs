@@ -614,7 +614,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> Option<TypeResult> {
         if let Some(ref native_function) =
-            NativeFunctions::lookup_by_name_before_version(function, &self.clarity_version)
+            NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
         {
             let typed_function = TypedNativeFunction::type_native_function(native_function);
             Some(typed_function.type_check_appliction(self, args, context))
