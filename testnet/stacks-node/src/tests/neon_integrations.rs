@@ -310,12 +310,12 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
 fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
     let mut current = microblocks_processed.load(Ordering::SeqCst);
     let start = Instant::now();
-
+    info!("Waiting for next microblock");
     loop {
         let now = microblocks_processed.load(Ordering::SeqCst);
         if now == 0 && current != 0 {
             // wrapped around -- a new epoch started
-            debug!(
+            info!(
                 "New microblock epoch started while waiting (originally {})",
                 current
             );
@@ -1869,7 +1869,7 @@ fn size_check_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5000;
-    conf.node.microblock_frequency = 15000;
+    conf.node.microblock_frequency = 1000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1988,7 +1988,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         small_contract.push_str(" ");
     }
 
-    let spender_sks: Vec<_> = (0..10)
+    let spender_sks: Vec<_> = (0..5)
         .into_iter()
         .map(|_| StacksPrivateKey::new())
         .collect();
@@ -2034,8 +2034,8 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 5000;
-    conf.node.microblock_frequency = 15000;
+    conf.node.wait_time_for_microblocks = 5_000;
+    conf.node.microblock_frequency = 5_000;
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
@@ -2094,8 +2094,6 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    sleep_ms(150_000);
-
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -2106,8 +2104,6 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(150_000);
-
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
@@ -2186,7 +2182,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         small_contract.push_str(" ");
     }
 
-    let spender_sks: Vec<_> = (0..25)
+    let spender_sks: Vec<_> = (0..20)
         .into_iter()
         .map(|_| StacksPrivateKey::new())
         .collect();
@@ -2280,7 +2276,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     let mut ctr = 0;
     while ctr < flat_txs.len() {
         submit_tx(&http_origin, &flat_txs[ctr]);
-        if !wait_for_microblocks(&microblocks_processed, 240) {
+        if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
         ctr += 1;
@@ -2298,7 +2294,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
 
     while ctr < flat_txs.len() {
         submit_tx(&http_origin, &flat_txs[ctr]);
-        if !wait_for_microblocks(&microblocks_processed, 240) {
+        if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
         ctr += 1;
@@ -2416,8 +2412,8 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     }
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 15000;
-    conf.node.microblock_frequency = 1000;
+    conf.node.wait_time_for_microblocks = 5_000;
+    conf.node.microblock_frequency = 1_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
     conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
@@ -2475,7 +2471,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     let mut ctr = 0;
     for _i in 0..6 {
         submit_tx(&http_origin, &flat_txs[ctr]);
-        if !wait_for_microblocks(&microblocks_processed, 240) {
+        if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
         ctr += 1;
