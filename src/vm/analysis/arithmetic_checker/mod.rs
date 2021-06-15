@@ -181,7 +181,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
-            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | PrincipalMatches => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
