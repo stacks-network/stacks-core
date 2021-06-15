@@ -1235,6 +1235,23 @@ fn test_simple_uints() {
 }
 
 #[test]
+fn test_no_op() {
+    let good = [
+        "(no-op 67)",
+        "(no-op 0x0001)",
+        "(no-op true false (list 4 5))",
+        "(no-op)",
+    ];
+
+    let expected = ["int", "(buff 2)", "bool", "bool"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+}
+
+#[test]
 fn test_response_inference() {
     let good = [
         "(define-private (foo (x int)) (err x))

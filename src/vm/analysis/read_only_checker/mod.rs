@@ -179,7 +179,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
             | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
             | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner
-            | GetTokenSupply | ElementAt | IndexOf => self.check_all_read_only(args),
+            | GetTokenSupply | ElementAt | IndexOf | NoOp => self.check_all_read_only(args),
             AtBlock => {
                 check_argument_count(2, args)?;
 

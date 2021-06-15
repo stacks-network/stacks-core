@@ -1699,6 +1699,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        NoOp => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }
 

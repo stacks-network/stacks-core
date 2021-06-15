@@ -92,6 +92,18 @@ fn check_special_at_block(
     checker.type_check(&args[1], context)
 }
 
+fn check_special_no_op(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    if args.len() > 0 {
+        checker.type_check(&args[0], context)
+    } else {
+        Ok(TypeSignature::BoolType)
+    }
+}
+
 fn check_special_begin(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -727,6 +739,7 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
+            NoOp => Special(SpecialNativeFunction(&check_special_no_op)),
         }
     }
 }
