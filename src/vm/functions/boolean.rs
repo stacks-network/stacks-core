@@ -76,10 +76,10 @@ pub fn special_no_op(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    for arg in args.iter() {
-        let evaluated = eval(&arg, env, context)?;
-        return Ok(evaluated);
-    }
+    // for arg in args.iter() {
+    //     let evaluated = eval(&arg, env, context)?;
+    //     return Ok(evaluated);
+    // }
 
     Ok(Value::Bool(true))
 }

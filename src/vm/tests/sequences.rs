@@ -133,7 +133,7 @@ fn test_no_op() {
         "(no-op none true u\"abcd\" u100)",
     ];
 
-    let expected = ["(1 2 3 4 5)", "\"abcd\"", "true", "none"];
+    let expected = ["true", "true", "true", "true"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
