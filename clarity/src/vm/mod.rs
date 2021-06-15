@@ -82,6 +82,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::version::ClarityVersion;
 use std::collections::BTreeMap;
+use rand::Rng;
 use std::convert::{TryFrom, TryInto};
 
 use self::analysis::ContractAnalysis;
@@ -167,7 +168,7 @@ pub trait EvalHook {
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+pub fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!(
             "Unexpected variable name: {}",
@@ -478,6 +479,154 @@ pub fn eval_all(
     })
 }
 
+pub fn bench_create_var_in_context(
+    global_context: &mut GlobalContext,
+    contract_context: &mut ContractContext,
+    value_type: TypeSignature,
+    value: Value,
+) {
+    // setup
+    let mut rng = rand::thread_rng();
+    let char_name = (0..15)
+        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .collect::<String>();
+    let name = ClarityName::try_from(char_name.clone()).unwrap();
+
+    // bench code
+    contract_context.persisted_names.insert(name.clone());
+
+    global_context
+        .add_memory(
+            value_type
+                .type_size()
+                .expect("type size should be realizable") as u64,
+        )
+        .unwrap();
+
+    global_context.add_memory(value.size() as u64).unwrap();
+
+    let data_type = global_context.database.create_variable(
+        &contract_context.contract_identifier,
+        &name,
+        value_type,
+    );
+    global_context
+        .database
+        .set_variable(
+            &contract_context.contract_identifier,
+            &name,
+            value,
+            &data_type,
+        )
+        .unwrap();
+
+    contract_context.meta_data_var.insert(name, data_type);
+}
+
+pub fn bench_create_map_in_context(
+    global_context: &mut GlobalContext,
+    contract_context: &mut ContractContext,
+    key_type: TypeSignature,
+    value_type: TypeSignature,
+) {
+    // setup
+    let mut rng = rand::thread_rng();
+    let char_name = (0..15)
+        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .collect::<String>();
+    let name = ClarityName::try_from(char_name.clone()).unwrap();
+
+    // bench code
+    contract_context.persisted_names.insert(name.clone());
+
+    global_context
+        .add_memory(
+            key_type
+                .type_size()
+                .expect("type size should be realizable") as u64,
+        )
+        .unwrap();
+    global_context
+        .add_memory(
+            value_type
+                .type_size()
+                .expect("type size should be realizable") as u64,
+        )
+        .unwrap();
+
+    let data_type = global_context.database.create_map(
+        &contract_context.contract_identifier,
+        &name,
+        key_type,
+        value_type,
+    );
+
+    contract_context.meta_data_map.insert(name, data_type);
+}
+
+pub fn bench_create_ft_in_context(
+    global_context: &mut GlobalContext,
+    contract_context: &mut ContractContext,
+) {
+    // setup
+    let mut rng = rand::thread_rng();
+    let char_name = (0..15)
+        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .collect::<String>();
+    let name = ClarityName::try_from(char_name.clone()).unwrap();
+
+    // bench code
+    contract_context.persisted_names.insert(name.clone());
+
+    global_context
+        .add_memory(
+            TypeSignature::UIntType
+                .type_size()
+                .expect("type size should be realizable") as u64,
+        )
+        .unwrap();
+
+    let data_type = global_context.database.create_fungible_token(
+        &contract_context.contract_identifier,
+        &name,
+        &Some(rng.gen()),
+    );
+
+    contract_context.meta_ft.insert(name, data_type);
+}
+
+pub fn bench_create_nft_in_context(
+    global_context: &mut GlobalContext,
+    contract_context: &mut ContractContext,
+    asset_type: &TypeSignature,
+) {
+    // setup
+    let mut rng = rand::thread_rng();
+    let char_name = (0..15)
+        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .collect::<String>();
+    let name = ClarityName::try_from(char_name.clone()).unwrap();
+
+    // bench code
+    contract_context.persisted_names.insert(name.clone());
+
+    global_context
+        .add_memory(
+            asset_type
+                .type_size()
+                .expect("type size should be realizable") as u64,
+        )
+        .unwrap();
+
+    let data_type = global_context.database.create_non_fungible_token(
+        &contract_context.contract_identifier,
+        &name,
+        asset_type,
+    );
+
+    contract_context.meta_nft.insert(name, data_type);
+}
+
 /// Run provided program in a brand new environment, with a transient, empty
 /// database. Only used for testing
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
@@ -514,7 +663,6 @@ pub fn execute_with_parameters(
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
-
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();

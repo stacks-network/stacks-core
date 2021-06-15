@@ -149,3 +149,10 @@ define_named_enum!(ClarityCostFunction {
     StxTransferMemo("cost_stx_transfer_memo"),
     Unimplemented("cost_unimplemented"),
 });
+
+define_named_enum!(AnalysisCostFunction {
+    ReadOnly("cost_read_only"),
+    TypeChecker("cost_type_checker"),
+    TraitChecker("cost_trait_checker"),
+    ArithmeticOnlyChecker("cost_arithmetic_only_checker"),
+});

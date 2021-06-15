@@ -160,6 +160,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff u1)",
         FromConsensusBuff => "(from-consensus-buff bool 0x03)",
         ReplaceAt => "(replace-at list-bar u0 5)",
+        ContractCallBench => "(contract-call-bench? .contract-other foo-exec 1)",
+        NoOp => "(no-op true u8)",
     }
 }
 

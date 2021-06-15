@@ -105,6 +105,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 // The _arguments_ to constant defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid.
                 Constant { value, .. } => self.check_expression(value),
+                ConstantBench { value, .. } => self.check_expression(value),
                 PrivateFunction { signature, body } => self.check_define_function(signature, body),
                 ReadOnlyFunction { signature, body } => self.check_define_function(signature, body),
                 PersistedVariable { .. } => Err(Error::DefineTypeForbidden(
@@ -181,7 +182,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | FetchEntry | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
             | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
             | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
-            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
+            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount
+            | ContractCallBench => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
@@ -205,7 +207,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => {
+            | Len | Begin | TupleMerge | NoOp => {
                 // Check all arguments.
                 self.check_all(args)
             }

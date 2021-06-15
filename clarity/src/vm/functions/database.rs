@@ -217,6 +217,158 @@ pub fn special_contract_call(
     Ok(result)
 }
 
+// variant of special_contract_call that isolates the cost of contract call by
+// omitting the loading and execution of the called upon contract
+pub fn special_contract_call_bench(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_arguments_at_least(2, args)?;
+
+    // the second part of the contract_call cost (i.e., the load contract cost)
+    //   is checked in `execute_contract`, and the function _application_ cost
+    //   is checked in callables::DefinedFunction::execute_apply.
+    runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
+
+    let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let mut rest_args = vec![];
+    let mut rest_args_sizes = vec![];
+    for arg in args[2..].iter() {
+        let evaluated_arg = eval(arg, env, context)?;
+        rest_args_sizes.push(evaluated_arg.size() as u64);
+        rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
+    }
+
+    let (contract_identifier, type_returns_constraint) = match &args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
+            ref contract_identifier,
+        ))) => {
+            // Static dispatch
+            (contract_identifier, None)
+        }
+        SymbolicExpressionType::Atom(contract_ref) => {
+            // Dynamic dispatch
+            match context.lookup_callable_contract(contract_ref) {
+                Some(trait_data) => {
+                    // Ensure that contract-call is used for inter-contract calls only
+                    if trait_data.contract_identifier == env.contract_context.contract_identifier {
+                        return Err(CheckErrors::CircularReference(vec![trait_data
+                            .contract_identifier
+                            .name
+                            .to_string()])
+                        .into());
+                    }
+
+                    let contract_to_check = env
+                        .global_context
+                        .database
+                        .get_contract(&trait_data.contract_identifier)
+                        .map_err(|_e| {
+                            CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                        })?;
+                    let contract_context_to_check = contract_to_check.contract_context;
+
+                    // This error case indicates a bad implementation. Only traits should be
+                    // added to callable_contracts.
+                    let trait_identifier = trait_data
+                        .trait_identifier
+                        .as_ref()
+                        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
+
+                    // Attempt to short circuit the dynamic dispatch checks:
+                    // If the contract is explicitely implementing the trait with `impl-trait`,
+                    // then we can simply rely on the analysis performed at publish time.
+                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
+                    {
+                        (&trait_data.contract_identifier, None)
+                    } else {
+                        let trait_name = trait_identifier.name.to_string();
+
+                        // Retrieve, from the trait definition, the expected method signature
+                        let contract_defining_trait = env
+                            .global_context
+                            .database
+                            .get_contract(&trait_identifier.contract_identifier)
+                            .map_err(|_e| {
+                                CheckErrors::NoSuchContract(
+                                    trait_identifier.contract_identifier.to_string(),
+                                )
+                            })?;
+                        let contract_context_defining_trait =
+                            contract_defining_trait.contract_context;
+
+                        // Retrieve the function that will be invoked
+                        let function_to_check = contract_context_to_check
+                            .lookup_function(function_name)
+                            .ok_or(CheckErrors::BadTraitImplementation(
+                                trait_name.clone(),
+                                function_name.to_string(),
+                            ))?;
+
+                        // Check read/write compatibility
+                        if env.global_context.is_read_only() {
+                            return Err(CheckErrors::TraitBasedContractCallInReadOnly.into());
+                        }
+
+                        // Check visibility
+                        if function_to_check.define_type == DefineType::Private {
+                            return Err(CheckErrors::NoSuchPublicFunction(
+                                trait_data.contract_identifier.to_string(),
+                                function_name.to_string(),
+                            )
+                            .into());
+                        }
+
+                        function_to_check.check_trait_expectations(
+                            &contract_context_defining_trait,
+                            &trait_identifier,
+                        )?;
+
+                        // Retrieve the expected method signature
+                        let constraining_trait = contract_context_defining_trait
+                            .lookup_trait_definition(&trait_name)
+                            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.clone()))?;
+                        let expected_sig = constraining_trait.get(function_name).ok_or(
+                            CheckErrors::TraitMethodUnknown(trait_name, function_name.to_string()),
+                        )?;
+                        (&trait_data.contract_identifier, Some(expected_sig.returns.clone()))
+                    }
+                }
+                _ => return Err(CheckErrors::ContractCallExpectName.into()),
+            }
+        }
+        _ => return Err(CheckErrors::ContractCallExpectName.into()),
+    };
+
+    let contract_principal = env.contract_context.contract_identifier.clone().into();
+
+    let mut nested_env = env.nest_with_caller(contract_principal);
+
+    let result = if nested_env.short_circuit_contract_call(
+        &contract_identifier,
+        function_name,
+        &rest_args_sizes,
+    )? {
+        nested_env.run_free(|_free_env| Value::Bool(true))
+    } else {
+        Value::Bool(true)
+    };
+
+    // Ensure that the expected type from the trait spec admits
+    // the type of the value returned by the dynamic dispatch.
+    if let Some(returns_type_signature) = type_returns_constraint {
+        let actual_returns = TypeSignature::type_of(&result);
+        if !returns_type_signature.admits_type(&actual_returns) {
+            return Err(
+                CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
+            );
+        }
+    }
+
+    Ok(result)
+}
+
 pub fn special_fetch_variable_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -731,10 +883,10 @@ pub fn special_get_block_info(
         _ => return Ok(Value::none()),
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
-    if height_value >= current_block_height {
-        return Ok(Value::none());
-    }
+    let _current_block_height = env.global_context.database.get_current_block_height();
+    // if height_value >= current_block_height {
+    //     return Ok(Value::none());
+    // }
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {

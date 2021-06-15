@@ -104,6 +104,19 @@ pub fn check_special_mint_asset(
     )
 }
 
+pub fn bench_check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpression]) {
+    let asset_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::BadTokenName)
+        .unwrap();
+    let expected_asset_type = checker
+        .contract_context
+        .get_nft_type(asset_name)
+        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))
+        .unwrap()
+        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
+}
+
 pub fn check_special_mint_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],

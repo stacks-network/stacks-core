@@ -18,6 +18,7 @@ use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
     TypeResult, TypingContext,
 };
+use rand::Rng;
 use std::convert::TryFrom;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
@@ -28,21 +29,23 @@ use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
-    BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    FunctionSignature, FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
+    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
 
-mod assets;
+pub mod assets;
 mod conversions;
 mod maps;
-mod options;
-mod sequences;
+pub mod options;
+pub mod sequences;
 
 pub enum TypedNativeFunction {
     Special(SpecialNativeFunction),
@@ -54,7 +57,7 @@ pub struct SpecialNativeFunction(
 );
 pub struct SimpleNativeFunction(pub FunctionType);
 
-fn check_special_list_cons(
+pub fn check_special_list_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
@@ -68,6 +71,12 @@ fn check_special_list_cons(
         )?;
     }
     TypeSignature::parent_list_type(&typed_args)
+        .map_err(|x| x.into())
+        .map(TypeSignature::from)
+}
+
+pub fn bench_analysis_list_items_check_helper(typed_args: &[TypeSignature]) -> TypeResult {
+    TypeSignature::parent_list_type(typed_args)
         .map_err(|x| x.into())
         .map(TypeSignature::from)
 }
@@ -110,7 +119,7 @@ fn check_special_begin(
     checker.type_check_consecutive_statements(args, context)
 }
 
-fn inner_handle_tuple_get(
+pub fn inner_handle_tuple_get(
     tuple_type_sig: &TupleTypeSignature,
     field_to_get: &str,
     checker: &mut TypeChecker,
@@ -131,7 +140,7 @@ fn inner_handle_tuple_get(
     Ok(return_type)
 }
 
-fn check_special_get(
+pub fn check_special_get(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
@@ -157,7 +166,7 @@ fn check_special_get(
     }
 }
 
-fn check_special_merge(
+pub fn check_special_merge(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
@@ -174,6 +183,31 @@ fn check_special_merge(
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+    }?;
+    runtime_cost(
+        ClarityCostFunction::AnalysisCheckTupleMerge,
+        checker,
+        update.len(),
+    )?;
+
+    base.shallow_merge(&mut update);
+    Ok(TypeSignature::TupleType(base))
+}
+
+pub fn bench_analysis_check_tuple_merge_helper(
+    checker: &mut TypeChecker,
+    base_type_sig: TypeSignature,
+    update_type_sig: TypeSignature,
+    context: &TypingContext,
+) -> TypeResult {
+    let mut base = match base_type_sig {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::BoolType)),
+    }?;
+
+    let mut update = match update_type_sig {
+        TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::BoolType)),
     }?;
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleMerge,
@@ -218,7 +252,41 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
-fn check_special_let(
+pub fn bench_analysis_tuple_cons_helper(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    handle_binding_list(args, |var_name, var_sexp| {
+        checker
+            .type_check(var_sexp, context)
+            .and_then(|var_type| Ok(()))
+    })?;
+    Ok(TypeSignature::BoolType)
+}
+
+pub fn bench_analysis_tuple_items_check_helper(
+    checker: &mut TypeChecker,
+    var_type: TypeSignature,
+    context: &TypingContext,
+) -> TypeResult {
+    let mut rng = rand::thread_rng();
+    let char_name = (0..15)
+        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .collect::<String>();
+    let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
+
+    let mut tuple_type_data = Vec::new();
+
+    tuple_type_data.push((clar_name, var_type));
+
+    let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
+        .map_err(|_| CheckErrors::BadTupleConstruction)?;
+
+    Ok(TypeSignature::TupleType(tuple_signature))
+}
+
+pub fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
@@ -517,6 +585,52 @@ fn check_contract_call(
     }
 
     Ok(expected_sig.returns)
+}
+
+pub fn bench_analysis_get_function_entry_in_context(
+    db: &mut AnalysisDatabase,
+    contract_identifier: &QualifiedContractIdentifier,
+    func_name: &ClarityName,
+) -> FunctionSignature {
+    let contract_call_function = {
+        if let Some(FunctionType::Fixed(function)) = db
+            .get_public_function_type(&contract_identifier, func_name)
+            .unwrap()
+        {
+            Ok(function)
+        } else if let Some(FunctionType::Fixed(function)) = db
+            .get_read_only_function_type(&contract_identifier, func_name)
+            .unwrap()
+        {
+            Ok(function)
+        } else {
+            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(
+                contract_identifier.to_string(),
+                func_name.to_string(),
+            )))
+        }
+    }
+    .unwrap();
+
+    FunctionSignature::from(contract_call_function)
+}
+
+pub fn bench_check_contract_call(
+    checker: &mut TypeChecker,
+    trait_id: &TraitIdentifier,
+    func_name: &ClarityName,
+) -> Result<FunctionSignature, CheckError> {
+    let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+        CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+    )?;
+    let func_signature = trait_signature
+        .get(func_name)
+        .ok_or(CheckErrors::TraitMethodUnknown(
+            trait_id.name.to_string(),
+            func_name.to_string(),
+        ))?;
+
+    Ok(func_signature.clone())
 }
 
 fn check_contract_of(
@@ -936,7 +1050,9 @@ impl TypedNativeFunction {
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
-            ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            ContractCall | ContractCallBench => {
+                Special(SpecialNativeFunction(&check_contract_call))
+            }
             ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
@@ -965,6 +1081,7 @@ impl TypedNativeFunction {
             FromConsensusBuff => Special(SpecialNativeFunction(
                 &conversions::check_special_from_consensus_buff,
             )),
+            NoOp => Simple(SimpleNativeFunction(FunctionType::RandomVariadic)),
         }
     }
 }

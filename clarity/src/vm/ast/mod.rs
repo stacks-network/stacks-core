@@ -189,6 +189,24 @@ pub fn inner_build_ast<T: CostTracker>(
     Ok((contract_ast, diagnostics, success))
 }
 
+pub fn build_ast_pre<T: CostTracker>(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+    cost_track: &mut T,
+    clarity_version: ClarityVersion,
+) -> ParseResult<ContractAST> {
+    runtime_cost(
+        ClarityCostFunction::AstParse,
+        cost_track,
+        source_code.len() as u64,
+    )?;
+    let pre_expressions = parser::v2::parse(source_code)?;
+    let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
+    StackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version)?;
+    Ok(contract_ast)
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
