@@ -1243,7 +1243,7 @@ fn test_no_op() {
         "(no-op)",
     ];
 
-    let expected = ["int", "(buff 2)", "bool", "bool"];
+    let expected = ["bool", "bool", "bool", "bool"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
