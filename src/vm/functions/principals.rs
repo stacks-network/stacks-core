@@ -31,7 +31,8 @@ pub fn special_principal_matches(
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
-    let version_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+    let version_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+        || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
     println!("version: {}", version);
     let context_is_mainnet = env.global_context.mainnet;
 
