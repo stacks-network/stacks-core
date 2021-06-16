@@ -1555,7 +1555,7 @@ fn microblock_integration_test() {
             .json::<RPCPeerInfoData>()
             .unwrap();
         eprintln!("{:#?}", tip_info);
-        if tip_info.unanchored_tip != StacksBlockId([0; 32]) {
+        if tip_info.unanchored_tip == StacksBlockId([0; 32]) {
             iter_count += 1;
             assert!(
                 iter_count < 10,
