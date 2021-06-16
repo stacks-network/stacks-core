@@ -2059,6 +2059,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
+    let microblocks_processed = run_loop.get_microblocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -2095,6 +2096,11 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
+    assert!(
+        wait_for_microblocks(&microblocks_processed, 60),
+        "Failed to mine a microblock"
+    );
+
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -2105,6 +2111,12 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
+
+    assert!(
+        wait_for_microblocks(&microblocks_processed, 60),
+        "Failed to mine a microblock"
+    );
+
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
