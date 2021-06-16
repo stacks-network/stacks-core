@@ -1363,8 +1363,8 @@ fn microblock_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 30000;
-    conf.node.microblock_frequency = 5_000;
+    conf.node.wait_time_for_microblocks = 10_000;
+    conf.node.microblock_frequency = 1_000;
 
     test_observer::spawn();
 
@@ -1543,13 +1543,31 @@ fn microblock_integration_test() {
 
     assert_eq!(res, format!("{}", &second_microblock.block_hash()));
 
+    sleep_ms(5_000);
+
     let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let mut iter_count = 0;
+    let tip_info = loop {
+        let tip_info = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
+        eprintln!("{:#?}", tip_info);
+        if tip_info.unanchored_tip != StacksBlockId([0; 32]) {
+            iter_count += 1;
+            assert!(
+                iter_count < 10,
+                "Hit retry count while waiting for net module to process pushed microblock"
+            );
+            sleep_ms(5_000);
+            continue;
+        } else {
+            break tip_info;
+        }
+    };
+
     assert!(tip_info.stacks_tip_height >= 3);
     let stacks_tip = tip_info.stacks_tip;
     let stacks_tip_consensus_hash =
@@ -1557,20 +1575,10 @@ fn microblock_integration_test() {
     let stacks_id_tip =
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
-    eprintln!(
-        "{:#?}",
-        client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<serde_json::Value>()
-            .unwrap()
-    );
-
     // todo - pipe in the PoxSyncWatchdog to the RunLoop struct to avoid flakiness here
     // wait at least two p2p refreshes so it can produce the microblock
     for i in 0..30 {
-        debug!(
+        info!(
             "wait {} more seconds for microblock miner to find our transaction...",
             30 - i
         );
@@ -1715,16 +1723,16 @@ fn microblock_integration_test() {
         "{}/v2/accounts/{}?proof=0&tip={}",
         &http_origin, &spender_addr, &tip_info.unanchored_tip
     );
+
     eprintln!("{:?}", &path);
 
     let mut iter_count = 0;
     let res = loop {
-        match client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<AccountEntryResponse>()
-        {
+        let http_resp = client.get(&path).send().unwrap();
+
+        info!("{:?}", http_resp);
+
+        match http_resp.json::<AccountEntryResponse>() {
             Ok(x) => break x,
             Err(e) => {
                 warn!("Failed to query {}; will try again. Err = {:?}", &path, e);
@@ -1792,6 +1800,7 @@ fn microblock_integration_test() {
             "{}/v2/accounts/{}?proof=0&tip={}",
             &http_origin, &spender_addr, &tip_info.unanchored_tip
         );
+
         let res_text = client.get(&path).send().unwrap().text().unwrap();
 
         eprintln!("text of {}\n{}", &path, &res_text);
@@ -2096,7 +2105,9 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    wait_for_microblocks(&microblocks_processed, 60);
+    while wait_for_microblocks(&microblocks_processed, 30) {
+        info!("Waiting for microblocks to no longer be processed");
+    }
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -2109,7 +2120,9 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
 
-    wait_for_microblocks(&microblocks_processed, 60);
+    while wait_for_microblocks(&microblocks_processed, 30) {
+        info!("Waiting for microblocks to no longer be processed");
+    }
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
