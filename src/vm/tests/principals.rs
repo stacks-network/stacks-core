@@ -54,9 +54,19 @@ fn test_simple_principal_testnet_cases() {
             .unwrap()
     );
 
-    // let testnet_addr_test = "(principal-matches 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
-    // assert_eq!(Value::Bool(true), execute_against_mainnet(testnet_addr_test, false).unwrap().unwrap());
-    // assert_eq!(Value::Bool(false), execute_against_mainnet(testnet_addr_test, true).unwrap().unwrap());
+    let testnet_addr_test = "(principal-matches 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
+    assert_eq!(
+        Value::Bool(true),
+        execute_against_mainnet(testnet_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(testnet_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
 
     let testnet_addr_test = "(principal-matches 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9)";
     assert_eq!(
@@ -72,9 +82,19 @@ fn test_simple_principal_testnet_cases() {
             .unwrap()
     );
 
-    // let testnet_addr_test = "(principal-matches 'SNB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
-    // assert_eq!(Value::Bool(true), execute_against_mainnet(testnet_addr_test, false).unwrap().unwrap());
-    // assert_eq!(Value::Bool(false), execute_against_mainnet(testnet_addr_test, true).unwrap().unwrap());
+    let testnet_addr_test = "(principal-matches 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9.tokens)";
+    assert_eq!(
+        Value::Bool(true),
+        execute_against_mainnet(testnet_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(testnet_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
 }
 
 fn test_simple_principal_mainnet_cases() {
@@ -92,9 +112,19 @@ fn test_simple_principal_mainnet_cases() {
             .unwrap()
     );
 
-    // let mainnet_addr_test = "(principal-matches 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
-    // assert_eq!(Value::Bool(true), execute_against_mainnet(mainnet_addr_test, true).unwrap().unwrap());
-    // assert_eq!(Value::Bool(false), execute_against_mainnet(mainnet_addr_test, false).unwrap().unwrap());
+    let mainnet_addr_test = "(principal-matches 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
+    assert_eq!(
+        Value::Bool(true),
+        execute_against_mainnet(mainnet_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(mainnet_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
 
     let mainnet_addr_test = "(principal-matches 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
@@ -110,18 +140,17 @@ fn test_simple_principal_mainnet_cases() {
             .unwrap()
     );
 
-    // let mainnet_addr_test = "(principal-matches 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
-    // assert_eq!(Value::Bool(true), execute_against_mainnet(mainnet_addr_test, true).unwrap().unwrap());
-    // assert_eq!(Value::Bool(false), execute_against_mainnet(mainnet_addr_test, false).unwrap().unwrap());
+    let mainnet_addr_test = "(principal-matches 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
+    assert_eq!(
+        Value::Bool(true),
+        execute_against_mainnet(mainnet_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(mainnet_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
 }
-
-// fn test_simple_principal_main_cases2() {
-//     let good1_test = "(principal-matches 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens)";
-//     let good1_expected = Value::Bool(true);
-//     assert_eq!(good1_expected, execute_against_mainnet(good1_test, false).unwrap().unwrap());
-
-// }
-
-//     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-//     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-//     let p3 = execute("'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY");
