@@ -5,7 +5,9 @@ use vm::errors::{
     RuntimeErrorType,
 };
 use vm::representations::SymbolicExpression;
-use vm::types::{PrincipalData, StandardPrincipalData, TypeSignature, Value};
+use vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature, Value,
+};
 use vm::{eval, Environment, LocalContext};
 
 use vm::database::ClarityDatabase;
@@ -27,13 +29,14 @@ pub fn special_principal_matches(
 
     let version = match owner {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => version,
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => version,
+        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
+            issuer.0
+        }
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
     let version_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
         || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-    println!("version: {}", version);
     let context_is_mainnet = env.global_context.mainnet;
 
     Ok(Value::Bool(version_is_mainnet == context_is_mainnet))
