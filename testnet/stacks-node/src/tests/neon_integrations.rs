@@ -2096,10 +2096,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    assert!(
-        wait_for_microblocks(&microblocks_processed, 60),
-        "Failed to mine a microblock"
-    );
+    wait_for_microblocks(&microblocks_processed, 60);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
@@ -2112,10 +2109,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
 
-    assert!(
-        wait_for_microblocks(&microblocks_processed, 60),
-        "Failed to mine a microblock"
-    );
+    wait_for_microblocks(&microblocks_processed, 60);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
