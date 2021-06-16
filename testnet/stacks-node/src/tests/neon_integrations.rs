@@ -1717,25 +1717,26 @@ fn microblock_integration_test() {
     );
     eprintln!("{:?}", &path);
 
+    let mut iter_count = 0;
     let res = loop {
-        let res = match client
+        match client
             .get(&path)
             .send()
             .unwrap()
             .json::<AccountEntryResponse>()
         {
-            Ok(x) => x,
-            Err(_) => {
-                eprintln!("Failed to query {}; will try again", &path);
+            Ok(x) => break x,
+            Err(e) => {
+                warn!("Failed to query {}; will try again. Err = {:?}", &path, e);
+                iter_count += 1;
+                assert!(iter_count < 10, "Retry limit reached querying account");
                 sleep_ms(1000);
                 continue;
             }
         };
-
-        break res;
     };
 
-    eprintln!("{:#?}", res);
+    info!("Account Response = {:#?}", res);
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
 
