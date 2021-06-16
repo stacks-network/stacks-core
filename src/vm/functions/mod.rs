@@ -286,7 +286,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::Mul,
             ),
             PrincipalMatches => SpecialFunction(
-                "special_principal_matches", &principals::special_principal_matches),
+                "special_principal_matches",
+                &principals::special_principal_matches,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
