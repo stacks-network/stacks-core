@@ -352,6 +352,21 @@ fn eval_all(
     })
 }
 
+/* Run provided program in an environment specified by the user. This version of the function
+  gives the most leeway to the caller to create a custom environment.
+*/
+pub fn execute_program_with_context(
+    program: &str,
+    contract_id: QualifiedContractIdentifier,
+    mut contract_context: ContractContext,
+    mut global_context: GlobalContext,
+) -> Result<Option<Value>> {
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
+}
+
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
  */
@@ -362,10 +377,7 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
-    global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
-    })
+    execute_program_with_context(program, contract_id, contract_context, global_context)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
