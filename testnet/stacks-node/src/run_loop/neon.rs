@@ -14,9 +14,8 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
-use stacks::vm::types::{PrincipalData, Value};
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -24,7 +23,7 @@ use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::PoxSyncWatchdog;
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    util, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
 
