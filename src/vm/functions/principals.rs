@@ -5,9 +5,7 @@ use vm::errors::{
     RuntimeErrorType,
 };
 use vm::representations::SymbolicExpression;
-use vm::types::{
-    Value, TypeSignature
-};
+use vm::types::{TypeSignature, Value, PrincipalData, StandardPrincipalData};
 use vm::{eval, Environment, LocalContext};
 
 use vm::database::ClarityDatabase;
@@ -22,9 +20,13 @@ pub fn special_principal_matches(
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
     let owner = eval(&args[0], env, context)?;
 
-    if let Value::Principal(ref principal) = owner {
-        Ok(Value::UInt(0))
-    } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
+    match owner {
+        Value::Principal(PrincipalData::Contract(ref identifier)) => Ok(Value::UInt(0)),
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
+        println!("identifier {:?} {:?}", version, bytes);
+        Ok(Value::UInt(1))
+
+        }
+        _ => Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     }
 }
