@@ -33,8 +33,12 @@ use vm::types::{
 
 use crate::{
     burnchains::Burnchain,
-    chainstate::{burn::db::sortdb::SortitionDB, stacks::miner::test::make_coinbase},
+    chainstate::{
+        burn::db::sortdb::SortitionDB,
+        stacks::{events::TransactionOrigin, miner::test::make_coinbase},
+    },
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
+    net::test::TestEventObserver,
     util::boot::boot_code_id,
 };
 use types::chainstate::{
@@ -77,11 +81,14 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let epochs = StacksEpoch::all(0, 25 + 10);
 
+    let observer = TestEventObserver::new();
+
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_simple_pox_lockup_transition_pox_2",
         6002,
         Some(epochs.clone()),
+        Some(&observer),
     );
 
     let num_blocks = 35;
@@ -249,9 +256,12 @@ fn test_simple_pox_lockup_transition_pox_2() {
             // record the first reward cycle when Alice's tokens get stacked
             let tip_burn_block_height =
                 get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-            alice_reward_cycle = 1 + burnchain
-                .block_height_to_reward_cycle(tip_burn_block_height)
-                .unwrap() as u128;
+
+            if tenure_id == 1 {
+                alice_reward_cycle = 1 + burnchain
+                    .block_height_to_reward_cycle(tip_burn_block_height)
+                    .unwrap() as u128;
+            }
             let cur_reward_cycle = burnchain
                 .block_height_to_reward_cycle(tip_burn_block_height)
                 .unwrap() as u128;
@@ -319,4 +329,69 @@ fn test_simple_pox_lockup_transition_pox_2() {
             }
         }
     }
+
+    // now let's check some tx receipts
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+
+    eprintln!("Alice addr: {}", alice_address);
+    eprintln!("Bob addr: {}", bob_address);
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), 3, "Alice should have 3 confirmed txs");
+    assert_eq!(bob_txs.len(), 2, "Bob should have 2 confirmed txs");
+
+    assert!(
+        match alice_txs.get(&0).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Alice tx0 should have committed okay"
+    );
+
+    assert!(
+        match alice_txs.get(&1).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Alice tx1 should have committed okay"
+    );
+
+    assert_eq!(
+        alice_txs.get(&2).unwrap().result,
+        Value::err_none(),
+        "Alice tx2 should have resulted in a runtime error"
+    );
+
+    assert!(
+        match bob_txs.get(&0).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Bob tx0 should have committed okay"
+    );
+
+    assert_eq!(
+        bob_txs.get(&1).unwrap().result,
+        Value::err_none(),
+        "Bob tx1 should have resulted in a runtime error"
+    );
 }

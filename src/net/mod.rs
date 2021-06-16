@@ -1814,7 +1814,6 @@ pub trait Requestable: std::fmt::Display {
 
 #[cfg(test)]
 pub mod test {
-    use std::collections::HashMap;
     use std::fs;
     use std::io;
     use std::io::Cursor;
@@ -1826,6 +1825,7 @@ pub mod test {
     use std::ops::DerefMut;
     use std::sync::mpsc::sync_channel;
     use std::thread;
+    use std::{collections::HashMap, sync::Mutex};
 
     use mio;
     use rand;
@@ -1875,10 +1875,13 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::StacksMicroblockHeader;
     use crate::types::proof::TrieHash;
     use crate::util::boot::boot_code_test_addr;
+    use crate::{
+        chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt},
+        codec::StacksMessageCodec,
+    };
 
     use super::*;
 
@@ -2074,6 +2077,71 @@ pub mod test {
         (listener, sock_1, sock_2)
     }
 
+    #[derive(Clone)]
+    pub struct TestEventObserverBlock {
+        pub block: StacksBlock,
+        pub metadata: StacksHeaderInfo,
+        pub receipts: Vec<StacksTransactionReceipt>,
+        pub parent: StacksBlockId,
+        pub winner_txid: Txid,
+        pub matured_rewards: Vec<MinerReward>,
+        pub matured_rewards_info: Option<MinerRewardInfo>,
+    }
+
+    pub struct TestEventObserver {
+        blocks: Mutex<Vec<TestEventObserverBlock>>,
+    }
+
+    impl TestEventObserver {
+        pub fn get_blocks(&self) -> Vec<TestEventObserverBlock> {
+            self.blocks.lock().unwrap().deref().to_vec()
+        }
+
+        pub fn new() -> TestEventObserver {
+            TestEventObserver {
+                blocks: Mutex::new(vec![]),
+            }
+        }
+    }
+
+    impl BlockEventDispatcher for TestEventObserver {
+        fn announce_block(
+            &self,
+            block: StacksBlock,
+            metadata: StacksHeaderInfo,
+            receipts: Vec<events::StacksTransactionReceipt>,
+            parent: &StacksBlockId,
+            winner_txid: Txid,
+            matured_rewards: Vec<accounts::MinerReward>,
+            matured_rewards_info: Option<MinerRewardInfo>,
+        ) {
+            self.blocks.lock().unwrap().push(TestEventObserverBlock {
+                block,
+                metadata,
+                receipts,
+                parent: parent.clone(),
+                winner_txid,
+                matured_rewards,
+                matured_rewards_info,
+            })
+        }
+
+        fn announce_burn_block(
+            &self,
+            _burn_block: &BurnchainHeaderHash,
+            _burn_block_height: u64,
+            _rewards: Vec<(StacksAddress, u64)>,
+            _burns: u64,
+            _reward_recipients: Vec<StacksAddress>,
+        ) {
+            // pass
+        }
+
+        fn dispatch_boot_receipts(&mut self, _receipts: Vec<events::StacksTransactionReceipt>) {
+            // pass
+        }
+    }
+
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
@@ -2240,11 +2308,18 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider>,
+        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider>,
     }
 
     impl<'a> TestPeer<'a> {
-        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
+        pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
+            TestPeer::new_with_observer(config, None)
+        }
+
+        pub fn new_with_observer(
+            mut config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
             let test_path = format!(
                 "/tmp/blockstack-test-peer-{}-{}",
                 &config.test_name, config.server_port
@@ -2411,12 +2486,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord = ChainsCoordinator::test_new(
+            let mut coord = ChainsCoordinator::test_new_with_observer(
                 &burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
                 tx,
+                observer,
             );
             coord.handle_new_burnchain_block().unwrap();
 

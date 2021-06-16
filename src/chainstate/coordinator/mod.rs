@@ -329,6 +329,25 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     ) -> ChainsCoordinator<'a, T, (), U> {
+        ChainsCoordinator::test_new_with_observer(
+            burnchain,
+            chain_id,
+            path,
+            reward_set_provider,
+            attachments_tx,
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    pub fn test_new_with_observer(
+        burnchain: &Burnchain,
+        chain_id: u32,
+        path: &str,
+        reward_set_provider: U,
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+        dispatcher: Option<&'a T>,
+    ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -360,7 +379,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_state_db,
             sortition_db,
             burnchain,
-            dispatcher: None,
+            dispatcher,
             reward_set_provider,
             notifier: (),
             attachments_tx,
@@ -462,6 +481,9 @@ fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut burn_amt = 0;
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
+            if commit.commit_outs.len() == 0 {
+                continue;
+            }
             let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
             for addr in commit.commit_outs.iter() {
                 if addr.is_burn() {

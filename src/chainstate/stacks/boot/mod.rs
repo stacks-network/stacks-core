@@ -603,7 +603,7 @@ pub mod test {
         test_name: &str,
         port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None)
+        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
     }
 
     pub fn instantiate_pox_peer_with_epoch<'a>(
@@ -611,6 +611,7 @@ pub mod test {
         test_name: &str,
         port: u16,
         epochs: Option<Vec<StacksEpoch>>,
+        observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
@@ -653,7 +654,7 @@ pub mod test {
             .collect();
 
         peer_config.initial_balances = balances;
-        let peer = TestPeer::new(peer_config);
+        let peer = TestPeer::new_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
