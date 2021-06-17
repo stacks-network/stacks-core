@@ -353,7 +353,7 @@ fn eval_all(
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
- *  database.
+ *  database. Only used by CLI and unit tests.
  */
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
@@ -369,7 +369,7 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
- *  database.
+ *  database. Only used by CLI and unit tests.
  *
  * This version of the function assumes that the ClarityVersion is Clarity1.
  */
@@ -378,7 +378,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
- *  database.
+ *  database. Only used by CLI and unit tests.
  *
  * This version of the function assumes that the ClarityVersion is Clarity2.
  */
