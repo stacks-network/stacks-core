@@ -754,7 +754,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
-    fn try_type_check_define(
+    pub fn try_type_check_define(
         &mut self,
         expression: &SymbolicExpression,
         context: &mut TypingContext,
