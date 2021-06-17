@@ -54,18 +54,20 @@ pub fn buff_to_int_generic(
                 )
                 .into());
             } else {
-                let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                let mut original_slice = sequence_data.as_slice().to_vec();
-                // 'conversion_fn' expects that the encoding is little-endian. So, if the input has a big-endian
-                // encoding, reverse it. This means that we can start filling 'buf' from the beginning,
-                // and any unused bytes at the end are considered padding.
-                if direction == EndianDirection::BigEndian {
-                    original_slice.reverse();
+                let mut transfer_buffer = [0u8; 16];
+                let mut original_slice = sequence_data.as_slice();
+                // 'conversion_fn' expects to receive a 16-byte buffer. If the input is little-endian, it should
+                // be zero-padded on the right. If the input is big-endian, it should be zero-padded on the left.
+                let offset = if direction == EndianDirection::LittleEndian {
+                    0
+                } else {
+                    transfer_buffer.len() - original_slice.len()
+                };
+                for from_index in 0..original_slice.len() {
+                    let to_index = from_index + offset;
+                    transfer_buffer[to_index] = original_slice[from_index];
                 }
-                for (index, value) in original_slice.iter().enumerate() {
-                    buf[index] = *value;
-                }
-                let value = conversion_fn(buf);
+                let value = conversion_fn(transfer_buffer);
                 return Ok(value);
             }
         }
@@ -79,29 +81,35 @@ pub fn buff_to_int_generic(
     };
 }
 
-// Converts a 16-byte array to an integer, assuming a little-endian encoding.
-fn convert_to_int(buffer: [u8; 16]) -> Value {
-    let value = i128::from_le_bytes(buffer);
-    return Value::Int(value);
-}
-
-fn convert_to_uint(buffer: [u8; 16]) -> Value {
-    let value = u128::from_le_bytes(buffer);
-    return Value::UInt(value);
-}
-
 pub fn native_buff_to_int_le(value: Value) -> Result<Value> {
-    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_int);
+    fn convert_to_int_le(buffer: [u8; 16]) -> Value {
+        let value = i128::from_le_bytes(buffer);
+        return Value::Int(value);
+    }
+    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_int_le);
 }
 
 pub fn native_buff_to_uint_le(value: Value) -> Result<Value> {
-    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_uint);
+    fn convert_to_uint_le(buffer: [u8; 16]) -> Value {
+        let value = u128::from_le_bytes(buffer);
+        return Value::UInt(value);
+    }
+
+    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_uint_le);
 }
 
 pub fn native_buff_to_int_be(value: Value) -> Result<Value> {
-    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_int);
+    fn convert_to_int_be(buffer: [u8; 16]) -> Value {
+        let value = i128::from_be_bytes(buffer);
+        return Value::Int(value);
+    }
+    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_int_be);
 }
 
 pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
-    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint);
+    fn convert_to_uint_be(buffer: [u8; 16]) -> Value {
+        let value = u128::from_be_bytes(buffer);
+        return Value::UInt(value);
+    }
+    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be);
 }
