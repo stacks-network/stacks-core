@@ -465,6 +465,8 @@ fn test_simple_arithmetic_functions() {
         "(+ 5 4 1)",
         "(is-eq (* 2 3)
               (+ 2 2 2))",
+        "(> \"b\" \"a\")",
+        "(< \"a\" \"b\")",
         "(> 1 2)",
         "(< 1 2)",
         "(<= 1 1)",
@@ -504,6 +506,8 @@ fn test_simple_arithmetic_functions() {
         Value::Int(1),
         Value::Int(0),
         Value::Int(10),
+        Value::Bool(true),
+        Value::Bool(true),
         Value::Bool(true),
         Value::Bool(false),
         Value::Bool(true),

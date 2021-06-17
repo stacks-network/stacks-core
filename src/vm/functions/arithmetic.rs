@@ -16,12 +16,13 @@
 
 use std::convert::TryFrom;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{TypeSignature, Value};
+use vm::types::{TypeSignature, Value, SequenceData,CharType, ASCIIData};
 
 use integer_sqrt::IntegerSquareRoot;
 
 struct U128Ops();
 struct I128Ops();
+struct ASCIIOps();
 
 impl U128Ops {
     fn make_value(x: u128) -> InterpreterResult<Value> {
@@ -34,6 +35,11 @@ impl I128Ops {
         Ok(Value::Int(x))
     }
 }
+impl ASCIIOps {
+    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))))
+    }
+}
 
 // This macro checks the type of the required two arguments and then dispatches the evaluation
 //   to the correct arithmetic type handler (after deconstructing the Clarity Values into
@@ -43,6 +49,21 @@ macro_rules! type_force_binary_arithmetic {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
+            (x, _) => Err(CheckErrors::UnionTypeValueError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                x,
+            )
+            .into()),
+        }
+    }};
+}
+
+macro_rules! type_force_binary_comparison {
+    ($function: ident, $x: expr, $y: expr) => {{
+        match ($x, $y) {
+            (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
+            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
+            (Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))), Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: y })))) => ASCIIOps::$function(x, y),
             (x, _) => Err(CheckErrors::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
@@ -112,6 +133,20 @@ macro_rules! type_force_variadic_arithmetic {
     }};
 }
 
+macro_rules! make_comparison_ops {
+    ($struct_name: ident, $type:ty) => {
+        impl $struct_name {
+            fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x > y))
+            }
+            fn less(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x < y))
+            }
+        }
+    };
+}
+
+
 // This macro creates all of the operation functions for the two arithmetic types
 //  (uint128 and int128) -- this is really hard to do generically because there's no
 //  "Integer" trait in rust, so macros were the most straight-forward solution to do this
@@ -128,12 +163,12 @@ macro_rules! make_arithmetic_ops {
             fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
                 Ok(Value::Bool(x >= y))
             }
-            fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x > y))
-            }
-            fn less(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x < y))
-            }
+            // fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
+            //     Ok(Value::Bool(x > y))
+            // }
+            // fn less(x: $type, y: $type) -> InterpreterResult<Value> {
+            //     Ok(Value::Bool(x < y))
+            // }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
                     .iter()
@@ -243,6 +278,10 @@ macro_rules! make_arithmetic_ops {
 make_arithmetic_ops!(U128Ops, u128);
 make_arithmetic_ops!(I128Ops, i128);
 
+make_comparison_ops!(U128Ops, u128);
+make_comparison_ops!(I128Ops, i128);
+make_comparison_ops!(ASCIIOps, Vec<u8>);
+
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
@@ -253,10 +292,10 @@ pub fn native_leq(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(leq, a, b)
 }
 pub fn native_ge(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(greater, a, b)
+    type_force_binary_comparison!(greater, a, b)
 }
 pub fn native_le(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(less, a, b)
+    type_force_binary_comparison!(less, a, b)
 }
 pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(add, args)
