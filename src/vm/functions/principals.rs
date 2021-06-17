@@ -35,9 +35,17 @@ pub fn special_principal_matches(
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
-    let version_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+    let address_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
         || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+    let address_is_testnet = version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
+        || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     let context_is_mainnet = env.global_context.mainnet;
 
-    Ok(Value::Bool(version_is_mainnet == context_is_mainnet))
+    if address_is_mainnet || address_is_testnet {
+        // We can only return true if the address is mainnet or testnet.
+        Ok(Value::Bool(address_is_mainnet == context_is_mainnet))
+    } else {
+        // If the address is not mainnet or testnet, then return false.
+        Ok(Value::Bool(false))
+    }
 }

@@ -154,3 +154,35 @@ fn test_simple_principal_mainnet_cases() {
             .unwrap()
     );
 }
+
+#[test]
+fn test_simple_principal_undefined_cases() {
+    // When an address is neither a testnet nor a mainnet address, the result should be false.
+    let invalid_addr_test = "(principal-matches 'S1G2081040G2081040G2081040G208105NK8PE5)";
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(invalid_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(invalid_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    let invalid_addr_test = "(principal-matches 'S1G2081040G2081040G2081040G208105NK8PE5.tokens)";
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(invalid_addr_test, true)
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_mainnet(invalid_addr_test, false)
+            .unwrap()
+            .unwrap()
+    );
+}
