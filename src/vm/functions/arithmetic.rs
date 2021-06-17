@@ -16,13 +16,15 @@
 
 use std::convert::TryFrom;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{TypeSignature, Value, SequenceData,CharType, ASCIIData};
+use vm::types::{TypeSignature, Value, SequenceData,CharType, ASCIIData, UTF8Data, BuffData};
 
 use integer_sqrt::IntegerSquareRoot;
 
 struct U128Ops();
 struct I128Ops();
 struct ASCIIOps();
+struct UTF8Ops();
+struct BuffOps();
 
 impl U128Ops {
     fn make_value(x: u128) -> InterpreterResult<Value> {
@@ -38,6 +40,17 @@ impl I128Ops {
 impl ASCIIOps {
     fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))))
+    }
+}
+impl UTF8Ops {
+    fn make_value(x: Vec<Vec<u8>>) -> InterpreterResult<Value> {
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))))
+    }
+}
+
+impl BuffOps {
+    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
+        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: x })))
     }
 }
 
@@ -64,6 +77,8 @@ macro_rules! type_force_binary_comparison {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))), Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: y })))) => ASCIIOps::$function(x, y),
+            (Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))), Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: y })))) => UTF8Ops::$function(x, y),
+            (Value::Sequence(SequenceData::Buffer(BuffData { data: x })), Value::Sequence(SequenceData::Buffer(BuffData { data: y }))) => BuffOps::$function(x, y),
             (x, _) => Err(CheckErrors::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
@@ -281,6 +296,8 @@ make_arithmetic_ops!(I128Ops, i128);
 make_comparison_ops!(U128Ops, u128);
 make_comparison_ops!(I128Ops, i128);
 make_comparison_ops!(ASCIIOps, Vec<u8>);
+make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
+make_comparison_ops!(BuffOps, Vec<u8>);
 
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
