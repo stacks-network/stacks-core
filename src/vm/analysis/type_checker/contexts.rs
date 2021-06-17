@@ -71,6 +71,10 @@ impl TypeMap {
     pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
         self.map.get(&expr.id)
     }
+
+    pub fn delete_all(&mut self) {
+        self.map.clear()
+    }
 }
 
 impl ContractContext {
