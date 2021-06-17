@@ -138,19 +138,6 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
 });
 
 impl NativeFunctions {
-    pub fn lookup_by_name_exact_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeFunctions> {
-        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() == version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
-
     pub fn lookup_by_name_at_version(
         name: &str,
         version: &ClarityVersion,
