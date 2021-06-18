@@ -18,7 +18,7 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-pub fn special_principal_matches(
+pub fn special_is_standard(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,

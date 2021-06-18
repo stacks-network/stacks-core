@@ -285,10 +285,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
-            IsStandard => SpecialFunction(
-                "special_principal_matches",
-                &principals::special_principal_matches,
-            ),
+            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
