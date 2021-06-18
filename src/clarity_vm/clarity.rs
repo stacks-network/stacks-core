@@ -19,7 +19,7 @@ use std::fmt;
 
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_MAINNET,
-    BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
@@ -638,6 +638,13 @@ impl<'a> ClarityBlockConnection<'a> {
         let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
         let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
         let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+        let v1_unlock_height = self.burn_state_db.get_v1_unlock_height();
+        let pox_2_first_cycle = Burnchain::static_block_height_to_reward_cycle(
+            v1_unlock_height as u64,
+            first_block_height as u64,
+            pox_reward_cycle_length as u64,
+        )
+        .expect("PANIC: PoX-2 first reward cycle begins *before* first burn block height");
 
         self.as_transaction(|tx_conn| {
             tx_conn
@@ -648,9 +655,9 @@ impl<'a> ClarityBlockConnection<'a> {
                 .unwrap();
 
             let pox_2_code = if mainnet {
-                &*BOOT_CODE_POX_MAINNET
+                &*POX_2_MAINNET_CODE
             } else {
-                &*BOOT_CODE_POX_TESTNET
+                &*POX_2_TESTNET_CODE
             };
 
             let pox_2_contract_id = boot_code_id("pox-2", mainnet);
@@ -667,6 +674,7 @@ impl<'a> ClarityBlockConnection<'a> {
                 Value::UInt(pox_prepare_length as u128),
                 Value::UInt(pox_reward_cycle_length as u128),
                 Value::UInt(pox_rejection_fraction as u128),
+                Value::UInt(pox_2_first_cycle as u128),
             ];
             tx_conn
                 .run_contract_call(

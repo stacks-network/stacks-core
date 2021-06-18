@@ -172,12 +172,6 @@
 (define-private (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height))
 
-;; special function
-(define-read-only (get-lock-status (account principal))
-    (begin
-        (unwrap-panic none)
-        { locked-amount: 0, unlock-height: 0 } ))
-
 ;; Get the _current_ PoX stacking principal information.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.
 (define-read-only (get-stacker-info (stacker principal))
@@ -693,7 +687,7 @@
          (pox-addr (match new-pox-addr some-pox-addr some-pox-addr (get pox-addr stacker-info)))
          (first-reward-cycle (get first-reward-cycle stacker-info))
          (first-extend-cycle (+ (get lock-period stacker-info) first-reward-cycle))
-         (last-extend-cycle  (- (+ first-extend-cycle extend-count) 1))
+         (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
          (lock-period (- last-extend-cycle first-reward-cycle)))
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
@@ -702,7 +696,7 @@
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
-      (asserts! (<= (- last-extend-cycle (current-pox-reward-cycle)) 12))
+      (asserts! (<= (- last-extend-cycle (current-pox-reward-cycle)) u12))
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
