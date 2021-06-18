@@ -244,7 +244,8 @@ Note: This function is only available starting with Stacks 2.1.",
 const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(is-standard principal)",
-    description: "Tests whether principal matches the current network type. That is, the network is either
+    description:
+        "Tests whether principal matches the current network type. That is, the network is either
 of type `mainnet`, or `testnet`. And, `principal` is either suited for the
 mainnet or a testnet.  That is, `SPxxxx` and `SMxxxx` addresses are only usable
 on mainnet, whereas `STxxxx` and `SNxxxx` are only usable on testnet and
