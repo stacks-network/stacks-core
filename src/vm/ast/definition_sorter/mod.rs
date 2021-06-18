@@ -213,11 +213,12 @@ impl<'a> DefinitionSorter {
                             }
                         } else if let Some(native_function) =
                             // NOTE: can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
-                        //        in the definition sorter.
+                            //        in the definition sorter.
                             NativeFunctions::lookup_by_name_before_version(
-                            function_name,
-                            &ClarityVersion::latest(),
-                        ) {
+                                    function_name,
+                                    &ClarityVersion::latest(),
+                                )
+                        {
                             match native_function {
                                 NativeFunctions::ContractCall => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
