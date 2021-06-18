@@ -178,7 +178,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
+            | AsContract | ElementAt | IndexOf | Map | Filter | Fold 
+            | StringToUInt | StringToInt | IntToAscii | IntToUtf8 => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
@@ -189,8 +190,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | StringToUInt | StringToInt | IntToAscii | IntToUtf8 => {
+            | Len | Begin | TupleMerge => {
                 self.check_all(args)
             }
             // we need to treat all the remaining functions specially, because these

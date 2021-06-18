@@ -131,7 +131,6 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
-    ExpectedBuffer16(TypeSignature),
     ExpectedSequence(TypeSignature),
     MaxLengthOverflow,
 
@@ -170,7 +169,6 @@ pub enum CheckErrors {
 
     // strings
     InvalidCharactersDetected,
-    ValueError(String, String),
 
     // secp256k1 signature
     InvalidSecp65k1Signature,
@@ -371,7 +369,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
-            CheckErrors::ExpectedBuffer16(found_type) => format!("expecting expression of type '(buff 16)' - found '{}'", found_type),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::max_value()),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
@@ -406,7 +403,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
-            CheckErrors::ValueError(target_type, input_string) => format!("invalid character for {}: '{}'", target_type, input_string),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
