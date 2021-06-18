@@ -590,6 +590,28 @@ impl TypedNativeFunction {
                     returns: TypeSignature::UIntType,
                 })))
             }
+            StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::IntType,
+            ))),
+            StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::UIntType,
+            ))),
+            IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::max_string_ascii(),
+            ))),
+            IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::max_string_utf8(),
+            ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
