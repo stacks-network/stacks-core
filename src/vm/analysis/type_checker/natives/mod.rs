@@ -222,7 +222,7 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
-fn check_special_let(
+pub fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
