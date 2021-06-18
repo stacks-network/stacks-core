@@ -476,46 +476,11 @@ impl<'a> BurnchainDBTransaction<'a> {
         Ok(())
     }
 
-    /// Update the anchor block descendancy information for the _reward_ phase of a reward cycle.
-    /// That is, for each block-commit in this reward cycle, mark it as descending from this reward
-    /// cycle's anchor block (if it exists), or not.  If there is no anchor block, then no block in
-    /// this reward cycle descends from an anchor block.  Each reward-phase block-commit's affirmation
-    /// map is updated by this method.
-    /// Only call after the reward cycle's prepare phase's affirmation maps and descendancy information has been
-    /// updated.
-    pub fn update_reward_phase_descendancies<B: BurnchainHeaderReader>(
-        &self,
-        indexer: &B,
-        reward_cycle: u64,
-        burnchain: &Burnchain,
-    ) -> Result<(), BurnchainError> {
-        let first_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
-        let last_block_height = burnchain.reward_cycle_to_block_height(reward_cycle + 1)
-            - (burnchain.pox_constants.prepare_length as u64);
-        let hdrs = indexer.read_burnchain_headers(first_block_height, last_block_height)?;
-        let reward_phase_end =
-            cmp::min(last_block_height, first_block_height + (hdrs.len() as u64));
-
-        test_debug!(
-            "Update reward-phase descendancies for reward cycle {} over {} headers between {}-{}",
-            reward_cycle,
-            hdrs.len(),
-            first_block_height,
-            reward_phase_end
-        );
-
-        for block_height in first_block_height..reward_phase_end {
-            let hdr = &hdrs[(block_height - first_block_height) as usize];
-            self.update_block_descendancy(indexer, hdr, burnchain)?;
-        }
-
-        test_debug!(
-            "Updated reward-phase descendancies for reward cycle {}",
-            reward_cycle
-        );
-        Ok(())
-    }
-
+    /// Create a prepare-phase affirmation map.  This is only done at the very end of a reward
+    /// cycle, once the anchor block is chosen and a new reward cycle is about to begin.  This
+    /// method updates the prepare-phase block-commit's affirmation map to reflect what its miner
+    /// believes to be the state of all anchor blocks, _including_ this new reward cycle's anchor
+    /// block.
     pub fn make_prepare_phase_affirmation_map<B: BurnchainHeaderReader>(
         &self,
         indexer: &B,
@@ -697,6 +662,9 @@ impl<'a> BurnchainDBTransaction<'a> {
         }
     }
 
+    /// Make an affirmation map for a block commit in a reward phase (or an in-progress prepare
+    /// phase).  This is done once per Bitcoin block, as block-commits are stored.  Affirmation
+    /// maps for prepare-phase commits will be recomputed once the reward cycle finishes.
     fn make_reward_phase_affirmation_map(
         &self,
         burnchain: &Burnchain,
