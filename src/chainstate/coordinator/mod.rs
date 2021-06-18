@@ -692,7 +692,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                 // careful -- we might have already procesed sortitions in this
                                 // reward cycle with this PoX ID, but that were never confirmed
                                 let start_height = last_invalidate_start_block;
-                                let end_height = canonical_burnchain_tip.block_height; // start_height + (self.burnchain.pox_constants.reward_cycle_length as u64); + 1;
+                                let end_height = canonical_burnchain_tip.block_height;
                                 for height in start_height..end_height {
                                     let snapshots_and_pox_ids =
                                         self.get_snapshots_and_pox_ids_at_height(height)?;
@@ -1064,10 +1064,14 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
     }
 
     pub fn get_canonical_affirmation_map(&self) -> Result<AffirmationMap, Error> {
+        // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
+        // download, then assume that it's absent.  Otherwise, if we are in the initial block
+        // download but we don't have it yet, assume that it's present.
         BurnchainDB::get_canonical_affirmation_map(
             self.burnchain_blocks_db.conn(),
             &self.burnchain,
             |anchor_block_commit, anchor_block_metadata| {
+                // TODO: check IBD status (issue #2474)
                 self.has_unaffirmed_pox_anchor_block(anchor_block_commit, anchor_block_metadata)
             },
         )
@@ -1560,6 +1564,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                     let reward_cycle = self.burnchain.block_height_to_reward_cycle(commit.block_height)
                                         .expect("BUG: accepted block commit has a block height before the first reward cycle");
 
+                                    // TODO: this is probably wrong -- if the anchor block is
+                                    // unaffirmed, then this will prevent processing it!
                                     if canonical_am
                                         .at(reward_cycle)
                                         .unwrap_or(AffirmationMapEntry::Nothing)
