@@ -268,7 +268,7 @@ const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(int-to-ascii (int|uint))",
-    description: "Converts an integer, either `int` or `uint`, to a `string-ascii` an ASCII string-value representation.
+    description: "Converts an integer, either `int` or `uint`, to a `string-ascii` string-value representation.
 
     Note: This function is only available starting with Stacks 2.1.",
     example: r#"
@@ -280,7 +280,7 @@ const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(int-to-utf8 (int|uint))",
-    description: "Converts an integer, either `int` or `uint`, to a `string-utf8` a UTF8 string-value representation.
+    description: "Converts an integer, either `int` or `uint`, to a `string-utf8` string-value representation.
 
     Note: This function is only available starting with Stacks 2.1.",
     example: r#"
