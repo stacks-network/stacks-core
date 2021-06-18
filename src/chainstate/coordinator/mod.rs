@@ -1564,11 +1564,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                     let reward_cycle = self.burnchain.block_height_to_reward_cycle(commit.block_height)
                                         .expect("BUG: accepted block commit has a block height before the first reward cycle");
 
-                                    // TODO: this is probably wrong -- if the anchor block is
-                                    // unaffirmed, then this will prevent processing it!
                                     if canonical_am
                                         .at(reward_cycle)
-                                        .unwrap_or(AffirmationMapEntry::Nothing)
+                                        .unwrap_or(AffirmationMapEntry::PoxAnchorBlockAbsent)
                                         == AffirmationMapEntry::PoxAnchorBlockPresent
                                     {
                                         // yup, we're expecting this
