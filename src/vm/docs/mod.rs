@@ -241,6 +241,20 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
+const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(is-standard principal)",
+    description: "Tests whether principal matches the current network type. That is, the network is either
+of type `mainnet`, or `testnet`. And, `principal` is either suited for the
+mainnet or a testnet.  That is, `SPxxxx` and `SMxxxx` addresses are only usable
+on mainnet, whereas `STxxxx` and `SNxxxx` are only usable on testnet and
+regtest. This method will return true iff the principal matches the network-type.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+"#,
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -1706,7 +1720,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
-        IsStandard => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
