@@ -20,7 +20,9 @@ use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
 // use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
-use vm::types::{ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value};
+use vm::types::{
+    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+};
 use vm::ClarityVersion;
 
 #[test]
