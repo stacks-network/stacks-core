@@ -46,7 +46,7 @@ pub struct SpecialNativeFunction(
 );
 pub struct SimpleNativeFunction(pub FunctionType);
 
-fn check_special_list_cons(
+pub fn check_special_list_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
