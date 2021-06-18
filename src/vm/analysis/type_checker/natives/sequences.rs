@@ -32,7 +32,7 @@ use vm::analysis::type_checker::{
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
-fn get_simple_native_or_user_define(
+pub fn get_simple_native_or_user_define(
     function_name: &str,
     checker: &mut TypeChecker,
 ) -> CheckResult<FunctionType> {
