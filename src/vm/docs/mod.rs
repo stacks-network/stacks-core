@@ -256,7 +256,7 @@ const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(string-to-uint (string-ascii|string-utf8))",
-    description: "Converts a string, either `string-ascii` or `string-utf8`, to a unsigned integer.
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to an unsigned integer.
 
         Note: This function is only available starting with Stacks 2.1.",
     example: r#"
