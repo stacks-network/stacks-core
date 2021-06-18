@@ -161,7 +161,7 @@ pub fn check_special_get(
     }
 }
 
-fn check_special_merge(
+pub fn check_special_merge(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
