@@ -18,11 +18,11 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::types::BufferLength;
 use vm::types::SequenceSubtype::{BufferType, StringType};
+use vm::types::{ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
-use vm::types::{SequenceData, TypeSignature, Value};
+// use vm::types::{SequenceData, TypeSignature, Value};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
