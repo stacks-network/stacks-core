@@ -1,0 +1,15 @@
+[package]
+name = "vm"
+version = "0.1.0"
+authors = ["Reed Rosenbluth <331327+reedrosenbluth@users.noreply.github.com>"]
+edition = "2018"
+
+[lib]
+name = "vm"
+path = "../vm_lib.rs"
+
+[dependencies]
+regex = "1"
+
+[profile.dev.package.regex]
+opt-level = 2
