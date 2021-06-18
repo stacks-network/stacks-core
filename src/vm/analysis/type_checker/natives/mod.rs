@@ -135,7 +135,7 @@ fn inner_handle_tuple_get(
     Ok(return_type)
 }
 
-fn check_special_get(
+pub fn check_special_get(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
