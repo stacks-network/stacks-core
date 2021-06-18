@@ -34,7 +34,7 @@ use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverf
 mod assets;
 mod maps;
 pub mod options;
-mod sequences;
+pub mod sequences;
 
 pub enum TypedNativeFunction {
     Special(SpecialNativeFunction),
