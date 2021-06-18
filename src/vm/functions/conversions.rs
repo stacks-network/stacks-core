@@ -131,12 +131,12 @@ pub fn native_string_to_int_generic(
             return conversion_fn(as_string);
         }
         _ => {
-            return Err(CheckErrors::UnionTypeError(
+            return Err(CheckErrors::UnionTypeValueError(
                 vec![
                     TypeSignature::max_string_ascii(),
                     TypeSignature::max_string_utf8(),
                 ],
-                TypeSignature::type_of(&value),
+                value,
             )
             .into())
         }
@@ -181,9 +181,9 @@ pub fn native_int_to_string_generic(
             return Ok(value);
         }
         _ => {
-            return Err(CheckErrors::UnionTypeError(
+            return Err(CheckErrors::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                TypeSignature::type_of(&value),
+                value,
             )
             .into())
         }
