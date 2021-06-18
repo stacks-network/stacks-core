@@ -30,7 +30,7 @@ pub fn execute_against_mainnet(program: &str, as_mainnet: bool) -> Result<Option
 }
 
 #[test]
-fn test_simple_principal_check_inputs() {
+fn test_simple_is_standard_check_inputs() {
     let wrong_type_test = "(is-standard u10)";
     assert_eq!(
         execute_against_mainnet(wrong_type_test, false).unwrap_err(),
@@ -39,7 +39,7 @@ fn test_simple_principal_check_inputs() {
 }
 
 #[test]
-fn test_simple_principal_testnet_cases() {
+fn test_simple_is_standard_testnet_cases() {
     let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
     assert_eq!(
         Value::Bool(true),
@@ -97,7 +97,7 @@ fn test_simple_principal_testnet_cases() {
     );
 }
 
-fn test_simple_principal_mainnet_cases() {
+fn test_simple_is_standard_mainnet_cases() {
     let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
         Value::Bool(true),
@@ -156,7 +156,7 @@ fn test_simple_principal_mainnet_cases() {
 }
 
 #[test]
-fn test_simple_principal_undefined_cases() {
+fn test_simple_is_standard_undefined_cases() {
     // When an address is neither a testnet nor a mainnet address, the result should be false.
     let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5)";
     assert_eq!(
