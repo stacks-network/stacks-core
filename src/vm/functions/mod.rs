@@ -43,6 +43,7 @@ use vm::ClarityVersion;
 mod arithmetic;
 mod assets;
 mod boolean;
+mod conversions;
 mod crypto;
 mod database;
 pub mod define;
@@ -81,6 +82,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Len("len", ClarityVersion::Clarity1),
     ElementAt("element-at", ClarityVersion::Clarity1),
     IndexOf("index-of", ClarityVersion::Clarity1),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),

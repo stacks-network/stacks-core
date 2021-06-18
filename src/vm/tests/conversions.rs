@@ -14,151 +14,153 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+
 pub use vm::analysis::errors::{CheckError, CheckErrors};
-use vm::execute;
+use vm::execute_v2;
 use vm::types::BufferLength;
 use vm::types::SequenceSubtype::StringType;
 use vm::types::SequenceSubtype::BufferType;
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
 use vm::types::Value;
+use vm::ClarityVersion;
 
 #[test]
 fn test_simple_buff_to_int_le() {
-    // All 1 bits should be -1 for an int.
-    let good1_test = "(buff-to-int-le 0xffffffffffffffffffffffffffffffff)";
-    let good1_expected = Value::Int(-1);
-    assert_eq!(good1_expected, execute(good1_test).unwrap().unwrap());
+    // For little-endian, 01 at the beginning should be interpreted as the least significant bit.
+    let good1_test = "(buff-to-int-le 0x01000000000000000000000000000000)";
+    let good1_expected = Value::Int(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For little endian, 1 at the end should be interpreted as most significant bit.
-    let good2_test = "(buff-to-int-le 0x00000000000000000000000000000001)";
-    let good2_expected = Value::Int(1329227995784915872903807060280344576);
-    assert_eq!(good2_expected, execute(good2_test).unwrap().unwrap());
+    // For signed conversion, all ff's should be negative.
+    let good2_test = "(buff-to-int-le 0xffffffffffffffffffffffffffffffff)";
+    let good2_expected = Value::Int(-1);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
-        "(buff-to-int-le \"not-needed\" 0xffffffffffffffffffffffffffffffff)";
+        "(buff-to-int-le \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-int-le \"wrong-type\")";
     assert_eq!(
-        execute(bad_wrong_type_test).unwrap_err(),
+        execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
     // Right number of arguments but wrong buffer size.
     let bad_wrong_number_test = "(buff-to-int-le 0x01)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
     );
 }
 
 #[test]
 fn test_simple_buff_to_uint_le() {
-    // All 1 bits should be max value for a uint.
-    let good1_test = "(buff-to-uint-le 0xffffffffffffffffffffffffffffffff)";
-    let good1_expected = Value::UInt(340282366920938463463374607431768211455);
-    assert_eq!(good1_expected, execute(good1_test).unwrap().unwrap());
+    // For little endian, 01 at the end should be interpreted as the least significant bit.
+    let good1_test = "(buff-to-uint-le 0x01000000000000000000000000000000)";
+    let good1_expected = Value::UInt(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For little endian, 1 at the end should be interpreted as most significant bit.
-    let good2_test = "(buff-to-uint-le 0x00000000000000000000000000000001)";
-    let good2_expected = Value::UInt(1329227995784915872903807060280344576);
-    assert_eq!(good2_expected, execute(good2_test).unwrap().unwrap());
+    // For unsigned conversion, all ff's should be large positive.
+    let good2_test = "(buff-to-uint-le 0xffffffffffffffffffffffffffffffff)";
+    let good2_expected = Value::UInt(u128::MAX);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
-        "(buff-to-uint-le \"not-needed\" 0xffffffffffffffffffffffffffffffff)";
+        "(buff-to-uint-le \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-uint-le \"wrong-type\")";
     assert_eq!(
-        execute(bad_wrong_type_test).unwrap_err(),
+        execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
     // Right number of arguments but wrong buffer size.
     let bad_wrong_number_test = "(buff-to-int-le 0x01)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
     );
 }
 
 #[test]
 fn test_simple_buff_to_int_be() {
-    // All 1 bits should be -1 for an int.
-    let good1_test = "(buff-to-int-be 0xffffffffffffffffffffffffffffffff)";
-    let good1_expected = Value::Int(-1);
-    assert_eq!(good1_expected, execute(good1_test).unwrap().unwrap());
+    // For big-endian, 01 at the end should be interpreted as least significant bit.
+    let good1_test = "(buff-to-int-be 0x00000000000000000000000000000001)";
+    let good1_expected = Value::Int(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For big endian, 1 at the end should be interpreted as least significant bit.
-    let good2_test = "(buff-to-int-be 0x00000000000000000000000000000001)";
-    let good2_expected = Value::Int(1);
-    assert_eq!(good2_expected, execute(good2_test).unwrap().unwrap());
+    // For signed conversion, all ff's should be negative.
+    let good2_test = "(buff-to-int-be 0xffffffffffffffffffffffffffffffff)";
+    let good2_expected = Value::Int(-1);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
-        "(buff-to-int-be \"not-needed\" 0xffffffffffffffffffffffffffffffff)";
+        "(buff-to-int-be \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-int-be \"wrong-type\")";
     assert_eq!(
-        execute(bad_wrong_type_test).unwrap_err(),
+        execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
     // Right number of arguments but wrong buffer size.
     let bad_wrong_number_test = "(buff-to-int-le 0x01)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
     );
 }
 
 #[test]
 fn test_simple_buff_to_uint_be() {
-    // All 1 bits should be max value for a uint.
-    let good1_test = "(buff-to-uint-be 0xffffffffffffffffffffffffffffffff)";
-    let good1_expected = Value::UInt(340282366920938463463374607431768211455);
-    assert_eq!(good1_expected, execute(good1_test).unwrap().unwrap());
+    // For big-endian, 01 at the end should be interpreted as least significant bit.
+    let good1_test = "(buff-to-uint-be 0x00000000000000000000000000000001)";
+    let good1_expected = Value::UInt(1);
+    assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
-    // For big endian, 1 at the end should be interpreted as least significant bit.
-    let good2_test = "(buff-to-uint-be 0x00000000000000000000000000000001)";
-    let good2_expected = Value::UInt(1);
-    assert_eq!(good2_expected, execute(good2_test).unwrap().unwrap());
+    // For unsigned conversion, all ff's should be large positive.
+    let good2_test = "(buff-to-uint-be 0xffffffffffffffffffffffffffffffff)";
+    let good2_expected = Value::UInt(u128::MAX);
+    assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
     // Wrong number of arguments.
     let bad_wrong_number_test =
-        "(buff-to-uint-be \"not-needed\" 0xffffffffffffffffffffffffffffffff)";
+        "(buff-to-uint-be \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-uint-be \"wrong-type\")";
     assert_eq!(
-        execute(bad_wrong_type_test).unwrap_err(),
+        execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(StringType(ASCII(BufferLength(10))))).into()
     );
 
     // Right number of arguments but wrong buffer size.
     let bad_wrong_number_test = "(buff-to-int-le 0x01)";
     assert_eq!(
-        execute(bad_wrong_number_test).unwrap_err(),
+        execute_v2(bad_wrong_number_test).unwrap_err(),
         CheckErrors::ExpectedBuffer16(SequenceType(BufferType(BufferLength(1)))).into()
     );
 }
