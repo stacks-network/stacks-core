@@ -87,7 +87,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
-    PrincipalMatches("principal-matches", ClarityVersion::Clarity2),
+    PrincipalMatches("is-standard", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
