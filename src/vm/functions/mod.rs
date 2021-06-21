@@ -465,11 +465,9 @@ fn native_eq(args: Vec<Value>) -> Result<Value> {
         Ok(Value::Bool(true))
     } else {
         let first = &args[0];
-        println!("first: {:?}", first);
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            println!("x: {:?}", x);
             arg_type = TypeSignature::least_supertype(&TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false));
