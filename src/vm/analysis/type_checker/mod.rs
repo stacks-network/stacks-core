@@ -33,7 +33,7 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature, Value,
 };
 use vm::variables::NativeVariables;
 
@@ -224,9 +224,38 @@ impl FunctionType {
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
-                if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
+                let is_ok = match (first, second) {
+                    (TypeSignature::IntType, TypeSignature::IntType) => true,
+                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                            _,
+                        ))),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                            _,
+                        ))),
+                    ) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                            _,
+                        ))),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                            _,
+                        ))),
+                    ) => true,
+                    (TypeSignature::SequenceType(SequenceSubtype::BufferType(_)), TypeSignature::SequenceType(SequenceSubtype::BufferType(_))) => true,
+                    (x, _) => false,
+                };
+
+                if (!is_ok) {
                     return Err(CheckErrors::UnionTypeError(
-                        vec![TypeSignature::IntType, TypeSignature::UIntType],
+                        vec![
+                            TypeSignature::IntType,
+                            TypeSignature::UIntType,
+                            TypeSignature::max_string_ascii(),
+                            TypeSignature::max_string_utf8(),
+                            TypeSignature::max_buffer(),
+                        ],
                         first.clone(),
                     )
                     .into());
