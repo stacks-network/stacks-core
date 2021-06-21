@@ -226,6 +226,8 @@ impl FunctionType {
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
+                // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and Buffer.
+                // Int and UInt have been present since Clarity1.
                 let is_clarity2: bool = clarity_version == ClarityVersion::Clarity2;
                 let first_ok = match first {
                     TypeSignature::IntType => true,
