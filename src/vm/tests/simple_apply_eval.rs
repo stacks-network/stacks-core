@@ -465,11 +465,6 @@ fn test_simple_arithmetic_functions() {
         "(+ 5 4 1)",
         "(is-eq (* 2 3)
               (+ 2 2 2))",
-        "(is-eq \"aaa\" \"aaa\")",
-        "(> \"ba\" \"aa\")",
-        "(< \"a\" \"b\")",
-        "(> u\"b\" u\"a\")",
-        "(> 0x02 0x01)",
         "(> 1 2)",
         "(< 1 2)",
         "(<= 1 1)",
@@ -510,11 +505,6 @@ fn test_simple_arithmetic_functions() {
         Value::Int(0),
         Value::Int(10),
         Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
         Value::Bool(false),
         Value::Bool(true),
         Value::Bool(true),
@@ -554,7 +544,7 @@ fn test_simple_arithmetic_functions() {
 #[test]
 fn test_sequence_comparisons_v1() {
     // Tests the sequence comparisons against ClarityVersion1. The new kinds of
-    // comparison *should not* work.
+    // sequence comparison *should not* work.
 
     // Note: Equality between sequences already works in Clarity1.
     let success_tests = [
@@ -563,6 +553,7 @@ fn test_sequence_comparisons_v1() {
         ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
     ];
 
+    // Note: Execute against Clarity1.
     success_tests
         .iter()
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
@@ -605,6 +596,7 @@ fn test_sequence_comparisons_v1() {
         .into(),
     ];
 
+    // Note: Execute against Clarity1.
     error_tests
         .iter()
         .zip(error_expectations)
@@ -616,7 +608,7 @@ fn test_sequence_comparisons_v1() {
 #[test]
 fn test_sequence_comparisons_v2() {
     // Tests the sequence comparisons against ClarityVersion2. The new kinds of
-    // comparison *should* work.
+    // sequence comparison *should* work.
     let success_tests = [
         ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
         ("(is-eq \"aba\" \"aaa\")", Value::Bool(false)),
@@ -645,6 +637,7 @@ fn test_sequence_comparisons_v2() {
         ("(<= 0x0100 0x0100)", Value::Bool(true)),
     ];
 
+    // Note: Execute against Clarity2.
     success_tests
         .iter()
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_v2(program)));
