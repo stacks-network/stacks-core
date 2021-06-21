@@ -27,9 +27,9 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::{execute, execute_v2};
-use vm::types::signatures::BufferLength;
+use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
 use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
@@ -646,10 +646,7 @@ fn test_sequence_comparisons_v2() {
 #[test]
 fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity1.
-    let error_tests = [
-        "(> 0 u1)",
-        "(< 0 u1)",
-    ];
+    let error_tests = ["(> 0 u1)", "(< 0 u1)"];
     let error_expectations: &[Error] = &[
         CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
@@ -672,20 +669,29 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 
     // Tests that comparing objects of different types results in an error in Clarity2.
-    let error_tests = [
-        "(> \"baa\" u\"aaa\")",
-        "(> \"baa\" 0x0001)",
-    ];
+    let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
     let error_expectations: &[Error] = &[
         CheckErrors::UnionTypeValueError(
-            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
             }))),
         )
         .into(),
         CheckErrors::UnionTypeValueError(
-            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
             }))),
@@ -701,7 +707,6 @@ fn test_sequence_comparisons_mismatched_types() {
             assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
         });
 }
-
 
 #[test]
 fn test_simple_arithmetic_errors() {
