@@ -157,6 +157,12 @@ macro_rules! make_comparison_ops {
             fn less(x: $type, y: $type) -> InterpreterResult<Value> {
                 Ok(Value::Bool(x < y))
             }
+            fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x <= y))
+            }
+            fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x >= y))
+            }
         }
     };
 }
@@ -172,12 +178,12 @@ macro_rules! make_arithmetic_ops {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
-            fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x <= y))
-            }
-            fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x >= y))
-            }
+            // fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
+            //     Ok(Value::Bool(x <= y))
+            // }
+            // fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
+            //     Ok(Value::Bool(x >= y))
+            // }
             // fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
             //     Ok(Value::Bool(x > y))
             // }
@@ -304,11 +310,11 @@ pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
 }
 // change this one
 pub fn native_geq(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(geq, a, b)
+    type_force_binary_comparison!(geq, a, b)
 }
 // change this one
 pub fn native_leq(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(leq, a, b)
+    type_force_binary_comparison!(leq, a, b)
 }
 // change this one
 pub fn native_ge(a: Value, b: Value) -> InterpreterResult<Value> {
