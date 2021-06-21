@@ -529,7 +529,7 @@ impl TypedNativeFunction {
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
             Simple(SimpleNativeFunction(function_type)) => {
-                checker.type_check_function_type(function_type, args, context)
+                checker.type_check_function_type(function_type, args, context, checker.clarity_version.clone())
             }
         }
     }
