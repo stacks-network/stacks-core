@@ -371,6 +371,20 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     })
 }
 
+pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let version = ClarityVersion::Clarity2;
+    info!("Executing program using Clarity version = {}", version);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
+}
+
 #[cfg(test)]
 mod test {
     use crate::clarity_vm::database::MemoryBackingStore;

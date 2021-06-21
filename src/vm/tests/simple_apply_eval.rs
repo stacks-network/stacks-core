@@ -26,7 +26,7 @@ use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::execute;
+use vm::tests::{execute, execute_v2};
 use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
@@ -579,7 +579,7 @@ fn test_sequence_comparisons() {
 
     true_tests
         .iter()
-        .for_each(|program| assert_eq!(Value::Bool(true), execute(program)));
+        .for_each(|program| assert_eq!(Value::Bool(true), execute_v2(program)));
 }
 
 #[test]
