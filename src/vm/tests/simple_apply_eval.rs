@@ -28,7 +28,7 @@ use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::{execute, execute_v2};
 use vm::types::signatures::BufferLength;
-use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
@@ -552,34 +552,71 @@ fn test_simple_arithmetic_functions() {
 }
 
 #[test]
-fn test_sequence_comparisons() {
-    let true_tests = [
-        "(is-eq \"aaa\" \"aaa\")",
-        "(is-eq u\"aaa\" u\"aaa\")",
-        "(is-eq 0x010203 0x010203)",
-        "(> \"baa\" \"aaa\")",
-        "(>= \"baa\" \"aaa\")",
-        "(>= \"aaa\" \"aaa\")",
-        "(< \"aaa\" \"baa\")",
-        "(<= \"aaa\" \"baa\")",
-        "(<= \"aaa\" \"aaa\")",
-        "(> u\"baa\" u\"aaa\")",
-        "(>= u\"baa\" u\"aaa\")",
-        "(>= u\"aaa\" u\"aaa\")",
-        "(< u\"aaa\" u\"baa\")",
-        "(<= u\"aaa\" u\"baa\")",
-        "(<= u\"aaa\" u\"aaa\")",
-        "(> 0x0200 0x0100)",
-        "(>= 0x0200 0x0100)",
-        "(>= 0x0100 0x0100)",
-        "(< 0x0100 0x0200)",
-        "(<= 0x0100 0x0200)",
-        "(<= 0x0100 0x0100)",
+fn test_sequence_comparisons_v1() {
+    // Tests the sequence comparisons against ClarityVersion1. The new kinds of
+    // comparison *should not* work.
+    let success_tests = [
+        ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
     ];
 
-    true_tests
+    success_tests
         .iter()
-        .for_each(|program| assert_eq!(Value::Bool(true), execute_v2(program)));
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+
+    let error_tests = ["(> \"baa\" \"aaa\")"];
+    let error_expectations: &[Error] = &[CheckErrors::UnionTypeValueError(
+        vec![TypeSignature::IntType, TypeSignature::UIntType],
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+            data: "baa".as_bytes().to_vec(),
+        }))),
+    )
+    .into()];
+
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+}
+
+#[test]
+fn test_sequence_comparisons_v2() {
+    // Tests the sequence comparisons against ClarityVersion2. The new kinds of
+    // comparison *should* work.
+    let success_tests = [
+        ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(is-eq \"aba\" \"aaa\")", Value::Bool(false)),
+        ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
+        ("(is-eq 0x090203 0x010203)", Value::Bool(false)),
+        ("(> \"baa\" \"aaa\")", Value::Bool(true)),
+        ("(< \"baa\" \"aaa\")", Value::Bool(false)),
+        ("(>= \"baa\" \"aaa\")", Value::Bool(true)),
+        ("(>= \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(< \"aaa\" \"baa\")", Value::Bool(true)),
+        ("(> \"aaa\" \"baa\")", Value::Bool(false)),
+        ("(<= \"aaa\" \"baa\")", Value::Bool(true)),
+        ("(<= \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(> u\"baa\" u\"aaa\")", Value::Bool(true)),
+        ("(>= u\"baa\" u\"aaa\")", Value::Bool(true)),
+        ("(>= u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(< u\"aaa\" u\"baa\")", Value::Bool(true)),
+        ("(<= u\"aaa\" u\"baa\")", Value::Bool(true)),
+        ("(<= u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(> 0x0200 0x0100)", Value::Bool(true)),
+        ("(>= 0x0200 0x0100)", Value::Bool(true)),
+        ("(>= 0x0100 0x0100)", Value::Bool(true)),
+        ("(< 0x0100 0x0200)", Value::Bool(true)),
+        ("(<= 0x0100 0x0200)", Value::Bool(true)),
+        ("(<= 0x0100 0x0100)", Value::Bool(true)),
+    ];
+
+    success_tests
+        .iter()
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_v2(program)));
 }
 
 #[test]
