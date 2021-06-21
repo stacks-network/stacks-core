@@ -117,7 +117,13 @@ macro_rules! type_force_binary_comparison_v2 {
                 Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
             ) => BuffOps::$function(x, y),
             (x, _) => Err(CheckErrors::UnionTypeValueError(
-                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                vec![
+                    TypeSignature::IntType,
+                    TypeSignature::UIntType,
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                    TypeSignature::max_buffer(),
+                ],
                 x,
             )
             .into()),
