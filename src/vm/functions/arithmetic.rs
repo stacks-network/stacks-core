@@ -15,20 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{TypeSignature, Value, SequenceData,CharType, ASCIIData, UTF8Data, BuffData};
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
+use vm::types::{ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value};
 
-use vm::costs::{runtime_cost};
 use integer_sqrt::IntegerSquareRoot;
+use vm::costs::runtime_cost;
 
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{
-    signatures::ListTypeData,  ListData, 
-    TypeSignature::BoolType, 
-};
-use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};
 use vm::version::ClarityVersion;
+use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
 struct U128Ops();
 struct I128Ops();
@@ -49,12 +46,16 @@ impl I128Ops {
 }
 impl ASCIIOps {
     fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))))
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
+            ASCIIData { data: x },
+        ))))
     }
 }
 impl UTF8Ops {
     fn make_value(x: Vec<Vec<u8>>) -> InterpreterResult<Value> {
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))))
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
+            UTF8Data { data: x },
+        ))))
     }
 }
 
@@ -102,9 +103,18 @@ macro_rules! type_force_binary_comparison_v2 {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))), Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: y })))) => ASCIIOps::$function(x, y),
-            (Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))), Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: y })))) => UTF8Ops::$function(x, y),
-            (Value::Sequence(SequenceData::Buffer(BuffData { data: x })), Value::Sequence(SequenceData::Buffer(BuffData { data: y }))) => BuffOps::$function(x, y),
+            (
+                Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))),
+                Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: y }))),
+            ) => ASCIIOps::$function(x, y),
+            (
+                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))),
+                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: y }))),
+            ) => UTF8Ops::$function(x, y),
+            (
+                Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
+                Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
+            ) => BuffOps::$function(x, y),
             (x, _) => Err(CheckErrors::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
@@ -192,7 +202,6 @@ macro_rules! make_comparison_ops {
         }
     };
 }
-
 
 // This macro creates all of the operation functions for the two arithmetic types
 //  (uint128 and int128) -- this is really hard to do generically because there's no
@@ -341,13 +350,14 @@ pub fn special_geq(
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Geq, env, arg_size)?;
+    runtime_cost(ClarityCostFunction::Geq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
-        type_force_binary_comparison_v1!(geq, a, b)
-    } else {
+    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
+        // Only if the version is Clarity2 will we use the new comparators.
         type_force_binary_comparison_v2!(geq, a, b)
+    } else {
+        type_force_binary_comparison_v1!(geq, a, b)
     }
 }
 
@@ -356,12 +366,14 @@ pub fn special_leq(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Leq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
-        type_force_binary_comparison_v1!(leq, a, b)
-    } else {
+    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(leq, a, b)
+    } else {
+        type_force_binary_comparison_v1!(leq, a, b)
     }
 }
 
@@ -370,12 +382,14 @@ pub fn special_greater(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Ge, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
-        type_force_binary_comparison_v1!(greater, a, b)
-    } else {
+    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(greater, a, b)
+    } else {
+        type_force_binary_comparison_v1!(greater, a, b)
     }
 }
 
@@ -384,12 +398,14 @@ pub fn special_less(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Le, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
-        type_force_binary_comparison_v1!(less, a, b)
-    } else {
+    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(less, a, b)
+    } else {
+        type_force_binary_comparison_v1!(less, a, b)
     }
 }
 
