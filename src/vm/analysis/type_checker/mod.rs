@@ -72,7 +72,7 @@ Is illegally typed in our language.
 pub struct TypeChecker<'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
-    function_return_tracker: Option<Option<TypeSignature>>,
+    pub function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
 }
@@ -669,7 +669,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn inner_type_check(
+    pub fn inner_type_check(
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
