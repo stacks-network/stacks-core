@@ -384,10 +384,12 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 i1 and i2 must be of the same type. In Clarity1, the `>=`-comparable types are `int` and `uint`. In Clarity2,
 the `>=`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.
     ",
-    example: "(>= 1 1) ;; Returns true
+    example: r#"(>= 1 1) ;; Returns true
 (>= 5 2) ;; Returns true
+(>= "baa" "aaa") ;; Returns true
+(>= 0x02 0x01) ;; Returns true
 (>= 5 u2) ;; Throws type error
-"
+"#
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
