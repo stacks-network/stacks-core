@@ -144,6 +144,7 @@ impl FunctionType {
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
+        clarity_version:ClarityVersion,
     ) -> CheckResult<TypeSignature> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
@@ -531,9 +532,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         func_type: &FunctionType,
         args: &[SymbolicExpression],
         context: &TypingContext,
+        clarity_version:ClarityVersion,
     ) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(self, &typed_args)
+        func_type.check_args(self, &typed_args, clarity_version.clone())
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
