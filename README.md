@@ -324,6 +324,41 @@ You can automatically reformat your commit via:
 $ cargo fmt --all
 ```
 
+## Non-Consensus Breaking Release Process
+
+For non-consensus breaking releases, this project uses the following release process:
+
+1. A release manager enumerates the PRs or issues that would _block_
+   the release. A label should be applied to each such issue/PR as
+   `2.1.x.y.z-blocker`.  The release manager should ping these
+   issue/PR owners for updates on whether or not those issues/PRs have
+   any blockers or are waiting on feedback.
+2. Once all `2.1.x.y.z-blocker` PRs have been merged to `develop`, the release
+   manager will open a `develop -> master` PR _and_ tag a `2.1.x.y.z-rc0` tag.
+3. Once the release candidate has been built, and docker images, etc. are available,
+   the release manager will notify various ecosystem participants to test the release
+   candidate on various staging infrastructure:
+
+   1. Hiro PBC staging environments.
+   2. Stacks Foundation staging environments.
+   3. Hiro PBC testnet environments.
+
+4. If bugs or issues emerge from the rollout on staging infrastructure, the release
+   will be delayed until those regressions are resolved. As regressions are resolved,
+   additional release candidates should be tagged. The release manager is responsible
+   for updating the `develop -> master` PR with information about the discovered issues,
+   even if other community members and developers may be addressing the discovered
+   issues.
+
+5. Once the final release candidate has rolled out successfully without issue on the
+   above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
+   team members to review the `develop -> master` PR.
+
+6. Once reviewed and approved, the release manager merges the PR, and tags the release
+   via the `stacks-blockchain` Github action. This creates a release and release images.
+   Once the release has been created, the release manager should update the Github release
+   text with the `CHANGELOG.md` "top-matter" for the release.
+
 ## Copyright and License
 
 The code and documentation copyright are attributed to blockstack.org for the year of 2020.
