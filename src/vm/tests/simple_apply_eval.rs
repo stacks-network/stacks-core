@@ -555,6 +555,8 @@ fn test_simple_arithmetic_functions() {
 fn test_sequence_comparisons_v1() {
     // Tests the sequence comparisons against ClarityVersion1. The new kinds of
     // comparison *should not* work.
+
+    // Note: Equality between sequences already works in Clarity1.
     let success_tests = [
         ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
         ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
@@ -565,14 +567,43 @@ fn test_sequence_comparisons_v1() {
         .iter()
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 
-    let error_tests = ["(> \"baa\" \"aaa\")"];
-    let error_expectations: &[Error] = &[CheckErrors::UnionTypeValueError(
-        vec![TypeSignature::IntType, TypeSignature::UIntType],
-        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-            data: "baa".as_bytes().to_vec(),
-        }))),
-    )
-    .into()];
+    // Inequality comparisons between sequences do not work in Clarity1.
+    let error_tests = [
+        "(> \"baa\" \"aaa\")",
+        "(< \"baa\" \"aaa\")",
+        "(>= \"baa\" \"aaa\")",
+        "(<= \"baa\" \"aaa\")",
+    ];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
 
     error_tests
         .iter()
