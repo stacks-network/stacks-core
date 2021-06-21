@@ -30,7 +30,7 @@ use vm::tests::{execute, execute_v2};
 use vm::types::signatures::BufferLength;
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute};
+use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
@@ -642,6 +642,66 @@ fn test_sequence_comparisons_v2() {
         .iter()
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_v2(program)));
 }
+
+#[test]
+fn test_sequence_comparisons_mismatched_types() {
+    // Tests that comparing objects of different types results in an error in Clarity1.
+    let error_tests = [
+        "(> 0 u1)",
+        "(< 0 u1)",
+    ];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity1.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+
+    // Tests that comparing objects of different types results in an error in Clarity2.
+    let error_tests = [
+        "(> \"baa\" u\"aaa\")",
+        "(> \"baa\" 0x0001)",
+    ];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+        });
+}
+
 
 #[test]
 fn test_simple_arithmetic_errors() {
