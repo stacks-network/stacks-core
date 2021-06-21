@@ -33,7 +33,8 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature,
+    Value,
 };
 use vm::variables::NativeVariables;
 
@@ -144,7 +145,7 @@ impl FunctionType {
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
-        clarity_version:ClarityVersion,
+        clarity_version: ClarityVersion,
     ) -> CheckResult<TypeSignature> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
@@ -225,30 +226,21 @@ impl FunctionType {
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
-                let is_ok = match (first, second) {
-                    (TypeSignature::IntType, TypeSignature::IntType) => true,
-                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
-                    (
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                            _,
-                        ))),
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                            _,
-                        ))),
-                    ) => true,
-                    (
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-                            _,
-                        ))),
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-                            _,
-                        ))),
-                    ) => true,
-                    (TypeSignature::SequenceType(SequenceSubtype::BufferType(_)), TypeSignature::SequenceType(SequenceSubtype::BufferType(_))) => true,
-                    (x, _) => false,
+                let is_clarity2: bool = clarity_version == ClarityVersion::Clarity2;
+                let first_ok = match first {
+                    TypeSignature::IntType => true,
+                    TypeSignature::UIntType => true,
+                    TypeSignature::SequenceType(SequenceSubtype::StringType(
+                        StringSubtype::ASCII(_),
+                    )) => is_clarity2,
+                    TypeSignature::SequenceType(SequenceSubtype::StringType(
+                        StringSubtype::UTF8(_),
+                    )) => is_clarity2,
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => is_clarity2,
+                    _ => false,
                 };
 
-                if (!is_ok) {
+                if (!first_ok) {
                     return Err(CheckErrors::UnionTypeError(
                         vec![
                             TypeSignature::IntType,
@@ -262,7 +254,33 @@ impl FunctionType {
                     .into());
                 }
 
-                if first != second {
+                let pair_ok = match (first, second) {
+                    (TypeSignature::IntType, TypeSignature::IntType) => true,
+                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                    ) => is_clarity2,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                    ) => is_clarity2,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                    ) => is_clarity2,
+                    (x, _) => false,
+                };
+
+                if !pair_ok {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
                 }
 
@@ -532,7 +550,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         func_type: &FunctionType,
         args: &[SymbolicExpression],
         context: &TypingContext,
-        clarity_version:ClarityVersion,
+        clarity_version: ClarityVersion,
     ) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
         func_type.check_args(self, &typed_args, clarity_version.clone())
