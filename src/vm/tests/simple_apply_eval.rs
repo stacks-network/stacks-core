@@ -465,7 +465,8 @@ fn test_simple_arithmetic_functions() {
         "(+ 5 4 1)",
         "(is-eq (* 2 3)
               (+ 2 2 2))",
-        "(> \"b\" \"a\")",
+        "(is-eq \"aaa\" \"aaa\")",
+        "(> \"ba\" \"aa\")",
         "(< \"a\" \"b\")",
         "(> u\"b\" u\"a\")",
         "(> 0x02 0x01)",
@@ -513,6 +514,7 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Bool(true),
+        Value::Bool(true),
         Value::Bool(false),
         Value::Bool(true),
         Value::Bool(true),
@@ -547,6 +549,25 @@ fn test_simple_arithmetic_functions() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_sequence_comparisons() {
+    let true_tests = [
+        "(is-eq \"aaa\" \"aaa\")",
+        "(is-eq u\"aaa\" u\"aaa\")",
+        "(is-eq 0x010203 0x010203)",
+        "(> \"baa\" \"aaa\")",
+        "(< \"aaa\" \"baa\")",
+        "(> u\"baa\" u\"aaa\")",
+        "(< u\"aaa\" u\"baa\")",
+        "(> 0x0200 0x0100)",
+        "(< 0x0100 0x0200)",
+    ];
+
+    true_tests
+        .iter()
+        .for_each(|program| assert_eq!(Value::Bool(true), execute(program)));
 }
 
 #[test]

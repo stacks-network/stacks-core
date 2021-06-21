@@ -302,15 +302,19 @@ make_comparison_ops!(BuffOps, Vec<u8>);
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
+// change this one
 pub fn native_geq(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(geq, a, b)
 }
+// change this one
 pub fn native_leq(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(leq, a, b)
 }
+// change this one
 pub fn native_ge(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_comparison!(greater, a, b)
 }
+// change this one
 pub fn native_le(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_comparison!(less, a, b)
 }
