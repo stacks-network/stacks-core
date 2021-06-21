@@ -97,7 +97,8 @@ macro_rules! type_force_binary_comparison_v1 {
     }};
 }
 
-// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer.
+// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
+// accessed if the ClarityVersion, as read by the SpecialFunction, is 2.
 macro_rules! type_force_binary_comparison_v2 {
     ($function: ident, $x: expr, $y: expr) => {{
         match ($x, $y) {
@@ -184,6 +185,8 @@ macro_rules! type_force_variadic_arithmetic {
     }};
 }
 
+// This macro creates comparison operation functions for the supported types:
+// uint, int, string-ascii, string-utf8 and buff.
 macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
@@ -213,18 +216,6 @@ macro_rules! make_arithmetic_ops {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
-            // fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
-            //     Ok(Value::Bool(x <= y))
-            // }
-            // fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
-            //     Ok(Value::Bool(x >= y))
-            // }
-            // fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
-            //     Ok(Value::Bool(x > y))
-            // }
-            // fn less(x: $type, y: $type) -> InterpreterResult<Value> {
-            //     Ok(Value::Bool(x < y))
-            // }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
                     .iter()
@@ -344,6 +335,8 @@ pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
 
+// This function is 'special', because it must access the context to determine
+// the clarity version.
 pub fn special_geq(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -361,6 +354,8 @@ pub fn special_geq(
     }
 }
 
+// This function is 'special', because it must access the context to determine
+// the clarity version.
 pub fn special_leq(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -377,6 +372,8 @@ pub fn special_leq(
     }
 }
 
+// This function is 'special', because it must access the context to determine
+// the clarity version.
 pub fn special_greater(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -393,6 +390,8 @@ pub fn special_greater(
     }
 }
 
+// This function is 'special', because it must access the context to determine
+// the clarity version.
 pub fn special_less(
     args: &[SymbolicExpression],
     env: &mut Environment,
