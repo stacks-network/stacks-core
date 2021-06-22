@@ -105,7 +105,6 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    // let mapped_type = function_type.check_args(checker, &func_args, &(checker.clarity_version))?;
     let mapped_type =
         function_type.check_args(checker, &func_args, checker.clarity_version.clone())?;
     TypeSignature::list_of(mapped_type, min_args)
@@ -135,7 +134,6 @@ pub fn check_special_filter(
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
-        // let filter_type = function_type.check_args(checker, &[input_type], &checker.clarity_version)?;
         let filter_type =
             function_type.check_args(checker, &[input_type], checker.clarity_version.clone())?;
 
