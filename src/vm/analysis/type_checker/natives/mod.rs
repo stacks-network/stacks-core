@@ -682,6 +682,9 @@ impl TypedNativeFunction {
                 .unwrap(),
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
+            StxTransferMemo => Special(SpecialNativeFunction(
+                &assets::check_special_stx_transfer_memo,
+            )),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),
