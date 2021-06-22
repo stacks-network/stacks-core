@@ -83,9 +83,9 @@ fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> StacksAddress {
 // This version contains the code for Clarity2 and going forward.
 fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> StacksAddress {
     let network_byte = if is_mainnet {
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
-    } else {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+    } else {
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
     };
     StacksAddress::from_public_keys(
         network_byte,
