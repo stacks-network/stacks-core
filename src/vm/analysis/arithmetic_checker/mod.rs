@@ -144,7 +144,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
 
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
         use vm::variables::NativeVariables::*;
-        if let Some(native_var) = NativeVariables::lookup_by_name(var_name) {
+        if let Some(native_var) = NativeVariables::lookup_by_name_at_version(var_name, &ClarityVersion::Clarity2) {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
                 | Regtest | TxSponsor => Err(Error::VariableForbidden(native_var)),
