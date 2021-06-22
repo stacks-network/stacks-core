@@ -17,13 +17,38 @@
 use assert_json_diff;
 use serde_json;
 
-use crate::clarity_vm::database::MemoryBackingStore;
+use crate::{
+    clarity_vm::database::MemoryBackingStore,
+    vm::{
+        analysis::{CheckError, ContractAnalysis},
+        costs::LimitedCostTracker,
+        ClarityVersion, SymbolicExpression,
+    },
+};
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
+use vm::analysis::run_analysis;
+use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use vm::ast::parse;
 use vm::types::QualifiedContractIdentifier;
+
+/// backwards-compatibility shim
+pub fn type_check(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &mut [SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+) -> Result<ContractAnalysis, CheckError> {
+    run_analysis(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        LimitedCostTracker::new_free(),
+        ClarityVersion::Clarity2,
+    )
+    .map_err(|(e, _)| e)
+}
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
@@ -367,7 +392,8 @@ fn test_names_tokens_contracts_interface() {
             { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
         ],
         "fungible_tokens": [],
-        "non_fungible_tokens": []
+        "non_fungible_tokens": [],
+        "clarity_version": "Clarity2"
     }"#).unwrap();
 
     eprintln!("{}", test_contract_json_str);
@@ -511,7 +537,6 @@ fn test_same_function_name() {
 
 #[test]
 fn test_expects() {
-    use vm::analysis::type_check;
     let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!

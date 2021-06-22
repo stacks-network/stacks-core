@@ -50,6 +50,7 @@ use vm::database::{
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
+use vm::ClarityVersion;
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use burnchains::PoxConstants;
@@ -193,6 +194,8 @@ fn run_analysis_free<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 
@@ -220,6 +223,8 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 

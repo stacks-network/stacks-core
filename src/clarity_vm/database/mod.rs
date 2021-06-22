@@ -104,6 +104,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         SortitionDB::get_stacks_epoch(self.tx(), height as u64)
             .expect("BUG: failed to get epoch for burn block height")
     }
+
+    fn get_burn_start_height(&self) -> u32 {
+        self.context.first_block_height as u32
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -129,6 +133,10 @@ impl BurnStateDB for SortitionDBConn<'_> {
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch(self.conn(), height as u64)
             .expect("BUG: failed to get epoch for burn block height")
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        self.context.first_block_height as u32
     }
 }
 

@@ -29,6 +29,8 @@ use vm::representations::PreSymbolicExpressionType::{
 use vm::representations::{ClarityName, PreSymbolicExpression};
 use vm::types::Value;
 
+use crate::vm::ClarityVersion;
+
 #[cfg(test)]
 mod tests;
 
@@ -210,7 +212,12 @@ impl<'a> DefinitionSorter {
                                 }
                             }
                         } else if let Some(native_function) =
-                            NativeFunctions::lookup_by_name(function_name)
+                            // NOTE: can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
+                            //        in the definition sorter.
+                            NativeFunctions::lookup_by_name_at_version(
+                                    function_name,
+                                    &ClarityVersion::latest(),
+                                )
                         {
                             match native_function {
                                 NativeFunctions::ContractCall => {
