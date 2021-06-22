@@ -31,7 +31,7 @@ use vm::variables::NativeVariables;
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
 /// This check is useful in determining the validity of new potential cost functions.
-fn arithmetic_check(contract: &str) -> Result<(), Error> {
+fn arithmetic_check(contract: &str, version:ClarityVersion) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let expressions = parse(&contract_identifier, contract).unwrap();
 
@@ -39,7 +39,7 @@ fn arithmetic_check(contract: &str) -> Result<(), Error> {
         contract_identifier,
         expressions,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity2,
+        version,
     );
 
     ArithmeticOnlyChecker::run(&analysis)
@@ -69,7 +69,7 @@ fn test_bad_defines() {
 
     for (contract, error) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract),
+            arithmetic_check(contract, ClarityVersion::Clarity1),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
@@ -112,7 +112,7 @@ fn test_variables_fail_arithmetic_check() {
 
     for (contract, error) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract),
+            arithmetic_check(contract, ClarityVersion::Clarity2),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
@@ -212,7 +212,7 @@ fn test_functions() {
     for (contract, error) in bad_tests.iter() {
         eprintln!("{}", contract);
         assert_eq!(
-            arithmetic_check(contract),
+            arithmetic_check(contract, ClarityVersion::Clarity1),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
