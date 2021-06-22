@@ -337,6 +337,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint".to_string()
         }
+        FunctionType::RandomVariadic => "int, ... | uint, ...".to_string(),
     }
 }
 
@@ -347,7 +348,8 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
-        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        | FunctionType::ArithmeticBinary
+        | FunctionType::RandomVariadic => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
     }
 }
