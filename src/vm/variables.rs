@@ -52,8 +52,8 @@ impl NativeVariables {
     }
 }
 
-pub fn is_reserved_name(name: &str) -> bool {
-    NativeVariables::lookup_by_name_at_version(name, &ClarityVersion::Clarity1).is_some()
+pub fn is_reserved_name(name: &str, version:&ClarityVersion) -> bool {
+    NativeVariables::lookup_by_name_at_version(name, version).is_some()
 }
 
 pub fn lookup_reserved_variable(

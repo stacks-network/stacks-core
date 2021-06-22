@@ -230,7 +230,7 @@ pub fn eval<'a>(
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
-    } else if variables::is_reserved_name(name) {
+    } else if variables::is_reserved_name(name, version) {
         true
     } else {
         false
