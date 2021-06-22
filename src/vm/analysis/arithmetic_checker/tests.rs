@@ -171,7 +171,7 @@ fn test_functions() {
          FunctionNotPermitted(NativeFunctions::StxBurn)),
         (r#"(stx-transfer? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)"#,
          FunctionNotPermitted(NativeFunctions::StxTransfer)),
-        (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x00)"#,
+        (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
          FunctionNotPermitted(NativeFunctions::StxTransferMemo)),
         ("(define-private (foo (a (list 3 uint)))
            (map log2 a))",
