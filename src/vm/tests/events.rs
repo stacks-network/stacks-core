@@ -22,7 +22,9 @@ use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::tests::execute;
 use vm::types::TypeSignature::UIntType;
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
@@ -101,6 +103,41 @@ fn test_emit_stx_transfer_ok() {
             assert_eq!(
                 Value::Principal(data.recipient),
                 execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            );
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_stx_transfer_memo_ok() {
+    let contract = r#"(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+        (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+        (define-fungible-token token)
+        (define-public (emit-event-ok)
+            (begin
+                (unwrap-panic (stx-transfer-memo? u10 sender recipient 0x010203))
+                (ok u1)))"#;
+
+    let (value, mut events) = helper_execute(contract, "emit-event-ok");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(data))) => {
+            assert_eq!(data.amount, 10u128);
+            assert_eq!(
+                Value::Principal(data.sender),
+                execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+            );
+            assert_eq!(
+                Value::Principal(data.recipient),
+                execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            );
+            assert_eq!(
+                data.memo,
+                BuffData {
+                    data: vec![1, 2, 3]
+                }
             );
         }
         _ => panic!("assertion failed"),
