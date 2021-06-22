@@ -31,7 +31,7 @@ use vm::variables::NativeVariables;
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
 /// This check is useful in determining the validity of new potential cost functions.
-fn arithmetic_check(contract: &str, version:ClarityVersion) -> Result<(), Error> {
+fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let expressions = parse(&contract_identifier, contract).unwrap();
 
@@ -126,6 +126,22 @@ fn test_variables_fail_arithmetic_check() {
 
     for contract in tests.iter() {
         check_good(contract);
+    }
+}
+
+#[test]
+fn test_version_controlled_variables() {
+    // Certain variables are controlled by the ClarityVersion. E.g., in Clarity1, 'tx-sponsor?'
+    // is not a variable, so can be defined over.
+    let ok_tests = ["(define-private (foo) tx-sponsor?)"];
+
+    for contract in ok_tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1),
+            Ok(()),
+            "Check contract is ok:\n {}",
+            contract
+        );
     }
 }
 
