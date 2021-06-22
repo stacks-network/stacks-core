@@ -174,6 +174,10 @@ impl ContractContext {
         Ok(())
     }
 
+    pub fn clear_variable_types(&mut self) {
+        self.variable_types.clear();
+    }
+
     pub fn add_persisted_variable_type(
         &mut self,
         var_name: ClarityName,
