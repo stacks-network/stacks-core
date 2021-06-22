@@ -17,8 +17,8 @@ use vm::eval;
 use vm::execute;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::{
-    CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
- execute_against_mainnet
+    execute_against_mainnet, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
+    SymbolicExpression,
 };
 
 #[test]

@@ -368,9 +368,13 @@ pub fn execute_program_with_context(
 }
 
 /* Run provided program in a brand new environment, specifying the ClarityVersion and the
-   network type (mainnet vs testnet). Only used by CLI and unit tests.
- */
-pub fn execute_against_mainnet(program: &str, clarity_version: ClarityVersion, as_mainnet: bool) -> Result<Option<Value>> {
+  network type (mainnet vs testnet). Only used by CLI and unit tests.
+*/
+pub fn execute_against_mainnet(
+    program: &str,
+    clarity_version: ClarityVersion,
+    as_mainnet: bool,
+) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -378,7 +382,6 @@ pub fn execute_against_mainnet(program: &str, clarity_version: ClarityVersion, a
     let global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     execute_program_with_context(program, contract_id, contract_context, global_context)
 }
-
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database. Only used by CLI and unit tests.

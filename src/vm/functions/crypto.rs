@@ -35,7 +35,7 @@ use vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
-use vm::{ClarityVersion, eval, Environment, LocalContext};
+use vm::{eval, ClarityVersion, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
 
