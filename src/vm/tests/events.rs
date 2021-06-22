@@ -87,7 +87,7 @@ fn test_emit_stx_transfer_ok() {
         (define-fungible-token token)
         (define-public (emit-event-ok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient 0x67))
+                (unwrap-panic (stx-transfer? u10 sender recipient))
                 (ok u1)))"#;
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
@@ -103,6 +103,12 @@ fn test_emit_stx_transfer_ok() {
             assert_eq!(
                 Value::Principal(data.recipient),
                 execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            );
+            assert_eq!(
+                data.memo,
+                BuffData {
+                    data: vec![]
+                }
             );
         }
         _ => panic!("assertion failed"),
@@ -151,7 +157,7 @@ fn test_emit_stx_transfer_nok() {
         (define-fungible-token token)
         (define-public (emit-event-nok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient 0x99))
+                (unwrap-panic (stx-transfer? u10 sender recipient))
                 (err u1)))"#;
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
