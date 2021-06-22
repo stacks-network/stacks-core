@@ -264,6 +264,76 @@ fn test_secp256k1() {
 }
 
 #[test]
+fn test_principal_of_fix() {
+    let secp256k1_evals = [
+        // "(unwrap! (secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301) 2)",
+        // "(unwrap-err! (secp256k1-recover? 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000) 3)",
+        // "(unwrap-err! (secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1306) 3)",
+        // "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        // "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a13 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        // "(secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        // "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1305 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)", // (buff 33)
+        "(unwrap-err! (principal-of? 0x000000000000000000000000000000000000000000000000000000000000000000) 3)",
+    ];
+
+    // let privk = StacksPrivateKey::from_hex(
+    //     "510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101",
+    // )
+    // .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
+    // eprintln!("privk {:?}", &privk);
+    // eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
+    // let addr = StacksAddress::from_public_keys(
+    //     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    //     &AddressHashMode::SerializeP2PKH,
+    //     1,
+    //     &vec![StacksPublicKey::from_private(&privk)],
+    // )
+    // .unwrap();
+    // eprintln!("addr from privk {:?}", &addr);
+    // let principal = addr.to_account_principal();
+    // if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+    //     eprintln!("test_secp256k1 principal {:?}", data.to_address());
+    // }
+
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    eprintln!("addr from hex {:?}", addr);
+    let principal = addr.to_account_principal();
+    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+        eprintln!("test_secp256k1 principal {:?}", data.to_address());
+    }
+
+    let expectations = [
+        // Value::Sequence(SequenceData::Buffer(BuffData {
+        //     data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110")
+        //         .unwrap(),
+        // })),
+        // Value::UInt(1),
+        // Value::UInt(2),
+        // Value::Bool(true),
+        // Value::Bool(true),
+        // Value::Bool(false),
+        // Value::Bool(false),
+        Value::Principal(principal),
+        Value::UInt(1),
+    ];
+
+    secp256k1_evals
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
 fn test_secp256k1_errors() {
     let secp256k1_evals = [
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
