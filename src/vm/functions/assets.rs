@@ -145,24 +145,40 @@ pub fn special_stx_transfer(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let memo_passed;
-    if let Ok(()) = check_argument_count(4, args) {
-        memo_passed = true;
-    } else {
-        check_argument_count(3, args)?;
-        memo_passed = false;
-    }
+    check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
     let to_val = eval(&args[2], env, context)?;
-    let memo_val = if memo_passed {
-        eval(&args[3], env, context)?
+    let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
+
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
+    {
+        stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Value::Sequence(SequenceData::Buffer(BuffData::empty()))
-    };
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
+
+pub fn special_stx_transfer_memo(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(4, args);
+    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val = eval(&args[1], env, context)?;
+    let to_val = eval(&args[2], env, context)?;
+    let memo_val = eval(&args[3], env, context)?;
 
     if let (
         Value::Principal(ref from),

@@ -131,6 +131,7 @@ define_named_enum!(NativeFunctions {
     BurnAsset("nft-burn?"),
     GetStxBalance("stx-get-balance"),
     StxTransfer("stx-transfer?"),
+    StxTransferMemo("stx-transfer-memo?"),
     StxBurn("stx-burn?"),
 });
 
@@ -396,6 +397,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             AtBlock => SpecialFunction("special_at_block", &database::special_at_block),
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
+            StxTransferMemo => SpecialFunction("special_stx_transfer_memo", &assets::special_stx_transfer_memo),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
         };
         Some(callable)
