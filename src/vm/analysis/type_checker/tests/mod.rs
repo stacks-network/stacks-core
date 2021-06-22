@@ -43,7 +43,7 @@ pub mod contracts;
 
 /// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity1)
+    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity2)
 }
 
 fn type_check_helper(exp: &str) -> TypeResult {

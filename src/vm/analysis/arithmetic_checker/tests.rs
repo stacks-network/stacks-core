@@ -39,7 +39,7 @@ fn arithmetic_check(contract: &str) -> Result<(), Error> {
         contract_identifier,
         expressions,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity1,
+        ClarityVersion::Clarity2,
     );
 
     ArithmeticOnlyChecker::run(&analysis)
