@@ -223,7 +223,7 @@ pub struct ContractContext {
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
     /// track the clarity version of the contract
-    clarity_version: ClarityVersion,
+    pub clarity_version: ClarityVersion,
 }
 
 pub struct LocalContext<'a> {

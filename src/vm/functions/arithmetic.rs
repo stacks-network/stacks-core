@@ -17,8 +17,18 @@
 use std::convert::TryFrom;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
 use vm::types::{TypeSignature, Value, SequenceData,CharType, ASCIIData, UTF8Data, BuffData};
+use vm::costs::cost_functions::ClarityCostFunction;
 
+use vm::costs::{runtime_cost};
 use integer_sqrt::IntegerSquareRoot;
+
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::types::{
+    signatures::ListTypeData,  ListData, 
+    TypeSignature::BoolType, 
+};
+use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use vm::version::ClarityVersion;
 
 struct U128Ops();
 struct I128Ops();
@@ -71,7 +81,23 @@ macro_rules! type_force_binary_arithmetic {
     }};
 }
 
-macro_rules! type_force_binary_comparison {
+// The originally supported comparable types in Clarity1 were Int and UInt.
+macro_rules! type_force_binary_comparison_v1 {
+    ($function: ident, $x: expr, $y: expr) => {{
+        match ($x, $y) {
+            (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
+            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
+            (x, _) => Err(CheckErrors::UnionTypeValueError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                x,
+            )
+            .into()),
+        }
+    }};
+}
+
+// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer.
+macro_rules! type_force_binary_comparison_v2 {
     ($function: ident, $x: expr, $y: expr) => {{
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
@@ -308,22 +334,65 @@ make_comparison_ops!(BuffOps, Vec<u8>);
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
-// change this one
-pub fn native_geq(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_comparison!(geq, a, b)
+
+pub fn special_geq(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Geq, env, arg_size)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
+        type_force_binary_comparison_v1!(geq, a, b)
+    } else {
+        type_force_binary_comparison_v2!(geq, a, b)
+    }
 }
-// change this one
-pub fn native_leq(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_comparison!(leq, a, b)
+
+pub fn special_leq(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
+        type_force_binary_comparison_v1!(leq, a, b)
+    } else {
+        type_force_binary_comparison_v2!(leq, a, b)
+    }
 }
-// change this one
-pub fn native_ge(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_comparison!(greater, a, b)
+
+pub fn special_greater(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
+        type_force_binary_comparison_v1!(greater, a, b)
+    } else {
+        type_force_binary_comparison_v2!(greater, a, b)
+    }
 }
-// change this one
-pub fn native_le(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_comparison!(less, a, b)
+
+pub fn special_less(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    if env.contract_context.clarity_version == ClarityVersion::Clarity1 {
+        type_force_binary_comparison_v1!(less, a, b)
+    } else {
+        type_force_binary_comparison_v2!(less, a, b)
+    }
 }
+
 pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(add, args)
 }
