@@ -234,6 +234,7 @@ impl FunctionType {
 
                 Ok(TypeSignature::BoolType)
             }
+            FunctionType::RandomVariadic => Ok(TypeSignature::BoolType),
         }
     }
 
