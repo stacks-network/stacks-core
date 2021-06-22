@@ -42,7 +42,6 @@ impl NativeVariables {
         name: &str,
         version: &ClarityVersion,
     ) -> Option<NativeVariables> {
-        info!("name-version {:?} {:?}", name, version);
         NativeVariables::lookup_by_name(name).and_then(|native_function| {
             if &native_function.get_version() <= version {
                 Some(native_function)
