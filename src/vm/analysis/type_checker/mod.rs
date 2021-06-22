@@ -229,6 +229,8 @@ impl FunctionType {
                 // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and Buffer.
                 // Int and UInt have been present since Clarity1.
                 let is_clarity2: bool = clarity_version == ClarityVersion::Clarity2;
+                // Step 1: Check the first argument on its own, to see that the first argument
+                // has a supported type according to this ClarityVersion.
                 let first_ok = match first {
                     TypeSignature::IntType => true,
                     TypeSignature::UIntType => true,
@@ -256,6 +258,8 @@ impl FunctionType {
                     .into());
                 }
 
+                // Step 2: Assuming the first argument has a supported type, now check that
+                // both of the types are matching.
                 let pair_ok = match (first, second) {
                     (TypeSignature::IntType, TypeSignature::IntType) => true,
                     (TypeSignature::UIntType, TypeSignature::UIntType) => true,
