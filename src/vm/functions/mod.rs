@@ -199,25 +199,21 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_div),
                 ClarityCostFunction::Div,
             ),
-            CmpGeq => NativeFunction(
-                "native_geq",
-                NativeHandle::DoubleArg(&arithmetic::native_geq),
-                ClarityCostFunction::Geq,
+            CmpGeq => SpecialFunction(
+                "special_geq",
+                &arithmetic::special_geq,
             ),
-            CmpLeq => NativeFunction(
-                "native_leq",
-                NativeHandle::DoubleArg(&arithmetic::native_leq),
-                ClarityCostFunction::Leq,
+            CmpLeq => SpecialFunction(
+                "special_leq",
+                &arithmetic::special_leq,
             ),
-            CmpLess => NativeFunction(
-                "native_le",
-                NativeHandle::DoubleArg(&arithmetic::native_le),
-                ClarityCostFunction::Le,
+            CmpLess => SpecialFunction(
+                "special_le",
+                &arithmetic::special_less,
             ),
-            CmpGreater => NativeFunction(
-                "native_ge",
-                NativeHandle::DoubleArg(&arithmetic::native_ge),
-                ClarityCostFunction::Ge,
+            CmpGreater => SpecialFunction(
+                "special_ge",
+                &arithmetic::special_greater,
             ),
             ToUInt => NativeFunction(
                 "native_to_uint",
