@@ -34,7 +34,7 @@ define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     NativeFalse("false", ClarityVersion::Clarity1),
     TotalLiquidMicroSTX("stx-liquid-supply", ClarityVersion::Clarity1),
     Regtest("is-in-regtest", ClarityVersion::Clarity1),
-    TxSponsor("tx-sponsor?", ClarityVersion::Clarity1),
+    TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
 });
 
 impl NativeVariables {
@@ -42,6 +42,7 @@ impl NativeVariables {
         name: &str,
         version: &ClarityVersion,
     ) -> Option<NativeVariables> {
+        info!("name-version {:?} {:?}", name, version);
         NativeVariables::lookup_by_name(name).and_then(|native_function| {
             if &native_function.get_version() <= version {
                 Some(native_function)
