@@ -122,28 +122,26 @@ pub fn native_string_to_int_generic(
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             match String::from_utf8(data) {
-                Ok(as_string) => return conversion_fn(as_string),
-                Err(_error) => return Ok(Value::none()),
+                Ok(as_string) => conversion_fn(as_string),
+                Err(_error) => Ok(Value::none()),
             }
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
             let flattened_bytes = data.into_iter().flatten().collect();
             match String::from_utf8(flattened_bytes) {
-                Ok(as_string) => return conversion_fn(as_string),
-                Err(_error) => return Ok(Value::none()),
+                Ok(as_string) => conversion_fn(as_string),
+                Err(_error) => Ok(Value::none()),
             }
         }
-        _ => {
-            return Err(CheckErrors::UnionTypeValueError(
-                vec![
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
-                ],
-                value,
-            )
-            .into())
-        }
-    };
+        _ => Err(CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            value,
+        )
+        .into()),
+    }
 }
 
 fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
