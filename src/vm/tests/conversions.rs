@@ -246,6 +246,12 @@ fn test_simple_string_to_int() {
         execute_v2(good2_test).unwrap().unwrap()
     );
 
+    let bad_value_error_ascii_test = r#"(string-to-int "")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
+    );
+
     let bad_value_error_ascii_test = r#"(string-to-int "a")"#;
     assert_eq!(
         Value::none(),
@@ -253,6 +259,13 @@ fn test_simple_string_to_int() {
     );
 
     let bad_value_error_utf8_test = r#"(string-to-int u"a")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
+    );
+
+    let bad_value_error_utf8_test = r#"(string-to-int u"\u{211D}\u{221E}")"#;
+    info!("bad_value_error_utf8_test {:?}", bad_value_error_utf8_test);
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
@@ -299,6 +312,12 @@ fn test_simple_string_to_uint() {
         execute_v2(good2_test).unwrap().unwrap()
     );
 
+    let bad_value_error_ascii_test = r#"(string-to-uint "")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
+    );
+
     let bad_value_error_ascii_test = r#"(string-to-uint "a")"#;
     assert_eq!(
         Value::none(),
@@ -311,8 +330,15 @@ fn test_simple_string_to_uint() {
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
+    let bad_value_error_utf8_test = r#"(string-to-uint u"\u{211D}\u{221E}")"#;
+    info!("bad_value_error_utf8_test {:?}", bad_value_error_utf8_test);
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
+    );
+
     let bad_value_error_too_big_test =
-        r#"(string-to-int u"340282366920938463463374607431768211455000")"#;
+        r#"(string-to-uint u"340282366920938463463374607431768211455000")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_too_big_test).unwrap().unwrap(),
