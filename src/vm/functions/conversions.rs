@@ -166,18 +166,16 @@ pub fn native_string_to_uint(value: Value) -> Result<Value> {
 
 pub fn native_int_to_string_generic(
     value: Value,
-    conversion_fn: fn(String) -> Value,
+    conversion_fn: fn(String) -> Result<Value>,
 ) -> Result<Value> {
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            let value = conversion_fn(as_string);
-            return Ok(value);
+            return conversion_fn(as_string);
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
-            let value = conversion_fn(as_string);
-            return Ok(value);
+            return conversion_fn(as_string);
         }
         _ => {
             return Err(CheckErrors::UnionTypeValueError(
@@ -189,32 +187,22 @@ pub fn native_int_to_string_generic(
     };
 }
 
+// Given a string representing an integer, convert this to Clarity ASCII value.
+fn convert_string_to_ascii(raw_string: String) -> Result<Value> {
+    Value::string_ascii_from_bytes(raw_string.into())
+}
+
 pub fn native_int_to_ascii(value: Value) -> Result<Value> {
-    // Given a string representing an integer, convert this to Clarity ASCII value.
-    fn convert_to_ascii(raw_string: String) -> Value {
-        let data_vec = raw_string.as_bytes().to_vec();
-        return Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-            data: data_vec,
-        })));
-    }
-    return native_int_to_string_generic(value, convert_to_ascii);
+    native_int_to_string_generic(value, convert_string_to_ascii)
+}
+
+fn convert_to_utf8(raw_string: String) -> Result<Value> {
+    Value::string_utf8_from_bytes(raw_string.into())
 }
 
 pub fn native_int_to_utf8(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity UTF8 value.
     // The conversion of an integer into a string is going to be ASCII-compliant, therefor, we just need
     // to wrap each individual character in another vector.
-    fn convert_to_utf8(raw_string: String) -> Value {
-        let data_vec = raw_string.as_bytes().to_vec();
-        let mut wrapped_vec = Vec::new();
-        for i in data_vec {
-            let mut inner_vec = Vec::new();
-            inner_vec.push(i);
-            wrapped_vec.push(inner_vec);
-        }
-        return Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
-            data: wrapped_vec,
-        })));
-    }
     return native_int_to_string_generic(value, convert_to_utf8);
 }
