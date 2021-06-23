@@ -258,6 +258,13 @@ fn test_simple_string_to_int() {
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
+    let bad_value_error_too_big_test =
+        r#"(string-to-int u"340282366920938463463374607431768211455000")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_too_big_test).unwrap().unwrap(),
+    );
+
     let no_args_test = r#"(string-to-int)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
@@ -302,6 +309,13 @@ fn test_simple_string_to_uint() {
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
+    );
+
+    let bad_value_error_too_big_test =
+        r#"(string-to-int u"340282366920938463463374607431768211455000")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_too_big_test).unwrap().unwrap(),
     );
 
     let no_args_test = r#"(string-to-uint)"#;
