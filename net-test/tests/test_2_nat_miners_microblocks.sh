@@ -82,8 +82,9 @@ with_miner_1
           RC=$?
           if [ $RC -ne 0 ]; then
              logln "Failed to make a token transfer to $STX_DEST_ADDR at attempt $i: rc $RC"
-             DONE=1
-             break
+
+             # keep trying
+             continue
           fi
 
           TXID="$(echo "$TX" | send_tx "http://localhost:21443")"

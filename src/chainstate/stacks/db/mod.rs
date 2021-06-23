@@ -30,7 +30,7 @@ use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::{Address, Burnchain, BurnchainParameters};
+use burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use chainstate::burn::db::sortdb::BlockHeaderCache;
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
@@ -56,7 +56,6 @@ use clarity_vm::clarity::{
     Error as clarity_error,
 };
 use core::*;
-use monitoring;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use util::db::Error as db_error;
@@ -76,6 +75,7 @@ use vm::database::{
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 use vm::types::TupleData;
+use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{
@@ -83,6 +83,7 @@ use crate::types::chainstate::{
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 use crate::util::boot::{boot_code_addr, boot_code_id};
+use vm::Value;
 
 pub mod accounts;
 pub mod blocks;
@@ -161,6 +162,9 @@ pub struct StacksEpochReceipt {
     pub matured_rewards_info: Option<MinerRewardInfo>,
     pub parent_microblocks_cost: ExecutionCost,
     pub anchored_block_cost: ExecutionCost,
+    pub parent_burn_block_hash: BurnchainHeaderHash,
+    pub parent_burn_block_height: u32,
+    pub parent_burn_block_timestamp: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -672,6 +676,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub pox_constants: PoxConstants,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
@@ -694,6 +699,7 @@ impl ChainStateBootData {
             first_burnchain_block_height: burnchain.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
+            pox_constants: burnchain.pox_constants.clone(),
             post_flight_callback,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
@@ -1205,6 +1211,28 @@ impl StacksChainState {
                 callback(&mut clarity_tx);
             }
 
+            // Setup burnchain parameters for pox contract
+            let pox_constants = &boot_data.pox_constants;
+            let contract = util::boot::boot_code_id("pox", mainnet);
+            let sender = PrincipalData::from(contract.clone());
+            let params = vec![
+                Value::UInt(boot_data.first_burnchain_block_height as u128),
+                Value::UInt(pox_constants.prepare_length as u128),
+                Value::UInt(pox_constants.reward_cycle_length as u128),
+                Value::UInt(pox_constants.pox_rejection_fraction as u128),
+            ];
+            clarity_tx.connection().as_transaction(|conn| {
+                conn.run_contract_call(
+                    &sender,
+                    None,
+                    &contract,
+                    "set-burnchain-parameters",
+                    &params,
+                    |_, _| false,
+                )
+                .expect("Failed to set burnchain parameters in PoX contract");
+            });
+
             clarity_tx
                 .connection()
                 .as_transaction(|tx| {
@@ -1216,6 +1244,29 @@ impl StacksChainState {
                 .expect("FATAL: `ustx-liquid-supply` overflowed");
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+        }
+
+        // verify that genesis root hash is as expected
+        {
+            let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
+                let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    &FIRST_STACKS_BLOCK_HASH,
+                );
+                marf.get_root_hash_at(&index_block_hash).unwrap()
+            });
+
+            info!("Computed Clarity state genesis"; "root_hash" => %genesis_root_hash);
+
+            if mainnet {
+                assert_eq!(
+                    &genesis_root_hash.to_string(),
+                    MAINNET_2_0_GENESIS_ROOT_HASH,
+                    "Incorrect root hash for genesis block computed. expected={} computed={}",
+                    MAINNET_2_0_GENESIS_ROOT_HASH,
+                    genesis_root_hash.to_string()
+                )
+            }
         }
 
         {
@@ -1930,7 +1981,7 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use std::fs;
+    use std::{env, fs};
 
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
@@ -1974,6 +2025,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_names: None,
@@ -2032,6 +2084,7 @@ pub mod test {
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(true).read_lockups().map(|item| {
@@ -2107,21 +2160,26 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "beb536eb6e37350d9745c7578ff295142e5fef2bcd0aad8beff3b8ce287ca0e4"
+            "3102b7d9c7fdddc49910ea49a3ed4e322b772b9e5ee9505d9fb3f566affd1c54"
         );
     }
 
     #[test]
-    #[ignore]
     fn test_chainstate_full_genesis_consistency() {
+        if env::var("CIRCLE_CI_TEST") != Ok("1".into()) {
+            return;
+        }
+
         // Test root hash for the final chainstate data set
-        // TODO(test): update the fields (first_burnchain_block_hash, first_burnchain_block_height, first_burnchain_block_timestamp)
-        // once https://github.com/blockstack/stacks-blockchain/pull/2173 merges
         let mut boot_data = ChainStateBootData {
             initial_balances: vec![],
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: 0,
-            first_burnchain_block_timestamp: 0,
+            first_burnchain_block_hash: BurnchainHeaderHash::from_hex(
+                BITCOIN_MAINNET_FIRST_BLOCK_HASH,
+            )
+            .unwrap(),
+            first_burnchain_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32,
+            first_burnchain_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            pox_constants: PoxConstants::mainnet_default(),
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(false).read_lockups().map(|item| {
@@ -2197,7 +2255,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             format!("{}", genesis_root_hash),
-            "cff7b73beb78d2e0f45b6108f1e7376cefce0f9f691d62a130e0c0730fb090c5"
+            MAINNET_2_0_GENESIS_ROOT_HASH
         );
     }
 }
