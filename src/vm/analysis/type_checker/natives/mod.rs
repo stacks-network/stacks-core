@@ -595,14 +595,14 @@ impl TypedNativeFunction {
                     TypeSignature::max_string_ascii(),
                     TypeSignature::max_string_utf8(),
                 ],
-                TypeSignature::IntType,
+                TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
             ))),
             StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
                     TypeSignature::max_string_ascii(),
                     TypeSignature::max_string_utf8(),
                 ],
-                TypeSignature::UIntType,
+                TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
             ))),
             IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
