@@ -123,14 +123,14 @@ pub fn native_string_to_int_generic(
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             match String::from_utf8(data) {
                 Ok(as_string) => return conversion_fn(as_string),
-                Err(error) => return Ok(Value::none()),
+                Err(_error) => return Ok(Value::none()),
             }
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
-            let flat = data.into_iter().flatten().collect();
-            match String::from_utf8(flat) {
+            let flattened_bytes = data.into_iter().flatten().collect();
+            match String::from_utf8(flattened_bytes) {
                 Ok(as_string) => return conversion_fn(as_string),
-                Err(error) => return Ok(Value::none()),
+                Err(_error) => return Ok(Value::none()),
             }
         }
         _ => {
@@ -153,6 +153,7 @@ fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
         Err(_error) => return Ok(Value::none()),
     }
 }
+
 pub fn native_string_to_int(value: Value) -> Result<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_int)
 }
@@ -164,6 +165,7 @@ fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
         Err(_error) => return Ok(Value::none()),
     }
 }
+
 pub fn native_string_to_uint(value: Value) -> Result<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_uint)
 }
@@ -198,7 +200,5 @@ pub fn native_int_to_ascii(value: Value) -> Result<Value> {
 
 pub fn native_int_to_utf8(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity UTF8 value.
-    // The conversion of an integer into a string is going to be ASCII-compliant, therefor, we just need
-    // to wrap each individual character in another vector.
     native_int_to_string_generic(value, Value::string_utf8_from_bytes)
 }
