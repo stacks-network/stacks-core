@@ -51,15 +51,15 @@ use util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
-const GENESIS_BLOCK_HASH_MAINNET: &'static str =
+const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &'static str =
     "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-const GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
+const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
     "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
 
-const GENESIS_BLOCK_HASH_TESTNET: &'static str =
+const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &'static str =
     "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943";
 
-const GENESIS_BLOCK_HASH_REGTEST: &'static str =
+const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &'static str =
     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
@@ -449,15 +449,18 @@ impl SpvClient {
     fn init_block_headers(&mut self) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
         let (genesis_block, genesis_block_hash_str) = match self.network_id {
-            BitcoinNetworkType::Mainnet => {
-                (genesis_block(Network::Bitcoin), GENESIS_BLOCK_HASH_MAINNET)
-            }
-            BitcoinNetworkType::Testnet => {
-                (genesis_block(Network::Testnet), GENESIS_BLOCK_HASH_TESTNET)
-            }
-            BitcoinNetworkType::Regtest => {
-                (genesis_block(Network::Regtest), GENESIS_BLOCK_HASH_REGTEST)
-            }
+            BitcoinNetworkType::Mainnet => (
+                genesis_block(Network::Bitcoin),
+                BITCOIN_GENESIS_BLOCK_HASH_MAINNET,
+            ),
+            BitcoinNetworkType::Testnet => (
+                genesis_block(Network::Testnet),
+                BITCOIN_GENESIS_BLOCK_HASH_TESTNET,
+            ),
+            BitcoinNetworkType::Regtest => (
+                genesis_block(Network::Regtest),
+                BITCOIN_GENESIS_BLOCK_HASH_REGTEST,
+            ),
         };
 
         // sanity check
@@ -985,8 +988,9 @@ mod test {
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap();
-        let genesis_merkle_root = Sha256dHash::from_hex(GENESIS_BLOCK_MERKLE_ROOT_MAINNET).unwrap();
-        let genesis_block_hash = Sha256dHash::from_hex(GENESIS_BLOCK_HASH_MAINNET).unwrap();
+        let genesis_merkle_root =
+            Sha256dHash::from_hex(BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET).unwrap();
+        let genesis_block_hash = Sha256dHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_MAINNET).unwrap();
 
         let genesis_header = LoneBlockHeader {
             header: BlockHeader {
