@@ -243,13 +243,16 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(is-standard principal)",
+    signature: "(is-standard principal1)",
     description:
-        "Tests whether `principal` matches the current network type. That is, the network is either
-of type `mainnet`, or `testnet`. And, `principal` is either suited for the
-mainnet or a testnet.  That is, `SPxxxx` and `SMxxxx` addresses are only usable
-on mainnet, whereas `STxxxx` and `SNxxxx` are only usable on testnet and
-regtest. This method will return `true` iff the principal matches the network-type.
+"Tests whether `principal1` matches the current network type, and therefor
+represents a principal that can spend tokens on the current network type. That is, the network is either of
+type `mainnet`, or `testnet`. And, `principal1` is either suited for,
+or able to spend tokens on, the mainnet or a testnet.  `SPxxxx` and
+`SMxxxx` addresses can only spend tokens on mainnet, whereas `STxxxx` and `SNxxxx` addresses can only
+spend tokens on a testnet. Other than these four forms of address, no other forms of addresses are valid.
+This method will return `true` if and only if the principal matches the
+network-type, and false otherwise.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
@@ -257,6 +260,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; returns true on testnet and false on mainnet
 (is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; returns true on mainnet and false on testnet
 (is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
+(is-standard 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns false on both mainnet and testnet
 "#,
 };
 
