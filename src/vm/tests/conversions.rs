@@ -240,16 +240,16 @@ fn test_simple_string_to_int() {
     let good1_test = r#"(string-to-int u"-1")"#;
     assert_eq!(Value::Int(-1), execute_v2(good1_test).unwrap().unwrap());
 
+    let bad_value_error_test = r#"(string-to-int "a")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_test).unwrap().unwrap(),
+    );
+
     let no_args_test = r#"(string-to-int)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 0).into()
-    );
-
-    let bad_value_error_test = r#"(string-to-int "a")"#;
-    assert_eq!(
-        execute_v2(bad_value_error_test).unwrap_err(),
-        CheckErrors::InvalidCharactersDetected.into()
     );
 
     let wrong_type_error_test = r#"(string-to-int 1)"#;
@@ -274,16 +274,16 @@ fn test_simple_string_to_uint() {
     let good2_test = r#"(string-to-uint u"1")"#;
     assert_eq!(Value::UInt(1), execute_v2(good2_test).unwrap().unwrap());
 
+    let bad_value_error_test = r#"(string-to-uint "a")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_test).unwrap().unwrap(),
+    );
+
     let no_args_test = r#"(string-to-uint)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 0).into()
-    );
-
-    let bad_value_error_test = r#"(string-to-uint "a")"#;
-    assert_eq!(
-        execute_v2(bad_value_error_test).unwrap_err(),
-        CheckErrors::InvalidCharactersDetected.into()
     );
 
     let wrong_type_error_test = r#"(string-to-uint 1)"#;
