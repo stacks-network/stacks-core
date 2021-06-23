@@ -253,7 +253,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (string-to-int "1") ;; Returns (some 1)
 (string-to-int u"-1") ;; Returns (some -1)
 (string-to-int "a") ;; Returns none
-    "#,
+"#,
 };
 
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -269,7 +269,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (string-to-uint "1") ;; Returns (some u1)
 (string-to-uint u"1") ;; Returns (some u1)
 (string-to-uint "a") ;; Returns none
-        "#,
+"#,
 };
 
 const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -281,7 +281,7 @@ const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: r#"
 (int-to-ascii 1) ;; Returns "1"
 (int-to-ascii u1) ;; Returns "1"
-    "#,
+"#,
 };
 
 const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -293,7 +293,7 @@ const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: r#"
 (int-to-utf8 1) ;; Returns u"1"
 (int-to-utf8 u1) ;; Returns u"1"
-    "#,
+"#,
 };
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
