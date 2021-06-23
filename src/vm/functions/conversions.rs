@@ -177,20 +177,24 @@ pub fn native_int_to_string_generic(
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            return conversion_fn(as_string.into());
+            match conversion_fn(as_string.into()) {
+                Ok(value) => Ok(value),
+                Err(_error) => Err(CheckErrors::InternalError.into()),
+            }
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
-            return conversion_fn(as_string.into());
+            match conversion_fn(as_string.into()) {
+                Ok(value) => Ok(value),
+                Err(_error) => Err(CheckErrors::InternalError.into()),
+            }
         }
-        _ => {
-            return Err(CheckErrors::UnionTypeValueError(
-                vec![TypeSignature::IntType, TypeSignature::UIntType],
-                value,
-            )
-            .into())
-        }
-    };
+        _ => Err(CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            value,
+        )
+        .into()),
+    }
 }
 
 pub fn native_int_to_ascii(value: Value) -> Result<Value> {
