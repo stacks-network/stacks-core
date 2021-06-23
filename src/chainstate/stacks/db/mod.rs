@@ -1224,6 +1224,7 @@ impl StacksChainState {
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
+                    None,
                     &contract,
                     "set-burnchain-parameters",
                     &params,
