@@ -2114,6 +2114,9 @@ pub mod test {
             winner_txid: Txid,
             matured_rewards: Vec<accounts::MinerReward>,
             matured_rewards_info: Option<MinerRewardInfo>,
+            parent_burn_block_hash: BurnchainHeaderHash,
+            parent_burn_block_height: u32,
+            parent_burn_block_timestamp: u64,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block,

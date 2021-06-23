@@ -23,6 +23,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
+use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
 };
@@ -57,7 +58,6 @@ use stacks::util::sleep_ms;
 use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::vm::costs::ExecutionCost;
-use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::run_loop::RegisteredKey;

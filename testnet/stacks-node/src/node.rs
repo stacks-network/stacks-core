@@ -55,7 +55,6 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::PoxConstants;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
