@@ -235,15 +235,27 @@ fn test_simple_buff_to_uint_be() {
 #[test]
 fn test_simple_string_to_int() {
     let good1_test = r#"(string-to-int "-1")"#;
-    assert_eq!(Value::Int(-1), execute_v2(good1_test).unwrap().unwrap());
+    assert_eq!(
+        Value::some(Value::Int(-1)).unwrap(),
+        execute_v2(good1_test).unwrap().unwrap()
+    );
 
-    let good1_test = r#"(string-to-int u"-1")"#;
-    assert_eq!(Value::Int(-1), execute_v2(good1_test).unwrap().unwrap());
+    let good2_test = r#"(string-to-int u"-1")"#;
+    assert_eq!(
+        Value::some(Value::Int(-1)).unwrap(),
+        execute_v2(good2_test).unwrap().unwrap()
+    );
 
-    let bad_value_error_test = r#"(string-to-int "a")"#;
+    let bad_value_error_ascii_test = r#"(string-to-int "a")"#;
     assert_eq!(
         Value::none(),
-        execute_v2(bad_value_error_test).unwrap().unwrap(),
+        execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
+    );
+
+    let bad_value_error_utf8_test = r#"(string-to-int u"a")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
     let no_args_test = r#"(string-to-int)"#;
@@ -269,15 +281,27 @@ fn test_simple_string_to_int() {
 #[test]
 fn test_simple_string_to_uint() {
     let good1_test = r#"(string-to-uint "1")"#;
-    assert_eq!(Value::UInt(1), execute_v2(good1_test).unwrap().unwrap());
+    assert_eq!(
+        Value::some(Value::UInt(1)).unwrap(),
+        execute_v2(good1_test).unwrap().unwrap()
+    );
 
     let good2_test = r#"(string-to-uint u"1")"#;
-    assert_eq!(Value::UInt(1), execute_v2(good2_test).unwrap().unwrap());
+    assert_eq!(
+        Value::some(Value::UInt(1)).unwrap(),
+        execute_v2(good2_test).unwrap().unwrap()
+    );
 
-    let bad_value_error_test = r#"(string-to-uint "a")"#;
+    let bad_value_error_ascii_test = r#"(string-to-uint "a")"#;
     assert_eq!(
         Value::none(),
-        execute_v2(bad_value_error_test).unwrap().unwrap(),
+        execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
+    );
+
+    let bad_value_error_utf8_test = r#"(string-to-uint u"a")"#;
+    assert_eq!(
+        Value::none(),
+        execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
     let no_args_test = r#"(string-to-uint)"#;

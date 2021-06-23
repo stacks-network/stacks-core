@@ -149,7 +149,7 @@ pub fn native_string_to_int_generic(
 fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
-        Ok(val) => return Ok(Value::Int(val)),
+        Ok(val) => return Value::some(Value::Int(val)),
         Err(_error) => return Ok(Value::none()),
     }
 }
@@ -160,7 +160,7 @@ pub fn native_string_to_int(value: Value) -> Result<Value> {
 fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
-        Ok(val) => return Ok(Value::UInt(val)),
+        Ok(val) => return Value::some(Value::UInt(val)),
         Err(_error) => return Ok(Value::none()),
     }
 }
