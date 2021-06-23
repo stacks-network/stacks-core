@@ -1395,21 +1395,33 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
-            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
             SequenceType(BufferType(BufferLength(17))),
         ),
         CheckErrors::UnionTypeError(
-            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
             IntType,
         ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
-            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
             SequenceType(BufferType(BufferLength(17))),
         ),
         CheckErrors::UnionTypeError(
-            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
             IntType,
         ),
     ];
