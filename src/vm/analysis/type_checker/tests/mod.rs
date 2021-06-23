@@ -1346,10 +1346,10 @@ fn test_string_to_ints() {
         "(string-ascii 1048576)",
         "(string-utf8 1048576)",
         "(string-utf8 1048576)",
-        "int",
-        "int",
-        "uint",
-        "uint",
+        "(optional int)",
+        "(optional int)",
+        "(optional uint)",
+        "(optional uint)",
     ];
 
     let bad = [
