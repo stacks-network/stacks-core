@@ -244,7 +244,7 @@ Note: This function is only available starting with Stacks 2.1.",
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(string-to-int (string-ascii|string-utf8))",
-    description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional signed integer.
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped signed integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
 an integer wrapped in `some`.
 
@@ -260,7 +260,7 @@ const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(string-to-uint (string-ascii|string-utf8))",
     description:
-        "Converts a string, either `string-ascii` or `string-utf8`, to an unsigned integer.
+        "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped unsigned integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
 an unsigned integer wrapped in `some`.
 
