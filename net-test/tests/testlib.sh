@@ -195,12 +195,13 @@ easy_token_transfer() {
    local ADDR="$(blockstack-cli --testnet addresses "$PRIVKEY" | jq -r '.STX')"
    local NONCE="$(get_unconfirmed_account_nonce "$STACKS_NODE_URL" "$ADDR")"
    local RC=$?
-   if [ $RC -ne 0 ]; then
-      logln "Failed to query unconfirmed account nonce: rc $RC"
+   if [ $RC -ne 0 ] || [ -z "$NONCE" ]; then
+      logln "Failed to query unconfirmed account nonce: rc '$RC' nonce '$NONCE'"
       return 1
    fi
 
    local MEMO="test $NONCE"
+   logln "blockstack-cli --testnet token-transfer '$PRIVKEY' '$FEE_RATE' '$NONCE' '$DEST' '$AMOUNT' '$MEMO' '$OPTS'"
    local TX="$(blockstack-cli --testnet token-transfer "$PRIVKEY" "$FEE_RATE" "$NONCE" "$DEST" "$AMOUNT" "$MEMO" "$OPTS" 2>&1)"
    RC=$?
    if [ $RC -ne 0 ]; then 
@@ -208,6 +209,7 @@ easy_token_transfer() {
       return 1
    fi
 
+   logln "Generated tx: $TX"
    printf "$TX"
    return 0
 }

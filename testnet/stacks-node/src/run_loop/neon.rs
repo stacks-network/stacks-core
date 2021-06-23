@@ -13,9 +13,8 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
-use stacks::vm::types::{PrincipalData, Value};
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -23,7 +22,7 @@ use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::PoxSyncWatchdog;
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    util, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
 };
 
@@ -145,6 +144,11 @@ impl RunLoop {
             .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
+            match burnchain.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
+
             let utxos =
                 burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
             if utxos.is_none() {
@@ -208,6 +212,7 @@ impl RunLoop {
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
+
         let first_block_height = burnchain_config.first_block_height as u128;
         let pox_prepare_length = burnchain_config.pox_constants.prepare_length as u128;
         let pox_reward_cycle_length = burnchain_config.pox_constants.reward_cycle_length as u128;
@@ -235,12 +240,14 @@ impl RunLoop {
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
         });
+
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: Some(boot_block),
+            post_flight_callback: None,
             first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
             first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
+            pox_constants: coordinator_burnchain_config.pox_constants.clone(),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
             })),
