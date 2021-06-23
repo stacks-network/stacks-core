@@ -173,6 +173,74 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(to-int u238) ;; Returns 238"
 };
 
+const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-le (buff 16))",
+    description: "Converts a byte buffer to a signed integer use a little-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-int-le 0x01) ;; Returns 1
+(buff-to-int-le 0x01000000000000000000000000000000) ;; Returns 1
+(buff-to-int-le 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-le 0x) ;; Returns 0
+"#,
+};
+
+const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-le (buff 16))",
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-uint-le 0x01) ;; Returns u1
+(buff-to-uint-le 0x01000000000000000000000000000000) ;; Returns u1
+(buff-to-uint-le 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-uint-le 0x) ;; Returns u0
+"#,
+};
+
+const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-be (buff 16))",
+    description: "Converts a byte buffer to a signed integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-int-be 0x01) ;; Returns 1
+(buff-to-int-be 0x00000000000000000000000000000001) ;; Returns 1
+(buff-to-int-be 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-be 0x) ;; Returns 0
+"#,
+};
+
+const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-be (buff 16))",
+    description: "Converts a byte buffer to an unsigned integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-uint-be 0x01) ;; Returns u1
+(buff-to-uint-be 0x00000000000000000000000000000001) ;; Returns u1
+(buff-to-uint-be 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-uint-be 0x) ;; Returns u0
+"#,
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -1634,6 +1702,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &BuffToIntLe, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
@@ -1936,7 +2008,7 @@ mod test {
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context =
-            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity1);
+            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity2);
         let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
 
         global_context

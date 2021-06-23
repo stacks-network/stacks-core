@@ -43,6 +43,7 @@ use vm::ClarityVersion;
 mod arithmetic;
 mod assets;
 mod boolean;
+mod conversions;
 mod crypto;
 mod database;
 pub mod define;
@@ -81,6 +82,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Len("len", ClarityVersion::Clarity1),
     ElementAt("element-at", ClarityVersion::Clarity1),
     IndexOf("index-of", ClarityVersion::Clarity1),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -254,6 +259,30 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            BuffToIntLe => NativeFunction(
+                "native_buff_to_int_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToUIntLe => NativeFunction(
+                "native_buff_to_uint_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToIntBe => NativeFunction(
+                "native_buff_to_int_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToUIntBe => NativeFunction(
+                "native_buff_to_uint_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
