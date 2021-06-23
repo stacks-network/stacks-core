@@ -872,6 +872,30 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_2_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr_version: AddressHashMode,
+        addr_bytes: Hash160,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        // (define-public (stack-stx (amount-ustx uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        //                           (lock-period uint))
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox-2",
+            "stack-extend",
+            vec![
+                Value::UInt(lock_period),
+                make_pox_addr(addr_version, addr_bytes),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,

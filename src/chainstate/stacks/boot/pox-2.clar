@@ -681,14 +681,14 @@
 
 
 (define-public (stack-extend (extend-count uint)
-                             (new-pox-addr (optional { version: (buff 1), hashbytes: (buff 20) })))
-   (let ((stacker-info (unwrap! (get-stacker-info tx-sender) (err ERR_NOT_CURRENT_STACKER)))
-         (amount-ustx (get amount-ustx stacker-info))
-         (pox-addr (match new-pox-addr some-pox-addr some-pox-addr (get pox-addr stacker-info)))
-         (first-reward-cycle (get first-reward-cycle stacker-info))
-         (first-extend-cycle (+ (get lock-period stacker-info) first-reward-cycle))
+                             (pox-addr { version: (buff 1), hashbytes: (buff 20) }))
+   (let ((stacker-info (stx-account tx-sender))
+         (amount-ustx (get locked stacker-info))
+         (unlock-height (get unlock-height stacker-info))
+         (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
          (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
-         (lock-period (- last-extend-cycle first-reward-cycle)))
+         (cur-cycle (current-pox-reward-cycle))
+         (lock-period (- last-extend-cycle cur-cycle)))
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
 
@@ -696,7 +696,10 @@
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
-      (asserts! (<= (- last-extend-cycle (current-pox-reward-cycle)) u12))
+      ;; lock-period can be 13 for extension, because it includes the
+      ;;  current reward cycle
+      (asserts! (<= lock-period u13)
+        (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
@@ -707,8 +710,8 @@
         { stacker: tx-sender }
         { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
-          first-reward-cycle: first-reward-cycle,
+          first-reward-cycle: cur-cycle,
           lock-period: lock-period })
 
       ;; return lock-up information
-      (ok { stacker: tx-sender, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) })))
+      (ok { stacker: tx-sender, unlock-burn-height: (reward-cycle-to-burn-height (+ cur-cycle lock-period)) })))
