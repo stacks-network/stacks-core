@@ -38,7 +38,7 @@ pub struct DefinitionSorter {
 }
 
 impl<'a> DefinitionSorter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             top_level_expressions_map: HashMap::new(),
             graph: Graph::new(),
@@ -90,6 +90,8 @@ impl<'a> DefinitionSorter {
             accounting,
             self.graph.edges_count()?,
         )?;
+
+        println!("# of edges: {:?}", self.graph.edges_count());
 
         let mut walker = GraphWalker::new();
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
