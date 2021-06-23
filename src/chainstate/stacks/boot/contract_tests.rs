@@ -113,6 +113,11 @@ pub struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
 }
 
@@ -121,6 +126,11 @@ pub struct TestSimHeadersDB {
 }
 
 pub struct TestSimBurnStateDB {
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
     pox_constants: PoxConstants,
 }

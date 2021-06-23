@@ -207,7 +207,7 @@ impl RPCPeerInfoData {
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
         let (unconfirmed_tip, unconfirmed_seq) = match chainstate.unconfirmed_state {
             Some(ref unconfirmed) => {
-                if unconfirmed.is_readable() {
+                if unconfirmed.num_mined_txs() > 0 {
                     (
                         unconfirmed.unconfirmed_chain_tip.clone(),
                         unconfirmed.last_mblock_seq,
@@ -494,7 +494,7 @@ impl ConversationHttp {
         conn_opts: &ConnectionOptions,
         conn_id: usize,
     ) -> ConversationHttp {
-        let mut stacks_http = StacksHttp::new();
+        let mut stacks_http = StacksHttp::new(peer_addr.clone());
         stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
         ConversationHttp {
             network_id: network_id,

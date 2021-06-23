@@ -138,20 +138,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
 });
 
 impl NativeFunctions {
-    pub fn lookup_by_name_exact_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeFunctions> {
-        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() == version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn lookup_by_name_before_version(
+    pub fn lookup_by_name_at_version(
         name: &str,
         version: &ClarityVersion,
     ) -> Option<NativeFunctions> {
@@ -172,7 +159,7 @@ impl NativeFunctions {
 pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
     use vm::callables::CallableType::{NativeFunction, SpecialFunction};
     use vm::functions::NativeFunctions::*;
-    if let Some(native_function) = NativeFunctions::lookup_by_name_before_version(name, version) {
+    if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
         let callable = match native_function {
             Add => NativeFunction(
                 "native_add",

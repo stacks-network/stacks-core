@@ -38,7 +38,7 @@ fn get_simple_native_or_user_define(
 ) -> CheckResult<FunctionType> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
-        NativeFunctions::lookup_by_name_before_version(function_name, &checker.clarity_version)
+        NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
     {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(native_function)

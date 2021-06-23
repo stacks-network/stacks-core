@@ -1568,7 +1568,7 @@ impl HttpRequestType {
                     } else {
                         "".to_string()
                     };
-                    info!("Handle {} {}{}", verb, decoded_path, query);
+                    info!("Handle HTTPRequest"; "verb" => %verb, "peer_addr" => %protocol.peer_addr, "path" => %decoded_path, "query" => %query);
                     return Ok(request);
                 }
                 None => {
@@ -3964,6 +3964,8 @@ struct HttpReplyData {
 /// There can be at most one HTTP request in-flight (i.e. we don't do pipelining)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHttp {
+    /// Address of peer
+    peer_addr: SocketAddr,
     /// Version of client
     request_version: Option<HttpVersion>,
     /// Path we requested
@@ -3977,8 +3979,9 @@ pub struct StacksHttp {
 }
 
 impl StacksHttp {
-    pub fn new() -> StacksHttp {
+    pub fn new(peer_addr: SocketAddr) -> StacksHttp {
         StacksHttp {
+            peer_addr,
             reply: None,
             request_version: None,
             request_path: None,
@@ -4084,19 +4087,21 @@ impl StacksHttp {
     }
 
     /// Given a HTTP request, serialize it out
+    #[cfg(test)]
     pub fn serialize_request(req: &HttpRequestType) -> Result<Vec<u8>, net_error> {
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
         let mut ret = vec![];
         req.send(&mut http, &mut ret)?;
         Ok(ret)
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
+    #[cfg(test)]
     pub fn parse_response(
         request_path: &str,
         response_buf: &[u8],
     ) -> Result<StacksHttpMessage, net_error> {
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
         http.reset();
         http.begin_request(HttpVersion::Http11, request_path.to_string());
 
@@ -5437,7 +5442,7 @@ mod test {
             expected_bytes.append(&mut expected_http_body.clone());
 
             let mut bytes = vec![];
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             http.write_message(&mut bytes, &StacksHttpMessage::Request(test.clone()))
                 .unwrap();
 
@@ -5454,7 +5459,7 @@ mod test {
             "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 0\r\n\r\n",
         ];
         for bad_content_length in bad_content_lengths {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let (preamble, offset) = http.read_preamble(bad_content_length.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_length.as_bytes()[offset..]);
             let estr = format!("{:?}", &e);
@@ -5473,7 +5478,7 @@ mod test {
             "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
         ];
         for bad_content_type in bad_content_types {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let (preamble, offset) = http.read_preamble(bad_content_type.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_type.as_bytes()[offset..]);
             assert!(e.is_err());
@@ -5871,7 +5876,7 @@ mod test {
                     .zip(expected_http_bodies.iter()),
             )
         {
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
 
@@ -5963,7 +5968,7 @@ mod test {
                 expected_error
             );
 
-            let mut http = StacksHttp::new();
+            let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             http.begin_request(HttpVersion::Http11, request_path.to_string());
 
             let (preamble, offset) = http.read_preamble(test.as_bytes()).unwrap();
@@ -6084,7 +6089,7 @@ mod test {
         let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
         let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n29\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
-        let mut http = StacksHttp::new();
+        let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
 
         http.begin_request(HttpVersion::Http11, "/v2/neighbors".to_string());
         let (preamble, offset) = http
