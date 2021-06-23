@@ -1357,6 +1357,18 @@ fn test_string_to_ints() {
         r#"(int-to-ascii)"#,
         r#"(int-to-ascii 0x000102030405060708090a0b0c0d0e0f00)"#,
         r#"(int-to-ascii "a")"#,
+        r#"(int-to-utf8 0x0001 0x0001)"#,
+        r#"(int-to-utf8)"#,
+        r#"(int-to-utf8 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(int-to-utf8 "a")"#,
+        r#"(string-to-int 0x0001 0x0001)"#,
+        r#"(string-to-int)"#,
+        r#"(string-to-int 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-int 1)"#,
+        r#"(string-to-uint 0x0001 0x0001)"#,
+        r#"(string-to-uint)"#,
+        r#"(string-to-uint 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-uint 1)"#,
     ];
 
     let bad_expected = [
@@ -1369,6 +1381,36 @@ fn test_string_to_ints() {
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            IntType,
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![TypeSignature::max_string_ascii(), TypeSignature::max_string_utf8()],
+            IntType,
         ),
     ];
 

@@ -24,7 +24,6 @@ use vm::types::TypeSignature::SequenceType;
 use vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-// use vm::types::{SequenceData, TypeSignature, Value};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
