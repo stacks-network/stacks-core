@@ -16,7 +16,7 @@
 
 use vm::functions::tuples;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
@@ -32,6 +32,8 @@ use vm::{eval, Environment, LocalContext};
 
 use vm::database::ClarityDatabase;
 use vm::database::STXBalance;
+
+use crate::vm::types::TupleData;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -191,6 +193,46 @@ pub fn special_stx_transfer_memo(
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
+}
+
+pub fn special_stx_account(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    // TODO: Clarity2 Costs
+    runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
+
+    let owner = eval(&args[0], env, context)?;
+    let principal = if let Value::Principal(p) = owner {
+        p
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+    };
+
+    let stx_balance = env
+        .global_context
+        .database
+        .get_stx_balance_snapshot(&principal)
+        .canonical_balance_repr();
+
+    TupleData::from_data(vec![
+        (
+            "unlocked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_unlocked),
+        ),
+        (
+            "locked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_locked),
+        ),
+        (
+            "unlock-height".try_into().unwrap(),
+            Value::UInt(stx_balance.unlock_height as u128),
+        ),
+    ])
+    .map(|t| Value::Tuple(t))
 }
 
 pub fn special_stx_burn(

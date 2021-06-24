@@ -32,9 +32,9 @@ use vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 
-use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
+use crate::{clarity_vm::database::marf::MarfedKV, vm::database::NULL_BURN_STATE_DB_2_1};
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
@@ -87,7 +87,7 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
@@ -113,7 +113,7 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
@@ -139,7 +139,7 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([2 as u8; 32]),
             &StacksBlockId([3 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
 
         conn.as_transaction(|conn| {

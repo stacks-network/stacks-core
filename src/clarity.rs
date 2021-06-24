@@ -32,7 +32,7 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use address::c32::c32_address;
 use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use util::db::FromColumn;
-use util::hash::Sha512Trunc256Sum;
+use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
 use util::log;
 use vm::ContractName;
@@ -50,6 +50,7 @@ use vm::database::{
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
+use vm::ClarityVersion;
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use burnchains::PoxConstants;
@@ -64,6 +65,8 @@ use core::HELIUM_BLOCK_LIMIT;
 use serde::Serialize;
 use serde_json::json;
 use util::strings::StacksString;
+
+use codec::StacksMessageCodec;
 
 use std::convert::TryFrom;
 
@@ -193,6 +196,8 @@ fn run_analysis_free<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 
@@ -220,6 +225,8 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 
@@ -767,6 +774,14 @@ pub fn add_assets(result: &mut serde_json::Value, assets: bool, asset_map: Asset
     }
 }
 
+pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
+    let result_raw = {
+        let bytes = (&value).serialize_to_vec();
+        bytes_to_hex(&bytes)
+    };
+    result["output_serialized"] = serde_json::to_value(result_raw.as_str()).unwrap();
+}
+
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
     if args.len() < 1 {
@@ -1159,9 +1174,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match result_and_cost {
                 (Ok(result), cost) => {
                     let mut result_json = json!({
-                        "output": serde_json::to_value(&result).unwrap()
+                        "output": serde_json::to_value(&result).unwrap(),
+                        "success": true,
                     });
 
+                    add_serialized_output(&mut result_json, result);
                     add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
@@ -1170,7 +1187,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
+                        },
+                        "success": false,
                     });
 
                     add_costs(&mut result_json, costs, cost);
@@ -1209,9 +1227,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match result_and_cost {
                 (Ok(result), cost) => {
                     let mut result_json = json!({
-                        "output": serde_json::to_value(&result).unwrap()
+                        "output": serde_json::to_value(&result).unwrap(),
+                        "success": true,
                     });
 
+                    add_serialized_output(&mut result_json, result);
                     add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
@@ -1220,7 +1240,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
+                        },
+                        "success": false,
                     });
 
                     add_costs(&mut result_json, costs, cost);
@@ -1279,9 +1300,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match result_and_cost {
                 (Ok(result), cost) => {
                     let mut result_json = json!({
-                        "output": serde_json::to_value(&result).unwrap()
+                        "output": serde_json::to_value(&result).unwrap(),
+                        "success": true,
                     });
 
+                    add_serialized_output(&mut result_json, result);
                     add_costs(&mut result_json, costs, cost);
 
                     (0, Some(result_json))
@@ -1290,7 +1313,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
+                        },
+                        "success": false,
                     });
 
                     add_costs(&mut result_json, costs, cost);
@@ -1490,8 +1514,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             let mut result = json!({
                                 "message": "Transaction executed and committed.",
                                 "output": serde_json::to_value(&data.data).unwrap(),
+                                "success": true,
                             });
 
+                            add_serialized_output(&mut result, *data.data);
                             add_costs(&mut result, costs, cost);
                             add_assets(&mut result, assets, asset_map);
 
@@ -1506,9 +1532,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             let mut result = json!({
                                 "message": "Aborted.",
                                 "output": serde_json::to_value(&data.data).unwrap(),
+                                "success": false,
                             });
 
                             add_costs(&mut result, costs, cost);
+                            add_serialized_output(&mut result, *data.data);
+                            add_assets(&mut result, assets, asset_map);
 
                             (0, Some(result))
                         }
@@ -1517,7 +1546,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             "error": {
                                 "runtime": "Expected a ResponseType result from transaction.",
                                 "output": serde_json::to_value(&x).unwrap()
-                            }
+                            },
+                            "success": false,
                         });
                         (1, Some(result))
                     }
@@ -1527,7 +1557,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         "error": {
                             "runtime": "Transaction execution error.",
                             "error": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
+                        },
+                        "success": false,
                     });
                     (1, Some(result))
                 }
