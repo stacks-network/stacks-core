@@ -180,10 +180,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
             | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
-            | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
-            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf => {
+            | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
+            | BuffToUIntBe | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons
+            | GetBlockInfo | TupleGet | TupleMerge | Len | Print | AsContract | Begin
+            | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner
+            | GetTokenSupply | ElementAt | IndexOf => {
+                // Check all arguments.
                 self.check_all_read_only(args)
             }
             AtBlock => {

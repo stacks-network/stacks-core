@@ -183,6 +183,9 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
             | Keccak256 => {
                 return Err(Error::FunctionNotPermitted(function));
@@ -191,7 +194,10 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => self.check_all(args),
+            | Len | Begin | TupleMerge => {
+                // Check all arguments.
+                self.check_all(args)
+            }
             // we need to treat all the remaining functions specially, because these
             //   do not eval all of their arguments (rather, one or more of their arguments
             //   is a name)

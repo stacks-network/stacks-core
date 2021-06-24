@@ -53,6 +53,8 @@ use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::version::ClarityVersion;
 
+use vm::coverage::CoverageReporter;
+
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 // TODO:
@@ -201,6 +203,7 @@ pub struct GlobalContext<'a> {
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
+    pub coverage_reporting: Option<CoverageReporter>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -561,6 +564,14 @@ impl<'a> OwnedEnvironment<'a> {
             ),
             call_stack: CallStack::new(),
         }
+    }
+
+    pub fn set_coverage_reporter(&mut self, reporter: CoverageReporter) {
+        self.context.coverage_reporting = Some(reporter)
+    }
+
+    pub fn take_coverage_reporter(&mut self) -> Option<CoverageReporter> {
+        self.context.coverage_reporting.take()
     }
 
     pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
@@ -1408,6 +1419,7 @@ impl<'a> GlobalContext<'a> {
             asset_maps: Vec::new(),
             event_batches: Vec::new(),
             mainnet,
+            coverage_reporting: None,
         }
     }
 

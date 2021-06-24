@@ -1288,6 +1288,47 @@ fn test_simple_uints() {
 }
 
 #[test]
+fn test_buffer_to_ints() {
+    let good = [
+        "(buff-to-int-le 0x0001)",
+        "(buff-to-uint-le 0x0001)",
+        "(buff-to-int-be 0x0001)",
+        "(buff-to-uint-be 0x0001)",
+    ];
+
+    let expected = ["int", "uint", "int", "uint"];
+
+    let bad = [
+        "(buff-to-int-le 0x0001 0x0001)",
+        "(buff-to-int-le)",
+        "(buff-to-uint-be 0x000102030405060708090a0b0c0d0e0f00)",
+        "(buff-to-uint-be \"a\")",
+    ];
+
+    let bad_expected = [
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+    }
+}
+
+#[test]
 fn test_response_inference() {
     let good = [
         "(define-private (foo (x int)) (err x))
