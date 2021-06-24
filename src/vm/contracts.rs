@@ -21,6 +21,7 @@ use vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
 use vm::errors::InterpreterResult as Result;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::version::ClarityVersion;
 use vm::{apply, eval_all, Value};
 
 #[derive(Serialize, Deserialize)]
@@ -36,8 +37,9 @@ impl Contract {
         contract: &ContractAST,
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
+        version: ClarityVersion,
     ) -> Result<Contract> {
-        let mut contract_context = ContractContext::new(contract_identifier);
+        let mut contract_context = ContractContext::new(contract_identifier, version);
 
         eval_all(
             &contract.expressions,
@@ -46,8 +48,6 @@ impl Contract {
             sponsor,
         )?;
 
-        Ok(Contract {
-            contract_context: contract_context,
-        })
+        Ok(Contract { contract_context })
     }
 }

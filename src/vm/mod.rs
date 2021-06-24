@@ -37,6 +37,9 @@ mod variables;
 
 pub mod analysis;
 pub mod docs;
+pub mod version;
+
+pub mod coverage;
 
 #[cfg(test)]
 pub mod tests;
@@ -64,6 +67,7 @@ use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::stx_transfer_consolidated;
+pub use vm::version::ClarityVersion;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -104,7 +108,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
-    if let Some(result) = functions::lookup_reserved_functions(name) {
+    if let Some(result) =
+        functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
+    {
         Ok(result)
     } else {
         let user_function = env
@@ -206,6 +212,10 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
+    if let Some(ref mut coverage_tracker) = env.global_context.coverage_reporting {
+        coverage_tracker.report_eval(exp, &env.contract_context.contract_identifier);
+    }
+
     match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
         Atom(ref value) => lookup_variable(&value, context, env),
@@ -213,6 +223,14 @@ pub fn eval<'a>(
             let (function_variable, rest) = children
                 .split_first()
                 .ok_or(CheckErrors::NonFunctionApplication)?;
+
+            if let Some(ref mut coverage_tracker) = env.global_context.coverage_reporting {
+                coverage_tracker.report_eval(
+                    &function_variable,
+                    &env.contract_context.contract_identifier,
+                );
+            }
+
             let function_name = function_variable
                 .match_atom()
                 .ok_or(CheckErrors::BadFunctionName)?;
@@ -223,8 +241,8 @@ pub fn eval<'a>(
     }
 }
 
-pub fn is_reserved(name: &str) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name) {
+pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
+    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
     } else if variables::is_reserved_name(name) {
         true
@@ -234,9 +252,9 @@ pub fn is_reserved(name: &str) -> bool {
 }
 
 /// This function evaluates a list of expressions, sharing a global context.
-/// It returns the final evaluated result.!
+/// It returns the final evaluated result.
 /// Used for the initialization of a new contract.
-fn eval_all(
+pub fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
@@ -349,13 +367,12 @@ fn eval_all(
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
- *  database.
- *
- *  Only used by CLI.
+ *  database. Only used by CLI and unit tests.
  */
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    info!("Executing program using Clarity version = {}", version);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
@@ -363,6 +380,24 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity1.
+ */
+pub fn execute(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity1)
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity2.
+ */
+pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity2)
 }
 
 #[cfg(test)]
@@ -379,6 +414,8 @@ mod test {
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
         Value,
     };
+
+    use super::ClarityVersion;
 
     #[test]
     fn test_simple_user_function() {
@@ -409,7 +446,10 @@ mod test {
         );
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
+        let mut contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context =

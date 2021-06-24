@@ -38,9 +38,12 @@ use vm::{eval, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
 
+use vm::ClarityVersion;
+
 mod arithmetic;
 mod assets;
 mod boolean;
+mod conversions;
 mod crypto;
 mod database;
 pub mod define;
@@ -49,96 +52,120 @@ mod sequences;
 mod special;
 pub mod tuples;
 
-define_named_enum!(NativeFunctions {
-    Add("+"),
-    Subtract("-"),
-    Multiply("*"),
-    Divide("/"),
-    CmpGeq(">="),
-    CmpLeq("<="),
-    CmpLess("<"),
-    CmpGreater(">"),
-    ToInt("to-int"),
-    ToUInt("to-uint"),
-    Modulo("mod"),
-    Power("pow"),
-    Sqrti("sqrti"),
-    Log2("log2"),
-    BitwiseXOR("xor"),
-    And("and"),
-    Or("or"),
-    Not("not"),
-    Equals("is-eq"),
-    If("if"),
-    Let("let"),
-    Map("map"),
-    Fold("fold"),
-    Append("append"),
-    Concat("concat"),
-    AsMaxLen("as-max-len?"),
-    Len("len"),
-    ElementAt("element-at"),
-    IndexOf("index-of"),
-    ListCons("list"),
-    FetchVar("var-get"),
-    SetVar("var-set"),
-    FetchEntry("map-get?"),
-    SetEntry("map-set"),
-    InsertEntry("map-insert"),
-    DeleteEntry("map-delete"),
-    TupleCons("tuple"),
-    TupleGet("get"),
-    TupleMerge("merge"),
-    Begin("begin"),
-    Hash160("hash160"),
-    Sha256("sha256"),
-    Sha512("sha512"),
-    Sha512Trunc256("sha512/256"),
-    Keccak256("keccak256"),
-    Secp256k1Recover("secp256k1-recover?"),
-    Secp256k1Verify("secp256k1-verify"),
-    Print("print"),
-    ContractCall("contract-call?"),
-    AsContract("as-contract"),
-    ContractOf("contract-of"),
-    PrincipalOf("principal-of?"),
-    AtBlock("at-block"),
-    GetBlockInfo("get-block-info?"),
-    ConsError("err"),
-    ConsOkay("ok"),
-    ConsSome("some"),
-    DefaultTo("default-to"),
-    Asserts("asserts!"),
-    UnwrapRet("unwrap!"),
-    UnwrapErrRet("unwrap-err!"),
-    Unwrap("unwrap-panic"),
-    UnwrapErr("unwrap-err-panic"),
-    Match("match"),
-    TryRet("try!"),
-    IsOkay("is-ok"),
-    IsNone("is-none"),
-    IsErr("is-err"),
-    IsSome("is-some"),
-    Filter("filter"),
-    GetTokenBalance("ft-get-balance"),
-    GetAssetOwner("nft-get-owner?"),
-    TransferToken("ft-transfer?"),
-    TransferAsset("nft-transfer?"),
-    MintAsset("nft-mint?"),
-    MintToken("ft-mint?"),
-    GetTokenSupply("ft-get-supply"),
-    BurnToken("ft-burn?"),
-    BurnAsset("nft-burn?"),
-    GetStxBalance("stx-get-balance"),
-    StxTransfer("stx-transfer?"),
-    StxTransferMemo("stx-transfer-memo?"),
-    StxBurn("stx-burn?"),
+define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
+    Add("+", ClarityVersion::Clarity1),
+    Subtract("-", ClarityVersion::Clarity1),
+    Multiply("*", ClarityVersion::Clarity1),
+    Divide("/", ClarityVersion::Clarity1),
+    CmpGeq(">=", ClarityVersion::Clarity1),
+    CmpLeq("<=", ClarityVersion::Clarity1),
+    CmpLess("<", ClarityVersion::Clarity1),
+    CmpGreater(">", ClarityVersion::Clarity1),
+    ToInt("to-int", ClarityVersion::Clarity1),
+    ToUInt("to-uint", ClarityVersion::Clarity1),
+    Modulo("mod", ClarityVersion::Clarity1),
+    Power("pow", ClarityVersion::Clarity1),
+    Sqrti("sqrti", ClarityVersion::Clarity1),
+    Log2("log2", ClarityVersion::Clarity1),
+    BitwiseXOR("xor", ClarityVersion::Clarity1),
+    And("and", ClarityVersion::Clarity1),
+    Or("or", ClarityVersion::Clarity1),
+    Not("not", ClarityVersion::Clarity1),
+    Equals("is-eq", ClarityVersion::Clarity1),
+    If("if", ClarityVersion::Clarity1),
+    Let("let", ClarityVersion::Clarity1),
+    Map("map", ClarityVersion::Clarity1),
+    Fold("fold", ClarityVersion::Clarity1),
+    Append("append", ClarityVersion::Clarity1),
+    Concat("concat", ClarityVersion::Clarity1),
+    AsMaxLen("as-max-len?", ClarityVersion::Clarity1),
+    Len("len", ClarityVersion::Clarity1),
+    ElementAt("element-at", ClarityVersion::Clarity1),
+    IndexOf("index-of", ClarityVersion::Clarity1),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
+    ListCons("list", ClarityVersion::Clarity1),
+    FetchVar("var-get", ClarityVersion::Clarity1),
+    SetVar("var-set", ClarityVersion::Clarity1),
+    FetchEntry("map-get?", ClarityVersion::Clarity1),
+    SetEntry("map-set", ClarityVersion::Clarity1),
+    InsertEntry("map-insert", ClarityVersion::Clarity1),
+    DeleteEntry("map-delete", ClarityVersion::Clarity1),
+    TupleCons("tuple", ClarityVersion::Clarity1),
+    TupleGet("get", ClarityVersion::Clarity1),
+    TupleMerge("merge", ClarityVersion::Clarity1),
+    Begin("begin", ClarityVersion::Clarity1),
+    Hash160("hash160", ClarityVersion::Clarity1),
+    Sha256("sha256", ClarityVersion::Clarity1),
+    Sha512("sha512", ClarityVersion::Clarity1),
+    Sha512Trunc256("sha512/256", ClarityVersion::Clarity1),
+    Keccak256("keccak256", ClarityVersion::Clarity1),
+    Secp256k1Recover("secp256k1-recover?", ClarityVersion::Clarity1),
+    Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1),
+    Print("print", ClarityVersion::Clarity1),
+    ContractCall("contract-call?", ClarityVersion::Clarity1),
+    AsContract("as-contract", ClarityVersion::Clarity1),
+    ContractOf("contract-of", ClarityVersion::Clarity1),
+    PrincipalOf("principal-of?", ClarityVersion::Clarity1),
+    AtBlock("at-block", ClarityVersion::Clarity1),
+    GetBlockInfo("get-block-info?", ClarityVersion::Clarity1),
+    ConsError("err", ClarityVersion::Clarity1),
+    ConsOkay("ok", ClarityVersion::Clarity1),
+    ConsSome("some", ClarityVersion::Clarity1),
+    DefaultTo("default-to", ClarityVersion::Clarity1),
+    Asserts("asserts!", ClarityVersion::Clarity1),
+    UnwrapRet("unwrap!", ClarityVersion::Clarity1),
+    UnwrapErrRet("unwrap-err!", ClarityVersion::Clarity1),
+    Unwrap("unwrap-panic", ClarityVersion::Clarity1),
+    UnwrapErr("unwrap-err-panic", ClarityVersion::Clarity1),
+    Match("match", ClarityVersion::Clarity1),
+    TryRet("try!", ClarityVersion::Clarity1),
+    IsOkay("is-ok", ClarityVersion::Clarity1),
+    IsNone("is-none", ClarityVersion::Clarity1),
+    IsErr("is-err", ClarityVersion::Clarity1),
+    IsSome("is-some", ClarityVersion::Clarity1),
+    Filter("filter", ClarityVersion::Clarity1),
+    GetTokenBalance("ft-get-balance", ClarityVersion::Clarity1),
+    GetAssetOwner("nft-get-owner?", ClarityVersion::Clarity1),
+    TransferToken("ft-transfer?", ClarityVersion::Clarity1),
+    TransferAsset("nft-transfer?", ClarityVersion::Clarity1),
+    MintAsset("nft-mint?", ClarityVersion::Clarity1),
+    MintToken("ft-mint?", ClarityVersion::Clarity1),
+    GetTokenSupply("ft-get-supply", ClarityVersion::Clarity1),
+    BurnToken("ft-burn?", ClarityVersion::Clarity1),
+    BurnAsset("nft-burn?", ClarityVersion::Clarity1),
+    GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
+    StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
+    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
+    StxBurn("stx-burn?", ClarityVersion::Clarity1),
+    StxGetAccount("stx-account", ClarityVersion::Clarity2),
 });
 
-pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
+impl NativeFunctions {
+    pub fn lookup_by_name_at_version(
+        name: &str,
+        version: &ClarityVersion,
+    ) -> Option<NativeFunctions> {
+        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
+            if &native_function.get_version() <= version {
+                Some(native_function)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+///
+/// Returns a callable for the given native function if it exists in the provided
+///   ClarityVersion
+///
+pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
     use vm::callables::CallableType::{NativeFunction, SpecialFunction};
     use vm::functions::NativeFunctions::*;
-    if let Some(native_function) = NativeFunctions::lookup_by_name(name) {
+    if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
         let callable = match native_function {
             Add => NativeFunction(
                 "native_add",
@@ -233,6 +260,30 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            BuffToIntLe => NativeFunction(
+                "native_buff_to_int_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToUIntLe => NativeFunction(
+                "native_buff_to_uint_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToIntBe => NativeFunction(
+                "native_buff_to_int_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            BuffToUIntBe => NativeFunction(
+                "native_buff_to_uint_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
@@ -402,6 +453,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 &assets::special_stx_transfer_memo,
             ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
+            StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
         };
         Some(callable)
     } else {
@@ -561,7 +613,7 @@ fn special_let(
 
     finally_drop_memory!( env, memory_use; {
         handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
-            if is_reserved(binding_name) ||
+            if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())

@@ -8,6 +8,8 @@ use vm::execute;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
+use crate::vm::ClarityVersion;
+
 #[derive(Serialize)]
 struct ContractRef {
     public_functions: Vec<FunctionRef>,
@@ -197,8 +199,9 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
     let support_docs = make_contract_support_docs();
 
     for (contract_name, content) in STACKS_BOOT_CODE_MAINNET.iter() {
-        let (_, contract_analysis) =
-            mem_type_check(content).expect("BUG: failed to type check boot contract");
+        // ClarityVersionPragmaTodo: need to use the boot contract's declared version
+        let (_, contract_analysis) = mem_type_check(content, ClarityVersion::Clarity1)
+            .expect("BUG: failed to type check boot contract");
 
         if let Some(contract_support) = support_docs.get(*contract_name) {
             let ContractAnalysis {

@@ -15,8 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
+use vm::analysis::mem_type_check as mem_run_analysis;
 use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
 use vm::analysis::types::ContractAnalysis;
 use vm::analysis::AnalysisDatabase;
@@ -37,8 +36,15 @@ use std::convert::TryInto;
 use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
 
+use super::CheckResult;
+
 mod assets;
-mod contracts;
+pub mod contracts;
+
+/// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
+pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity2)
+}
 
 fn type_check_helper(exp: &str) -> TypeResult {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
@@ -1282,6 +1288,47 @@ fn test_simple_uints() {
 }
 
 #[test]
+fn test_buffer_to_ints() {
+    let good = [
+        "(buff-to-int-le 0x0001)",
+        "(buff-to-uint-le 0x0001)",
+        "(buff-to-int-be 0x0001)",
+        "(buff-to-uint-be 0x0001)",
+    ];
+
+    let expected = ["int", "uint", "int", "uint"];
+
+    let bad = [
+        "(buff-to-int-le 0x0001 0x0001)",
+        "(buff-to-int-le)",
+        "(buff-to-uint-be 0x000102030405060708090a0b0c0d0e0f00)",
+        "(buff-to-uint-be \"a\")",
+    ];
+
+    let bad_expected = [
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+    }
+}
+
+#[test]
 fn test_response_inference() {
     let good = [
         "(define-private (foo (x int)) (err x))
@@ -1334,8 +1381,6 @@ fn test_response_inference() {
 
 #[test]
 fn test_function_arg_names() {
-    use vm::analysis::type_check;
-
     let functions = vec![
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))

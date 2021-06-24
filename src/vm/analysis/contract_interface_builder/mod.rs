@@ -19,8 +19,10 @@ use vm::analysis::types::ContractAnalysis;
 use vm::types::{FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature};
 use vm::ClarityName;
 
+use crate::vm::ClarityVersion;
+
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
-    let mut contract_interface = ContractInterface::new();
+    let mut contract_interface = ContractInterface::new(contract_analysis.clarity_version.clone());
 
     let ContractAnalysis {
         private_function_types,
@@ -31,6 +33,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         map_types,
         fungible_tokens,
         non_fungible_tokens,
+        clarity_version: _,
         defined_traits: _,
         implemented_traits: _,
         expressions: _,
@@ -355,16 +358,18 @@ pub struct ContractInterface {
     pub maps: Vec<ContractInterfaceMap>,
     pub fungible_tokens: Vec<ContractInterfaceFungibleTokens>,
     pub non_fungible_tokens: Vec<ContractInterfaceNonFungibleTokens>,
+    pub clarity_version: ClarityVersion,
 }
 
 impl ContractInterface {
-    pub fn new() -> Self {
+    pub fn new(clarity_version: ClarityVersion) -> Self {
         Self {
             functions: Vec::new(),
             variables: Vec::new(),
             maps: Vec::new(),
             fungible_tokens: Vec::new(),
             non_fungible_tokens: Vec::new(),
+            clarity_version,
         }
     }
 
