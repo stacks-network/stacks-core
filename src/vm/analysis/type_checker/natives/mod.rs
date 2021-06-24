@@ -102,7 +102,7 @@ fn check_special_begin(
     checker.type_check_consecutive_statements(args, context)
 }
 
-fn inner_handle_tuple_get(
+pub fn inner_handle_tuple_get(
     tuple_type_sig: &TupleTypeSignature,
     field_to_get: &str,
     checker: &mut TypeChecker,
