@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use prometheus::{Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge};
+use prometheus::{
+    Gauge, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+};
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -162,6 +164,31 @@ lazy_static! {
         "Time (seconds) between when a tx was received by this node's mempool and when a tx was first processed in a block",
         vec![300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0, 3600.0, 4200.0, 4800.0, 6000.0],
         labels! {"handler".to_string() => "all".to_string(),}
+    )).unwrap();
+
+    pub static ref COMPUTED_RELATIVE_MINER_SCORE: Gauge = register_gauge!(opts!(
+        "stacks_node_computed_relative_miner_score",
+        "Percentage of the u256 range that this miner is assigned in a particular round of sortition"
+    )).unwrap();
+
+    pub static ref COMPUTED_MINER_COMMITMENT_HIGH: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_computed_miner_commitment_high",
+        "High 64 bits of a miner's effective commitment (min of the miner's previous commitment and their median commitment)"
+    )).unwrap();
+
+     pub static ref COMPUTED_MINER_COMMITMENT_LOW: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_computed_miner_commitment_low",
+        "Low 64 bits of a miner's effective commitment (min of the miner's previous commitment and their median commitment)"
+    )).unwrap();
+
+    pub static ref MINER_CURRENT_MEDIAN_COMMITMENT_HIGH: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_miner_current_median_commitment_high",
+        "High 64 bits of a miner's median commitment over the mining commitment window."
+    )).unwrap();
+
+    pub static ref MINER_CURRENT_MEDIAN_COMMITMENT_LOW: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_miner_current_median_commitment_low",
+        "Low 64 bits of a miner's median commitment over the mining commitment window."
     )).unwrap();
 }
 
