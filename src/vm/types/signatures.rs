@@ -132,6 +132,13 @@ pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(Buff
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
+pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
+    StringSubtype::ASCII(BufferLength(40)),
+));
+pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+    StringUTF8Length(40),
+)));
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
     max_len: u32,
