@@ -104,12 +104,7 @@ fn test_emit_stx_transfer_ok() {
                 Value::Principal(data.recipient),
                 execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
             );
-            assert_eq!(
-                data.memo,
-                BuffData {
-                    data: vec![]
-                }
-            );
+            assert_eq!(data.memo, BuffData { data: vec![] });
         }
         _ => panic!("assertion failed"),
     };
