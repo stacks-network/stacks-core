@@ -1342,10 +1342,10 @@ fn test_string_to_ints() {
     ];
 
     let expected = [
-        "(string-ascii 1048576)",
-        "(string-ascii 1048576)",
-        "(string-utf8 1048576)",
-        "(string-utf8 1048576)",
+        "(string-ascii 40)",
+        "(string-ascii 40)",
+        "(string-utf8 40)",
+        "(string-utf8 40)",
         "(optional int)",
         "(optional int)",
         "(optional uint)",
