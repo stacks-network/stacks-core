@@ -45,6 +45,10 @@ impl<'a> DefinitionSorter {
         }
     }
 
+    pub fn clear_graph(&mut self) {
+        self.graph = Graph::new();
+    }
+
     pub fn run_pass<T: CostTracker>(
         contract_ast: &mut ContractAST,
         accounting: &mut T,
@@ -90,8 +94,6 @@ impl<'a> DefinitionSorter {
             accounting,
             self.graph.edges_count()?,
         )?;
-
-        println!("# of edges: {:?}", self.graph.edges_count());
 
         let mut walker = GraphWalker::new();
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
