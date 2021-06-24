@@ -6,6 +6,7 @@ use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    POX_2_TESTNET_CODE,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
@@ -62,6 +63,8 @@ lazy_static! {
         &FIRST_STACKS_BLOCK_HASH
     );
     pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
+    pub static ref POX_2_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("pox-2", false);
     pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
     pub static ref USER_KEYS: Vec<StacksPrivateKey> =
@@ -417,6 +420,204 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }
+}
+
+#[test]
+fn pox_2_lock_extend_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+    let delegator = StacksPrivateKey::new();
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+            .unwrap()
+    });
+
+    // now, let's do some execution
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(450)
+            ))
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 20)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(600)
+            ))
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(10),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 2)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(9),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(1800),
+            ))
+        );
+
+        for cycle in 0..20 {
+            eprintln!("Cycle number = {}", cycle);
+            let empty_set = cycle < 1 || cycle >= 13;
+            let expected = if empty_set {
+                "(u0 u0)"
+            } else {
+                "(u1000000 u1)"
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = if cycle > 3 {
+                    &POX_ADDRS[2]
+                } else {
+                    &POX_ADDRS[1]
+                };
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        expected_pox_addr,
+                        1_000_000
+                    ))
+                );
+            }
+        }
+    });
 }
 
 #[test]

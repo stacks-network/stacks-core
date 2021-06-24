@@ -171,13 +171,13 @@ fn handle_pox_v2_api_contract_call(
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
-    debug!(
-        "Handle special-case contract-call to {:?} {} (which returned {:?})",
-        boot_code_id("pox-2", global_context.mainnet),
-        function_name,
-        value
-    );
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
+        debug!(
+            "Handle special-case contract-call to {:?} {} (which returned {:?})",
+            boot_code_id("pox-2", global_context.mainnet),
+            function_name,
+            value
+        );
         // applying a pox lock at this point is equivalent to evaluating a transfer
         runtime_cost(
             ClarityCostFunction::StxTransfer,
@@ -222,8 +222,15 @@ fn handle_pox_v2_api_contract_call(
                 return Ok(());
             }
         }
-    } else if function_name == "stack-extend" {
+    } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
         // applying a pox lock at this point is equivalent to evaluating a transfer
+        debug!(
+            "Handle special-case contract-call to {:?} {} (which returned {:?})",
+            boot_code_id("pox-2", global_context.mainnet),
+            function_name,
+            value
+        );
+
         runtime_cost(
             ClarityCostFunction::StxTransfer,
             &mut global_context.cost_track,

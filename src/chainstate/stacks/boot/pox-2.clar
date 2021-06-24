@@ -20,6 +20,7 @@
 (define-constant ERR_DELEGATION_POX_ADDR_REQUIRED 23)
 (define-constant ERR_INVALID_START_BURN_HEIGHT 24)
 (define-constant ERR_NOT_CURRENT_STACKER 25)
+(define-constant ERR_STACK_EXTEND_NOT_LOCKED 26)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -699,15 +700,14 @@
 
       ;; tx-sender must be locked
       (asserts! (> amount-ustx u0)
-        (err ERR_STACKING_EXPIRED))
+        (err ERR_STACK_EXTEND_NOT_LOCKED))
 
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
-      ;; lock-period can be 13 for extension, because it includes the
-      ;;  current reward cycle
-      (asserts! (and (<= lock-period u13) (>= lock-period u1))
+      ;; check valid lock period
+      (asserts! (check-pox-lock-period lock-period)
         (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; register the PoX address with the amount stacked
@@ -719,7 +719,7 @@
         { stacker: tx-sender }
         { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
-          first-reward-cycle: cur-cycle,
+          first-reward-cycle: first-extend-cycle,
           lock-period: lock-period })
 
       ;; return lock-up information
@@ -741,9 +741,8 @@
       (asserts! (check-caller-allowed)
         (err ERR_STACKING_PERMISSION_DENIED))
 
-      ;; lock-period can be 13 for extension, because it includes the
-      ;;  current reward cycle
-      (asserts! (and (<= lock-period u13) (>= lock-period u1))
+      ;; check valid lock period
+      (asserts! (check-pox-lock-period lock-period)
         (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; stacker must be currently locked
@@ -787,7 +786,7 @@
         { stacker: stacker }
         { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
-          first-reward-cycle: cur-cycle,
+          first-reward-cycle: first-extend-cycle,
           lock-period: lock-period })
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
