@@ -423,6 +423,219 @@ impl HeadersDB for TestSimHeadersDB {
 }
 
 #[test]
+fn pox_2_contract_caller_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+    let delegator = StacksPrivateKey::new();
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+            .unwrap()
+    });
+
+    let cc = boot_code_id("stack-through", false);
+
+    // now, let's do some execution
+    sim.execute_next_block(|env| {
+        env.initialize_contract(cc.clone(),
+                                "(define-public (cc-stack-stx (amount-ustx uint)
+                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                           (start-burn-ht uint)
+                                                           (lock-period uint))
+                                   (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
+                                None)
+            .unwrap();
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::none(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(600)
+            ))
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "disallow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string()
+        );
+
+        let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::some(until_height).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(600)
+            ))
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        // the contract caller allowance should now have expired:
+        //   (err 9) indicates the contract caller check failed
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string()
+        );
+    });
+}
+
+#[test]
 fn pox_2_lock_extend_units() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1];
