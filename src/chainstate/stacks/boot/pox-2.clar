@@ -193,9 +193,12 @@
                  ;; if not in the caller map, return false
                  (unwrap! (map-get? allowance-contract-callers
                                     { sender: tx-sender, contract-caller: contract-caller })
-                          false)))
+                          false))
+               (expires-at
+                 ;; if until-burn-ht not set, then return true (because no expiry)
+                 (unwrap! (get until-burn-ht caller-allowed) true)))
           ;; is the caller allowance expired?
-          (if (< burn-block-height (unwrap! (get until-burn-ht caller-allowed) true))
+          (if (>= burn-block-height expires-at)
               false
               true))))
 
@@ -689,8 +692,14 @@
          (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
          (cur-cycle (current-pox-reward-cycle))
          (lock-period (- last-extend-cycle cur-cycle)))
+
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
+
+      ;; tx-sender must be locked
+      (asserts! (> amount-ustx u0)
+        (err ERR_STACKING_EXPIRED))
 
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
@@ -698,7 +707,7 @@
 
       ;; lock-period can be 13 for extension, because it includes the
       ;;  current reward cycle
-      (asserts! (<= lock-period u13)
+      (asserts! (and (<= lock-period u13) (>= lock-period u1))
         (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; register the PoX address with the amount stacked
@@ -715,3 +724,73 @@
 
       ;; return lock-up information
       (ok { stacker: tx-sender, unlock-burn-height: (reward-cycle-to-burn-height (+ cur-cycle lock-period)) })))
+
+(define-public (delegate-stack-extend
+                    (stacker principal)
+                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                    (extend-count uint))
+    (let ((stacker-info (stx-account stacker))
+         (amount-ustx (get locked stacker-info))
+         (unlock-height (get unlock-height stacker-info))
+         (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
+         (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
+         (cur-cycle (current-pox-reward-cycle))
+         (lock-period (- last-extend-cycle cur-cycle)))
+
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
+      (asserts! (check-caller-allowed)
+        (err ERR_STACKING_PERMISSION_DENIED))
+
+      ;; lock-period can be 13 for extension, because it includes the
+      ;;  current reward cycle
+      (asserts! (and (<= lock-period u13) (>= lock-period u1))
+        (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+      ;; stacker must be currently locked
+      (asserts! (> amount-ustx u0)
+        (err ERR_STACKING_EXPIRED))
+
+      ;; stacker must have delegated to the caller
+      (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED))))
+        ;; must have delegated to tx-sender
+        (asserts! (is-eq (get delegated-to delegation-info) tx-sender)
+                  (err ERR_STACKING_PERMISSION_DENIED))
+        ;; must have delegated enough stx
+        (asserts! (>= (get amount-ustx delegation-info) amount-ustx)
+                  (err ERR_DELEGATION_TOO_MUCH_LOCKED))
+        ;; if pox-addr is set, must be equal to pox-addr
+        (asserts! (match (get pox-addr delegation-info)
+                         specified-pox-addr (is-eq pox-addr specified-pox-addr)
+                         true)
+                  (err ERR_DELEGATION_POX_ADDR_REQUIRED))
+        ;; delegation must not expire before lock period
+        (asserts! (match (get until-burn-ht delegation-info)
+                         until-burn-ht (>= until-burn-ht
+                                           unlock-height)
+                      true)
+                  (err ERR_DELEGATION_EXPIRES_DURING_LOCK)))
+
+      ;; stacker principal must not be stacking
+      (asserts! (is-none (get-stacker-info stacker))
+        (err ERR_STACKING_ALREADY_STACKED))
+
+      ;; the Stacker must have sufficient unlocked funds
+      (asserts! (>= (stx-get-balance stacker) amount-ustx)
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
+
+      ;; register the PoX address with the amount stacked via partial stacking
+      ;;   before it can be included in the reward set, this must be committed!
+      (add-pox-partial-stacked pox-addr first-extend-cycle extend-count amount-ustx)
+
+      ;; update stacker record
+      (map-set stacking-state
+        { stacker: stacker }
+        { amount-ustx: amount-ustx,
+          pox-addr: pox-addr,
+          first-reward-cycle: cur-cycle,
+          lock-period: lock-period })
+
+      ;; return the lock-up information, so the node can actually carry out the lock. 
+      (ok { stacker: stacker,
+            unlock-burn-height: (reward-cycle-to-burn-height (+ cur-cycle lock-period)) })))
+
