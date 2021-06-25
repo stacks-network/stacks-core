@@ -14,27 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_vm::database::MemoryBackingStore;
-use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB, NULL_BURN_STATE_DB_2_1};
 use chainstate::stacks::events::*;
-use std::convert::TryInto;
-use vm::analysis::errors::CheckError;
-use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::tests::execute;
-use vm::types::TypeSignature::UIntType;
-use vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
-};
-use clarity_vm::database::marf::MarfedKV;
 use clarity_vm::clarity::ClarityInstance;
-use vm::costs::ExecutionCost;
-use types::chainstate::{StacksBlockId, StacksBlockHeader};
+use clarity_vm::database::marf::MarfedKV;
+use types::chainstate::{StacksBlockHeader, StacksBlockId};
 use types::proof::ClarityMarfTrieId;
+use vm::contexts::OwnedEnvironment;
+use vm::costs::ExecutionCost;
+use vm::database::{NULL_BURN_STATE_DB, NULL_BURN_STATE_DB_2_1, NULL_HEADER_DB};
+use vm::tests::execute;
+use vm::types::{
+    AssetIdentifier, BuffData, QualifiedContractIdentifier, Value,
+};
 
-use core::EMPTY_MICROBLOCK_PARENT_HASH;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();

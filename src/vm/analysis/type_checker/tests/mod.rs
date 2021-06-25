@@ -190,11 +190,7 @@ fn test_stx_ops() {
         r#"(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#,
         "(stx-get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
     ];
-    let expected = [
-        "(response bool uint)",
-        "(response bool uint)",
-        "uint",
-    ];
+    let expected = ["(response bool uint)", "(response bool uint)", "uint"];
 
     let bad = [
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x7759)"#,
