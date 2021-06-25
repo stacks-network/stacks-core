@@ -69,7 +69,7 @@ pub use vm::functions::stx_transfer_consolidated;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
-fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+pub fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!(
             "Unexpected variable name: {}",
