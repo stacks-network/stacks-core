@@ -646,7 +646,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
+    pub fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
         if let Some(type_result) = type_reserved_variable(name) {
