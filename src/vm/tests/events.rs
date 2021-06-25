@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::clarity_vm::database::MemoryBackingStore;
+use clarity_vm::database::MemoryBackingStore;
+use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB, NULL_BURN_STATE_DB_2_1};
 use chainstate::stacks::events::*;
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
@@ -25,14 +26,48 @@ use vm::types::TypeSignature::UIntType;
 use vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use clarity_vm::database::marf::MarfedKV;
+use clarity_vm::clarity::ClarityInstance;
+use vm::costs::ExecutionCost;
+use types::chainstate::{StacksBlockId, StacksBlockHeader};
+use types::proof::ClarityMarfTrieId;
+
+use core::EMPTY_MICROBLOCK_PARENT_HASH;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
     let sender = execute(address).expect_principal();
 
-    let mut marf_kv = MemoryBackingStore::new();
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    let mut marf_kv = clarity_instance.destroy();
+
+    let mut store = marf_kv.begin(
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &StacksBlockId([1 as u8; 32]),
+    );
+
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
+    );
 
     {
         let mut env = owned_env.get_exec_environment(None, None);
