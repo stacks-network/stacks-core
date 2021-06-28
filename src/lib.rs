@@ -19,6 +19,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
+#![allow(non_fmt_panic)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
 extern crate curve25519_dalek;
