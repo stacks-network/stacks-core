@@ -244,7 +244,7 @@ impl FunctionType {
                     _ => false,
                 };
 
-                if (!first_ok) {
+                if !first_ok {
                     return Err(CheckErrors::UnionTypeError(
                         vec![
                             TypeSignature::IntType,
@@ -260,33 +260,7 @@ impl FunctionType {
 
                 // Step 2: Assuming the first argument has a supported type, now check that
                 // both of the types are matching.
-                let pair_ok = match (first, second) {
-                    (TypeSignature::IntType, TypeSignature::IntType) => true,
-                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
-                    (
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(
-                            StringSubtype::ASCII(_),
-                        )),
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(
-                            StringSubtype::ASCII(_),
-                        )),
-                    ) => is_clarity2,
-                    (
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(
-                            StringSubtype::UTF8(_),
-                        )),
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(
-                            StringSubtype::UTF8(_),
-                        )),
-                    ) => is_clarity2,
-                    (
-                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
-                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
-                    ) => is_clarity2,
-                    (x, _) => false,
-                };
-
-                if !pair_ok {
+                if first != second {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
                 }
 
@@ -559,7 +533,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         clarity_version: ClarityVersion,
     ) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(self, &typed_args, clarity_version.clone())
+        func_type.check_args(self, &typed_args, clarity_version)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {

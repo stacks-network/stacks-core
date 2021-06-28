@@ -534,7 +534,7 @@ impl TypedNativeFunction {
                 function_type,
                 args,
                 context,
-                checker.clarity_version.clone(),
+                checker.clarity_version,
             ),
         }
     }

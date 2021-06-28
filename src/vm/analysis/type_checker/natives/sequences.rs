@@ -105,8 +105,7 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    let mapped_type =
-        function_type.check_args(checker, &func_args, checker.clarity_version.clone())?;
+    let mapped_type = function_type.check_args(checker, &func_args, checker.clarity_version)?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
@@ -135,7 +134,7 @@ pub fn check_special_filter(
         }?;
 
         let filter_type =
-            function_type.check_args(checker, &[input_type], checker.clarity_version.clone())?;
+            function_type.check_args(checker, &[input_type], checker.clarity_version)?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
@@ -177,15 +176,12 @@ pub fn check_special_fold(
     let return_type = function_type.check_args(
         checker,
         &[input_type.clone(), initial_value_type],
-        checker.clarity_version.clone(),
+        checker.clarity_version,
     )?;
 
     // f must _also_ accepts its own return type!
-    let return_type = function_type.check_args(
-        checker,
-        &[input_type, return_type],
-        checker.clarity_version.clone(),
-    )?;
+    let return_type =
+        function_type.check_args(checker, &[input_type, return_type], checker.clarity_version)?;
 
     Ok(return_type)
 }
