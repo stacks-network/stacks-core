@@ -369,7 +369,7 @@ pub fn eval_all(
 /* Run provided program in an environment specified by the user. This version of the function
   gives the most leeway to the caller to create a custom environment.
 */
-pub fn execute_program_with_context(
+fn execute_program_with_context(
     program: &str,
     contract_id: QualifiedContractIdentifier,
     mut contract_context: ContractContext,
