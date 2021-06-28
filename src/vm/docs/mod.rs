@@ -281,6 +281,7 @@ Note: This function is only available starting with Stacks 2.1.",
     example: r#"
 (int-to-ascii 1) ;; Returns "1"
 (int-to-ascii u1) ;; Returns "1"
+(int-to-ascii -1) ;; Returns "-1"
 "#,
 };
 
@@ -293,6 +294,7 @@ Note: This function is only available starting with Stacks 2.1.",
     example: r#"
 (int-to-utf8 1) ;; Returns u"1"
 (int-to-utf8 u1) ;; Returns u"1"
+(int-to-utf8 -1) ;; Returns u"-1"
 "#,
 };
 
