@@ -32,7 +32,7 @@ pub mod database;
 pub mod representations;
 
 mod callables;
-mod functions;
+pub mod functions;
 mod variables;
 
 pub mod analysis;

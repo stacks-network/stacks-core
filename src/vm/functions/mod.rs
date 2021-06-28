@@ -41,7 +41,7 @@ use crate::types::chainstate::StacksAddress;
 mod arithmetic;
 mod assets;
 mod boolean;
-mod crypto;
+pub mod crypto;
 mod database;
 pub mod define;
 mod options;
