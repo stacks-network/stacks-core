@@ -188,9 +188,10 @@ fn test_stx_ops() {
     let good = [
         "(stx-burn? u10 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
         r#"(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#,
+        r#"(stx-transfer-memo? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 0x0102)"#,
         "(stx-get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
     ];
-    let expected = ["(response bool uint)", "(response bool uint)", "uint"];
+    let expected = ["(response bool uint)", "(response bool uint)", "(response bool uint)", "uint"];
 
     let bad = [
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x7759)"#,
@@ -198,7 +199,13 @@ fn test_stx_ops() {
         r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x00)"#,
         r#"(stx-transfer? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
-        "(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
+        r#"(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#,
+        r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x7759 0x0102)"#,
+        r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x00) 0x0102"#,
+        r#"(stx-transfer-memo? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x0102)"#,
+        r#"(stx-transfer-memo? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 0x0102)"#,
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-burn? u4 true)",
@@ -210,6 +217,12 @@ fn test_stx_ops() {
         CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 5),
+        CheckErrors::TypeError(PrincipalType, UIntType),
+        CheckErrors::TypeError(PrincipalType, BoolType),
+        CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
+        CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(4, 5),
         CheckErrors::TypeError(PrincipalType, UIntType),
         CheckErrors::TypeError(PrincipalType, BoolType),
         CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
