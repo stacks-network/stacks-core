@@ -31,7 +31,7 @@ use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
-mod assets;
+pub mod assets;
 mod maps;
 pub mod options;
 pub mod sequences;
