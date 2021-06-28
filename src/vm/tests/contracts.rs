@@ -572,8 +572,6 @@ fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
 
     {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone());
-        let clarity_version = env.contract_context.clarity_version.clone();
-
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
