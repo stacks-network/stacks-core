@@ -175,11 +175,15 @@ pub fn native_int_to_string_generic(
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            Ok(conversion_fn(as_string.into()).expect("Unexpected error converting Int to string."))
+            Ok(
+                conversion_fn(as_string.into())
+                    .expect("Unexpected error converting Int to string."),
+            )
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
-            Ok(conversion_fn(as_string.into()).expect("Unexpected error converting UInt to string."))
+            Ok(conversion_fn(as_string.into())
+                .expect("Unexpected error converting UInt to string."))
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
