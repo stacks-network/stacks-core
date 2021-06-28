@@ -241,25 +241,6 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
-const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    signature: "(is-standard principal)",
-    description:
-        "Tests whether `principal` matches the current network type. That is, the network is either
-of type `mainnet`, or `testnet`. And, `principal` is either suited for the
-mainnet or a testnet.  That is, `SPxxxx` and `SMxxxx` addresses are only usable
-on mainnet, whereas `STxxxx` and `SNxxxx` are only usable on testnet and
-regtest. This method will return `true` iff the principal matches the network-type.
-
-Note: This function is only available starting with Stacks 2.1.",
-    example: r#"
-(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; returns true on testnet and false on mainnet
-(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; returns true on testnet and false on mainnet
-(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; returns true on mainnet and false on testnet
-(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
-"#,
-};
-
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -380,60 +361,39 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">= (greater than or equal)"),
     signature: "(>= i1 i2)",
-    description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.
-i1 and i2 must be of the same type. In Clarity1, the `>=`-comparable types are `int` and `uint`. In Clarity2 (from Stacks 2.1),
-the `>=`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.
-    ",
-    example: r#"(>= 1 1) ;; Returns true
+    description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.",
+    example: "(>= 1 1) ;; Returns true
 (>= 5 2) ;; Returns true
-(>= "baa" "aaa") ;; Returns true
-(>= 0x02 0x01) ;; Returns true
-(>= 5 u2) ;; Throws type error
-"#
+"
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<= (less than or equal)"),
     signature: "(<= i1 i2)",
-    description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.
-i1 and i2 must be of the same type. In Clarity1, the `<=`-comparable types are `int` and `uint`. In Clarity2 (from Stacks 2.1),
-the `<=`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
-    example: r#"(<= 1 1) ;; Returns true
+    description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
+    example: "(<= 1 1) ;; Returns true
 (<= 5 2) ;; Returns false
-(<= "aaa" "baa") ;; Returns true
-(<= 0x01 0x02) ;; Returns true
-(<= 5 u2) ;; Throws type error
-"#
+"
 };
 
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("> (greater than)"),
     signature: "(> i1 i2)",
     description:
-        "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.
-i1 and i2 must be of the same type. In Clarity1, the `>`-comparable types are `int` and `uint`. In Clarity2 (from Stacks 2.1),
-the `>`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
-    example: r#"(> 1 2) ;; Returns false
+        "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.",
+    example: "(> 1 2) ;; Returns false
 (> 5 2) ;; Returns true
-(> "baa" "aaa") ;; Returns true
-(> 0x02 0x01) ;; Returns true
-(> 5 u2) ;; Throws type error
-"#,
+",
 };
 
 const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("< (less than)"),
     signature: "(< i1 i2)",
     description:
-        "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.
-i1 and i2 must be of the same type. In Clarity1, the `<`-comparable types are `int` and `uint`. In Clarity2 (from Stacks 2.1),
-the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
-    example: r#"(< 1 2) ;; Returns true
+        "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.",
+    example: "(< 1 2) ;; Returns true
 (< 5 2) ;; Returns false
-(< "aaa" "baa") ;; Returns true
-(< 0x01 0x02) ;; Returns true
-(< 5 u2) ;; Throws type error
-"#,
+",
 };
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
@@ -525,8 +485,6 @@ is-eq _must_ be the same type.",
     example: "(is-eq 1 1) ;; Returns true
 (is-eq true false) ;; Returns false
 (is-eq \"abc\" 234 234) ;; Throws type error
-(is-eq \"abc\" \"abc\") ;; Returns true
-(is-eq 0x0102 0x0102) ;; Returns true
 ",
 };
 
@@ -1748,7 +1706,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
-        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),

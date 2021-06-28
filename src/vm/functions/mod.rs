@@ -48,7 +48,6 @@ mod crypto;
 mod database;
 pub mod define;
 mod options;
-mod principals;
 mod sequences;
 mod special;
 pub mod tuples;
@@ -87,7 +86,6 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
-    IsStandard("is-standard", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -188,10 +186,26 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_div),
                 ClarityCostFunction::Div,
             ),
-            CmpGeq => SpecialFunction("special_geq", &arithmetic::special_geq),
-            CmpLeq => SpecialFunction("special_leq", &arithmetic::special_leq),
-            CmpLess => SpecialFunction("special_le", &arithmetic::special_less),
-            CmpGreater => SpecialFunction("special_ge", &arithmetic::special_greater),
+            CmpGeq => NativeFunction(
+                "native_geq",
+                NativeHandle::DoubleArg(&arithmetic::native_geq),
+                ClarityCostFunction::Geq,
+            ),
+            CmpLeq => NativeFunction(
+                "native_leq",
+                NativeHandle::DoubleArg(&arithmetic::native_leq),
+                ClarityCostFunction::Leq,
+            ),
+            CmpLess => NativeFunction(
+                "native_le",
+                NativeHandle::DoubleArg(&arithmetic::native_le),
+                ClarityCostFunction::Le,
+            ),
+            CmpGreater => NativeFunction(
+                "native_ge",
+                NativeHandle::DoubleArg(&arithmetic::native_ge),
+                ClarityCostFunction::Ge,
+            ),
             ToUInt => NativeFunction(
                 "native_to_uint",
                 NativeHandle::SingleArg(&arithmetic::native_to_uint),
@@ -269,7 +283,6 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
-            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),

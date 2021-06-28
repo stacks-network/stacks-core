@@ -530,12 +530,9 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
-            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(
-                function_type,
-                args,
-                context,
-                checker.clarity_version.clone(),
-            ),
+            Simple(SimpleNativeFunction(function_type)) => {
+                checker.type_check_function_type(function_type, args, context)
+            }
         }
     }
 
@@ -572,14 +569,6 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::IntType,
-            }))),
-            IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
-                args: vec![FunctionArg::new(
-                    TypeSignature::PrincipalType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
-                )],
-                returns: TypeSignature::BoolType,
             }))),
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {

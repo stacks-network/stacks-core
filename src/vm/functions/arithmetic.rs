@@ -15,23 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-use vm::costs::cost_functions::ClarityCostFunction;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value};
+use vm::types::{TypeSignature, Value};
 
 use integer_sqrt::IntegerSquareRoot;
-use vm::costs::runtime_cost;
-
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};
-use vm::version::ClarityVersion;
-use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
 struct U128Ops();
 struct I128Ops();
-struct ASCIIOps();
-struct UTF8Ops();
-struct BuffOps();
 
 impl U128Ops {
     fn make_value(x: u128) -> InterpreterResult<Value> {
@@ -42,26 +32,6 @@ impl U128Ops {
 impl I128Ops {
     fn make_value(x: i128) -> InterpreterResult<Value> {
         Ok(Value::Int(x))
-    }
-}
-impl ASCIIOps {
-    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
-            ASCIIData { data: x },
-        ))))
-    }
-}
-impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> InterpreterResult<Value> {
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
-            UTF8Data { data: x },
-        ))))
-    }
-}
-
-impl BuffOps {
-    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
-        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: x })))
     }
 }
 
@@ -75,55 +45,6 @@ macro_rules! type_force_binary_arithmetic {
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (x, _) => Err(CheckErrors::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                x,
-            )
-            .into()),
-        }
-    }};
-}
-
-// The originally supported comparable types in Clarity1 were Int and UInt.
-macro_rules! type_force_binary_comparison_v1 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
-            (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
-            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
-                vec![TypeSignature::IntType, TypeSignature::UIntType],
-                x,
-            )
-            .into()),
-        }
-    }};
-}
-
-// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
-// accessed if the ClarityVersion, as read by the SpecialFunction, is 2.
-macro_rules! type_force_binary_comparison_v2 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
-            (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
-            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (
-                Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: x }))),
-                Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: y }))),
-            ) => ASCIIOps::$function(x, y),
-            (
-                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: x }))),
-                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data: y }))),
-            ) => UTF8Ops::$function(x, y),
-            (
-                Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
-                Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
-            ) => BuffOps::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
-                    TypeSignature::max_buffer(),
-                ],
                 x,
             )
             .into()),
@@ -191,27 +112,6 @@ macro_rules! type_force_variadic_arithmetic {
     }};
 }
 
-// This macro creates comparison operation functions for the supported types:
-// uint, int, string-ascii, string-utf8 and buff.
-macro_rules! make_comparison_ops {
-    ($struct_name: ident, $type:ty) => {
-        impl $struct_name {
-            fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x > y))
-            }
-            fn less(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x < y))
-            }
-            fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x <= y))
-            }
-            fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
-                Ok(Value::Bool(x >= y))
-            }
-        }
-    };
-}
-
 // This macro creates all of the operation functions for the two arithmetic types
 //  (uint128 and int128) -- this is really hard to do generically because there's no
 //  "Integer" trait in rust, so macros were the most straight-forward solution to do this
@@ -221,6 +121,18 @@ macro_rules! make_arithmetic_ops {
         impl $struct_name {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
+            }
+            fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x <= y))
+            }
+            fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x >= y))
+            }
+            fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x > y))
+            }
+            fn less(x: $type, y: $type) -> InterpreterResult<Value> {
+                Ok(Value::Bool(x < y))
             }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
@@ -331,89 +243,21 @@ macro_rules! make_arithmetic_ops {
 make_arithmetic_ops!(U128Ops, u128);
 make_arithmetic_ops!(I128Ops, i128);
 
-make_comparison_ops!(U128Ops, u128);
-make_comparison_ops!(I128Ops, i128);
-make_comparison_ops!(ASCIIOps, Vec<u8>);
-make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
-make_comparison_ops!(BuffOps, Vec<u8>);
-
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
-
-// This function is 'special', because it must access the context to determine
-// the clarity version.
-pub fn special_geq(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Geq, env, 0)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
-        // Only if the version is Clarity2 will we use the new comparators.
-        type_force_binary_comparison_v2!(geq, a, b)
-    } else {
-        type_force_binary_comparison_v1!(geq, a, b)
-    }
+pub fn native_geq(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(geq, a, b)
 }
-
-// This function is 'special', because it must access the context to determine
-// the clarity version.
-pub fn special_leq(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Leq, env, 0)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(leq, a, b)
-    } else {
-        type_force_binary_comparison_v1!(leq, a, b)
-    }
+pub fn native_leq(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(leq, a, b)
 }
-
-// This function is 'special', because it must access the context to determine
-// the clarity version.
-pub fn special_greater(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Ge, env, 0)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(greater, a, b)
-    } else {
-        type_force_binary_comparison_v1!(greater, a, b)
-    }
+pub fn native_ge(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(greater, a, b)
 }
-
-// This function is 'special', because it must access the context to determine
-// the clarity version.
-pub fn special_less(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Le, env, 0)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(less, a, b)
-    } else {
-        type_force_binary_comparison_v1!(less, a, b)
-    }
+pub fn native_le(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(less, a, b)
 }
-
 pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(add, args)
 }
