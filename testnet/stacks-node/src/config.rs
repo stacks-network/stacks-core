@@ -50,19 +50,19 @@ mod tests {
         let config = ConfigFile::from_str(
             r#"
             [[ustx_balance]]
-            address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+            address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
             amount = 10000000000000000
 
             [[ustx_balance]]
-            address = "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+            address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
             amount = 10000000000000000
 
             [[mstx_balance]] # legacy property name
-            address = "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+            address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
             amount = 10000000000000000
 
             [[mstx_balance]] # legacy property name
-            address = "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+            address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
             amount = 10000000000000000
             "#,
         );
@@ -73,19 +73,19 @@ mod tests {
         assert_eq!(balances.len(), 4);
         assert_eq!(
             balances[0].address,
-            "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"
+            "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
         );
         assert_eq!(
             balances[1].address,
-            "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y"
+            "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
         );
         assert_eq!(
             balances[2].address,
-            "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR"
+            "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
         );
         assert_eq!(
             balances[3].address,
-            "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP"
+            "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
         );
     }
 }
@@ -126,19 +126,19 @@ impl ConfigFile {
 
         let balances = vec![
             InitialBalanceFile {
-                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
                 amount: 10000000000000000,
             },
         ];
@@ -169,19 +169,19 @@ impl ConfigFile {
 
         let balances = vec![
             InitialBalanceFile {
-                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
                 amount: 10000000000000000,
             },
         ];
@@ -212,19 +212,19 @@ impl ConfigFile {
 
         let balances = vec![
             InitialBalanceFile {
-                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
                 amount: 10000000000000000,
             },
         ];
@@ -255,19 +255,19 @@ impl ConfigFile {
 
         let balances = vec![
             InitialBalanceFile {
-                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
                 amount: 10000000000000000,
             },
         ];
