@@ -379,7 +379,7 @@ impl PoxConstants {
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            POX_REWARD_CYCLE_LENGTH / 2, // 1050
+            POX_REWARD_CYCLE_LENGTH / 2,   // 1050
             POX_PREPARE_WINDOW_LENGTH / 2, // 50
             40,
             12,
