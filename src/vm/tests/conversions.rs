@@ -265,7 +265,6 @@ fn test_simple_string_to_int() {
     );
 
     let bad_value_error_utf8_test = r#"(string-to-int u"\u{211D}\u{221E}")"#;
-    info!("bad_value_error_utf8_test {:?}", bad_value_error_utf8_test);
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
@@ -331,7 +330,6 @@ fn test_simple_string_to_uint() {
     );
 
     let bad_value_error_utf8_test = r#"(string-to-uint u"\u{211D}\u{221E}")"#;
-    info!("bad_value_error_utf8_test {:?}", bad_value_error_utf8_test);
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
