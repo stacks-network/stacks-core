@@ -672,7 +672,7 @@ fn spawn_peer(
                         download_backpressure,
                         this.has_more_downloads()
                     );
-                    100
+                    1
                 } else {
                     cmp::min(poll_timeout, config.node.microblock_frequency)
                 };
@@ -735,9 +735,14 @@ fn spawn_peer(
                         }
                     }
                     Err(e) => {
-                        error!("P2P: Failed to process network dispatch: {:?}", &e);
-                        if config.is_node_event_driven() {
-                            panic!();
+                        if let NetError::Transient(ref msg) = &e {
+                            error!("P2P: Failed to process network dispatch due to transient error: {}", &msg);
+                        }
+                        else {
+                            error!("P2P: Failed to process network dispatch: {:?}", &e);
+                            if config.is_node_event_driven() {
+                                panic!();
+                            }
                         }
                     }
                 };
