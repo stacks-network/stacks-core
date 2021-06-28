@@ -175,8 +175,6 @@ pub enum CheckErrors {
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly,
-
-    InternalError,
 }
 
 #[derive(Debug, PartialEq)]
@@ -411,7 +409,6 @@ impl DiagnosableError for CheckErrors {
             },
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
-            CheckErrors::InternalError => "internal error".into(),
         }
     }
 
