@@ -19,6 +19,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
+#![allow(non_fmt_panic)]
 
 extern crate blockstack_lib;
 extern crate serde_json;
