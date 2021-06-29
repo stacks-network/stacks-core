@@ -334,12 +334,15 @@ For non-consensus breaking releases, this project uses the following release pro
    `2.1.x.y.z-blocker`. The release manager should ping these
    issue/PR owners for updates on whether or not those issues/PRs have
    any blockers or are waiting on feedback.
+
 1. Once all `2.1.x.y.z-blocker` PRs have been merged to `develop`, the release
    manager will open a `develop -> master` PR.
+
 1. Immediately following this, the release manager will then create a new tag
    by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
    against the `develop` branch, inputting the release candidate tag, `2.1.x.y.z-rc0`,
    in the Action's input textbox.
+
 1. Once the release candidate has been built, and docker images, etc. are available,
    the release manager will notify various ecosystem participants to test the release
    candidate on various staging infrastructure:
@@ -348,6 +351,18 @@ For non-consensus breaking releases, this project uses the following release pro
    1. Hiro PBC regtest network.
    1. Hiro PBC testnet network.
    1. Hiro PBC mainnet mock miner.
+
+   The release candidate should be announced in the `#stacks-core-devs` channel in the
+   Stacks Discord. For coordinating rollouts on specific infrastructure, the release
+   manager should contact the above participants directly either through e-mail or
+   Discord DM. The release manager should also confirm that the built release on the
+   [Github releases](https://github.com/blockstack/stacks-blockchain/releases/)
+   page is marked as `Pre-Release`.
+
+1. The release manager will test that the release candidate successfully syncs with
+   the current chain from genesis both in testnet and mainnet. This requires starting
+   the release candidate with an empty chainstate and confirming that it synchronizes
+   with the current chain tip.
 
 1. If bugs or issues emerge from the rollout on staging infrastructure, the release
    will be delayed until those regressions are resolved. As regressions are resolved,
@@ -361,9 +376,11 @@ For non-consensus breaking releases, this project uses the following release pro
    team members to review the `develop -> master` PR.
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
-   via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)). This creates a release and release images.
-   Once the release has been created, the release manager should update the Github release
-   text with the `CHANGELOG.md` "top-matter" for the release.
+   via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
+   by clicking "Run workflow" and providing the release version as the tag (e.g.,
+   `2.0.11.1.0`) This creates a release and release images. Once the release has been
+   created, the release manager should update the Github release text with the
+   `CHANGELOG.md` "top-matter" for the release.
 
 ## Copyright and License
 
