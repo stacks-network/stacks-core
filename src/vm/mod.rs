@@ -366,13 +366,26 @@ pub fn eval_all(
     })
 }
 
-pub fn execute_against_mainnet(program: &str, as_mainnet: bool) -> Result<Option<Value>> {
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum StacksNetworkType {
+    Mainnet,
+    Testnet,
+}
+pub fn execute_against_version_and_network(
+    program: &str,
+    version: ClarityVersion,
+    network: StacksNetworkType,
+) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
+    let as_mainnet = network == StacksNetworkType::Mainnet;
     let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
@@ -385,7 +398,10 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
