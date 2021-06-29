@@ -381,7 +381,6 @@ pub fn execute_against_version_and_network(
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let as_mainnet = network == StacksNetworkType::Mainnet;
-    info!("as_mainnet: {:?}", as_mainnet);
     let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
