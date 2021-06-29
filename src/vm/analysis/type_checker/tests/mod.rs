@@ -2320,14 +2320,8 @@ fn test_string_utf8_negative_len() {
 
 #[test]
 fn test_is_mainnet() {
-    let good = [
-        "is-in-mainnet",
-        "is-in-regtest",
-    ];
-    let expected = [
-        "bool",
-        "bool",
-    ];
+    let good = ["is-in-mainnet", "is-in-regtest"];
+    let expected = ["bool", "bool"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(

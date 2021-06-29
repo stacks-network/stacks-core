@@ -366,13 +366,16 @@ pub fn eval_all(
     })
 }
 
-
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum StacksNetworkType {
     Mainnet,
     Testnet,
 }
-pub fn execute_against_version_and_network(program: &str, version: ClarityVersion, network: StacksNetworkType) -> Result<Option<Value>> {
+pub fn execute_against_version_and_network(
+    program: &str,
+    version: ClarityVersion,
+    network: StacksNetworkType,
+) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();

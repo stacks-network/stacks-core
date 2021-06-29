@@ -129,8 +129,7 @@ const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
     name: "is-in-mainnet",
     output_type: "bool",
     description: "Returns whether or not the code is running on the mainnet",
-    example:
-        "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
+    example: "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
 };
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
