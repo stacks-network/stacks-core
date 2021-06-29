@@ -20,15 +20,6 @@ use vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
 
-pub fn execute_against_mainnet(program: &str, as_mainnet: bool) -> Result<Option<Value>> {
-    let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
-    let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
-}
-
 #[test]
 fn test_simple_is_standard_check_inputs() {
     let wrong_type_test = "(is-standard u10)";

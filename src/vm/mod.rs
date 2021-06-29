@@ -366,19 +366,13 @@ pub fn eval_all(
     })
 }
 
-/* Run provided program in an environment specified by the user. This version of the function
-  gives the most leeway to the caller to create a custom environment.
-*/
-pub fn execute_program_with_context(
-    program: &str,
-    contract_id: QualifiedContractIdentifier,
-    mut contract_context: ContractContext,
-    mut global_context: GlobalContext,
-) -> Result<Option<Value>> {
-    global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
-    })
+pub fn execute_against_mainnet(program: &str, as_mainnet: bool) -> Result<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
+    execute_program_with_context(program, contract_id, contract_context, global_context)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
