@@ -125,6 +125,14 @@ const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
         "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
 };
 
+const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "is-in-mainnet",
+    output_type: "bool",
+    description: "Returns whether or not the code is running on the mainnet",
+    example:
+        "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -1797,6 +1805,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
         NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
         NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
+        NativeVariables::Mainnet => Some(MAINNET_KEYWORD.clone()),
         NativeVariables::TxSponsor => Some(TX_SPONSOR_KEYWORD.clone()),
     }
 }

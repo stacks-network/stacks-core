@@ -101,6 +101,10 @@ fn test_variables_fail_arithmetic_check() {
             VariableForbidden(NativeVariables::Regtest),
         ),
         (
+            "(define-private (foo) is-in-mainnet)",
+            VariableForbidden(NativeVariables::Mainnet),
+        ),
+        (
             "(define-private (foo) stx-liquid-supply)",
             VariableForbidden(NativeVariables::TotalLiquidMicroSTX),
         ),
@@ -133,7 +137,10 @@ fn test_variables_fail_arithmetic_check() {
 fn test_version_controlled_variables() {
     // Certain variables are controlled by the ClarityVersion. E.g., in Clarity1, 'tx-sponsor?'
     // is not a variable, so can be defined over.
-    let ok_tests = ["(define-private (foo) tx-sponsor?)"];
+    let ok_tests = [
+        "(define-private (foo) tx-sponsor?)",
+        "(define-private (foo) is-in-mainnet)",
+    ];
 
     for contract in ok_tests.iter() {
         assert_eq!(
