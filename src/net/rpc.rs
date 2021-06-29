@@ -3291,15 +3291,12 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                let peer_info = RPCPeerInfoData::from_db(
-                    &peer_server.config.burnchain,
-                    peer_server.sortdb.as_mut().unwrap(),
+                let peer_info = RPCPeerInfoData::from_network(
+                    &peer_server.network,
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
-                    &peer_server.network.peerdb,
                     &None,
                     &Sha256Sum::zero(),
-                )
-                .unwrap();
+                );
 
                 *peer_server_info.borrow_mut() = Some(peer_info);
 
