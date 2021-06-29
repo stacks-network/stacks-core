@@ -115,21 +115,25 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
     return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be);
 }
 
+// This method represents the unified logic between both "string to int" and "string to uint".
+// 'value' is the input value to be converted.
+// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and should output 
+//   either a Int or UInt, depending on the desired result.
 pub fn native_string_to_int_generic(
     value: Value,
-    conversion_fn: fn(String) -> Result<Value>,
+    string_to_value_fn: fn(String) -> Result<Value>,
 ) -> Result<Value> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             match String::from_utf8(data) {
-                Ok(as_string) => conversion_fn(as_string),
+                Ok(as_string) => string_to_value_fn(as_string),
                 Err(_error) => Ok(Value::none()),
             }
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
             let flattened_bytes = data.into_iter().flatten().collect();
             match String::from_utf8(flattened_bytes) {
-                Ok(as_string) => conversion_fn(as_string),
+                Ok(as_string) => string_to_value_fn(as_string),
                 Err(_error) => Ok(Value::none()),
             }
         }
@@ -168,21 +172,25 @@ pub fn native_string_to_uint(value: Value) -> Result<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_uint)
 }
 
+// This method represents the unified logic between both "int to ascii" and "int to utf8".
+// 'value' is the input value to be converted.
+// 'bytes_to_value_fn' is a function that takes in a Rust-langauge byte sequence, and outputs
+//   either an ASCII or UTF8 string, depending on the desired result.
 pub fn native_int_to_string_generic(
     value: Value,
-    conversion_fn: fn(bytes: Vec<u8>) -> Result<Value>,
+    bytes_to_value_fn: fn(bytes: Vec<u8>) -> Result<Value>,
 ) -> Result<Value> {
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
             Ok(
-                conversion_fn(as_string.into())
+                bytes_to_value_fn(as_string.into())
                     .expect("Unexpected error converting Int to string."),
             )
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
-            Ok(conversion_fn(as_string.into())
+            Ok(bytes_to_value_fn(as_string.into())
                 .expect("Unexpected error converting UInt to string."))
         }
         _ => Err(CheckErrors::UnionTypeValueError(
