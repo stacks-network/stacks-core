@@ -340,7 +340,7 @@ For non-consensus breaking releases, this project uses the following release pro
 
 1. Immediately following this, the release manager will then create a new tag
    by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
-   against the `develop` branch, inputting the release candidate tag, `2.1.x.y.z-rc0`,
+   against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
    in the Action's input textbox.
 
 1. Once the release candidate has been built, and docker images, etc. are available,
