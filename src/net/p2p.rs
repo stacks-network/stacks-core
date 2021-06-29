@@ -4228,16 +4228,6 @@ impl PeerNetwork {
             return Err(net_error::NotConnected);
         }
 
-        // update local-peer state
-        self.refresh_local_peer()?;
-
-        // update burnchain view
-        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
-        network_result.consume_unsolicited(unsolicited_buffered_messages);
-
-        // update PoX view
-        self.refresh_sortition_view(sortdb)?;
-
         // set up new inbound conversations
         self.process_new_sockets(&mut poll_state)?;
 
@@ -4486,6 +4476,16 @@ impl PeerNetwork {
                 warn!("Atlas: updating attachment inventory failed: {}", e);
             }
         }
+
+        // update local-peer state
+        self.refresh_local_peer()?;
+
+        // update burnchain view, before handling any HTTP connections
+        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
+        network_result.consume_unsolicited(unsolicited_buffered_messages);
+
+        // update PoX view, before handling any HTTP connections
+        self.refresh_sortition_view(sortdb)?;
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {

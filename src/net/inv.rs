@@ -2524,7 +2524,10 @@ impl PeerNetwork {
     pub fn hint_sync_invs(&mut self, target_height: u64) {
         match self.inv_state {
             Some(ref mut inv_state) => {
-                debug!("Awaken inv sync to re-scan peer block inventories");
+                debug!(
+                    "Awaken inv sync to re-scan peer block inventories at height {}",
+                    target_height
+                );
                 inv_state.hint_learned_data = true;
                 inv_state.hint_do_rescan = true;
                 inv_state.hint_learned_data_height = target_height;
