@@ -331,7 +331,7 @@ For non-consensus breaking releases, this project uses the following release pro
 
 1. A release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
-   `2.1.x.y.z-blocker`. The release manager should ping these
+   `2.0.x.y.z-blocker`. The release manager should ping these
    issue/PR owners for updates on whether or not those issues/PRs have
    any blockers or are waiting on feedback.
 
