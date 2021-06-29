@@ -335,7 +335,7 @@ For non-consensus breaking releases, this project uses the following release pro
    issue/PR owners for updates on whether or not those issues/PRs have
    any blockers or are waiting on feedback.
 
-1. Once all `2.1.x.y.z-blocker` PRs have been merged to `develop`, the release
+1. Once all `2.0.x.y.z-blocker` PRs have been merged to `develop`, the release
    manager will open a `develop -> master` PR.
 
 1. Immediately following this, the release manager will then create a new tag
