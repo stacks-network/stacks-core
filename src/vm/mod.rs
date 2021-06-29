@@ -367,13 +367,10 @@ pub fn eval_all(
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
- *  database.
- *
- *  Only used by CLI.
+ *  database. Only used by CLI and unit tests.
  */
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let version = ClarityVersion::Clarity1;
     info!("Executing program using Clarity version = {}", version);
     let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
@@ -383,6 +380,24 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity1.
+ */
+pub fn execute(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity1)
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity2.
+ */
+pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity2)
 }
 
 #[cfg(test)]

@@ -21,15 +21,17 @@ use std::convert::TryFrom;
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
+use vm::types::SequenceSubtype::{BufferType, StringType};
+use vm::types::TypeSignature::SequenceType;
 use vm::types::{
-    BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    PrincipalData, SequenceSubtype, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32,
+    BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
-use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
+use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
 mod assets;
 mod maps;
@@ -568,6 +570,26 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
+            BuffToIntLe | BuffToIntBe => {
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        ClarityName::try_from("value".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    )],
+                    returns: TypeSignature::IntType,
+                })))
+            }
+            BuffToUIntLe | BuffToUIntBe => {
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        ClarityName::try_from("value".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    )],
+                    returns: TypeSignature::UIntType,
+                })))
+            }
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,

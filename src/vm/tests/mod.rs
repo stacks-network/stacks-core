@@ -32,6 +32,7 @@ use crate::types::proof::ClarityMarfTrieId;
 
 mod assets;
 mod contracts;
+mod conversions;
 pub mod costs;
 mod datamaps;
 mod defines;
