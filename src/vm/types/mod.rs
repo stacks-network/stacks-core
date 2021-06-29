@@ -608,6 +608,16 @@ impl BlockInfoProperty {
     }
 }
 
+impl PrincipalProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::PrincipalProperty::*;
+        match self {
+            Version => TypeSignature::UIntType,
+            PubKeyHash => BUFF_20.clone(),
+        }
+    }
+}
+
 impl PartialEq for ListData {
     fn eq(&self, other: &ListData) -> bool {
         self.data == other.data

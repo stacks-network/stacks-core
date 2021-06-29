@@ -264,6 +264,14 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
+const PARSE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(parse-principal property_name principal)",
+    description: "Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+"#,
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -1730,6 +1738,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
+        ParsePrincipal => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),

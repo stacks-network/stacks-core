@@ -84,6 +84,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         BuffToIntBe => "(buff-to-int-be 0x00000000000000000000000000000001)",
         BuffToUIntBe => "(buff-to-uint-be 0x00000000000000000000000000000001)",
         IsStandard => "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
+        ParsePrincipal => "(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
         Fold => "(fold + list-bar 0)",
         Append => "(append list-bar 1)",
         Concat => "(concat list-bar list-bar)",

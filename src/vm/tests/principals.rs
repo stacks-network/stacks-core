@@ -262,3 +262,18 @@ fn test_simple_is_standard_undefined_cases() {
         .unwrap()
     );
 }
+
+#[test]
+fn test_simple_parse_principal() {
+    let testnet_addr_test = "(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
+    assert_eq!(
+        Value::Bool(true),
+        execute_against_version_and_network(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksNetworkType::Testnet
+        )
+        .unwrap()
+        .unwrap()
+    );
+}

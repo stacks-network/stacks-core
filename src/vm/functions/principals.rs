@@ -75,10 +75,9 @@ pub fn special_parse_principal(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)
         }
-        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier {
-            issuer,
-            _name,
-        })) => (issuer.0, issuer.1),
+        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
+            (issuer.0, issuer.1)
+        }
         _ => {
             return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
         }
