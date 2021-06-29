@@ -112,7 +112,7 @@ pub fn lookup_reserved_variable(
                 Ok(Some(Value::Bool(reg)))
             }
             NativeVariables::Mainnet => {
-                let mainnet = !env.global_context.database.is_in_regtest();
+                let mainnet = env.global_context.mainnet;
                 Ok(Some(Value::Bool(mainnet)))
             }
         }

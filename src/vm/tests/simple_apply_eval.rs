@@ -26,12 +26,13 @@ use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::execute;
+use vm::tests::{execute, execute_against_version_and_network};
 use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
+use vm::StacksNetworkType;
 
 use crate::types::chainstate::StacksAddress;
 use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
@@ -1023,4 +1024,32 @@ fn test_asserts_short_circuit() {
         .for_each(|(program, expectation)| {
             assert_eq!((*expectation), vm_execute(program).unwrap_err())
         });
+}
+
+#[test]
+fn test_is_mainnet() {
+    let tests = [
+        "is-in-mainnet",  // true only on "mainnet"
+        "is-in-regtest",  // always true in a regtest
+    ];
+
+    let mainnet_expectations = [
+        Value::Bool(true),
+        Value::Bool(true),
+    ];
+
+    tests
+        .iter()
+        .zip(mainnet_expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_against_version_and_network(program, ClarityVersion::Clarity2, StacksNetworkType::Mainnet)));
+
+    let testnet_expectations = [
+        Value::Bool(false),
+        Value::Bool(true),
+    ];
+
+    tests
+        .iter()
+        .zip(testnet_expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_against_version_and_network(program, ClarityVersion::Clarity2, StacksNetworkType::Testnet)));
 }
