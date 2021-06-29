@@ -376,8 +376,7 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         .json::<RPCPeerInfoData>()
         .unwrap();
     let stacks_tip = tip_info.stacks_tip;
-    let stacks_tip_consensus_hash =
-        ConsensusHash::from_hex(&tip_info.stacks_tip_consensus_hash).unwrap();
+    let stacks_tip_consensus_hash = tip_info.stacks_tip_consensus_hash;
 
     let stacks_id_tip =
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
@@ -1570,8 +1569,7 @@ fn microblock_integration_test() {
 
     assert!(tip_info.stacks_tip_height >= 3);
     let stacks_tip = tip_info.stacks_tip;
-    let stacks_tip_consensus_hash =
-        ConsensusHash::from_hex(&tip_info.stacks_tip_consensus_hash).unwrap();
+    let stacks_tip_consensus_hash = tip_info.stacks_tip_consensus_hash;
     let stacks_id_tip =
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
