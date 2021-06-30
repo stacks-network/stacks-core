@@ -265,13 +265,37 @@ fn test_simple_is_standard_undefined_cases() {
 
 #[test]
 fn test_simple_parse_principal() {
-    let testnet_addr_test = "(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
+    let testnet_addr_test = r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
-        Value::Bool(true),
+        Value::UInt(26),
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksNetworkType::Testnet
+        )
+        .unwrap()
+        .unwrap()
+    );
+
+    let mainnet_addr_test = "(parse-principal version 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
+    assert_eq!(
+        Value::UInt(22),
+        execute_against_version_and_network(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksNetworkType::Mainnet
+        )
+        .unwrap()
+        .unwrap()
+    );
+
+    let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5.tokens)";
+    assert_eq!(
+        Value::Bool(false),
+        execute_against_version_and_network(
+            invalid_addr_test,
+            ClarityVersion::Clarity2,
+            StacksNetworkType::Mainnet
         )
         .unwrap()
         .unwrap()
