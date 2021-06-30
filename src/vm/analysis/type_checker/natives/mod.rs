@@ -527,19 +527,18 @@ fn check_parse_principal(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
-        CheckErrors::ParsePrincipalExpectPropertyName,
-    ))?;
+    let block_info_prop_str = args[0]
+        .match_atom()
+        .ok_or(CheckError::new(CheckErrors::ParsePrincipalPropertyName))?;
 
-    // TODO: Replace NoSuchBlockInfoProperty
     let block_info_prop =
         PrincipalProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
-            CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
+            CheckErrors::NoSuchParsePrincipalProperty(block_info_prop_str.to_string()),
         ))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::PrincipalType)?;
 
-    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+    Ok(block_info_prop.type_result())
 }
 
 impl TypedNativeFunction {

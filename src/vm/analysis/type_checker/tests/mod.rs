@@ -2317,3 +2317,32 @@ fn test_string_utf8_negative_len() {
         _ => false,
     });
 }
+
+#[test]
+fn test_parse_principal() {
+    let good = [
+        r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+    ];
+    let expected = ["uint", "(buff 20)"];
+
+    let bad = [
+        r#"(parse-principal not_an_argument 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#
+        ];
+    let bad_expected = [
+        CheckErrors::NoSuchParsePrincipalProperty(
+        "not_an_argument".to_string(),
+    )
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}

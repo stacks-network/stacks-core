@@ -65,11 +65,12 @@ pub fn special_parse_principal(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
+        .ok_or(CheckErrors::ParsePrincipalPropertyName)?;
 
     info!("property_name: {:?}", property_name);
-    let principal_property = PrincipalProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
+    let principal_property = PrincipalProperty::lookup_by_name(property_name).ok_or(
+        CheckErrors::NoSuchParsePrincipalProperty(property_name.to_string()),
+    )?;
 
     let principal = eval(&args[1], env, context)?;
 
