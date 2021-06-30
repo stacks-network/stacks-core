@@ -2762,7 +2762,7 @@ impl PeerNetwork {
             let mut microblocks_to_broadcast = HashMap::new();
 
             let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
-            let highest_snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let highest_snapshot = self.burnchain_tip.clone();
             for nk in neighbor_keys.iter() {
                 if total_blocks_to_broadcast >= self.connection_opts.max_block_push
                     && total_microblocks_to_broadcast >= self.connection_opts.max_microblock_push
@@ -4459,6 +4459,16 @@ impl PeerNetwork {
             self.num_downloader_passes,
         );
 
+        // update local-peer state
+        self.refresh_local_peer()?;
+
+        // update burnchain view, before handling any HTTP connections
+        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
+        network_result.consume_unsolicited(unsolicited_buffered_messages);
+
+        // update PoX view, before handling any HTTP connections
+        self.refresh_sortition_view(sortdb)?;
+
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
@@ -4476,16 +4486,6 @@ impl PeerNetwork {
                 warn!("Atlas: updating attachment inventory failed: {}", e);
             }
         }
-
-        // update local-peer state
-        self.refresh_local_peer()?;
-
-        // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
-        network_result.consume_unsolicited(unsolicited_buffered_messages);
-
-        // update PoX view, before handling any HTTP connections
-        self.refresh_sortition_view(sortdb)?;
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
