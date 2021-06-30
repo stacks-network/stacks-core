@@ -1532,7 +1532,7 @@ impl PeerNetwork {
         // does the peer agree with our PoX view up to this reward cycle?
         match stats.inv.pox_inv_cmp(&self.pox_id) {
             Some((disagreed, _, _)) => {
-                if disagreed <= target_block_reward_cycle {
+                if disagreed < target_block_reward_cycle {
                     // can't proceed
                     debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
                     return Ok(0);
@@ -2135,7 +2135,8 @@ impl PeerNetwork {
     }
 
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
-    /// about a new reward cycle
+    /// about a new reward cycle.
+    /// Call right after PeerNetwork::refresh_burnchain_view()
     pub fn refresh_sortition_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
@@ -2147,11 +2148,16 @@ impl PeerNetwork {
             .expect("Unreachable: inv state not initialized");
 
         let (new_tip_sort_id, new_pox_id, reloaded) = {
-            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-            if tip_sort_id != self.tip_sort_id {
+            if self.burnchain_tip.sortition_id != self.tip_sort_id {
+                // reloaded burnchain tip disagrees with our last-considered sortition tip
                 let ic = sortdb.index_conn();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
-                (tip_sort_id, sortdb_reader.get_pox_id()?, true)
+                let sortdb_reader =
+                    SortitionHandleConn::open_reader(&ic, &self.burnchain_tip.sortition_id)?;
+                (
+                    self.burnchain_tip.sortition_id.clone(),
+                    sortdb_reader.get_pox_id()?,
+                    true,
+                )
             } else {
                 (self.tip_sort_id.clone(), self.pox_id.clone(), false)
             }
@@ -2182,7 +2188,7 @@ impl PeerNetwork {
             // if the PoX bitvector shrinks, then invalidate block inventories that are no longer represented
             if new_pox_id.num_inventory_reward_cycles() < self.pox_id.num_inventory_reward_cycles()
             {
-                inv_state.invalidate_block_inventories(&self.burnchain, self.pox_id.len() as u64);
+                inv_state.invalidate_block_inventories(&self.burnchain, new_pox_id.len() as u64);
             }
 
             self.tip_sort_id = new_tip_sort_id;
