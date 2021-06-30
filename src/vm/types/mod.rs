@@ -568,7 +568,7 @@ define_named_enum!(BlockInfoProperty {
 
 define_named_enum!(PrincipalProperty {
     Version("version"),
-    PubKeyHash("pubkeyhash"),
+    PubKeyHash("pub-key-hash"),
 });
 
 impl OptionalData {
