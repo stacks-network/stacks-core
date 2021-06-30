@@ -335,10 +335,11 @@ For non-consensus breaking releases, this project uses the following release pro
    issue/PR owners for updates on whether or not those issues/PRs have
    any blockers or are waiting on feedback.
 
-1. Once all `2.0.x.y.z-blocker` PRs have been merged to `develop`, the release
-   manager will open a `develop -> master` PR.
+1. The release manager should open a `develop -> master` PR. This can be done before
+   all the blocker PRs have merged, as it is helpful for the manager and others
+   to see the staged changes.
 
-1. Immediately following this, the release manager will then create a new tag
+1. Once the blocker PRs have merged, the release manager will create a new tag
    by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
    against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
    in the Action's input textbox.
