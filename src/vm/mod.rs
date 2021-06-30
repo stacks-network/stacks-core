@@ -366,15 +366,22 @@ pub fn eval_all(
     })
 }
 
-/* Run provided program in an environment specified by the user. This version of the function
-  gives the most leeway to the caller to create a custom environment.
-*/
-pub fn execute_program_with_context(
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum StacksNetworkType {
+    Mainnet,
+    Testnet,
+}
+pub fn execute_against_version_and_network(
     program: &str,
-    contract_id: QualifiedContractIdentifier,
-    mut contract_context: ContractContext,
-    mut global_context: GlobalContext,
+    version: ClarityVersion,
+    network: StacksNetworkType,
 ) -> Result<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let as_mainnet = network == StacksNetworkType::Mainnet;
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -391,7 +398,10 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
