@@ -100,7 +100,7 @@ pub fn native_assemble_principal(version: Value, pub_key_hash: Value) -> Result<
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
     };
 
-    let verified_pub_key_hash = match version {
+    let verified_pub_key_hash = match pub_key_hash {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
             return Err(CheckErrors::TypeValueError(
