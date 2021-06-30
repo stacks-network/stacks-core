@@ -735,14 +735,9 @@ fn spawn_peer(
                         }
                     }
                     Err(e) => {
-                        if let NetError::Transient(ref msg) = &e {
-                            error!("P2P: Failed to process network dispatch due to transient error: {}", &msg);
-                        }
-                        else {
-                            error!("P2P: Failed to process network dispatch: {:?}", &e);
-                            if config.is_node_event_driven() {
-                                panic!();
-                            }
+                        error!("P2P: Failed to process network dispatch: {:?}", &e);
+                        if config.is_node_event_driven() {
+                            panic!();
                         }
                     }
                 };
