@@ -6,8 +6,8 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
-    TypeSignature, Value,
+    BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    SequenceSubtype, StandardPrincipalData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
 
@@ -94,43 +94,35 @@ pub fn special_parse_principal(
     Ok(result)
 }
 
-pub fn special_assemble_principal(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+pub fn native_assemble_principal(version: Value, pub_key_hash: Value) -> Result<Value> {
+    let verified_version = match version {
+        Value::UInt(version) => version,
+        _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
+    };
 
-    info!("inside");
-    // Handle the block property name input arg.
-    let property_name = args[0]
-        .match_atom()
-        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
-
-    info!("property_name: {:?}", property_name);
-    let principal_property = PrincipalProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
-
-    let principal = eval(&args[1], env, context)?;
-
-    let (version, pub_key_hash) = match principal {
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
-            (version, bytes)
-        }
-        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
-            (issuer.0, issuer.1)
-        }
+    let verified_pub_key_hash = match version {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
+            return Err(CheckErrors::TypeValueError(
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+                pub_key_hash,
+            )
+            .into())
         }
     };
 
-    let result = match principal_property {
-        PrincipalProperty::Version => Value::UInt(version as u128),
-        PrincipalProperty::PubKeyHash => Value::Sequence(SequenceData::Buffer(BuffData {
-            data: pub_key_hash.into(),
-        })),
-    };
-    Ok(result)
+    if verified_pub_key_hash.len() != 20 {
+        return Err(CheckErrors::TypeValueError(
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+            pub_key_hash,
+        )
+        .into());
+    }
+
+    let mut transfer_buffer = [0u8; 20];
+    for i in 0..verified_pub_key_hash.len() {
+        transfer_buffer[i] = verified_pub_key_hash[i];
+    }
+    let principal_data = StandardPrincipalData(verified_version as u8, transfer_buffer);
+    Ok(Value::Principal(PrincipalData::Standard(principal_data)))
 }

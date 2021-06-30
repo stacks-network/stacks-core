@@ -292,9 +292,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "special_parse_principal",
                 &principals::special_parse_principal,
             ),
-            AssemblePrincipal => SpecialFunction(
-                "special_assemble_principal",
-                &principals::special_assemble_principal,
+            AssemblePrincipal => NativeFunction(
+                "native_assemble_principal",
+                NativeHandle::DoubleArg(&principals::native_assemble_principal),
+                ClarityCostFunction::Mul,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
