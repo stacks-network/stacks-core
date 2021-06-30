@@ -517,9 +517,8 @@
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
 
-      ;; tx-sender principal must not be stacking
-      (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR_STACKING_ALREADY_STACKED))
+      ;; delegate-stx no longer requires the delegator to not currently
+      ;;  be stacking.
 
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
@@ -692,7 +691,8 @@
          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
          (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
          (cur-cycle (current-pox-reward-cycle))
-         (lock-period (- last-extend-cycle cur-cycle)))
+         (lock-period (- last-extend-cycle cur-cycle))
+         (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -723,7 +723,7 @@
           lock-period: lock-period })
 
       ;; return lock-up information
-      (ok { stacker: tx-sender, unlock-burn-height: (reward-cycle-to-burn-height (+ cur-cycle lock-period)) })))
+      (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))
 
 (define-public (delegate-stack-extend
                     (stacker principal)
@@ -735,7 +735,8 @@
          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
          (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
          (cur-cycle (current-pox-reward-cycle))
-         (lock-period (- last-extend-cycle cur-cycle)))
+         (lock-period (- last-extend-cycle cur-cycle))
+         (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -747,7 +748,7 @@
 
       ;; stacker must be currently locked
       (asserts! (> amount-ustx u0)
-        (err ERR_STACKING_EXPIRED))
+        (err ERR_STACK_EXTEND_NOT_LOCKED))
 
       ;; stacker must have delegated to the caller
       (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED))))
@@ -765,13 +766,9 @@
         ;; delegation must not expire before lock period
         (asserts! (match (get until-burn-ht delegation-info)
                          until-burn-ht (>= until-burn-ht
-                                           unlock-height)
+                                           new-unlock-ht)
                       true)
                   (err ERR_DELEGATION_EXPIRES_DURING_LOCK)))
-
-      ;; stacker principal must not be stacking
-      (asserts! (is-none (get-stacker-info stacker))
-        (err ERR_STACKING_ALREADY_STACKED))
 
       ;; the Stacker must have sufficient unlocked funds
       (asserts! (>= (stx-get-balance stacker) amount-ustx)
@@ -791,5 +788,5 @@
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
-            unlock-burn-height: (reward-cycle-to-burn-height (+ cur-cycle lock-period)) })))
+            unlock-burn-height: new-unlock-ht })))
 
