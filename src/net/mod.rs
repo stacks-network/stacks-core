@@ -305,7 +305,7 @@ impl fmt::Display for Error {
             Error::StaleView => write!(f, "State view is stale"),
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
-            Error::Transient(ref s) => fmt::Display::fmt(s, f),
+            Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
         }
     }
 }

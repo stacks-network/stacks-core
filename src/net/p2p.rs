@@ -2430,6 +2430,11 @@ impl PeerNetwork {
                 );
                 return Ok(true);
             }
+            Err(net_error::Transient(s)) => {
+                // not fatal, but just skip and try again
+                info!("Transient network error while downloading blocks: {}", &s);
+                return Ok(true);
+            }
             Err(e) => {
                 warn!(
                     "{:?}: Failed to download blocks: {:?}",
