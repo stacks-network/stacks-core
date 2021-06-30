@@ -1,3 +1,4 @@
+use util::hash::hex_bytes;
 use vm::types::BufferLength;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
@@ -5,7 +6,6 @@ use vm::types::TypeSignature::{PrincipalType, SequenceType};
 use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use vm::ClarityVersion;
 use vm::{execute_against_version_and_network, StacksNetworkType};
-use util::hash::hex_bytes;
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use std::collections::HashMap;
@@ -266,7 +266,8 @@ fn test_simple_is_standard_undefined_cases() {
 
 #[test]
 fn test_simple_parse_principal_version() {
-    let testnet_addr_test = r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
+    let testnet_addr_test =
+        r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
         Value::UInt(26),
         execute_against_version_and_network(
@@ -306,9 +307,12 @@ fn test_simple_parse_principal_version() {
 
 #[test]
 fn test_simple_parse_principal_pubkeyhash() {
-    let testnet_addr_test = r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
+    let testnet_addr_test =
+        r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
-        Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap()})),
+        Value::Sequence(SequenceData::Buffer(BuffData {
+            data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap()
+        })),
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
@@ -318,9 +322,12 @@ fn test_simple_parse_principal_pubkeyhash() {
         .unwrap()
     );
 
-    let mainnet_addr_test = "(parse-principal pub-key-hash 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
+    let mainnet_addr_test =
+        "(parse-principal pub-key-hash 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
-        Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap()})),
+        Value::Sequence(SequenceData::Buffer(BuffData {
+            data: hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap()
+        })),
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,

@@ -678,6 +678,21 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
+            AssemblePrincipal => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![
+                    FunctionArg::new(
+                        TypeSignature::UIntType,
+                        ClarityName::try_from("version".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ),
+                    FunctionArg::new(
+                        BUFF_20,
+                        ClarityName::try_from("pubkeyhash".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ),
+                ],
+                returns: TypeSignature::PrincipalType,
+            }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,

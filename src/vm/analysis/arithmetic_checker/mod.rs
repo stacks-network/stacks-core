@@ -184,7 +184,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | IsStandard => {
                 return Err(Error::FunctionNotPermitted(function));
             }
-            IsStandard | ParsePrincipal => {
+            IsStandard | ParsePrincipal | AssemblePrincipal => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256

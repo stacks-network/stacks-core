@@ -61,13 +61,54 @@ pub fn special_parse_principal(
     check_argument_count(2, args)?;
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
-        info!("inside");
+    info!("inside");
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
         .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
 
-        info!("property_name: {:?}", property_name);
+    info!("property_name: {:?}", property_name);
+    let principal_property = PrincipalProperty::lookup_by_name(property_name)
+        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
+
+    let principal = eval(&args[1], env, context)?;
+
+    let (version, pub_key_hash) = match principal {
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
+            (version, bytes)
+        }
+        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
+            (issuer.0, issuer.1)
+        }
+        _ => {
+            return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
+        }
+    };
+
+    let result = match principal_property {
+        PrincipalProperty::Version => Value::UInt(version as u128),
+        PrincipalProperty::PubKeyHash => Value::Sequence(SequenceData::Buffer(BuffData {
+            data: pub_key_hash.into(),
+        })),
+    };
+    Ok(result)
+}
+
+pub fn special_assemble_principal(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+
+    info!("inside");
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
+
+    info!("property_name: {:?}", property_name);
     let principal_property = PrincipalProperty::lookup_by_name(property_name)
         .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
 
