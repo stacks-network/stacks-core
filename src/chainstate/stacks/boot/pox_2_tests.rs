@@ -132,6 +132,19 @@ fn test_simple_pox_lockup_transition_pox_2() {
                         tip.block_height,
                     );
                     block_txs.push(alice_lockup);
+                } else if tenure_id == 9 {
+                    let test = make_pox_2_contract_call(
+                        &charlie,
+                        0,
+                        "delegate-stx",
+                        vec![
+                            Value::UInt(1_000_000),
+                            PrincipalData::from(key_to_stacks_addr(&charlie)).into(),
+                            Value::none(),
+                            Value::none(),
+                        ],
+                    );
+                    block_txs.push(test);
                 } else if tenure_id == 10 {
                     // Lets have Bob lock up for v2
                     // this will lock for cycles 8, 9, 10, and 11
@@ -342,6 +355,8 @@ fn test_simple_pox_lockup_transition_pox_2() {
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
 
+    let mut tested_charlie = false;
+
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
             if let TransactionOrigin::Stacks(ref t) = r.transaction {
@@ -351,11 +366,18 @@ fn test_simple_pox_lockup_transition_pox_2() {
                     alice_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == bob_address {
                     bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == key_to_stacks_addr(&charlie) {
+                    assert!(
+                        r.execution_cost != ExecutionCost::zero(),
+                        "Execution cost is not zero!"
+                    );
+                    tested_charlie = true;
                 }
             }
         }
     }
 
+    assert!(tested_charlie, "Charlie TX must be tested");
     assert_eq!(alice_txs.len(), 3, "Alice should have 3 confirmed txs");
     assert_eq!(bob_txs.len(), 2, "Bob should have 2 confirmed txs");
 

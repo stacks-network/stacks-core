@@ -902,6 +902,23 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_2_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     // make a stream of invalid pox-lockup transactions
     fn make_invalid_pox_lockups(key: &StacksPrivateKey, mut nonce: u64) -> Vec<StacksTransaction> {
         let mut ret = vec![];

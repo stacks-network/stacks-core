@@ -663,6 +663,8 @@ impl<'a> ClarityBlockConnection<'a> {
             let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
             let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
 
+            // get the boot code account information
+            //  for processing the pox contract initialization
             let tx_version = if mainnet {
                 TransactionVersion::Mainnet
             } else {
@@ -713,24 +715,23 @@ impl<'a> ClarityBlockConnection<'a> {
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
-                StacksChainState::process_transaction_payload(
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // initialize with a synthetic transaction
+                let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &pox_2_contract_tx,
                     &boot_code_account,
                 )
-                .expect("FATAL: Failed to process PoX 2 contract initialization")
-            });
+                .expect("FATAL: Failed to process PoX 2 contract initialization");
 
-            if initialization_receipt.result != Value::okay_true()
-                || initialization_receipt.post_condition_aborted
-            {
-                panic!(
-                    "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
-                    &initialization_receipt
-                );
-            }
-
-            self.as_transaction(|tx_conn| {
+                // set burnchain params
                 let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
                 let params = vec![
                     Value::UInt(first_block_height as u128),
@@ -749,7 +750,19 @@ impl<'a> ClarityBlockConnection<'a> {
                         |_, _| false,
                     )
                     .expect("Failed to set burnchain parameters in PoX-2 contract");
+
+                receipt
             });
+
+            if initialization_receipt.result != Value::okay_true()
+                || initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
+                    &initialization_receipt
+                );
+            }
+
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
