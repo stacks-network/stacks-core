@@ -293,7 +293,7 @@ fn test_simple_parse_principal_version() {
         .unwrap()
     );
 
-    // Note: Still works.
+    // Note: Still works, even though the address is invalid.
     let invalid_addr_test = "(parse-principal version 'S1G2081040G2081040G2081040G208105NK8PE5)";
     assert_eq!(
         Value::UInt(1),
@@ -342,7 +342,7 @@ fn test_simple_parse_principal_pubkeyhash() {
 
 #[test]
 fn test_simple_assemble_principal() {
-    let testnet_addr_test =
+    let normal_case_test =
         r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
@@ -355,11 +355,27 @@ fn test_simple_assemble_principal() {
             transfer_buffer
         ))),
         execute_against_version_and_network(
-            testnet_addr_test,
+            normal_case_test,
             ClarityVersion::Clarity2,
             StacksNetworkType::Testnet
         )
         .unwrap()
         .unwrap()
+    );
+
+    // The input buffer is too small.
+    let too_small_test = r#"(assemble-principal u22 0x00)"#;
+    assert_eq!(
+        execute_against_version_and_network(
+            too_small_test,
+            ClarityVersion::Clarity2,
+            StacksNetworkType::Testnet
+        )
+        .unwrap_err(),
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(20))),
+            Value::Sequence(SequenceData::Buffer(BuffData { data: vec![00] }))
+        )
+        .into()
     );
 }
