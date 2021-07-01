@@ -2332,11 +2332,9 @@ fn test_parse_principal() {
         r#"(parse-principal not_an_argument 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         r#"(parse-principal u1 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        ];
+    ];
     let bad_expected = [
-        CheckErrors::NoSuchParsePrincipalProperty(
-        "not_an_argument".to_string(),
-    ),
+        CheckErrors::NoSuchParsePrincipalProperty("not_an_argument".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::ParsePrincipalPropertyName,
     ];
@@ -2357,25 +2355,31 @@ fn test_parse_principal() {
 fn test_assemble_principal() {
     let good = [
         r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+        // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
+        r#"(assemble-principal u22 0x00)"#,
     ];
-    let expected = ["principal"];
+    let expected = ["principal", "principal"];
 
     let bad = [
         r#"(assemble-principal 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
         r#"(assemble-principal u22 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         r#"(assemble-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         r#"(assemble-principal u22)"#,
-        r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,  // buffer too long
-        r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e941939120)"#,  // buffer too short
-        ];
+        r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#, // buffer too long
+    ];
 
     let bad_expected = [
         CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))), PrincipalType),
+        CheckErrors::TypeError(
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+            PrincipalType,
+        ),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::ParsePrincipalPropertyName,
-        CheckErrors::ParsePrincipalPropertyName,
+        CheckErrors::TypeError(
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(21))),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -2386,8 +2390,6 @@ fn test_assemble_principal() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let err = type_check_helper(&bad_test).unwrap_err().err;
-        println!("test: {:?}\nexpected: {:?}", bad_test, err);
-        // assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
