@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 
@@ -37,17 +38,34 @@ use vm::database::{
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
-use vm::representations::SymbolicExpression;
+use vm::representations::{ContractName, SymbolicExpression};
 use vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value,
 };
 
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksAccount;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::SinglesigHashMode;
+use crate::chainstate::stacks::SinglesigSpendingCondition;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSmartContract;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::TransactionVersion;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
+use crate::util::boot::boot_code_addr;
 use crate::util::boot::boot_code_id;
+use crate::util::secp256k1::MessageSignature;
+use crate::util::strings::StacksString;
+use crate::vm::database::STXBalance;
 use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
@@ -632,20 +650,49 @@ impl<'a> ClarityBlockConnection<'a> {
         self.cost_track.unwrap()
     }
 
-    pub fn initialize_epoch_2_1(&mut self) -> Result<(), Error> {
-        let mainnet = self.mainnet;
-        let first_block_height = self.burn_state_db.get_burn_start_height();
-        let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
-        let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
-        let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+    pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*
+            self.cost_track.replace(LimitedCostTracker::new_free());
 
-        self.as_transaction(|tx_conn| {
-            tx_conn
-                .with_clarity_db(|db| {
-                    db.set_clarity_epoch_version(StacksEpochId::Epoch21);
-                    Ok(())
-                })
-                .unwrap();
+            let mainnet = self.mainnet;
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = TransactionAuth::Standard(
+                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                    signer: boot_code_address.bytes.clone(),
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                    nonce: 0,
+                    tx_fee: 0,
+                    signature: MessageSignature::empty(),
+                }),
+            );
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
+
+            // instantiate PoX 2 contract...
 
             let pox_2_code = if mainnet {
                 &*BOOT_CODE_POX_MAINNET
@@ -653,33 +700,58 @@ impl<'a> ClarityBlockConnection<'a> {
                 &*BOOT_CODE_POX_TESTNET
             };
 
-            let pox_2_contract_id = boot_code_id("pox-2", mainnet);
-            let (ast, _) = tx_conn
-                .analyze_smart_contract(&pox_2_contract_id, pox_2_code)
-                .unwrap();
-            tx_conn
-                .initialize_smart_contract(&pox_2_contract_id, &ast, pox_2_code, None, |_, _| false)
-                .unwrap();
+            let pox_2_contract_id = boot_code_id(POX_2_NAME, mainnet);
 
-            let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
-            let params = vec![
-                Value::UInt(first_block_height as u128),
-                Value::UInt(pox_prepare_length as u128),
-                Value::UInt(pox_reward_cycle_length as u128),
-                Value::UInt(pox_rejection_fraction as u128),
-            ];
-            tx_conn
-                .run_contract_call(
-                    &consts_setter,
-                    None,
-                    &pox_2_contract_id,
-                    "set-burnchain-parameters",
-                    &params,
-                    |_, _| false,
+            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
+                name: ContractName::try_from(POX_2_NAME)
+                    .expect("FATAL: invalid boot-code contract name"),
+                code_body: StacksString::from_str(pox_2_code)
+                    .expect("FATAL: invalid boot code body"),
+            });
+
+            let pox_2_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let initialization_receipt = self.as_transaction(|tx_conn| {
+                StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &pox_2_contract_tx,
+                    &boot_code_account,
                 )
-                .expect("Failed to set burnchain parameters in PoX-2 contract");
-        });
-        Ok(())
+                .expect("FATAL: Failed to process PoX 2 contract initialization")
+            });
+
+            if initialization_receipt.result != Value::okay_true()
+                || initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
+                    &initialization_receipt
+                );
+            }
+
+            self.as_transaction(|tx_conn| {
+                let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
+                let params = vec![
+                    Value::UInt(first_block_height as u128),
+                    Value::UInt(pox_prepare_length as u128),
+                    Value::UInt(pox_reward_cycle_length as u128),
+                    Value::UInt(pox_rejection_fraction as u128),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_2_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-2 contract");
+            });
+            (old_cost_tracker, Ok(initialization_receipt))
+        })
     }
 
     pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {

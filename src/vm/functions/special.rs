@@ -28,6 +28,8 @@ use vm::types::{
     TypeSignature, Value,
 };
 
+use crate::chainstate::stacks::boot::POX_1_NAME;
+use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
@@ -81,7 +83,7 @@ fn handle_pox_v1_api_contract_call(
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
-            boot_code_id("pox", global_context.mainnet),
+            boot_code_id(POX_1_NAME, global_context.mainnet),
             function_name,
             value
         );
@@ -149,7 +151,7 @@ fn handle_pox_v2_api_contract_call(
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
-            boot_code_id("pox-2", global_context.mainnet),
+            boot_code_id(POX_2_NAME, global_context.mainnet),
             function_name,
             value
         );
@@ -212,7 +214,7 @@ pub fn handle_contract_call_special_cases(
     function_name: &str,
     result: &Value,
 ) -> Result<()> {
-    if *contract_id == boot_code_id("pox", global_context.mainnet) {
+    if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
         if global_context.database.get_v1_unlock_height()
             <= global_context.database.get_current_burnchain_block_height()
         {
@@ -223,7 +225,7 @@ pub fn handle_contract_call_special_cases(
             return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
         }
         return handle_pox_v1_api_contract_call(global_context, sender, function_name, result);
-    } else if *contract_id == boot_code_id("pox-2", global_context.mainnet) {
+    } else if *contract_id == boot_code_id(POX_2_NAME, global_context.mainnet) {
         return handle_pox_v2_api_contract_call(global_context, sender, function_name, result);
     }
 

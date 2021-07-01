@@ -38,6 +38,7 @@ use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
@@ -360,9 +361,9 @@ impl PoxConstants {
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
         if burn_height >= (self.v1_unlock_height as u64) {
-            "pox-2"
+            POX_2_NAME
         } else {
-            "pox"
+            POX_1_NAME
         }
     }
 

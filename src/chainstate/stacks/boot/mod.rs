@@ -58,6 +58,8 @@ pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const POX_1_NAME: &'static str = "pox";
+pub const POX_2_NAME: &'static str = "pox-2";
 
 lazy_static! {
     pub static ref BOOT_CODE_POX_MAINNET: String =
@@ -850,7 +852,7 @@ pub mod test {
         //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
-            "pox-2",
+            POX_2_NAME,
             "stack-stx",
             vec![
                 Value::UInt(amount),
