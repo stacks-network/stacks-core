@@ -47,6 +47,7 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
+use rand::Rng;
 use vm::contexts::Environment;
 use vm::costs::cost_functions::ClarityCostFunction;
 
@@ -457,6 +458,35 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
 
         result
+    }
+
+    pub fn bench_type_check(
+        &mut self,
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+    ) -> TypeResult {
+        runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
+
+        let mut result = TypeChecker::dummy_inner_type_check(expr, context);
+
+        if let Err(ref mut error) = result {
+            if !error.has_expression() {
+                error.set_expression(expr);
+            }
+        }
+
+        result
+    }
+
+    pub fn dummy_inner_type_check(
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+    ) -> TypeResult {
+        let mut rng = rand::thread_rng();
+        match rng.gen_bool(0.5) {
+            true => Ok(TypeSignature::UIntType),
+            false => Err(CheckErrors::UnexpectedTraitOrFieldReference.into()),
+        }
     }
 
     fn type_check_consecutive_statements(
