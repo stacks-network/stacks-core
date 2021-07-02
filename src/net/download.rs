@@ -895,7 +895,7 @@ impl BlockDownloader {
         block_sortition_height: u64,
         ibd: bool,
     ) -> () {
-        if ibd
+        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
                 || block_sortition_height < self.block_sortition_height + 1)
         {
@@ -910,6 +910,14 @@ impl BlockDownloader {
                 block_sortition_height.saturating_sub(1)
             );
         }
+        if ibd && self.state != BlockDownloaderState::DNSLookupBegin {
+            debug!(
+                "Will NOT awaken downloader to start scanning at block sortiton height {}, because it is busy at {} in state {:?}",
+                block_sortition_height.saturating_sub(1),
+                self.block_sortition_height,
+                self.state
+            );
+        }
     }
 
     /// Set a hint that a confirmed microblock stream is now available from a remote peer, if we're idling or we're ahead
@@ -919,7 +927,7 @@ impl BlockDownloader {
         mblock_sortition_height: u64,
         ibd: bool,
     ) -> () {
-        if ibd
+        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
                 || mblock_sortition_height < self.microblock_sortition_height + 1)
         {
@@ -931,6 +939,14 @@ impl BlockDownloader {
             debug!(
                 "Awaken downloader to start scanning at microblock sortiton height {}",
                 mblock_sortition_height.saturating_sub(1)
+            );
+        }
+        if ibd && self.state != BlockDownloaderState::DNSLookupBegin {
+            debug!(
+                "Will NOT awaken downloader to start scanning at microblock sortiton height {}, because it is busy at {} in state {:?}",
+                mblock_sortition_height.saturating_sub(1),
+                self.microblock_sortition_height,
+                self.state
             );
         }
     }
@@ -1393,13 +1409,14 @@ impl PeerNetwork {
             );
 
             debug!(
-                "{:?}: Consider {} {}/{} from {} neighbors",
+                "{:?}: Consider {} sortition {} {}/{} from {} neighbors",
                 &self.local_peer,
                 if microblocks {
                     "microblock stream"
                 } else {
                     "anchored block"
                 },
+                start_sortition_height + (i as u64),
                 &target_consensus_hash,
                 &target_block_hash,
                 neighbors.len()
@@ -1413,7 +1430,7 @@ impl PeerNetwork {
                     Some(url) => url,
                     None => {
                         debug!(
-                            "{:?}: Unble to request {} from {}: no data URL",
+                            "{:?}: Unable to request {} from {}: no data URL",
                             &self.local_peer, &target_index_block_hash, &nk
                         );
                         continue;
@@ -1423,7 +1440,7 @@ impl PeerNetwork {
                     // peer doesn't yet know its public IP address, and isn't given a data URL
                     // directly
                     debug!(
-                        "{:?}: Unble to request {} from {}: no data URL",
+                        "{:?}: Unable to request {} from {}: no data URL",
                         &self.local_peer, &target_index_block_hash, &nk
                     );
                     continue;
