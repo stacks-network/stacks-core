@@ -70,7 +70,7 @@ lazy_static! {
     )
     .unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 8000;
+    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {
