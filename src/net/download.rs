@@ -2254,7 +2254,8 @@ impl PeerNetwork {
                 for (height, requests) in downloader.blocks_to_try.iter() {
                     assert!(
                         requests.len() > 0,
-                        format!("Empty block requests at height {}", height)
+                        "Empty block requests at height {}",
+                        height
                     );
                     debug!(
                         "   Height {}: anchored block {} available from {} peers: {:?}",
@@ -2270,7 +2271,8 @@ impl PeerNetwork {
                 for (height, requests) in downloader.microblocks_to_try.iter() {
                     assert!(
                         requests.len() > 0,
-                        format!("Empty microblock requests at height {}", height)
+                        "Empty microblock requests at height {}",
+                        height
                     );
                     debug!(
                         "   Height {}: microblocks {} available from {} peers: {:?}",
