@@ -175,7 +175,7 @@ pub fn special_stx_transfer_memo(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(4, args)?;
-    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;

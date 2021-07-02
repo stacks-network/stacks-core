@@ -120,7 +120,6 @@ define_named_enum!(ClarityCostFunction {
     BlockInfo("cost_block_info"),
     StxBalance("cost_stx_balance"),
     StxTransfer("cost_stx_transfer"),
-    StxTransferMemo("cost_stx_transfer"),
     FtMint("cost_ft_mint"),
     FtTransfer("cost_ft_transfer"),
     FtBalance("cost_ft_balance"),
