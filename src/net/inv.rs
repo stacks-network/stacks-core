@@ -958,6 +958,7 @@ impl NeighborBlockStats {
             self.request = Some(next_request);
             Ok(false)
         } else {
+            debug!("Finished inventory scan for {:?}", &self.nk);
             self.state = InvWorkState::Done;
             self.scans += 1;
             Ok(true)
@@ -1766,11 +1767,37 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, highest_remote_reward_cycle: u64, full_rescan: bool) -> u64 {
+    fn get_block_scan_start(
+        &self,
+        sortdb: &SortitionDB,
+        highest_remote_reward_cycle: u64,
+        full_rescan: bool,
+    ) -> u64 {
+        let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+            .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
+
+        let stacks_tip_burn_block_height =
+            match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash) {
+                Err(_) => self.burnchain.first_block_height,
+                Ok(x) => x
+                    .map(|sn| sn.block_height)
+                    .unwrap_or(self.burnchain.first_block_height),
+            };
+
+        let stacks_tip_rc = self
+            .burnchain
+            .block_height_to_reward_cycle(stacks_tip_burn_block_height)
+            .unwrap_or(0);
+
+        let start_reward_cycle = cmp::min(
+            stacks_tip_rc,
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+        );
+
         if full_rescan {
             0
         } else {
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            start_reward_cycle
         }
     }
 
@@ -1790,7 +1817,7 @@ impl PeerNetwork {
             None => {
                 // proceed to block scan
                 let scan_start_rc =
-                    self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
+                    self.get_block_scan_start(sortdb, stats.inv.get_pox_height(), full_rescan);
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
                 stats.reset_block_scan(scan_start_rc);
                 return Ok(());
@@ -1814,6 +1841,7 @@ impl PeerNetwork {
     /// Return true if done.
     fn inv_getpoxinv_try_finish(
         &mut self,
+        sortdb: &SortitionDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         full_rescan: bool,
@@ -1847,10 +1875,11 @@ impl PeerNetwork {
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
                 let scan_start_rc = self.get_block_scan_start(
+                    sortdb,
                     stats
                         .target_pox_reward_cycle
                         .saturating_sub(INV_REWARD_CYCLES),
-                    !ibd && full_rescan,
+                    full_rescan,
                 );
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={}, full={})",
@@ -1952,7 +1981,8 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
+            let scan_start =
+                self.get_block_scan_start(sortdb, stats.inv.get_pox_height(), full_rescan);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2114,7 +2144,7 @@ impl PeerNetwork {
                     .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout, full_rescan)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetPoxInvFinish => {
-                    self.inv_getpoxinv_try_finish(nk, stats, full_rescan, ibd)?
+                    self.inv_getpoxinv_try_finish(sortdb, nk, stats, full_rescan, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
@@ -2342,6 +2372,7 @@ impl PeerNetwork {
                 inv_state.block_sortition_start = ibd_diverged_height
                     .unwrap_or(network.burnchain.reward_cycle_to_block_height(
                         network.get_block_scan_start(
+                            sortdb,
                             network.pox_id.num_inventory_reward_cycles() as u64,
                             inv_state.hint_do_full_rescan,
                         ),
