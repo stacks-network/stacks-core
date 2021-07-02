@@ -41,5 +41,7 @@ pub fn special_is_standard(
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     let context_is_mainnet = env.global_context.mainnet;
 
-    Ok(Value::Bool((address_is_mainnet && context_is_mainnet) || (address_is_testnet && !context_is_mainnet)))
+    Ok(Value::Bool(
+        (address_is_mainnet && context_is_mainnet) || (address_is_testnet && !context_is_mainnet),
+    ))
 }

@@ -244,8 +244,7 @@ Note: This function is only available starting with Stacks 2.1.",
 const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(is-standard standard-or-contract-principal)",
-    description:
-"Tests whether `standard-or-contract-principal` _matches_ the current network
+    description: "Tests whether `standard-or-contract-principal` _matches_ the current network
 type, and therefore represents a principal that can spend tokens on the current
 network type. That is, the network is either of type `mainnet`, or `testnet`.
 Only `SPxxxx` and `SMxxxx` _c32check form_ addresses can spend tokens on
