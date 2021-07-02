@@ -542,7 +542,7 @@ fn test_simple_arithmetic_functions() {
 }
 
 #[test]
-fn test_sequence_comparisons_v1() {
+fn test_sequence_comparisons_clarity1() {
     // Tests the sequence comparisons against ClarityVersion1. The new kinds of
     // sequence comparison *should not* work.
 
@@ -606,7 +606,7 @@ fn test_sequence_comparisons_v1() {
 }
 
 #[test]
-fn test_sequence_comparisons_v2() {
+fn test_sequence_comparisons_clarity2() {
     // Tests the sequence comparisons against ClarityVersion2. The new kinds of
     // sequence comparison *should* work.
     let success_tests = [
