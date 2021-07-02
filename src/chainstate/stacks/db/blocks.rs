@@ -3905,6 +3905,8 @@ impl StacksChainState {
             )
         });
 
+        let mut receipts = vec![];
+
         if let Some(sortition_epoch) = sortition_epoch {
             // the parent stacks block has a different epoch than what the Sortition DB
             //  thinks should be in place.
@@ -3923,7 +3925,7 @@ impl StacksChainState {
                             StacksEpochId::Epoch21,
                             "Should only transition from Epoch20 to Epoch21"
                         );
-                        clarity_tx.block.initialize_epoch_2_1()?;
+                        receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
                     }
                     StacksEpochId::Epoch21 => {
                         panic!("No defined transition from Epoch21 forward")
@@ -3931,7 +3933,7 @@ impl StacksChainState {
                 }
             }
         }
-        Ok(vec![])
+        Ok(receipts)
     }
 
     /// Process any Stacking-related bitcoin operations
