@@ -23,9 +23,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::ExecutionCost;
 use vm::database::{NULL_BURN_STATE_DB, NULL_BURN_STATE_DB_2_1, NULL_HEADER_DB};
 use vm::tests::execute;
-use vm::types::{
-    AssetIdentifier, BuffData, QualifiedContractIdentifier, Value,
-};
+use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
