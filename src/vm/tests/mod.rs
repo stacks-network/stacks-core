@@ -23,18 +23,12 @@ use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::Error;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
-use vm::{
-    execute as vm_execute,
-    execute_against_version_and_network as vm_execute_against_version_and_network,
-};
+use vm::{execute as vm_execute};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
-
-use vm::version::ClarityVersion;
-use vm::StacksNetworkType;
 
 mod assets;
 mod contracts;
@@ -107,16 +101,6 @@ where
 
 pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
-}
-
-pub fn execute_against_version_and_network(
-    s: &str,
-    version: ClarityVersion,
-    network: StacksNetworkType,
-) -> Value {
-    vm_execute_against_version_and_network(s, version, network)
-        .unwrap()
-        .unwrap()
 }
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {

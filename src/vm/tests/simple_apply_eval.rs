@@ -26,11 +26,11 @@ use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::{execute, execute_against_version_and_network};
+use vm::tests::execute;
+use vm::execute_against_version_and_network;
 use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::StacksNetworkType;
 use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
@@ -1044,8 +1044,8 @@ fn test_is_mainnet() {
                 execute_against_version_and_network(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksNetworkType::Mainnet
-                )
+                    true
+                ).unwrap().unwrap()
             )
         });
 
@@ -1060,8 +1060,8 @@ fn test_is_mainnet() {
                 execute_against_version_and_network(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksNetworkType::Testnet
-                )
+                    false
+                ).unwrap().unwrap()
             )
         });
 }
