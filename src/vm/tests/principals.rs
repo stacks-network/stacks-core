@@ -4,7 +4,7 @@ use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::{PrincipalType, SequenceType};
 use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use vm::ClarityVersion;
-use vm::{execute_against_version_and_network, StacksNetworkType};
+use vm::execute_against_version_and_network;
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ fn test_simple_is_standard_check_inputs() {
         execute_against_version_and_network(
             wrong_type_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap_err(),
         CheckErrors::TypeValueError(PrincipalType, Value::UInt(10)).into()
@@ -42,7 +42,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -52,7 +52,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -64,7 +64,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -74,7 +74,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -86,7 +86,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -96,7 +96,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -108,7 +108,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -118,7 +118,7 @@ fn test_simple_is_standard_testnet_cases() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -132,7 +132,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -142,7 +142,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -154,7 +154,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -164,7 +164,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -176,7 +176,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -186,7 +186,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -198,7 +198,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -208,7 +208,7 @@ fn test_simple_is_standard_mainnet_cases() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -224,7 +224,7 @@ fn test_simple_is_standard_undefined_cases() {
         execute_against_version_and_network(
             invalid_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -234,7 +234,7 @@ fn test_simple_is_standard_undefined_cases() {
         execute_against_version_and_network(
             invalid_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -246,7 +246,7 @@ fn test_simple_is_standard_undefined_cases() {
         execute_against_version_and_network(
             invalid_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -256,7 +256,7 @@ fn test_simple_is_standard_undefined_cases() {
         execute_against_version_and_network(
             invalid_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
