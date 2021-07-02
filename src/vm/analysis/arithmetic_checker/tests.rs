@@ -215,7 +215,6 @@ fn test_functions_clarity1() {
     ];
 
     for (contract, result) in tests.iter() {
-        eprintln!("{}", contract);
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1),
             result.clone(),
@@ -237,7 +236,6 @@ fn test_functions_clarity2() {
     ];
 
     for (contract, result) in tests.iter() {
-        eprintln!("{}", contract);
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2),
             result.clone(),
@@ -283,7 +281,6 @@ fn test_functions_contract() {
     ];
 
     for contract in good_tests.iter() {
-        eprintln!("{}", contract);
         check_good(contract);
     }
 }
