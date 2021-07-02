@@ -513,7 +513,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(3150)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
