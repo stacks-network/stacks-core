@@ -3106,21 +3106,45 @@ impl PeerNetwork {
 
                             // hint to the downloader to start scanning at the sortition
                             // height we just synchronized
-                            let start_download_sortition =
-                                if let Some(ref inv_state) = self.inv_state {
-                                    debug!(
-                                    "{:?}: Begin downloader synchronization at sortition height {}",
-                                    &self.local_peer, inv_state.block_sortition_start
+                            let start_download_sortition = if let Some(ref inv_state) =
+                                self.inv_state
+                            {
+                                let (consensus_hash, _) =
+                                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                                        sortdb.conn(),
+                                    )?;
+
+                                let stacks_tip_sortition_height =
+                                    SortitionDB::get_block_snapshot_consensus(
+                                        sortdb.conn(),
+                                        &consensus_hash,
+                                    )?
+                                    .map(|sn| sn.block_height)
+                                    .unwrap_or(self.burnchain.first_block_height)
+                                    .saturating_sub(self.burnchain.first_block_height);
+
+                                let sortition_height_start = cmp::min(
+                                    stacks_tip_sortition_height,
+                                    inv_state.block_sortition_start,
                                 );
-                                    inv_state.block_sortition_start
-                                } else {
-                                    // really unreachable, but why tempt fate?
-                                    warn!(
-                                        "{:?}: Inventory state machine not yet initialized",
-                                        &self.local_peer
+
+                                debug!(
+                                        "{:?}: Begin downloader synchronization at sortition height {} min({},{})",
+                                        &self.local_peer,
+                                        sortition_height_start,
+                                        inv_state.block_sortition_start,
+                                        stacks_tip_sortition_height
                                     );
-                                    0
-                                };
+
+                                sortition_height_start
+                            } else {
+                                // really unreachable, but why tempt fate?
+                                warn!(
+                                    "{:?}: Inventory state machine not yet initialized",
+                                    &self.local_peer
+                                );
+                                0
+                            };
 
                             if let Some(ref mut downloader) = self.block_downloader {
                                 debug!(
