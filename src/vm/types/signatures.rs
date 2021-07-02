@@ -646,19 +646,15 @@ impl TypeSignature {
 
     pub fn max_string_ascii() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            BufferLength(
-                u32::try_from(MAX_VALUE_SIZE)
-                    .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
-            ),
+            BufferLength::try_from(MAX_VALUE_SIZE)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
         )))
     }
 
     pub fn max_string_utf8() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-            StringUTF8Length(
-                u32::try_from(MAX_VALUE_SIZE)
-                    .expect("FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type"),
-            ),
+            StringUTF8Length::try_from(MAX_VALUE_SIZE / 4)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type"),
         )))
     }
 

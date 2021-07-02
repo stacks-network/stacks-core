@@ -117,7 +117,7 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
 
 // This method represents the unified logic between both "string to int" and "string to uint".
 // 'value' is the input value to be converted.
-// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and should output 
+// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and should output
 //   either a Int or UInt, depending on the desired result.
 pub fn native_string_to_int_generic(
     value: Value,
@@ -183,10 +183,8 @@ pub fn native_int_to_string_generic(
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            Ok(
-                bytes_to_value_fn(as_string.into())
-                    .expect("Unexpected error converting Int to string."),
-            )
+            Ok(bytes_to_value_fn(as_string.into())
+                .expect("Unexpected error converting Int to string."))
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
