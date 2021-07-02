@@ -132,6 +132,13 @@ pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(Buff
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
+pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
+    StringSubtype::ASCII(BufferLength(40)),
+));
+pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+    StringUTF8Length(40),
+)));
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
     max_len: u32,
@@ -639,19 +646,15 @@ impl TypeSignature {
 
     pub fn max_string_ascii() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            BufferLength(
-                u32::try_from(MAX_VALUE_SIZE)
-                    .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
-            ),
+            BufferLength::try_from(MAX_VALUE_SIZE)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
         )))
     }
 
     pub fn max_string_utf8() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-            StringUTF8Length(
-                u32::try_from(MAX_VALUE_SIZE)
-                    .expect("FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type"),
-            ),
+            StringUTF8Length::try_from(MAX_VALUE_SIZE / 4)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type"),
         )))
     }
 

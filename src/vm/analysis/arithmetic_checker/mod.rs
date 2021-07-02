@@ -184,6 +184,9 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 return Err(Error::FunctionNotPermitted(function));
             }
+            IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
             | Keccak256 => {
                 return Err(Error::FunctionNotPermitted(function));
