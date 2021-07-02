@@ -56,7 +56,7 @@ fn test_boot_definitions() {
 }
 
 #[test]
-fn test_bad_defines() {
+fn test_bad_defines_clarity1() {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
         ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
@@ -78,42 +78,62 @@ fn test_bad_defines() {
 }
 
 #[test]
-fn test_variables_fail_arithmetic_check() {
+fn test_bad_defines_clarity2() {
     let tests = [
-        (
-            "(define-private (foo) burn-block-height)",
-            VariableForbidden(NativeVariables::BurnBlockHeight),
-        ),
-        (
-            "(define-private (foo) block-height)",
-            VariableForbidden(NativeVariables::BlockHeight),
-        ),
-        (
-            "(define-private (foo) tx-sender)",
-            VariableForbidden(NativeVariables::TxSender),
-        ),
-        (
-            "(define-private (foo) contract-caller)",
-            VariableForbidden(NativeVariables::ContractCaller),
-        ),
-        (
-            "(define-private (foo) is-in-regtest)",
-            VariableForbidden(NativeVariables::Regtest),
-        ),
-        (
-            "(define-private (foo) stx-liquid-supply)",
-            VariableForbidden(NativeVariables::TotalLiquidMicroSTX),
-        ),
-        (
-            "(define-private (foo) tx-sponsor?)",
-            VariableForbidden(NativeVariables::TxSponsor),
-        ),
+        ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
+        ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
+        ("(define-data-var foo-var uint u1) (define-private (foo) (var-get foo-var))", DefineTypeForbidden(DefineFunctions::PersistedVariable)),
+        ("(define-fungible-token tokaroos u500)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
+        ("(define-fungible-token tokaroos)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
+        ("(define-non-fungible-token tokaroos uint)", DefineTypeForbidden(DefineFunctions::NonFungibleToken)),
+        ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
     ];
 
     for (contract, error) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2),
             Err(error.clone()),
+            "Check contract:\n {}",
+            contract
+        );
+    }
+}
+
+#[test]
+fn test_variables_fail_arithmetic_check_clarity1() {
+    // Tests the behavior using Clarity1.
+    let tests = [
+        (
+            "(define-private (foo) burn-block-height)",
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
+        ),
+        (
+            "(define-private (foo) block-height)",
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
+        ),
+        (
+            "(define-private (foo) tx-sender)",
+            Err(VariableForbidden(NativeVariables::TxSender)),
+        ),
+        (
+            "(define-private (foo) contract-caller)",
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
+        ),
+        (
+            "(define-private (foo) is-in-regtest)",
+            Err(VariableForbidden(NativeVariables::Regtest)),
+        ),
+        (
+            "(define-private (foo) stx-liquid-supply)",
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
+        ),
+        ("(define-private (foo) tx-sponsor?)", Ok(())),
+    ];
+
+    for (contract, result) in tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1),
+            result.clone(),
             "Check contract:\n {}",
             contract
         );
@@ -130,16 +150,44 @@ fn test_variables_fail_arithmetic_check() {
 }
 
 #[test]
-fn test_version_controlled_variables() {
-    // Certain variables are controlled by the ClarityVersion. E.g., in Clarity1, 'tx-sponsor?'
-    // is not a variable, so can be defined over.
-    let ok_tests = ["(define-private (foo) tx-sponsor?)"];
+fn test_variables_fail_arithmetic_check_clarity2() {
+    // Tests the behavior using Clarity2.
+    let tests = [
+        (
+            "(define-private (foo) burn-block-height)",
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
+        ),
+        (
+            "(define-private (foo) block-height)",
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
+        ),
+        (
+            "(define-private (foo) tx-sender)",
+            Err(VariableForbidden(NativeVariables::TxSender)),
+        ),
+        (
+            "(define-private (foo) contract-caller)",
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
+        ),
+        (
+            "(define-private (foo) is-in-regtest)",
+            Err(VariableForbidden(NativeVariables::Regtest)),
+        ),
+        (
+            "(define-private (foo) stx-liquid-supply)",
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
+        ),
+        (
+            "(define-private (foo) tx-sponsor?)",
+            Err(VariableForbidden(NativeVariables::TxSponsor)),
+        ),
+    ];
 
-    for contract in ok_tests.iter() {
+    for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity1),
-            Ok(()),
-            "Check contract is ok:\n {}",
+            arithmetic_check(contract, ClarityVersion::Clarity2),
+            result.clone(),
+            "Check contract:\n {}",
             contract
         );
     }
