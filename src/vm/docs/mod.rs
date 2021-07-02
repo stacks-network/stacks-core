@@ -243,16 +243,17 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(is-standard principal1)",
+    signature: "(is-standard standard-or-contract-principal)",
     description:
-"Tests whether `principal1` matches the current network type, and therefore
-represents a principal that can spend tokens on the current network type. That is, the network is either of
-type `mainnet`, or `testnet`. And, `principal1` is either suited for,
-or able to spend tokens on, the mainnet or a testnet.  `SPxxxx` and
-`SMxxxx` addresses can only spend tokens on mainnet, whereas `STxxxx` and `SNxxxx` addresses can only
-spend tokens on a testnet. Other than these four forms of address, no other forms of addresses are valid.
-This method will return `true` if and only if the principal matches the
-network type, and false otherwise.
+"Tests whether `standard-or-contract-principal` _matches_ the current network
+type, and therefore represents a principal that can spend tokens on the current
+network type. That is, the network is either of type `mainnet`, or `testnet`.
+Only `SPxxxx` and `SMxxxx` _c32check form_ addresses can spend tokens on
+a mainnet, whereas only `STxxxx` and `SNxxxx` _c32check forms_ addresses can spend
+tokens on a testnet. All addresses can _receive_ tokens, but only principal
+_c32check form_ addresses that match the network type can _spend_ tokens on the
+network.  This method will return `true` if and only if the principal matches
+the network type, and false otherwise.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
