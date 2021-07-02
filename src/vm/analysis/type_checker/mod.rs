@@ -260,7 +260,33 @@ impl FunctionType {
 
                 // Step 2: Assuming the first argument has a supported type, now check that
                 // both of the types are matching.
-                if first != second {
+                let pair_ok = match (first, second) {
+                    (TypeSignature::IntType, TypeSignature::IntType) => true,
+                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                    ) => is_clarity2,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                    ) => is_clarity2,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                    ) => is_clarity2,
+                    (x, _) => false,
+                };
+
+                if !pair_ok {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
                 }
 

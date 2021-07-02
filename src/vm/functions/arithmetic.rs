@@ -352,7 +352,7 @@ pub fn special_geq(
     runtime_cost(ClarityCostFunction::Geq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         // Only if the version is Clarity2 will we use the new comparators.
         type_force_binary_comparison_v2!(geq, a, b)
     } else {
@@ -371,7 +371,7 @@ pub fn special_leq(
     runtime_cost(ClarityCostFunction::Leq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(leq, a, b)
     } else {
         type_force_binary_comparison_v1!(leq, a, b)
@@ -389,7 +389,7 @@ pub fn special_greater(
     runtime_cost(ClarityCostFunction::Ge, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(greater, a, b)
     } else {
         type_force_binary_comparison_v1!(greater, a, b)
@@ -407,7 +407,7 @@ pub fn special_less(
     runtime_cost(ClarityCostFunction::Le, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if env.contract_context.clarity_version == ClarityVersion::Clarity2 {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         type_force_binary_comparison_v2!(less, a, b)
     } else {
         type_force_binary_comparison_v1!(less, a, b)

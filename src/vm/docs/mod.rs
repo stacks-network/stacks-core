@@ -488,7 +488,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
         FunctionType::ArithmeticUnary => "int | uint".to_string(),
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
-            "int, int | uint, uint".to_string()
+            "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         }
     }
 }

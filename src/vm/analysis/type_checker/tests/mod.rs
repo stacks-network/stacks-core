@@ -25,7 +25,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::representations::SymbolicExpression;
 use vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_32, BUFF_64,
+    TypeSignature, Value, BUFF_32, BUFF_64, StringUTF8Length,
 };
 
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -35,6 +35,7 @@ use vm::types::{SequenceSubtype::*, StringSubtype::*};
 use std::convert::TryInto;
 use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
+use std::convert::TryFrom;
 
 use super::CheckResult;
 
@@ -2424,4 +2425,57 @@ fn test_string_utf8_negative_len() {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false,
     });
+}
+
+#[test]
+fn test_comparison_types() {
+    let good = [
+        r#"(<= "aaa" "aa")"#,
+        r#"(>= "aaa" "aa")"#,
+        r#"(< "aaa" "aa")"#,
+        r#"(> "aaa" "aa")"#,
+    ];
+
+    let expected = [
+        "bool",
+        "bool",
+        "bool",
+        "bool",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        r#"(<= u"aaa" "aa")"#,
+        r#"(>= "aaa" 0x0101)"#,
+        r#"(>= 0x0101 u"aaa")"#,
+        r#"(>= 0x0101 "aaa")"#,
+    ];
+    let bad_expected = [
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
+            SequenceType(StringType(ASCII(BufferLength(2)))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(BufferLength(3)))),
+            SequenceType(BufferType(BufferLength(2))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(ASCII(BufferLength(3)))),
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }

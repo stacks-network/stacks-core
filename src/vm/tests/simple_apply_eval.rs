@@ -655,9 +655,15 @@ fn test_sequence_comparisons_v2() {
     ];
 
     // Note: Execute against Clarity2.
-    success_tests
-        .iter()
-        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_v2(program), "{:?}, {:?}", program, expectation.clone()));
+    success_tests.iter().for_each(|(program, expectation)| {
+        assert_eq!(
+            expectation.clone(),
+            execute_v2(program),
+            "{:?}, {:?}",
+            program,
+            expectation.clone()
+        )
+    });
 }
 
 #[test]
