@@ -98,7 +98,7 @@ macro_rules! type_force_binary_comparison_v1 {
 }
 
 // Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
-// accessed if the ClarityVersion, as read by the SpecialFunction, is 2.
+// accessed if the ClarityVersion, as read by the SpecialFunction, is >= 2.
 macro_rules! type_force_binary_comparison_v2 {
     ($function: ident, $x: expr, $y: expr) => {{
         match ($x, $y) {
