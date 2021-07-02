@@ -54,6 +54,7 @@ use stacks::{
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -271,12 +272,18 @@ impl Node {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+        let pox_constants = match config.burnchain.get_bitcoin_network() {
+            (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
+            (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
+            (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
+        };
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
+            pox_constants,
             post_flight_callback: Some(boot_block_exec),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
@@ -771,6 +778,31 @@ impl Node {
 
             parent_consensus_hash
         };
+
+        // get previous burn block stats
+        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
+            if anchored_block.is_first_mined() {
+                (BurnchainHeaderHash([0; 32]), 0, 0)
+            } else {
+                match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
+                    .unwrap()
+                {
+                    Some(sn) => (
+                        sn.burn_header_hash,
+                        sn.block_height as u32,
+                        sn.burn_header_timestamp,
+                    ),
+                    None => {
+                        // shouldn't happen
+                        warn!(
+                            "CORRUPTION: block {}/{} does not correspond to a burn block",
+                            &parent_consensus_hash, &anchored_block.header.parent_block
+                        );
+                        (BurnchainHeaderHash([0; 32]), 0, 0)
+                    }
+                }
+            };
+
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
@@ -843,6 +875,9 @@ impl Node {
             Txid([0; 32]),
             vec![],
             None,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
         );
 
         self.chain_tip = Some(chain_tip.clone());
@@ -921,14 +956,7 @@ impl Node {
         burnchain_tip: &BurnchainTip,
         vrf_seed: VRFSeed,
     ) -> BlockstackOperationType {
-        let winning_tx_vtindex = match (
-            burnchain_tip.get_winning_tx_index(),
-            burnchain_tip.block_snapshot.total_burn,
-        ) {
-            (Some(winning_tx_id), _) => winning_tx_id,
-            (None, 0) => 0,
-            _ => unreachable!(),
-        };
+        let winning_tx_vtindex = burnchain_tip.get_winning_tx_index().unwrap_or(0);
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1

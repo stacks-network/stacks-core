@@ -43,6 +43,7 @@ use vm::ClarityVersion;
 mod arithmetic;
 mod assets;
 mod boolean;
+mod conversions;
 mod crypto;
 mod database;
 pub mod define;
@@ -81,6 +82,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Len("len", ClarityVersion::Clarity1),
     ElementAt("element-at", ClarityVersion::Clarity1),
     IndexOf("index-of", ClarityVersion::Clarity1),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -138,20 +143,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
 });
 
 impl NativeFunctions {
-    pub fn lookup_by_name_exact_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeFunctions> {
-        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() == version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn lookup_by_name_before_version(
+    pub fn lookup_by_name_at_version(
         name: &str,
         version: &ClarityVersion,
     ) -> Option<NativeFunctions> {
@@ -172,7 +164,7 @@ impl NativeFunctions {
 pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
     use vm::callables::CallableType::{NativeFunction, SpecialFunction};
     use vm::functions::NativeFunctions::*;
-    if let Some(native_function) = NativeFunctions::lookup_by_name_before_version(name, version) {
+    if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
         let callable = match native_function {
             Add => NativeFunction(
                 "native_add",
@@ -267,6 +259,26 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            BuffToIntLe => NativeFunction(
+                "native_buff_to_int_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
+                ClarityCostFunction::Unimplemented,
+            ),
+            BuffToUIntLe => NativeFunction(
+                "native_buff_to_uint_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                ClarityCostFunction::Unimplemented,
+            ),
+            BuffToIntBe => NativeFunction(
+                "native_buff_to_int_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                ClarityCostFunction::Unimplemented,
+            ),
+            BuffToUIntBe => NativeFunction(
+                "native_buff_to_uint_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                ClarityCostFunction::Unimplemented,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),

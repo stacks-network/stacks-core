@@ -58,6 +58,8 @@ pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const POX_1_NAME: &'static str = "pox";
+pub const POX_2_NAME: &'static str = "pox-2";
 
 const POX_2_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const POX_2_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
@@ -858,7 +860,7 @@ pub mod test {
         //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
-            "pox-2",
+            POX_2_NAME,
             "stack-stx",
             vec![
                 Value::UInt(amount),
@@ -924,6 +926,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox",
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_2_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
             function_name,
             args,
         )

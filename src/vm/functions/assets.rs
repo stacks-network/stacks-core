@@ -186,7 +186,7 @@ pub fn special_stx_account(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
 
-    runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let owner = eval(&args[0], env, context)?;
     let principal = if let Value::Principal(p) = owner {
