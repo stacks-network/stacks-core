@@ -183,8 +183,10 @@ pub fn native_int_to_string_generic(
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            Ok(bytes_to_value_fn(as_string.into())
-                .expect("Unexpected error converting Int to string."))
+            Ok(
+                bytes_to_value_fn(as_string.into())
+                    .expect("Unexpected error converting Int to string."),
+            )
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();

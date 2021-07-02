@@ -307,6 +307,30 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),
+            StringToInt => NativeFunction(
+                "native_string_to_int",
+                NativeHandle::SingleArg(&conversions::native_string_to_int),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            StringToUInt => NativeFunction(
+                "native_string_to_uint",
+                NativeHandle::SingleArg(&conversions::native_string_to_uint),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToAscii => NativeFunction(
+                "native_int_to_ascii",
+                NativeHandle::SingleArg(&conversions::native_int_to_ascii),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToUtf8 => NativeFunction(
+                "native_int_to_utf8",
+                NativeHandle::SingleArg(&conversions::native_int_to_utf8),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
