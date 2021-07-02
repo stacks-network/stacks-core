@@ -21,6 +21,7 @@ use std::convert::TryFrom;
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
+use vm::types::signatures::{ASCII_40, UTF8_40};
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::TypeSignature::SequenceType;
 use vm::types::{
@@ -590,6 +591,30 @@ impl TypedNativeFunction {
                     returns: TypeSignature::UIntType,
                 })))
             }
+            StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
+            ))),
+            StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
+            ))),
+            IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                // 40 is the longest string one can get from int->string conversion.
+                ASCII_40,
+            ))),
+            IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                // 40 is the longest string one can get from int->string conversion.
+                UTF8_40,
+            ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
