@@ -279,6 +279,8 @@ public key hash of the user.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
+(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns u26
+(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns 0x164247d6f2b425ac5771423ae6c80c754f7172b0
 "#,
 };
 
@@ -298,6 +300,7 @@ should be a 20-byte buffer containing the hash of a public key.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
+(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
 "#,
 };
 
