@@ -241,6 +241,29 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
+const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(is-standard standard-or-contract-principal)",
+    description: "Tests whether `standard-or-contract-principal` _matches_ the current network
+type, and therefore represents a principal that can spend tokens on the current
+network type. That is, the network is either of type `mainnet`, or `testnet`.
+Only `SPxxxx` and `SMxxxx` _c32check form_ addresses can spend tokens on
+a mainnet, whereas only `STxxxx` and `SNxxxx` _c32check forms_ addresses can spend
+tokens on a testnet. All addresses can _receive_ tokens, but only principal
+_c32check form_ addresses that match the network type can _spend_ tokens on the
+network.  This method will return `true` if and only if the principal matches
+the network type, and false otherwise.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; returns true on testnet and false on mainnet
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; returns true on testnet and false on mainnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; returns true on mainnet and false on testnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
+(is-standard 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns false on both mainnet and testnet
+"#,
+};
+
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(string-to-int (string-ascii|string-utf8))",
@@ -1763,6 +1786,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
         IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),

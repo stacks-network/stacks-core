@@ -571,6 +571,14 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
+            IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("value".to_owned())
+                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                )],
+                returns: TypeSignature::BoolType,
+            }))),
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
