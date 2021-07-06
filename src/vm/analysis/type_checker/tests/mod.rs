@@ -2463,6 +2463,9 @@ fn test_comparison_types() {
         r#"(>= "aaa" 0x0101)"#,
         r#"(>= 0x0101 u"aaa")"#,
         r#"(>= 0x0101 "aaa")"#,
+        r#"(>=)"#,
+        r#"(>= "aaa")"#,
+        r#"(>= "aaa" "aaa" "aaa")"#,
     ];
     let bad_expected = [
         CheckErrors::UnionTypeError(
@@ -2505,6 +2508,9 @@ fn test_comparison_types() {
             SequenceType(BufferType(BufferLength(2))),
             SequenceType(StringType(ASCII(BufferLength(3)))),
         ),
+        CheckErrors::IncorrectArgumentCount(2, 0),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::IncorrectArgumentCount(2, 3),
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
