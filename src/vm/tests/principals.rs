@@ -191,7 +191,7 @@ fn test_simple_parse_principal_version() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -203,7 +203,7 @@ fn test_simple_parse_principal_version() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -216,7 +216,7 @@ fn test_simple_parse_principal_version() {
         execute_against_version_and_network(
             invalid_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -234,7 +234,7 @@ fn test_simple_parse_principal_pubkeyhash() {
         execute_against_version_and_network(
             testnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -249,7 +249,7 @@ fn test_simple_parse_principal_pubkeyhash() {
         execute_against_version_and_network(
             mainnet_addr_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Mainnet
+            true
         )
         .unwrap()
         .unwrap()
@@ -272,7 +272,7 @@ fn test_simple_assemble_principal() {
         execute_against_version_and_network(
             normal_case_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap()
         .unwrap()
@@ -284,7 +284,7 @@ fn test_simple_assemble_principal() {
         execute_against_version_and_network(
             too_small_test,
             ClarityVersion::Clarity2,
-            StacksNetworkType::Testnet
+            false
         )
         .unwrap_err(),
         CheckErrors::TypeValueError(
