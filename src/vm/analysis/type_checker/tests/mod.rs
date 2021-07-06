@@ -24,18 +24,18 @@ use vm::ast::{build_ast, parse};
 use vm::contexts::OwnedEnvironment;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_32, BUFF_64, StringUTF8Length,
+    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
+    QualifiedContractIdentifier, StringUTF8Length, TypeSignature, Value, BUFF_32, BUFF_64,
 };
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
-use std::convert::TryFrom;
 
 use super::CheckResult;
 
@@ -2445,17 +2445,7 @@ fn test_comparison_types() {
     ];
 
     let expected = [
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
-        "bool",
+        "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool",
         "bool",
     ];
 
@@ -2467,12 +2457,25 @@ fn test_comparison_types() {
     }
 
     let bad = [
+        r#"(<= (list 1 2 3) (list 1 2 3))"#,
         r#"(<= u"aaa" "aa")"#,
         r#"(>= "aaa" 0x0101)"#,
         r#"(>= 0x0101 u"aaa")"#,
         r#"(>= 0x0101 "aaa")"#,
     ];
     let bad_expected = [
+        CheckErrors::UnionTypeError(
+            vec![
+                IntType,
+                UIntType,
+                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(UTF8(
+                    StringUTF8Length::try_from(262144_u32).unwrap(),
+                ))),
+                SequenceType(BufferType(BufferLength(1048576))),
+            ],
+            SequenceType(ListType(ListTypeData::new_list(IntType, 3).unwrap())),
+        ),
         CheckErrors::TypeError(
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
             SequenceType(StringType(ASCII(BufferLength(2)))),
