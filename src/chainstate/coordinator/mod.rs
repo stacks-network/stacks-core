@@ -1175,29 +1175,24 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             header.block_height
                         ));
 
-                match cur_epoch.epoch_id {
-                    StacksEpochId::Epoch21 => {
-                        // potentially have an anchor block, but only process the next reward cycle (and
-                        // subsequent reward cycles) with it if the prepare-phase block-commits affirm its
-                        // presence.  This only gets checked in Stacks 2.1 or later.
+                if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
+                    // potentially have an anchor block, but only process the next reward cycle (and
+                    // subsequent reward cycles) with it if the prepare-phase block-commits affirm its
+                    // presence.  This only gets checked in Stacks 2.1 or later.
 
-                        // NOTE: this mutates rc_info
-                        if let Some(missing_anchor_block) = self
-                            .reinterpret_affirmed_pox_anchor_block_status(
-                                &canonical_affirmation_map,
-                                &header,
-                                rc_info,
-                            )?
-                        {
-                            // missing this anchor block -- cannot proceed
-                            info!("Burnchain block processing stops due to missing affirmed anchor block {}", &missing_anchor_block);
-                            return Ok(Some(missing_anchor_block));
-                        }
+                    // NOTE: this mutates rc_info
+                    if let Some(missing_anchor_block) = self
+                        .reinterpret_affirmed_pox_anchor_block_status(
+                            &canonical_affirmation_map,
+                            &header,
+                            rc_info,
+                        )?
+                    {
+                        // missing this anchor block -- cannot proceed
+                        info!("Burnchain block processing stops due to missing affirmed anchor block {}", &missing_anchor_block);
+                        return Ok(Some(missing_anchor_block));
                     }
-                    _ => {
-                        // no-op -- pre 2.1
-                    }
-                };
+                }
 
                 test_debug!(
                     "Reward cycle info at height {}: {:?}",
