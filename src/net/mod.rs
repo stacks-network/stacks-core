@@ -1838,7 +1838,7 @@ pub mod test {
     use burnchains::bitcoin::*;
     use burnchains::burnchain::*;
     use burnchains::db::BurnchainDB;
-    use burnchains::test::*;
+    use burnchains::tests::*;
     use burnchains::*;
     use chainstate::burn::db::sortdb;
     use chainstate::burn::db::sortdb::*;
