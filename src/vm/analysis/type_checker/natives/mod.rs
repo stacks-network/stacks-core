@@ -23,8 +23,8 @@ use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
 use vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    TraitIdentifier, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64,
+    BUFF_65, MAX_VALUE_SIZE,
 };
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
@@ -435,6 +435,24 @@ fn check_contract_call(
     }
 
     Ok(expected_sig.returns)
+}
+
+pub fn bench_check_contract_call(
+    checker: &mut TypeChecker,
+    trait_id: &TraitIdentifier,
+    func_name: &ClarityName,
+) -> Result<FunctionSignature, CheckError> {
+    let trait_signature = checker.contract_context.get_trait(&trait_id.name).ok_or(
+        CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+    )?;
+    let func_signature = trait_signature
+        .get(func_name)
+        .ok_or(CheckErrors::TraitMethodUnknown(
+            trait_id.name.to_string(),
+            func_name.to_string(),
+        ))?;
+
+    Ok(func_signature.clone())
 }
 
 fn check_contract_of(
