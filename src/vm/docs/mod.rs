@@ -266,35 +266,35 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const PARSE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(parse-principal property_name principal_address)",
-    description: "Note: This function is only available starting with Stacks 2.1.",
-    example: "A principal value is a concatenation of two things: a one-byte version byte
-(indicating the type of network that this principal can spend tokens on),
-and a 20-byte public key hash (indicating the principals' unique identity).
+    signature: "(parse-principal property-name principal-address)",
+    description: "A principal value is a concatenation of two things: a single *version byte*
+(indicating the type of account and the type of network that this principal can spend tokens on),
+and a 20-byte *public key hash* (indicating the principal's unique identity).
 `parse-principal` is used to decompose a principal into its component parts.
 
-By setting `property_name` to `version`, one recovers version byte.
+By setting `property-name` to `version`, one recovers version byte.
 
-By setting `property_name` to `pub-key-hash`, one recovers the 20-byte buffer representing the 
+By setting `property-name` to `pub-key-hash`, one recovers the 20-byte buffer representing the 
 public key hash of the user.
 
 Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+"#,
 };
 
 const ASSEMBLE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(assemble-principal version_byte public_key_hash)",
-    description: "A principal value is a concatenation of two things: a one-byte version byte
-(indicating the type of network that this principal can spend tokens on),
-and a 20-byte public key hash (indicating the principals' unique identity).
-`assemble-principal` takes a *version byte*
-(corresponding either a single-signature or a multi-signature address on either
-`mainnet` or `testnet`), and a *public key hash*
-of type `(buff 20)`, indicating a unique user, and creates a corresponding object of type `principal`.
+    signature: "(assemble-principal version-byte public-key-hash)",
+    description: "A principal value is a concatenation of two things: a single *version byte*
+(indicating the type of account and the type of network that this principal can spend tokens on),
+and a 20-byte *public key hash* (characterizing the principal's unique identity).
+`assemble-principal` takes such a *version byte*, of type `uint`, 
+and a *public key hash*, of type `(buff 20)`, and creates a corresponding object of type `principal`.
 
-The version byte should be `22` for a single-signature account on mainnet, `20` for a multi-signature account on mainnet,
-`26` for a single-signature account on a testnet, `21` for a multi-signature account on a testnet. The
-public key hash should be a 20-byte buffer containing the hash of a public key.
+The version byte should be `22` for a single-signature account on mainnet, `20`
+for a multi-signature account on mainnet, `26` for a single-signature account on
+a testnet, `21` for a multi-signature account on a testnet. The public key hash
+should be a 20-byte buffer containing the hash of a public key.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
