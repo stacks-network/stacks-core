@@ -2457,6 +2457,7 @@ fn test_comparison_types() {
     }
 
     let bad = [
+        r#"(<= 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
         r#"(<= (list 1 2 3) (list 1 2 3))"#,
         r#"(<= u"aaa" "aa")"#,
         r#"(>= "aaa" 0x0101)"#,
@@ -2464,6 +2465,18 @@ fn test_comparison_types() {
         r#"(>= 0x0101 "aaa")"#,
     ];
     let bad_expected = [
+        CheckErrors::UnionTypeError(
+            vec![
+                IntType,
+                UIntType,
+                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(UTF8(
+                    StringUTF8Length::try_from(262144_u32).unwrap(),
+                ))),
+                SequenceType(BufferType(BufferLength(1048576))),
+            ],
+            PrincipalType,
+        ),
         CheckErrors::UnionTypeError(
             vec![
                 IntType,
