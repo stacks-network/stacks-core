@@ -335,13 +335,10 @@ pub fn read_parent_block_commits<'a, B: BurnchainHeaderReader>(
     let mut parents = HashMap::new();
     for ops in prepare_phase_ops.iter() {
         for opdata in ops.iter() {
-            let mut hdrs = indexer.read_burnchain_headers(
-                opdata.parent_block_ptr as u64,
-                (opdata.parent_block_ptr + 1) as u64,
-            )?;
-            let hdr = match hdrs.len() {
-                1 => hdrs.pop().expect("BUG: pop() failure on non-empty vector"),
-                _ => {
+            let hdr =
+                if let Some(hdr) = indexer.read_burnchain_header(opdata.parent_block_ptr as u64)? {
+                    hdr
+                } else {
                     test_debug!(
                         "Orphan block commit {},{},{}: no such block {}",
                         &opdata.txid,
@@ -350,8 +347,7 @@ pub fn read_parent_block_commits<'a, B: BurnchainHeaderReader>(
                         opdata.parent_block_ptr
                     );
                     continue;
-                }
-            };
+                };
 
             test_debug!("Get header at {}: {:?}", opdata.parent_block_ptr, &hdr);
             assert_eq!(hdr.block_height, opdata.parent_block_ptr as u64);

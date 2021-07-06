@@ -64,6 +64,11 @@ pub trait BurnchainHeaderReader {
         end_height: u64,
     ) -> Result<Vec<BurnchainBlockHeader>, DBError>;
     fn get_burnchain_headers_height(&self) -> Result<u64, DBError>;
+
+    fn read_burnchain_header(&self, height: u64) -> Result<Option<BurnchainBlockHeader>, DBError> {
+        let mut hdrs = self.read_burnchain_headers(height, height.saturating_add(1))?;
+        Ok(hdrs.pop())
+    }
 }
 
 const NO_ANCHOR_BLOCK: u64 = i64::MAX as u64;
@@ -1300,10 +1305,7 @@ impl BurnchainDB {
         block_ptr: u32,
         vtxindex: u16,
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
-        let header_hash = match indexer
-            .read_burnchain_headers(block_ptr as u64, (block_ptr + 1) as u64)?
-            .first()
-        {
+        let header_hash = match indexer.read_burnchain_header(block_ptr as u64)? {
             Some(hdr) => hdr.block_hash,
             None => {
                 test_debug!("No headers at height {}", block_ptr);
@@ -1339,10 +1341,7 @@ impl BurnchainDB {
         block_ptr: u32,
         vtxindex: u16,
     ) -> Result<Option<BlockCommitMetadata>, DBError> {
-        let header_hash = match indexer
-            .read_burnchain_headers(block_ptr as u64, (block_ptr + 1) as u64)?
-            .first()
-        {
+        let header_hash = match indexer.read_burnchain_header(block_ptr as u64)? {
             Some(hdr) => hdr.block_hash,
             None => {
                 test_debug!("No headers at height {}", block_ptr);
