@@ -44,13 +44,9 @@ pub fn special_is_standard(
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     let context_is_mainnet = env.global_context.mainnet;
 
-    if address_is_mainnet || address_is_testnet {
-        // We can only return true if the address is mainnet or testnet.
-        Ok(Value::Bool(address_is_mainnet == context_is_mainnet))
-    } else {
-        // If the address is not mainnet or testnet, then return false.
-        Ok(Value::Bool(false))
-    }
+    Ok(Value::Bool(
+        (address_is_mainnet && context_is_mainnet) || (address_is_testnet && !context_is_mainnet),
+    ))
 }
 
 pub fn special_parse_principal(
