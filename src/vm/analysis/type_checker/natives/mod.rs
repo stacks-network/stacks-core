@@ -528,9 +528,9 @@ fn check_parse_principal(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let block_info_prop_str = args[0]
-        .match_atom()
-        .ok_or(CheckError::new(CheckErrors::ParsePrincipalExpectPropertyName))?;
+    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
+        CheckErrors::ParsePrincipalExpectPropertyName,
+    ))?;
 
     let block_info_prop =
         PrincipalProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
